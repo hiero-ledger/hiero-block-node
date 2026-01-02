@@ -267,6 +267,166 @@ class BackfillRunnerTest {
             // then - should have tried to fetch
             verify(mockFetcher).fetchBlocksFromNode(eq(nodeConfig), any());
         }
+
+        @Test
+        @DisplayName("should continue when chunk is null but other nodes available")
+        void shouldContinueWhenChunkNullButOtherNodesAvailable() throws Exception {
+            // given
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(100, 105), GapDetector.Type.HISTORICAL);
+            BackfillSourceConfig badNode = mock(BackfillSourceConfig.class);
+            BackfillSourceConfig goodNode = mock(BackfillSourceConfig.class);
+
+            // badNode selected first but has range that doesn't cover start (will cause computeChunk to return null)
+            // goodNode has valid range
+            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(badNode, List.of(new LongRange(0, 50))); // doesn't cover 100
+            availability.put(goodNode, List.of(new LongRange(100, 200)));
+
+            BlockUnparsed testBlock = createTestBlock(100L);
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
+            // First selection picks badNode (computeChunk will return null), second picks goodNode
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(badNode, 100L)))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(goodNode, 100L)));
+            when(mockFetcher.fetchBlocksFromNode(eq(goodNode), any())).thenReturn(List.of(testBlock));
+
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(
+                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                            messaging.sendBlockPersisted(new PersistedNotification(
+                                    notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+                    },
+                    false,
+                    "test-persistence-handler");
+
+            // when
+            subject.run(gap);
+
+            // then - should have fetched from goodNode after badNode's chunk was null
+            verify(mockFetcher).fetchBlocksFromNode(eq(goodNode), any());
+            verify(mockMetricsCallback).onBlockFetched(100L);
+        }
+
+        @Test
+        @DisplayName("should continue after replan when selectNextChunk returns empty")
+        void shouldContinueAfterReplanOnEmptySelection() throws Exception {
+            // given
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
+            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+
+            Map<BackfillSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
+            initialAvailability.put(nodeConfig, List.of(new LongRange(0, 10)));
+
+            Map<BackfillSourceConfig, List<LongRange>> replanAvailability = new HashMap<>();
+            replanAvailability.put(nodeConfig, List.of(new LongRange(0, 10)));
+
+            BlockUnparsed testBlock = createTestBlock(0L);
+
+            // First getAvailabilityForRange for initial plan, second for replan
+            when(mockFetcher.getAvailabilityForRange(any()))
+                    .thenReturn(initialAvailability)
+                    .thenReturn(replanAvailability);
+            // First selectNextChunk returns empty (triggers replan), second succeeds
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.empty())
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)));
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(testBlock));
+
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(
+                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                            messaging.sendBlockPersisted(new PersistedNotification(
+                                    notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+                    },
+                    false,
+                    "test-persistence-handler");
+
+            // when
+            subject.run(gap);
+
+            // then - should have succeeded after replan
+            verify(mockMetricsCallback).onFetchError(any()); // First attempt failed
+            verify(mockMetricsCallback).onBlockFetched(0L); // After replan succeeded
+        }
+
+        @Test
+        @DisplayName("should continue after replan when fetch returns empty")
+        void shouldContinueAfterReplanOnEmptyFetch() throws Exception {
+            // given
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 0), GapDetector.Type.HISTORICAL);
+            BackfillSourceConfig badNode = mock(BackfillSourceConfig.class);
+            BackfillSourceConfig goodNode = mock(BackfillSourceConfig.class);
+
+            Map<BackfillSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
+            initialAvailability.put(badNode, List.of(new LongRange(0, 10)));
+
+            Map<BackfillSourceConfig, List<LongRange>> replanAvailability = new HashMap<>();
+            replanAvailability.put(goodNode, List.of(new LongRange(0, 10)));
+
+            BlockUnparsed testBlock = createTestBlock(0L);
+
+            when(mockFetcher.getAvailabilityForRange(any()))
+                    .thenReturn(initialAvailability)
+                    .thenReturn(replanAvailability);
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(badNode, 0L)))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(goodNode, 0L)));
+            // badNode returns empty, goodNode returns block
+            when(mockFetcher.fetchBlocksFromNode(eq(badNode), any())).thenReturn(Collections.emptyList());
+            when(mockFetcher.fetchBlocksFromNode(eq(goodNode), any())).thenReturn(List.of(testBlock));
+
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(
+                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                            messaging.sendBlockPersisted(new PersistedNotification(
+                                    notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+                    },
+                    false,
+                    "test-persistence-handler");
+
+            // when
+            subject.run(gap);
+
+            // then - should have succeeded with goodNode after replan
+            verify(mockFetcher).fetchBlocksFromNode(eq(badNode), any());
+            verify(mockFetcher).fetchBlocksFromNode(eq(goodNode), any());
+            verify(mockMetricsCallback).onBlockFetched(0L);
+        }
+
+        @Test
+        @DisplayName("should break when chunk is null and availability becomes empty")
+        void shouldBreakWhenChunkNullAndAvailabilityEmpty() throws Exception {
+            // given
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(100, 105), GapDetector.Type.HISTORICAL);
+            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+
+            // Node has range that doesn't cover start block 100 (will cause computeChunk to return null)
+            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(nodeConfig, List.of(new LongRange(0, 50)));
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 100L)));
+
+            // when
+            subject.run(gap);
+
+            // then - should break without fetching (no nodes left after removing the only one)
+            verify(mockFetcher, times(0)).fetchBlocksFromNode(any(), any());
+        }
     }
 
     @Nested

@@ -21,7 +21,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.ServerStatusResponse;
@@ -78,14 +77,18 @@ class BackfillFetcherTest {
 
             // Selects earliest start even if higher priority
             var selection = client.selectNextChunk(
-                    10, 30, Map.of(lowPriority, List.of(new LongRange(12, 30)), highPriority, List.of(new LongRange(10, 20))));
+                    10,
+                    30,
+                    Map.of(lowPriority, List.of(new LongRange(12, 30)), highPriority, List.of(new LongRange(10, 20))));
             assertTrue(selection.isPresent());
             assertEquals(highPriority, selection.get().nodeConfig());
             assertEquals(10, selection.get().startBlock());
 
             // Breaks ties by lower priority
             selection = client.selectNextChunk(
-                    15, 30, Map.of(lowPriority, List.of(new LongRange(15, 25)), highPriority, List.of(new LongRange(15, 20))));
+                    15,
+                    30,
+                    Map.of(lowPriority, List.of(new LongRange(15, 25)), highPriority, List.of(new LongRange(15, 20))));
             assertTrue(selection.isPresent());
             assertEquals(lowPriority, selection.get().nodeConfig());
 
@@ -113,24 +116,29 @@ class BackfillFetcherTest {
             // Success case
             var successClient = mockClientReturning(List.of(createTestBlock(0L), createTestBlock(1L)));
             var fetcher = createFetcherWithClient(tempFile, 3, retryCounter, successClient);
-            assertEquals(2, fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).size());
+            assertEquals(
+                    2,
+                    fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).size());
             verify(retryCounter, never()).increment();
 
             // Mismatch case - returns fewer blocks than expected
             var mismatchClient = mockClientReturning(List.of(createTestBlock(0L)));
             fetcher = createFetcherWithClient(tempFile, 1, retryCounter, mismatchClient);
-            assertTrue(fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).isEmpty());
+            assertTrue(
+                    fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).isEmpty());
 
             // Failure with retry case
             var failingClient = mockClientThrowing(new RuntimeException("fail"));
             fetcher = createFetcherWithClient(tempFile, 2, retryCounter, failingClient);
-            assertTrue(fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).isEmpty());
+            assertTrue(
+                    fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).isEmpty());
             verify(retryCounter, times(1)).increment();
         }
 
         private BlockNodeClient mockClientReturning(List<BlockUnparsed> blocks) throws Exception {
             var subscribeClient = mock(BlockStreamSubscribeUnparsedClient.class);
-            when(subscribeClient.getBatchOfBlocks(any(Long.class), any(Long.class))).thenReturn(blocks);
+            when(subscribeClient.getBatchOfBlocks(any(Long.class), any(Long.class)))
+                    .thenReturn(blocks);
             var client = mock(BlockNodeClient.class);
             when(client.getBlockstreamSubscribeUnparsedClient()).thenReturn(subscribeClient);
             return client;
@@ -138,7 +146,8 @@ class BackfillFetcherTest {
 
         private BlockNodeClient mockClientThrowing(Exception e) throws Exception {
             var subscribeClient = mock(BlockStreamSubscribeUnparsedClient.class);
-            when(subscribeClient.getBatchOfBlocks(any(Long.class), any(Long.class))).thenThrow(e);
+            when(subscribeClient.getBatchOfBlocks(any(Long.class), any(Long.class)))
+                    .thenThrow(e);
             var client = mock(BlockNodeClient.class);
             when(client.getBlockstreamSubscribeUnparsedClient()).thenReturn(subscribeClient);
             return client;
