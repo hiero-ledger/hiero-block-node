@@ -244,7 +244,7 @@ flowchart TD
 
 |          Field          |  Type   | Required |                                Description                                |
 |-------------------------|---------|----------|---------------------------------------------------------------------------|
-| `address`               | string  | Yes      | Hostname or IP address of the block node                                  |
+| `address`               | string  | Yes      | Hostname or IP address of the Block Node                                  |
 | `port`                  | integer | Yes      | Port number for gRPC connection                                           |
 | `priority`              | integer | Yes      | Priority for node selection (0 = highest, lower number = higher priority) |
 | `node_id`               | string  | No       | Unique identifier for the node (for Address Book integration)             |
