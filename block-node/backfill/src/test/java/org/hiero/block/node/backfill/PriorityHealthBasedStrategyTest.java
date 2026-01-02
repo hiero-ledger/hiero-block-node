@@ -186,7 +186,6 @@ class PriorityHealthBasedStrategyTest {
             assertTrue(result.isPresent());
             assertEquals(availableNode, result.get().nodeConfig());
         }
-
     }
 
     @Nested
