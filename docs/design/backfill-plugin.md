@@ -4,302 +4,296 @@
 
 1. [Purpose](#purpose)
 2. [Goals](#goals)
-3. [Terms](#terms)
-4. [Entities](#entities)
-5. [Design](#design)
-6. [Diagram](#diagram)
-7. [Configuration](#configuration)
-8. [Metrics](#metrics)
-9. [Exceptions](#exceptions)
-10. [Acceptance Tests](#acceptance-tests)
+3. [Architecture](#architecture)
+4. [Design Flows](#design-flows)
+5. [Configuration](#configuration)
+6. [Metrics](#metrics)
+7. [Acceptance Tests](#acceptance-tests)
 
 ## Purpose
 
-This plugins purpose is to detect missing gaps (historical and recent) in the intended stored block sequence, then
-autonomously and asynchronously fetch the missing blocks from another source and store them.
+Detect missing gaps in the stored block sequence and autonomously fetch missing blocks from peer block nodes.
 
 ## Goals
 
-1. Detect gaps on start-up and while running.
-2. Fetching missing blocks from another BN, must be configurable.
-3. Asynchronously recover (fetch and store) the missing blocks, without blocking the live ingestion of incoming blocks.
-4. Instrumentation, logging, metrics and error handling for the backfill process.
+1. Detect gaps on start-up and continuously while running
+2. Fetch missing blocks from configurable peer block nodes
+3. Asynchronously recover blocks without blocking live ingestion
+4. Provide instrumentation, logging, and metrics
 
-## Terms
+## Architecture
 
-<dl>
-  <dt>Missing Gap</dt>
-  <dd>Its a contiguous range of missing blocks, could be a single one.</dd>
-  <dt>Backfill</dt>
-  <dd>The process of fetching and storing missing blocks in the local storage.</dd>
-  <dt>Grpc Client</dt>
-  <dd>A client that connects to another Block Node to fetch missing blocks.</dd>
-  <dt>BackfilledBlockNotification</dt>
-  <dd>A new Notification Type that can be published to the Messaging Facility, it is intended to contain a whole block
-    that was fetched from another source and is being backfilled into the system. </dd>
-  <dt>NewestBlockKnownToNetwork</dt>
-  <dd>Notification sent by a plugin, including a "publisher" plugin, to indicate that the BlockNode is behind and must
-    be brought up-to-date. This is often handled by a "backfill" plugin by immediately requesting the missing blocks.</dd>
-  <dt>BlockSource</dt>
-  <dd>A new Enum that will be added to existing notification types: `VerificationNotification` and `PersistedNotification` to indicate the original source where the block is coming from, currently it will only have two values: `Publisher`, `Backfill`</dd>
+```mermaid
+flowchart TB
+  subgraph Storage["Storage"]
+    ST[("HistoricalBlockFacility")]
+  end
 
-</dl>
+  subgraph Plugin["BackfillPlugin"]
+    GD["GapDetector"]
 
-## Entities
+    subgraph Schedulers["Dual Schedulers"]
+      direction LR
+      HS["Historical<br/>Scheduler"]
+      LS["Live-Tail<br/>Scheduler"]
+    end
 
-### BackfillPlugin
+    subgraph Execution["Execution (per scheduler)"]
+      RNR["BackfillRunner"]
+      AWT["PersistenceAwaiter"]
+    end
+  end
 
-- The main plugin that manages the backfill process.
-- Orchestrates runs, gap detection, fetching, and message processing.
-- Handles configuration and initialization.
-- Implements the `Block Node Plugin` interface.
+  subgraph Fetcher["BackfillFetcher"]
+    SEL["PriorityHealthBased<br/>Strategy"]
+    CLI["gRPC Client"]
+  end
 
-### MessagingFacility
+  PEER[("Peer Block Nodes")]
 
-Block Node's messaging system used for communication between plugins.
+  subgraph Messaging["Messaging Facility"]
+    direction LR
+    VER["Verification"]
+    PERS["Persistence"]
+  end
 
-### HistoricalBlockFacility
+  %% Gap detection flow
+  ST --> GD
+  GD -->|"HISTORICAL gaps"| HS
+  GD -->|"LIVE_TAIL gaps"| LS
 
-A facility that provides access to historical blocks, this is available for all plugins.
+  %% Execution flow
+  HS --> RNR
+  LS --> RNR
+  RNR -->|"1. selectNextChunk"| SEL
+  SEL -->|"2. best node"| RNR
+  RNR -->|"3. fetchBlocks"| CLI
+  CLI <-->|"gRPC"| PEER
 
-## Design
+  %% Dispatch flow
+  RNR -->|"4. BackfilledBlockNotification"| Messaging
+  VER --> PERS
 
-There are two flows for backfilling, Autonomous and On-Demand.
+  %% Backpressure flow
+  Messaging -->|"5. PersistedNotification"| AWT
+  AWT -.->|"6. release gate"| RNR
+```
+
+### Components
+
+|            Component            |                                 Description                                 |
+|---------------------------------|-----------------------------------------------------------------------------|
+| **GapDetector**                 | Scans storage for missing blocks, classifies as `HISTORICAL` or `LIVE_TAIL` |
+| **BackfillTaskScheduler**       | Bounded FIFO queue with single worker thread                                |
+| **BackfillRunner**              | Orchestrates fetch → dispatch → await persistence cycle                     |
+| **BackfillPersistenceAwaiter**  | Tracks in-flight blocks, blocks until persisted                             |
+| **BackfillFetcher**             | Manages peer connections, health tracking, retries with backoff             |
+| **PriorityHealthBasedStrategy** | Selects peer by: earliest block → priority → health → random                |
+
+### Dual-Scheduler Design
+
+Two independent schedulers prevent historical backfill from blocking live-tail:
+
+| Scheduler  |          Purpose          |  Queue Size  |
+|------------|---------------------------|--------------|
+| Historical | Old gaps, FIFO processing | 20 (default) |
+| Live-Tail  | Recent gaps, stay current | 10 (default) |
+
+Each has its own `BackfillRunner`, `BackfillFetcher`, and `BackfillPersistenceAwaiter`.
+
+## Design Flows
 
 ### Autonomous Backfill
 
-The plugin will autonomously detect gaps in the block range and fetch missing blocks from a configured sources
-(via the JSON `backfill.blockNodeSourcesPath` file).
-
-1. At start-up a loop is defined that runs every `backfill.scanInterval`
-2. At every interval the plugin detects missing gaps in the intended block range against the actual stored blocks using
-   the `HistoricalBlockFacility`.
-3. If greedy backfill logic is enabled it will use a gRPC client to request the serverStatus from configured target
-   block nodes and determine the available range of recent blocks available to consider in addition.
-4. If gaps are found, it initiates the backfill process.
-5. The plugin uses a gRPC client to connect to other Block Nodes  to fetch the missing blocks.
-6. Once the blocks are fetched, the plugin creates a `BlockNotification` of type `BackfilledBlockNotification` and sends
-   it to the `MessagingFacility`.
-7. The `VerificationPlugin` will then process the `BackfilledBlockNotification` and if the block is valid, it will
-   create a `VerificationNotification` and send it to the `MessagingFacility` for further processing.
-8. The PersistencePlugin will then store the block in the local storage.
-9. The `BackfillPlugin` will receive the `PersistenceNotification` and update its internal state accordingly, marking
-   the backfill process as complete for that block.
-
-## Diagram
+The plugin periodically scans for gaps and fetches missing blocks:
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant BackfillPlugin
-    participant HistoricalBlockFacility
-    participant GrpcClient
-    participant MessagingFacility
-    participant VerificationPlugin
-    participant PersistencePlugin
+    participant BP as BackfillPlugin
+    participant HBF as HistoricalBlockFacility
+    participant Fetcher as BackfillFetcher
+    participant MF as MessagingFacility
+    participant Persist as PersistencePlugin
 
-    loop Every backfill.scanInterval
-        BackfillPlugin->>HistoricalBlockFacility: detectMissingHistoricalGaps(firstBlock, lastBlock)
-        BackfillPlugin->>+GrpcClient: getServerStatusFromPeerBlockNodes()
-        BackfillPlugin-->>BackfillPlugin: detectMissingRecentGaps(min(firstBlocks), max(lastBlocks))
+    loop Every scanInterval
+        BP->>HBF: Query available blocks
+        BP->>BP: Detect gaps (GapDetector)
         alt Gaps found
-            BackfillPlugin->>+GrpcClient: fetchMissingBlocks(gapRange, batchSize)
-            GrpcClient-->>-BackfillPlugin: blocks[]
-            loop For each block
-                BackfillPlugin->>MessagingFacility: BackfilledBlockNotification(block)
+            BP->>Fetcher: Get availability from peers
+            Fetcher->>Fetcher: Select best node
+            Fetcher-->>BP: Fetch blocks (batches)
+            loop Each block
+                BP->>MF: BackfilledBlockNotification
             end
-        else No gaps
-            Note right of BackfillPlugin: nothing to backfill
+            MF->>Persist: Verify & persist
+            Persist-->>BP: PersistedNotification
         end
     end
-
-%% Verification path
-    MessagingFacility->>VerificationPlugin: BackfilledBlockNotification(block)
-    activate VerificationPlugin
-    VerificationPlugin-->>MessagingFacility: VerificationNotification(block, valid)
-    deactivate VerificationPlugin
-
-%% Persistence path
-    MessagingFacility->>PersistencePlugin: VerificationNotification(block, valid)
-    activate PersistencePlugin
-    PersistencePlugin-->>MessagingFacility: PersistenceNotification(block)
-    deactivate PersistencePlugin
-
-%% Backfill completion
-    MessagingFacility->>BackfillPlugin: PersistenceNotification(block)
-    activate BackfillPlugin
-    BackfillPlugin-->>BackfillPlugin: markGapAsFilled(block)
-    deactivate BackfillPlugin
-
 ```
 
 ### On-Demand Backfill
 
-The plugin can also be triggered on-demand to backfill missing blocks when the latest block known to the network is
-received and periodically to ensure Block Node does not fall too far behind.
-
-1. The plugin can also be triggered on-demand by sending a `NewestBlockKnownToNetwork` message to the `MessagingFacility`,
-   usually this would be done by the `PublisherPlugin` or any other plugin that knows the latest block or wants to
-   ensure the Block Node is up-to-date.
-2. BackfillPlugin will handle the `NewestBlockKnownToNetwork` message and will check if there are any gaps in the block
-   range available in the local storage.
-3. If gaps are found, it will initiate the backfill process as described in the Autonomous Backfill section.
-4. The process will be the same as the Autonomous Backfill, but it will be triggered by the `NewestBlockKnownToNetwork`
-   message instead of the periodic scan.
+Triggered when `NewestBlockKnownToNetworkNotification` is received (e.g., from PublisherPlugin):
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant PublisherPlugin
-    participant MessagingFacility
-    participant BackfillPlugin
-    participant HistoricalBlockFacility
-    participant GrpcClient
+    participant Pub as PublisherPlugin
+    participant MF as MessagingFacility
+    participant BP as BackfillPlugin
+    participant Fetcher as BackfillFetcher
 
-    %% Trigger
-    PublisherPlugin->>MessagingFacility: NewestBlockKnownToNetwork(latestBlock)
-
-    %% Dispatch to backfill
-    MessagingFacility->>BackfillPlugin: NewestBlockKnownToNetwork(latestBlock)
-    BackfillPlugin->>HistoricalBlockFacility: detectMissingGaps(…, latestBlock)
-
-    alt Gaps found
-        BackfillPlugin->>GrpcClient: fetchMissingBlocks(gapRange, batchSize)
-        GrpcClient-->>BackfillPlugin: blocks[]
-        BackfillPlugin->>MessagingFacility: BackfilledBlockNotification(blocks)
-    else No gaps
-        BackfillPlugin-->>MessagingFacility: no gaps → no action
+    Pub->>MF: NewestBlockKnownToNetworkNotification
+    MF->>BP: Handle notification
+    BP->>BP: Detect live-tail gap
+    alt Gap exists
+        BP->>Fetcher: Fetch missing blocks
+        Fetcher-->>BP: Blocks
+        BP->>MF: BackfilledBlockNotification
     end
-
 ```
 
-### gRPC Client
-
-The gRPC client is used to connect to another Block Node to fetch the missing blocks. It is configured from the PBJ JSON
-file at `backfill.blockNodeSourcesPath`, which lists HOST:PORT pairs of the Block Nodes to connect to.
-- Fetching blocks is done in batches, configured via `backfill.fetchBatchSize`.
-- For each BN configured, the client performs an `BlockNodeService/serverStatus` call to check if the missing gap is
-available in the remote BN. If it is not available, it skips that BN and continues with the next one.
-- If the remote BN is not available, it logs an info and continues with the next one using backoff.
-- If the BN has the missing blocks, it fetches them in batches using the `BlockStreamSubscribeService/subscribeBlockStream`.
-- If none of the configured BNs have the missing blocks, it logs an info and continues with the next iteration after the
-configured interval.
+### Node Selection Flow
 
 ```mermaid
 flowchart TD
-    A[Request Range of Blocks] --> B
-    B[Iterate over backfill_sources]
-    C{Call serverStatus on current BN}
-    C -->|Error unreachable| E1[Log BN unreachable, continue]
-    C -->|Gap not available| E2[Log Gap not available, continue]
-    C -->|Gap available| D[Call subscribeBlockStream gapRange, batchSize]
-    D --> F[Return fetched blocks to BackfillPlugin]
-    F --> G[End successful fetch]
-    E1 --> B
-    E2 --> B
-    B --> H{All sources tried?}
-    H -->|No| C
-    H -->|Yes| E3[Log No configured BN had missing blocks]
-    E3 --> I[Exit, retry after scanInterval]
-
+    A[Get target range] --> B[Query serverStatus on each peer]
+    B --> C{Any peer has blocks?}
+    C -->|No| D[Wait, retry later]
+    C -->|Yes| E[Filter by earliest available block]
+    E --> F[Filter by priority number]
+    F --> G[Filter by health score]
+    G --> H[Random tie-breaker]
+    H --> I[Fetch from selected node]
+    I --> J{Success?}
+    J -->|Yes| K[Mark success, update health]
+    J -->|No| L[Mark failure, exponential backoff]
+    L --> B
 ```
 
-### BlockNode Sources Configuration File Structure
+## Configuration
+
+### Plugin Configuration
+
+Properties are set via the Block Node configuration system (prefix: `backfill.`):
+
+|          Property           |  Type   | Default |                 Description                 |
+|-----------------------------|---------|---------|---------------------------------------------|
+| `startBlock`                | long    | 0       | First block number to consider for backfill |
+| `endBlock`                  | long    | -1      | Last block (-1 = unlimited)                 |
+| `blockNodeSourcesPath`      | String  | ""      | Path to peer nodes JSON file                |
+| `scanInterval`              | int     | 60000   | Gap detection interval in ms                |
+| `maxRetries`                | int     | 3       | Max retry attempts per fetch                |
+| `initialRetryDelay`         | int     | 5000    | Initial retry delay in ms                   |
+| `fetchBatchSize`            | int     | 10      | Blocks per gRPC request                     |
+| `delayBetweenBatches`       | int     | 1000    | Delay between batches in ms                 |
+| `initialDelay`              | int     | 15000   | Startup delay in ms                         |
+| `perBlockProcessingTimeout` | int     | 1000    | Per-block processing timeout in ms          |
+| `grpcOverallTimeout`        | int     | 60000   | gRPC timeout fallback in ms                 |
+| `enableTLS`                 | boolean | false   | Enable TLS for gRPC connections             |
+| `greedy`                    | boolean | false   | Fetch blocks ahead of local storage         |
+| `historicalQueueCapacity`   | int     | 20      | Historical queue size                       |
+| `liveTailQueueCapacity`     | int     | 10      | Live-tail queue size                        |
+| `healthPenaltyPerFailure`   | double  | 1000.0  | Health score penalty per failure            |
+| `maxBackoffMs`              | long    | 300000  | Maximum backoff duration in ms              |
+
+### Peer Nodes Configuration (JSON)
+
+The `blockNodeSourcesPath` file defines peer block nodes:
 
 ```json
 {
   "nodes": [
     {
-      "address": "localhost",
-      "port": 40800,
+      "address": "peer1.example.com",
+      "port": 8080,
       "priority": 1
     },
     {
-      "address": "node2.example.com",
-      "port": 40902,
+      "address": "peer2.example.com",
+      "port": 8080,
       "priority": 2,
-      "node_id": "node-2",
-      "name": "Node 2"
-    },
-    {
-      "address": "node3.example.com",
-      "port": 40903,
-      "priority": 2,
-      "node_id": "node-3",
-      "name": "Node 3 (Custom Tuning)",
+      "node_id": "peer-2",
+      "name": "Backup Peer",
       "grpc_webclient_tuning": {
         "connect_timeout": 45000,
-        "read_timeout": 60000,
-        "poll_wait_time": 120000,
-        "prior_knowledge": true,
-        "max_frame_size": 4194304,
-        "initial_window_size": 4194304
+        "read_timeout": 60000
       }
     }
   ]
 }
 ```
 
-#### Field Descriptions
+|          Field          |  Type   | Required |           Description            |
+|-------------------------|---------|----------|----------------------------------|
+| `address`               | string  | Yes      | Hostname or IP address           |
+| `port`                  | integer | Yes      | gRPC port                        |
+| `priority`              | integer | Yes      | Selection priority (0 = highest) |
+| `node_id`               | string  | No       | Unique identifier for logging    |
+| `name`                  | string  | No       | Human-readable label             |
+| `grpc_webclient_tuning` | object  | No       | Per-node gRPC tuning (see below) |
 
-|          Field          |  Type   | Required |                                Description                                |
-|-------------------------|---------|----------|---------------------------------------------------------------------------|
-| `address`               | string  | Yes      | Hostname or IP address of the Block Node                                  |
-| `port`                  | integer | Yes      | Port number for gRPC connection                                           |
-| `priority`              | integer | Yes      | Priority for node selection (0 = highest, lower number = higher priority) |
-| `node_id`               | string  | No       | Unique identifier for the node (for Address Book integration)             |
-| `name`                  | string  | No       | Human-readable label for observability (logging/tracking)                 |
-| `grpc_webclient_tuning` | object  | No       | gRPC client tuning including timeouts and HTTP/2 settings (see below)     |
+#### gRPC Tuning Options
 
-#### GrpcWebClientTuning Fields
+All fields optional. Timeouts default to `grpcOverallTimeout`, others have sensible defaults.
 
-All gRPC client tuning is consolidated in this object. All fields are optional - when set to `0` or omitted, sensible defaults are used. Timeout fields fall back to global `backfill.grpcOverallTimeout`.
+|         Field          | Default |          Description          |
+|------------------------|---------|-------------------------------|
+| `connect_timeout`      | global  | Connection timeout in ms      |
+| `read_timeout`         | global  | Read timeout in ms            |
+| `poll_wait_time`       | global  | Poll wait time in ms          |
+| `prior_knowledge`      | true    | Skip HTTP/1.1 upgrade         |
+| `max_frame_size`       | 2MB     | HTTP/2 max frame size         |
+| `initial_window_size`  | 2MB     | HTTP/2 flow control window    |
+| `initial_buffer_size`  | 2MB     | gRPC buffer size              |
+| `flow_control_timeout` | 10000   | Flow control timeout in ms    |
+| `max_header_list_size` | 8192    | Max header list size          |
+| `ping_enabled`         | true    | Enable HTTP/2 keep-alive ping |
+| `ping_timeout`         | 500     | Ping timeout in ms            |
 
-|         Field          |  Type   |    Default    |                           Description                            |
-|------------------------|---------|---------------|------------------------------------------------------------------|
-| `connect_timeout`      | integer | global        | Connection timeout in ms (0 = use `backfill.grpcOverallTimeout`) |
-| `read_timeout`         | integer | global        | Read timeout in ms (0 = use `backfill.grpcOverallTimeout`)       |
-| `poll_wait_time`       | integer | global        | Poll wait time in ms (0 = use `backfill.grpcOverallTimeout`)     |
-| `prior_knowledge`      | boolean | true          | Skip HTTP/1.1 upgrade negotiation (assumes HTTP/2)               |
-| `max_frame_size`       | integer | 2097152 (2MB) | HTTP/2 maximum frame size in bytes                               |
-| `initial_window_size`  | integer | 2097152 (2MB) | HTTP/2 initial window size for flow control                      |
-| `initial_buffer_size`  | integer | 2097152 (2MB) | gRPC initial buffer size in bytes                                |
-| `flow_control_timeout` | integer | 10000         | HTTP/2 flow control blocking timeout in ms                       |
-| `max_header_list_size` | integer | 8192          | HTTP/2 max header list size in bytes                             |
-| `ping_enabled`         | boolean | true          | Enable HTTP/2 ping for connection keep-alive                     |
-| `ping_timeout`         | integer | 500           | HTTP/2 ping timeout in milliseconds                              |
+## Metrics
 
-## Exceptions
+All metrics use the `backfill` category prefix.
 
-Since the whole process is asynchronous, the plugin will not throw exceptions directly, but will log errors and retry fetching blocks based on the configuration, after a certain number of retries it will log the error and continue the next iteration after the configured interval.
+### Counters
+
+|            Metric            |             Description             |
+|------------------------------|-------------------------------------|
+| `backfill_gaps_detected`     | Total number of gaps detected       |
+| `backfill_blocks_fetched`    | Total blocks fetched from peers     |
+| `backfill_blocks_backfilled` | Total blocks successfully persisted |
+| `backfill_fetch_errors`      | Total fetch failures                |
+| `backfill_retries`           | Total retry attempts                |
+
+### Gauges
+
+|          Metric           |               Description                |
+|---------------------------|------------------------------------------|
+| `backfill_status`         | Current status (0 = idle, 1 = running)   |
+| `backfill_pending_blocks` | Blocks awaiting persistence confirmation |
 
 ## Acceptance Tests
 
-This section of the design document will be removed once there is a E2E Test Plan in place.
+### Unit Test Scenarios
 
-As part of the initial implementation, the following test scenarios will be covered as Unit Tests.
+- Autonomous backfill with gaps detected
+- Priority fallback when primary peer unavailable
+- No backfill when no peers have required blocks
+- On-demand backfill triggered by notification
+- Concurrent historical and live-tail backfill
+- Gap available across multiple peers
 
-- Autonomous Backfill Happy Test
-- Priority 1 BN is unavailable, fallback to 2nd priority BN
-- Backfill found no available block-nodes, should not backfill
-- On-Demand Backfill Happy Test
-- Combined Autonomous and On-Demand Happy Test at the same time
-- Backfill Autonomous, GAP available within 2 different backfill sources
+### E2E Test Scenarios
 
-And the following scenarios will be covered using the E2E Tests Suite:
+**Autonomous Happy Path:**
+1. Start two block nodes - one with full range (source), one with gaps
+2. Verify gaps are detected and backfilled from source
+3. Verify blocks persisted correctly
 
-**Autonomous Happy-Path:** 2 BNs, one with a full block range (source), the other with some missing blocks.
-- Start both BNs.
-- Verify that the BN with missing blocks detects the gaps and backfills them from the other BN
-- Verify that the missing blocks are stored in the local storage.
+**On-Demand Happy Path:**
+1. Start two block nodes
+2. Send `NewestBlockKnownToNetworkNotification` indicating newer blocks
+3. Verify live-tail gap backfilled
 
-**On-Demand Happy-Path:** 2 BNs, one with a full block range (source), the other with less blocks than the full range (source).
-- Start both BNs.
-- While both BNs are running, send a `NewestBlockKnownToNetwork` message to the BN with a newer blocks.
-- Verify that the BN with missing blocks backfills the missing blocks from the other BN.
-
-** Combined Autonomous and On-Demand:** 2 BNs, one with a full block range (source), the other with some missing blocks at the start and some at the end.
-- Start both BNs.
-- Verify that the BN with missing blocks detects the initial gaps and backfills them from the other BN.
-- While historical backfill is running, send a `NewestBlockKnownToNetwork` message to the BN indicating newer blocks.
-- Verify that the BN with missing blocks backfills the missing blocks from the other BN.
+**Combined Autonomous + On-Demand:**
+1. Start with historical gaps and live-tail gaps
+2. Verify both are processed concurrently without blocking each other
