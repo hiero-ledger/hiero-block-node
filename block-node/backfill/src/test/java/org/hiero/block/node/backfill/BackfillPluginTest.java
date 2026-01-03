@@ -39,8 +39,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
+/**
+ * Integration tests for {@link BackfillPlugin}.
+ */
+@Timeout(value = 30, unit = TimeUnit.SECONDS)
 class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
     /** TempDir for the current test */
@@ -1252,7 +1257,10 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 "test-backfill-handler");
     }
 
-    private static class BackfillConfigBuilder {
+    /**
+     * Builder for creating backfill configuration maps for testing.
+     */
+    public static class BackfillConfigBuilder {
 
         // Fields with default values
         private String backfillSourcePath;
@@ -1335,7 +1343,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 throw new IllegalStateException("backfillSourcePath is required");
             }
 
-            Map backfillConfig = new HashMap(Map.of(
+            Map<String, String> backfillConfig = new HashMap<>(Map.of(
                     "backfill.blockNodeSourcesPath", backfillSourcePath,
                     "backfill.fetchBatchSize", String.valueOf(fetchBatchSize),
                     "backfill.delayBetweenBatches", String.valueOf(delayBetweenBatches),
@@ -1350,6 +1358,31 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
             backfillConfig.put("backfill.greedy", String.valueOf(greedy));
 
             return backfillConfig;
+        }
+
+        /**
+         * Builds a BackfillConfiguration record for use in unit tests.
+         */
+        public BackfillConfiguration buildRecord() {
+            return new BackfillConfiguration(
+                    startBlock,
+                    endBlock,
+                    backfillSourcePath != null ? backfillSourcePath : "",
+                    scanIntervalMs,
+                    maxRetries,
+                    initialRetryDelay,
+                    fetchBatchSize,
+                    delayBetweenBatches,
+                    initialDelay,
+                    perBlockProcessingTimeout,
+                    60000, // grpcOverallTimeout - default
+                    false, // enableTLS - default
+                    greedy,
+                    20, // historicalQueueCapacity - default
+                    10, // liveTailQueueCapacity - default
+                    1000.0, // healthPenaltyPerFailure - default
+                    300000L // maxBackoffMs - default
+                    );
         }
     }
 }
