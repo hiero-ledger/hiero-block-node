@@ -107,6 +107,7 @@ class BackfillFetcherTest {
     class FetchBlocksFromNodeTests {
 
         @Test
+        @Timeout(value = 10, unit = TimeUnit.SECONDS)
         @DisplayName("returns blocks on success, retries on failure, returns empty on mismatch")
         void fetchBehaviors() throws Exception {
             final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
