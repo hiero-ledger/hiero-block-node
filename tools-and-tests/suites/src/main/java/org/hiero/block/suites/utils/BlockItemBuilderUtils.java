@@ -62,14 +62,12 @@ public final class BlockItemBuilderUtils {
     }
 
     public static BlockProof createBlockProof(final long blockNumber) {
-        return BlockProof.newBuilder()
-                .signedBlockProof(TssSignedBlockProof.newBuilder().build())
-                .block(blockNumber)
-                .previousBlockRootHash(Bytes.wrap("previousBlockRootHash"))
-                .startOfBlockStateRootHash(Bytes.wrap("startOfBlockStateRootHash"))
+        TssSignedBlockProof tssSignedBlockProof = TssSignedBlockProof.newBuilder()
                 .blockSignature(Bytes.wrap("block_signature"))
-                .verificationKey(Bytes.wrap("verification_key"))
                 .build();
+        BlockProof blockProof =
+                BlockProof.newBuilder().signedBlockProof(tssSignedBlockProof).build();
+        return blockProof;
     }
 
     public static Bytes createBlockProofUnparsed(final long blockNumber) {

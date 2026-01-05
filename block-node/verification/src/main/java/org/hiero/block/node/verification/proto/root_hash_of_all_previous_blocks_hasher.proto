@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.node.verification;
+
+message AllPreviousBlocksRootHashHasherSnapshot {
+    uint64 leaf_count = 1; // Number of leaves processed
+    repeated bytes intermediate_hashes = 2; // Intermediate hashes
+    bytes last_root_hash = 3; // Current root hash
+}

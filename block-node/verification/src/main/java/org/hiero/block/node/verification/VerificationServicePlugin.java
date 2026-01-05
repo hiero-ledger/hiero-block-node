@@ -9,6 +9,7 @@ import static java.lang.System.Logger.Level.WARNING;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
@@ -51,6 +52,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Counter verificationBlockTime;
     /** Metric for block hashing time. ignores time to receive block */
     private Counter hashingBlockTimeNs;
+    /** The previous block hash, used for verification of the current block. */
+    private Bytes previousBlockHash;
+    /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
+    private AllBlocksHasherHandler allBlocksHasherHandler;
 
     /**
      * {@inheritDoc}
@@ -98,6 +103,23 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // initialize metrics
         initMetrics(context);
         LOGGER.log(TRACE, "VerificationServicePlugin initialized successfully.");
+        // initialize all previous blocks hasher if enabled and available
+        initAllBlocksHasherIfEnabled();
+    }
+
+    private void initAllBlocksHasherIfEnabled() {
+        allBlocksHasherHandler = new AllBlocksHasherHandler(verificationConfig, context);
+        if (allBlocksHasherHandler.isAvailable() && allBlocksHasherHandler.lastBlockHash() != null) {
+            previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
+            LOGGER.log(
+                    TRACE,
+                    "All previous blocks hasher is available and initialized. with [%s] previous block hashes and last block hash [%s]"
+                            .formatted(allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash));
+        } else {
+            LOGGER.log(
+                    TRACE,
+                    "All previous blocks hasher is not available. falling back to use BlockFooter provided root hash for All previous blocks root hash.");
+        }
     }
 
     /**
@@ -110,6 +132,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         context.blockMessaging().registerBlockItemHandler(this, true, VerificationServicePlugin.class.getSimpleName());
         // we do not need to unregister the handler as it will be unregistered when the message service is stopped
         LOGGER.log(TRACE, "VerificationServicePlugin started successfully.");
+
+        allBlocksHasherHandler.start();
     }
 
     // ==== BlockItemHandler Methods ===================================================================================
@@ -161,16 +185,30 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 final String traceMessage = "Appending {0} block items to the current session for block number: {1}";
                 LOGGER.log(TRACE, traceMessage, blockItems.blockItems().size(), currentBlockNumber);
                 long startHashingTime = System.nanoTime();
-                VerificationNotification notification = currentSession.processBlockItems(blockItems.blockItems());
+                currentSession.processBlockItems(blockItems.blockItems());
                 long hashingTime = System.nanoTime() - startHashingTime;
                 hashingBlockTimeNs.add(hashingTime);
-                if (notification != null) {
+                // if this is the end of the block, finalize verification
+                if (blockItems.isEndOfBlock()) {
+                    Bytes rootHashOfAllBlockHashesTree = null;
+                    if (allBlocksHasherHandler.isAvailable()) {
+                        rootHashOfAllBlockHashesTree = Bytes.wrap(allBlocksHasherHandler.computeRootHash());
+                        this.previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
+                    }
+                    VerificationNotification notification =
+                            currentSession.finalizeVerification(rootHashOfAllBlockHashesTree, this.previousBlockHash);
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
                     if (notification.success()) {
                         verificationBlocksVerified.increment();
                         // send the notification to the block messaging service
                         LOGGER.log(TRACE, "Sending verification notification for block={0}", currentBlockNumber);
                         context.blockMessaging().sendBlockVerification(notification);
+                        // Update previousBlockHash for next block verification
+                        this.previousBlockHash = notification.blockHash();
+                        // Update streamingHasherAllPreviousBlocks
+                        allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
+                                this.previousBlockHash.toByteArray());
+
                     } else {
                         LOGGER.log(INFO, "Verification failed for block={0}", currentBlockNumber);
                         sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
@@ -223,8 +261,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 VerificationSession backfillSession = HapiVersionSessionFactory.createSession(
                         notification.blockNumber(), BlockSource.BACKFILL, blockHeader.hapiProtoVersionOrThrow());
                 // process the block items in the backfilled notification
-                VerificationNotification backfillNotification =
-                        backfillSession.processBlockItems(notification.block().blockItems());
+                backfillSession.processBlockItems(notification.block().blockItems());
+                VerificationNotification backfillNotification = backfillSession.finalizeVerification(null, null);
                 // Log the backfill verification result
                 LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
                 // send the verification notification for the backfilled block
