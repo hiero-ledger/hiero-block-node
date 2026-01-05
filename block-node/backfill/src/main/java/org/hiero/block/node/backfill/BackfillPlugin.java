@@ -285,7 +285,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         try {
             LOGGER.log(TRACE, "Greedy backfilling recent blocks to stay close to network");
             detectedGaps = new ArrayList<>();
-            LongRange detectedRecentGapRange = backfillGrpcClientAutonomous.getNewAvailableRange(lastAcknowledgedBlock);
+            long baselineBlock = Math.max(lastAcknowledgedBlock, backfillConfiguration.startBlock() - 1);
+            LongRange detectedRecentGapRange = backfillGrpcClientAutonomous.getNewAvailableRange(baselineBlock);
 
             if (detectedRecentGapRange != null
                     && detectedRecentGapRange.size() > 0
