@@ -6,6 +6,7 @@
 2. [Goals](#goals)
 3. [Architecture](#architecture)
 4. [Design Flows](#design-flows)
+   - [Health Score System](#health-score-system)
 5. [Configuration](#configuration)
 6. [Metrics](#metrics)
 7. [Acceptance Tests](#acceptance-tests)
@@ -169,6 +170,17 @@ flowchart TD
     J -->|No| L[Mark failure, exponential backoff]
     L --> B
 ```
+
+### Health Score System
+
+Tracks peer node reliability to prefer healthy, fast nodes. Lower score = better node.
+
+**Score:** `(failures × healthPenaltyPerFailure) + avgLatencyMs`
+
+- **Success**: Resets failures to 0, tracks latency
+- **Failure**: Increments failures, applies exponential backoff (`initialRetryDelay × 2^failures`, capped at `maxBackoffMs`)
+
+Nodes in backoff are skipped entirely until the backoff period expires.
 
 ## Configuration
 
