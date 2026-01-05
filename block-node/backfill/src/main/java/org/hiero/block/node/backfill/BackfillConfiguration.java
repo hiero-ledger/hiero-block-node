@@ -24,25 +24,29 @@ import org.hiero.block.node.base.Loggable;
  * @param grpcOverallTimeout single timeout configuration for gRPC Client construction, connectTimeout, readTimeout and pollWaitTime
  * @param enableTLS if enabled will assume block-node client supports tls connection.
  * @param greedy if enabled will search and retrieve blocks beyond latestAcknowledged to ensure BN doesn't fall too far behind.
+ * @param historicalQueueCapacity Capacity of gap queue for historical backfill tasks
+ * @param liveTailQueueCapacity Capacity of gap queue for live-tail backfill tasks
+ * @param healthPenaltyPerFailure Penalty to apply to the health score of a block node source per failure.
+ * @param maxBackoffMs Maximum backoff time in milliseconds between retries.
  */
 @ConfigData("backfill")
 public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long startBlock,
         @Loggable @ConfigProperty(defaultValue = "-1") @Min(-1) long endBlock,
         @Loggable @ConfigProperty(defaultValue = "") String blockNodeSourcesPath,
-        @Loggable @ConfigProperty(defaultValue = "60000") @Min(100) int scanInterval,
+        @Loggable @ConfigProperty(defaultValue = "60_000") @Min(100) int scanInterval,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(10) int maxRetries,
-        @Loggable @ConfigProperty(defaultValue = "5000") @Min(500) int initialRetryDelay,
-        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(1024) int fetchBatchSize,
-        @Loggable @ConfigProperty(defaultValue = "1000") @Min(100) int delayBetweenBatches,
-        @Loggable @ConfigProperty(defaultValue = "15000") @Min(5) int initialDelay,
-        @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
-        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
+        @Loggable @ConfigProperty(defaultValue = "5_000") @Min(500) int initialRetryDelay,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(1_024) int fetchBatchSize,
+        @Loggable @ConfigProperty(defaultValue = "1_000") @Min(100) int delayBetweenBatches,
+        @Loggable @ConfigProperty(defaultValue = "15_000") @Min(5) int initialDelay,
+        @Loggable @ConfigProperty(defaultValue = "1_000") @Min(500) int perBlockProcessingTimeout,
+        @Loggable @ConfigProperty(defaultValue = "60_000") @Min(10_000) int grpcOverallTimeout,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
         @Loggable @ConfigProperty(defaultValue = "false") boolean greedy,
         // Queue capacity settings for bounded queues
-        @Loggable @ConfigProperty(defaultValue = "20") @Min(1) @Max(1000) int historicalQueueCapacity,
+        @Loggable @ConfigProperty(defaultValue = "20") @Min(1) @Max(1_000) int historicalQueueCapacity,
         @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(100) int liveTailQueueCapacity,
         // Health scoring constants
         @Loggable @ConfigProperty(defaultValue = "1000.0") double healthPenaltyPerFailure,
-        @Loggable @ConfigProperty(defaultValue = "300000") @Min(30000) long maxBackoffMs) {}
+        @Loggable @ConfigProperty(defaultValue = "300_000") @Min(30_000) long maxBackoffMs) {}
