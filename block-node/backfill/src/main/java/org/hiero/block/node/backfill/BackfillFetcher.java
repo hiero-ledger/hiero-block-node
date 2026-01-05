@@ -5,12 +5,9 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -72,48 +69,34 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     /** Strategy for selecting nodes. */
     private final NodeSelectionStrategy selectionStrategy;
     /** Current status of the Block Node Clients */
-    private ConcurrentHashMap<BackfillSourceConfig, Status> nodeStatusMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<BackfillSourceConfig, Status> nodeStatusMap = new ConcurrentHashMap<>();
     /**
      * Map of BackfillSourceConfig to BlockNodeClient instances.
      * This allows us to reuse clients for the same node configuration.
      */
-    private ConcurrentHashMap<BackfillSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<BackfillSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
     /** Per-source health for backoff and simple scoring. */
     private final ConcurrentHashMap<BackfillSourceConfig, SourceHealth> healthMap = new ConcurrentHashMap<>();
 
     /**
      * Constructor for the fetcher responsible for retrieving blocks from peer block nodes.
      *
-     * @param blockNodePreferenceFilePath the path to the block node preference file
-     * @param maxRetries maximum number of retries per fetch attempt
-     * @param backfillRetriesCounter metric counter for retries
-     * @param retryInitialDelayMs initial retry delay in milliseconds
-     * @param globalGrpcTimeoutMs global gRPC timeout in milliseconds (used as fallback for per-node overrides)
-     * @param perBlockProcessingTimeoutMs per-block processing timeout in milliseconds
-     * @param enableTls whether to enable TLS for connections
-     * @param maxBackoffMs maximum backoff duration in milliseconds
-     * @param healthPenaltyPerFailure health score penalty per failure
+     * @param backfillSource the backfill source configuration
+     * @param config the backfill configuration containing retry, timeout, and other settings
+     * @param metrics the metrics holder
      */
     public BackfillFetcher(
-            Path blockNodePreferenceFilePath,
-            int maxRetries,
-            Counter backfillRetriesCounter,
-            int retryInitialDelayMs,
-            int globalGrpcTimeoutMs,
-            int perBlockProcessingTimeoutMs,
-            boolean enableTls,
-            long maxBackoffMs,
-            double healthPenaltyPerFailure)
+            BackfillSource backfillSource, BackfillConfiguration config, @NonNull BackfillPlugin.MetricsHolder metrics)
             throws IOException, ParseException {
-        this.blockNodeSource = BackfillSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodePreferenceFilePath)));
-        this.maxRetries = maxRetries;
-        this.initialRetryDelayMs = retryInitialDelayMs;
-        this.backfillRetries = backfillRetriesCounter;
-        this.globalGrpcTimeoutMs = globalGrpcTimeoutMs;
-        this.perBlockProcessingTimeoutMs = perBlockProcessingTimeoutMs;
-        this.enableTls = enableTls;
-        this.maxBackoffMs = maxBackoffMs;
-        this.healthPenaltyPerFailure = healthPenaltyPerFailure;
+        this.blockNodeSource = backfillSource;
+        this.maxRetries = config.maxRetries();
+        this.initialRetryDelayMs = config.initialRetryDelay();
+        this.backfillRetries = metrics.backfillRetries();
+        this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
+        this.perBlockProcessingTimeoutMs = config.perBlockProcessingTimeout();
+        this.enableTls = config.enableTLS();
+        this.maxBackoffMs = config.maxBackoffMs();
+        this.healthPenaltyPerFailure = config.healthPenaltyPerFailure();
         this.selectionStrategy = new PriorityHealthBasedStrategy(this);
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {

@@ -6,9 +6,11 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -18,6 +20,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -35,7 +38,7 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  * It runs periodically to ensure that all historical blocks are available for
  * historical blocks, and on-demand for live blocks.
  */
-public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler, BackfillMetricsCallback {
+public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler {
 
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -47,7 +50,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private BackfillConfiguration backfillConfiguration;
     private long earliestManagedBlock;
     private boolean hasBNSourcesPath = false;
-    private Path blockNodeSourcesPath;
+    private BackfillSource blockNodeSources;
     private ScheduledExecutorService periodicExecutor;
 
     // Two independent schedulers with dedicated executors: historical never blocks live-tail
@@ -62,15 +65,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     // Deduplication: highest block scheduled for live-tail (prevents overlapping submissions)
     private final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
 
-    // Metrics
-    private Counter backfillGapsDetected;
-    private Counter backfillFetchedBlocks;
-    private Counter backfillBlocksBackfilled;
-    private Counter backfillFetchErrors;
-    private Counter backfillRetries;
-    private LongGauge backfillStatus; // 0 = idle, 1 = running
-    private LongGauge backfillPendingBlocksGauge;
-    private LongGauge backfillInFlightGauge;
+    // Metrics holder containing all backfill metrics
+    private MetricsHolder metricsHolder;
 
     /**
      * {@inheritDoc}
@@ -81,40 +77,21 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         return List.of(BackfillConfiguration.class);
     }
 
-    /***
+    /**
      * Initializes the metrics for the backfill process.
      */
     private void initMetrics() {
-        final var metrics = context.metrics();
-        backfillGapsDetected = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_gaps_detected")
-                .withDescription("Number of gaps detected during the backfill process."));
-        backfillFetchedBlocks = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_fetched")
-                .withDescription("Number of blocks fetched during the backfill process."));
-        backfillBlocksBackfilled =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_backfilled")
-                        .withDescription("Number of blocks backfilled during the backfill process."));
-        backfillFetchErrors = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_fetch_errors")
-                .withDescription("Number of errors encountered during the backfill process."));
-        backfillRetries = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_retries")
-                .withDescription("Number of retries during the backfill process."));
-        backfillStatus = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_status")
-                .withDescription("Current status of the backfill process (e.g., idle = 0, running = 1, error = 2)."));
-        backfillPendingBlocksGauge =
-                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_pending_blocks")
-                        .withDescription("Current amount of blocks pending to be backfilled."));
-        backfillInFlightGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_inflight_blocks")
-                .withDescription("Current in-flight backfill blocks awaiting verification/persistence."));
-
-        metrics.addUpdater(this::updateMetrics);
+        metricsHolder = MetricsHolder.createMetrics(context.metrics());
+        context.metrics().addUpdater(this::updateMetrics);
     }
 
     private void updateMetrics() {
         long pending = Math.max(pendingBackfillBlocks.get(), 0);
-        backfillPendingBlocksGauge.set(pending);
-        backfillInFlightGauge.set(pending);
+        metricsHolder.backfillPendingBlocksGauge().set(pending);
+        metricsHolder.backfillInFlightGauge().set(pending);
 
         final BackfillStatus status = pending > 0 ? BackfillStatus.RUNNING : BackfillStatus.IDLE;
-        backfillStatus.set(status.ordinal());
+        metricsHolder.backfillStatus().set(status.ordinal());
     }
 
     private enum BackfillStatus {
@@ -142,7 +119,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
-        blockNodeSourcesPath = Path.of(backfillConfiguration.blockNodeSourcesPath());
+        Path blockNodeSourcesPath = Path.of(backfillConfiguration.blockNodeSourcesPath());
         if (!Files.isRegularFile(blockNodeSourcesPath)) {
             LOGGER.log(
                     TRACE,
@@ -151,7 +128,19 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
+        try {
+            blockNodeSources = BackfillSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
+        } catch (ParseException | IOException e) {
+            LOGGER.log(
+                    TRACE,
+                    "Failed to parse block node sources from path: [%s], backfill will not run: %s"
+                            .formatted(backfillConfiguration.blockNodeSourcesPath(), e.getMessage()));
+            return;
+        }
+
+        // ready for backfill.
         hasBNSourcesPath = true;
+
         // Register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BackfillPlugin");
     }
@@ -208,23 +197,21 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
     private BackfillTaskScheduler createScheduler(ExecutorService executor, int queueCapacity, String schedulerName) {
         try {
-            BackfillFetcher fetcher = new BackfillFetcher(
-                    blockNodeSourcesPath,
-                    backfillConfiguration.maxRetries(),
-                    backfillRetries,
-                    backfillConfiguration.initialRetryDelay(),
-                    backfillConfiguration.grpcOverallTimeout(),
-                    backfillConfiguration.perBlockProcessingTimeout(),
-                    backfillConfiguration.enableTLS(),
-                    backfillConfiguration.maxBackoffMs(),
-                    backfillConfiguration.healthPenaltyPerFailure());
+
+            BackfillFetcher fetcher = new BackfillFetcher(blockNodeSources, backfillConfiguration, metricsHolder);
             // Create dedicated persistence awaiter for backpressure
             BackfillPersistenceAwaiter persistenceAwaiter = new BackfillPersistenceAwaiter();
             context.blockMessaging()
                     .registerBlockNotificationHandler(
                             persistenceAwaiter, false, "BackfillPersistenceAwaiter-" + schedulerName);
             BackfillRunner runner = new BackfillRunner(
-                    fetcher, backfillConfiguration, context.blockMessaging(), LOGGER, this, persistenceAwaiter);
+                    fetcher,
+                    backfillConfiguration,
+                    context.blockMessaging(),
+                    LOGGER,
+                    metricsHolder,
+                    pendingBackfillBlocks,
+                    persistenceAwaiter);
             return new BackfillTaskScheduler(
                     executor,
                     gap -> {
@@ -302,7 +289,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 endCap);
         List<GapDetector.Gap> typedGaps = gapDetector.findTypedGaps(blockRanges, startBound, liveTailBoundary, endCap);
         if (!typedGaps.isEmpty()) {
-            backfillGapsDetected.add(typedGaps.size());
+            metricsHolder.backfillGapsDetected().add(typedGaps.size());
         }
         for (GapDetector.Gap gap : typedGaps) {
             LOGGER.log(
@@ -399,7 +386,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     TRACE,
                     "Received backfill persisted notification for block=[%s]".formatted(notification.blockNumber()));
 
-            backfillBlocksBackfilled.increment();
+            metricsHolder.backfillBlocksBackfilled().increment();
             pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
         } else {
             LOGGER.log(TRACE, "Received non-backfill persisted notification: [%s]".formatted(notification));
@@ -416,7 +403,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     TRACE, "Received verification notification for block [%s]".formatted(notification.blockNumber()));
             if (!notification.success()) {
                 LOGGER.log(INFO, "Block verification failed, block=[%s]".formatted(notification.blockNumber()));
-                backfillFetchErrors.increment();
+                metricsHolder.backfillFetchErrors().increment();
                 pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
                 // If a block verification fails, we will backfill it again later on the next gap detection run.
             }
@@ -447,21 +434,47 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         scheduleGap(new GapDetector.Gap(new LongRange(startBackfillFrom, cappedEnd), GapDetector.Type.LIVE_TAIL));
     }
 
-    // BackfillMetricsCallback implementation
+    /**
+     * Holder for all backfill-related metrics.
+     * This record groups all metrics used by the backfill plugin and its components,
+     * allowing them to be passed as a single parameter.
+     */
+    public record MetricsHolder(
+            Counter backfillGapsDetected,
+            Counter backfillFetchedBlocks,
+            Counter backfillBlocksBackfilled,
+            Counter backfillFetchErrors,
+            Counter backfillRetries,
+            LongGauge backfillStatus,
+            LongGauge backfillPendingBlocksGauge,
+            LongGauge backfillInFlightGauge) {
 
-    @Override
-    public void onBlockFetched(long blockNumber) {
-        backfillFetchedBlocks.increment();
-    }
-
-    @Override
-    public void onBlockDispatched(long blockNumber) {
-        pendingBackfillBlocks.incrementAndGet();
-    }
-
-    @Override
-    public void onFetchError(Throwable error) {
-        backfillFetchErrors.increment();
-        LOGGER.log(TRACE, "Fetch error: [%s]".formatted(error != null ? error.getMessage() : "unknown"));
+        /**
+         * Factory method to create a MetricsHolder with all metrics registered.
+         *
+         * @param metrics the metrics instance to register metrics with
+         * @return a new MetricsHolder with all metrics created
+         */
+        public static MetricsHolder createMetrics(@NonNull final com.swirlds.metrics.api.Metrics metrics) {
+            return new MetricsHolder(
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_gaps_detected")
+                            .withDescription("Number of gaps detected during the backfill process.")),
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_fetched")
+                            .withDescription("Number of blocks fetched during the backfill process.")),
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_backfilled")
+                            .withDescription("Number of blocks backfilled during the backfill process.")),
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_fetch_errors")
+                            .withDescription("Number of errors encountered during the backfill process.")),
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_retries")
+                            .withDescription("Number of retries during the backfill process.")),
+                    metrics.getOrCreate(
+                            new LongGauge.Config(METRICS_CATEGORY, "backfill_status")
+                                    .withDescription(
+                                            "Current status of the backfill process (e.g., idle = 0, running = 1, error = 2).")),
+                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_pending_blocks")
+                            .withDescription("Current amount of blocks pending to be backfilled.")),
+                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_inflight_blocks")
+                            .withDescription("Current in-flight backfill blocks awaiting verification/persistence.")));
+        }
     }
 }

@@ -151,25 +151,4 @@ class BackfillPluginHelperTest {
             assertDoesNotThrow(() -> plugin.handleNewestBlockKnownToNetwork(notification));
         }
     }
-
-    @Nested
-    @DisplayName("BackfillMetricsCallback")
-    class MetricsCallbackTests {
-
-        @Test
-        @DisplayName("onBlockDispatched increments pending blocks counter")
-        void onBlockDispatchedIncrementsPendingBlocks() {
-            final BackfillPlugin plugin = new BackfillPlugin();
-
-            // pendingBackfillBlocks is initialized as AtomicLong(0) in the field
-            // onBlockDispatched should increment it
-            plugin.onBlockDispatched(100L);
-            plugin.onBlockDispatched(101L);
-            plugin.onBlockDispatched(102L);
-
-            // We can't directly access pendingBackfillBlocks, but we can verify no exception was thrown
-            // The actual value would be 3
-            assertDoesNotThrow(() -> plugin.onBlockDispatched(103L));
-        }
-    }
 }

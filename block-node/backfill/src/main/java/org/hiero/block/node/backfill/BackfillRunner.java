@@ -11,6 +11,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
@@ -26,7 +27,11 @@ final class BackfillRunner {
     private final BackfillConfiguration config;
     private final BlockMessagingFacility messaging;
     private final System.Logger logger;
-    private final BackfillMetricsCallback metricsCallback;
+
+    @NonNull
+    private final BackfillPlugin.MetricsHolder metricsHolder;
+
+    private final AtomicLong pendingBackfillBlocks;
     private final BackfillPersistenceAwaiter persistenceAwaiter;
 
     /**
@@ -36,7 +41,8 @@ final class BackfillRunner {
      * @param config the backfill configuration
      * @param messaging the messaging facility to dispatch blocks to
      * @param logger the logger for this runner
-     * @param metricsCallback callback for reporting metrics
+     * @param metricsHolder holder for backfill metrics
+     * @param pendingBackfillBlocks counter for tracking in-flight blocks
      * @param persistenceAwaiter the awaiter for blocking until blocks are persisted
      */
     BackfillRunner(
@@ -44,13 +50,15 @@ final class BackfillRunner {
             @NonNull BackfillConfiguration config,
             @NonNull BlockMessagingFacility messaging,
             @NonNull System.Logger logger,
-            @NonNull BackfillMetricsCallback metricsCallback,
+            @NonNull BackfillPlugin.MetricsHolder metricsHolder,
+            @NonNull AtomicLong pendingBackfillBlocks,
             @NonNull BackfillPersistenceAwaiter persistenceAwaiter) {
         this.fetcher = fetcher;
         this.config = config;
         this.messaging = messaging;
         this.logger = logger;
-        this.metricsCallback = metricsCallback;
+        this.metricsHolder = metricsHolder;
+        this.pendingBackfillBlocks = pendingBackfillBlocks;
         this.persistenceAwaiter = persistenceAwaiter;
     }
 
@@ -75,7 +83,7 @@ final class BackfillRunner {
                     fetcher.selectNextChunk(currentBlock, gap.end(), availability);
             if (selection.isEmpty()) {
                 logger.log(TRACE, "No available nodes found for block [%s]".formatted(currentBlock));
-                metricsCallback.onFetchError(new RuntimeException("No available nodes for block " + currentBlock));
+                metricsHolder.backfillFetchErrors().increment();
                 availability = replanAvailability(currentBlock, gap.end());
                 if (availability.isEmpty()) {
                     break;
@@ -106,11 +114,11 @@ final class BackfillRunner {
 
             for (BlockUnparsed blockUnparsed : batchOfBlocks) {
                 long blockNumber = extractBlockNumber(blockUnparsed);
-                metricsCallback.onBlockFetched(blockNumber);
+                metricsHolder.backfillFetchedBlocks().increment();
                 persistenceAwaiter.trackBlock(blockNumber);
                 messaging.sendBackfilledBlockNotification(new BackfilledBlockNotification(blockNumber, blockUnparsed));
                 logger.log(TRACE, "Backfilling block [%s]".formatted(blockNumber));
-                metricsCallback.onBlockDispatched(blockNumber);
+                pendingBackfillBlocks.incrementAndGet();
             }
             logger.log(TRACE, "Finished sending chunk [%s], waiting for persistence".formatted(chunk));
 
