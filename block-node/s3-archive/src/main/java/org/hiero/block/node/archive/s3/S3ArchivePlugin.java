@@ -234,8 +234,8 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
 
         LOGGER.log(TRACE, "Scheduling S3 archive upload for blocks: {0} - {1}", startBlock, endBlock);
 
-        activeUploads.submit(
-                new UploadTask(startBlock, endBlock, lastArchivedBlockNumber, archiveConfig, context, pendingBatchStarts));
+        activeUploads.submit(new UploadTask(
+                startBlock, endBlock, lastArchivedBlockNumber, archiveConfig, context, pendingBatchStarts));
     }
 
     /**
