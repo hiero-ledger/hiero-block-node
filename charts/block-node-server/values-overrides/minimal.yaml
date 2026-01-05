@@ -1,4 +1,5 @@
 plugins:
+    volumeName: "plugins"
     enabled: true
     baseUrl: ""
     version: "1.0.0"
