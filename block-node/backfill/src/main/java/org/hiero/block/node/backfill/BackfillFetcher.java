@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
@@ -129,9 +128,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             BlockNodeClient currentNodeClient = getNodeClient(node);
             if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
-                if (currentNodeClient != null) {
-                    currentNodeClient.initializeClient(perBlockProcessingTimeoutMs);
-                }
                 // to-do: add logic to retry node later to avoid marking it unavailable forever
                 nodeStatusMap.put(node, Status.UNAVAILABLE);
                 LOGGER.log(INFO, "Unable to reach node [%s], marked as unavailable".formatted(node));
@@ -222,9 +218,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             }
             BlockNodeClient currentNodeClient = getNodeClient(node);
             if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
-                if (currentNodeClient != null) {
-                    currentNodeClient.initializeClient(perBlockProcessingTimeoutMs);
-                }
                 nodeStatusMap.put(node, Status.UNAVAILABLE);
                 markFailure(node);
                 continue;
@@ -318,12 +311,11 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     private void markFailure(BackfillSourceConfig node) {
         healthMap.compute(node, (n, h) -> {
             if (h == null) {
-                long backoff = applyJitter(initialRetryDelayMs);
-                return new SourceHealth(1, System.currentTimeMillis() + backoff, 0, 0);
+                return new SourceHealth(1, System.currentTimeMillis() + initialRetryDelayMs, 0, 0);
             }
             int failures = h.failures + 1;
             long base = (long) initialRetryDelayMs * (1L << Math.min(failures - 1, 10));
-            long backoff = applyJitter(Math.min(base, maxBackoffMs));
+            long backoff = Math.min(base, maxBackoffMs);
             long nextAllowed = System.currentTimeMillis() + backoff;
             return new SourceHealth(failures, nextAllowed, h.successes, h.totalLatencyNanos);
         });
@@ -349,12 +341,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         double failurePenalty = h.failures * healthPenaltyPerFailure;
         double latencyPenaltyMs = h.successes > 0 ? (h.totalLatencyNanos / (double) h.successes) / 1_000_000.0 : 0;
         return failurePenalty + latencyPenaltyMs;
-    }
-
-    private long applyJitter(long base) {
-        long jitterBound = Math.max(1L, base / 4);
-        long jitter = ThreadLocalRandom.current().nextLong(jitterBound);
-        return base + jitter;
     }
 
     /**
