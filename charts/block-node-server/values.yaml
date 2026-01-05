@@ -96,6 +96,7 @@ affinity: {}
 
 plugins:
   volumeName: "plugins"
+  size: 2Gi
   enabled: true
   baseUrl: "https://repo1.maven.org/maven2/org/hiero/block-node"
   version: "0.25.0-rc1"

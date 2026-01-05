@@ -191,3 +191,6 @@ spec:
       spec:
           accessModes:
               - ReadWriteOnce
+          resources:
+              requests:
+                  storage: {{ .Values.plugins.size }}
