@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
-import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -137,9 +136,7 @@ class LiveStateCatchUpTest extends LiveStatePluginTestBase {
             List<StateChanges> changesList = new ArrayList<>();
             for (int i = 0; i < 3; i++) {
                 changesList.add(createMapBytesUpdateStateChange(
-                        MAP_STATE_ID,
-                        Bytes.wrap(new byte[]{(byte) i}),
-                        Bytes.wrap(new byte[]{(byte) (i * 10)})));
+                        MAP_STATE_ID, Bytes.wrap(new byte[] {(byte) i}), Bytes.wrap(new byte[] {(byte) (i * 10)})));
             }
             BlockUnparsed block0 = createBlockWithStateChanges(0, new byte[48], changesList);
             historicalBlockFacility.addBlock(0, block0);
@@ -159,7 +156,8 @@ class LiveStateCatchUpTest extends LiveStatePluginTestBase {
 
             // Verify map entries
             for (int i = 0; i < 3; i++) {
-                assertNotNull(plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[]{(byte) i})),
+                assertNotNull(
+                        plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[] {(byte) i})),
                         "Map entry " + i + " should exist after catch-up");
             }
         }
@@ -171,9 +169,9 @@ class LiveStateCatchUpTest extends LiveStatePluginTestBase {
 
             // Create block with queue pushes
             List<StateChanges> changesList = new ArrayList<>();
-            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{1})));
-            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{2})));
-            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{3})));
+            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {1})));
+            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {2})));
+            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {3})));
 
             BlockUnparsed block0 = createBlockWithStateChanges(0, new byte[48], changesList);
             historicalBlockFacility.addBlock(0, block0);
@@ -209,8 +207,8 @@ class LiveStateCatchUpTest extends LiveStatePluginTestBase {
             List<StateChanges> changesList = new ArrayList<>();
             changesList.add(createSingletonStateChange(SINGLETON_STATE_ID, 999L));
             changesList.add(createMapBytesUpdateStateChange(
-                    MAP_STATE_ID, Bytes.wrap(new byte[]{1}), Bytes.wrap(new byte[]{10})));
-            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{100})));
+                    MAP_STATE_ID, Bytes.wrap(new byte[] {1}), Bytes.wrap(new byte[] {10})));
+            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {100})));
 
             BlockUnparsed block0 = createBlockWithStateChanges(0, new byte[48], changesList);
             historicalBlockFacility.addBlock(0, block0);
@@ -230,7 +228,7 @@ class LiveStateCatchUpTest extends LiveStatePluginTestBase {
 
             // Verify all state changes were applied
             assertNotNull(plugin.singleton(SINGLETON_STATE_ID));
-            assertNotNull(plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[]{1})));
+            assertNotNull(plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[] {1})));
             assertEquals(1, plugin.queueAsList(QUEUE_STATE_ID).size());
         }
     }
@@ -309,8 +307,8 @@ class LiveStateCatchUpTest extends LiveStatePluginTestBase {
             for (int i = 0; i < 100; i++) {
                 changesList.add(createMapBytesUpdateStateChange(
                         MAP_STATE_ID,
-                        Bytes.wrap(new byte[]{(byte) (i / 256), (byte) (i % 256)}),
-                        Bytes.wrap(new byte[]{(byte) i})));
+                        Bytes.wrap(new byte[] {(byte) (i / 256), (byte) (i % 256)}),
+                        Bytes.wrap(new byte[] {(byte) i})));
             }
 
             BlockUnparsed block0 = createBlockWithStateChanges(0, new byte[48], changesList);
@@ -333,5 +331,4 @@ class LiveStateCatchUpTest extends LiveStatePluginTestBase {
             assertEquals(0, plugin.blockNumber());
         }
     }
-
 }

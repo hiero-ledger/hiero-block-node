@@ -3,7 +3,6 @@ package org.hiero.block.node.state.live;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
@@ -67,7 +66,8 @@ class LiveStatePluginLifecycleTest extends LiveStatePluginTestBase {
         initAndStartPlugin();
 
         // Verify the plugin registered itself with the messaging facility
-        assertTrue(blockMessaging.getNotificationHandlers().contains(plugin),
+        assertTrue(
+                blockMessaging.getNotificationHandlers().contains(plugin),
                 "Plugin should be registered as a notification handler");
     }
 
@@ -79,7 +79,8 @@ class LiveStatePluginLifecycleTest extends LiveStatePluginTestBase {
         initAndStartPlugin(java.util.Map.of(
                 "state.live.storagePath", customPath.toString(),
                 "state.live.latestStatePath", customPath.resolve("latest").toString(),
-                "state.live.stateMetadataPath", customPath.resolve("metadata.dat").toString()));
+                "state.live.stateMetadataPath",
+                        customPath.resolve("metadata.dat").toString()));
 
         // Verify plugin started successfully with custom path
         assertEquals(-1, plugin.blockNumber());

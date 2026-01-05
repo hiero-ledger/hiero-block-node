@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.live;
 
 import com.hedera.hapi.block.stream.output.StateIdentifier;

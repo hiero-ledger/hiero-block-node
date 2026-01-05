@@ -97,7 +97,6 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
 
         // Register to receive block verification notifications
         context.blockMessaging().registerBlockNotificationHandler(this, true, "LiveStateNotificationHandler");
-
     }
 
     @Override
@@ -108,12 +107,14 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
             // check if we have a saved state to load
             if (Files.exists(config.stateMetadataPath())) {
                 // load saved state metadata
-                try(ObjectInputStream ois = new ObjectInputStream(Files.newInputStream(config.stateMetadataPath()))) {
+                try (ObjectInputStream ois = new ObjectInputStream(Files.newInputStream(config.stateMetadataPath()))) {
                     stateMetadata = (StateMetadata) ois.readObject();
                 }
                 // Create a state lifecycle manager
-                stateLifecycleManager = new StateLifecycleManagerImpl(context.metrics(), Time.getCurrent(),
-                    (virtualMap) -> new VirtualMapState(virtualMap, context.metrics()));
+                stateLifecycleManager = new StateLifecycleManagerImpl(
+                        context.metrics(),
+                        Time.getCurrent(),
+                        (virtualMap) -> new VirtualMapState(virtualMap, context.metrics()));
                 // load saved state
                 final MerkleNodeState latestState = stateLifecycleManager.loadSnapshot(config.latestStatePath());
                 stateLifecycleManager.initState(latestState, true);
@@ -122,8 +123,10 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
                 // create new state metadata
                 stateMetadata = new StateMetadata(-1, new byte[48]);
                 // Create a state lifecycle manager
-                stateLifecycleManager = new StateLifecycleManagerImpl(context.metrics(), Time.getCurrent(),
-                    (virtualMap) -> new VirtualMapState(virtualMap, context.metrics()));
+                stateLifecycleManager = new StateLifecycleManagerImpl(
+                        context.metrics(),
+                        Time.getCurrent(),
+                        (virtualMap) -> new VirtualMapState(virtualMap, context.metrics()));
                 // create a new empty virtual map state
                 VirtualMapState state = new VirtualMapState(context.configuration(), context.metrics());
                 stateLifecycleManager.initState(state, true);
@@ -132,8 +135,10 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
             catchUpFromHistoricalBlocks();
 
             stateReady = true;
-            logger.log(INFO, "Live State Plugin started successfully. Last applied block: {0}",
-                stateMetadata.lastAppliedBlockNumber());
+            logger.log(
+                    INFO,
+                    "Live State Plugin started successfully. Last applied block: {0}",
+                    stateMetadata.lastAppliedBlockNumber());
         } catch (final Exception e) {
             logger.log(ERROR, "Failed to start Live State Plugin", e);
             throw new RuntimeException("Failed to initialize live state", e);
@@ -158,7 +163,7 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
         try {
             // Ensure parent directory exists
             Files.createDirectories(config.stateMetadataPath().getParent());
-            try(ObjectOutputStream out = new ObjectOutputStream(Files.newOutputStream(config.stateMetadataPath()))) {
+            try (ObjectOutputStream out = new ObjectOutputStream(Files.newOutputStream(config.stateMetadataPath()))) {
                 out.writeObject(stateMetadata);
             }
         } catch (IOException e) {
@@ -176,7 +181,8 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
                                 Files.delete(path);
                             } catch (final Exception e) {
                                 logger.log(ERROR, "Failed to delete file during cleanup of old state: " + path, e);
-                                throw new RuntimeException("Failed to delete file during cleanup of old state: " + path, e);
+                                throw new RuntimeException(
+                                        "Failed to delete file during cleanup of old state: " + path, e);
                             }
                         });
             }
@@ -189,7 +195,7 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
             Files.createDirectories(latestStatePath);
         } catch (IOException e) {
             logger.log(ERROR, "Failed to create latest state directory: " + latestStatePath, e);
-            throw new RuntimeException("Failed to create latest state directory",e);
+            throw new RuntimeException("Failed to create latest state directory", e);
         }
         stateLifecycleManager.createSnapshot(stateLifecycleManager.getLatestImmutableState(), latestStatePath);
         // In-memory map doesn't need explicit cleanup
@@ -221,7 +227,7 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
             logger.log(
                     WARNING,
                     "Out of order block received. Expected {0}, got {1}",
-                stateMetadata.lastAppliedBlockNumber() + 1,
+                    stateMetadata.lastAppliedBlockNumber() + 1,
                     blockNumber);
             return;
         }
@@ -255,7 +261,6 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
             return;
         }
 
-
         // Find the range of blocks we need to apply
         final long startBlock = stateMetadata.lastAppliedBlockNumber() + 1;
         final long endBlock = availableBlocks.max();
@@ -280,7 +285,7 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
                     // apply state changes
                     applyBlockStateChanges(block, blockNum);
                 } else {
-                    logger.log(WARNING, "Block "+blockNum+" has no block data during catch-up");
+                    logger.log(WARNING, "Block " + blockNum + " has no block data during catch-up");
                 }
             } catch (final Exception e) {
                 logger.log(ERROR, "Failed to apply block " + blockNum + " during catch-up", e);
@@ -292,10 +297,8 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
             }
         }
 
-        logger.log(INFO, "Catch-up complete. Last applied block: {0}",
-            stateMetadata.lastAppliedBlockNumber());
+        logger.log(INFO, "Catch-up complete. Last applied block: {0}", stateMetadata.lastAppliedBlockNumber());
     }
-
 
     /**
      * Apply state changes from an unparsed block.
@@ -307,20 +310,24 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
         // get state hash from block footer to compare
         try {
             final BlockItemUnparsed bfItem = block.blockItems().stream()
-                .filter(BlockItemUnparsed::hasBlockFooter).findFirst().orElseThrow();
+                    .filter(BlockItemUnparsed::hasBlockFooter)
+                    .findFirst()
+                    .orElseThrow();
             final BlockFooter blockFooter = BlockFooter.PROTOBUF.parse(bfItem.blockFooterOrThrow());
-            byte[] stateRootHashAtStartOfBlock = blockFooter.startOfBlockStateRootHash().toByteArray();
+            byte[] stateRootHashAtStartOfBlock =
+                    blockFooter.startOfBlockStateRootHash().toByteArray();
             // compare hashes
             if (blockNumber == 0) {
                 // expect an all zeros hash
-                if(!Arrays.equals(stateRootHashAtStartOfBlock, new byte[48])) {
-                    throw new RuntimeException("Expected an all 48 zeros hash for block 0, got " +
-                        HexFormat.of().formatHex(stateRootHashAtStartOfBlock));
+                if (!Arrays.equals(stateRootHashAtStartOfBlock, new byte[48])) {
+                    throw new RuntimeException("Expected an all 48 zeros hash for block 0, got "
+                            + HexFormat.of().formatHex(stateRootHashAtStartOfBlock));
                 }
             } else {
-                if(!Arrays.equals(stateRootHashAtStartOfBlock, stateMetadata.nextBlockStateRootHash())) {
-                    throw new RuntimeException("Expected state root hash " + HexFormat.of().formatHex(stateMetadata.nextBlockStateRootHash()) +
-                        " for block " + blockNumber + ", got " + HexFormat.of().formatHex(stateRootHashAtStartOfBlock));
+                if (!Arrays.equals(stateRootHashAtStartOfBlock, stateMetadata.nextBlockStateRootHash())) {
+                    throw new RuntimeException("Expected state root hash "
+                            + HexFormat.of().formatHex(stateMetadata.nextBlockStateRootHash()) + " for block "
+                            + blockNumber + ", got " + HexFormat.of().formatHex(stateRootHashAtStartOfBlock));
                 }
             }
         } catch (ParseException e) {
@@ -329,7 +336,7 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
         // get the current mutable state
         final MerkleNodeState state = stateLifecycleManager.getMutableState();
         // hack to get virtual map instance
-        final VirtualMap virtualMap = (VirtualMap)state.getRoot();
+        final VirtualMap virtualMap = (VirtualMap) state.getRoot();
         // apply state changes from each block item
         for (final var item : block.blockItems()) {
             if (item.hasStateChanges()) {
@@ -343,8 +350,7 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
         Hash stateRootHash = state.getHash();
         // update the last block number, and next state root hash
         assert stateRootHash != null;
-        stateMetadata = new StateMetadata(blockNumber,
-            stateRootHash.getBytes().toByteArray());
+        stateMetadata = new StateMetadata(blockNumber, stateRootHash.getBytes().toByteArray());
     }
 
     // ================================================================================================================
@@ -433,8 +439,8 @@ public class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandle
         final VirtualMap virtualMap = getLatestVirtualMap();
         final QueueState state = queueState(stateID);
         if (index < state.head() || index >= state.tail()) {
-            throw new IllegalArgumentException(
-                    "Index " + index + " is out of bounds. Valid range is [" + state.head() + ", " + (state.tail() - 1) + "]");
+            throw new IllegalArgumentException("Index " + index + " is out of bounds. Valid range is [" + state.head()
+                    + ", " + (state.tail() - 1) + "]");
         }
         final Bytes elementKey = queueKey(stateID, index);
         return virtualMap.getBytes(elementKey);

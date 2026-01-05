@@ -75,8 +75,8 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
         @Test
         @DisplayName("Ignores notifications with null block")
         void testIgnoresNullBlock() {
-            VerificationNotification notification = new VerificationNotification(
-                    true, 0, Bytes.wrap(new byte[48]), null, BlockSource.PUBLISHER);
+            VerificationNotification notification =
+                    new VerificationNotification(true, 0, Bytes.wrap(new byte[48]), null, BlockSource.PUBLISHER);
 
             plugin.handleVerification(notification);
 
@@ -114,8 +114,7 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
             StateChanges changes2 = createSingletonStateChange(101, 222L);
             StateChanges changes3 = createSingletonStateChange(102, 333L);
 
-            BlockUnparsed block = createBlockWithStateChanges(
-                    0, new byte[48], List.of(changes1, changes2, changes3));
+            BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(changes1, changes2, changes3));
 
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
@@ -128,7 +127,7 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
         @Test
         @DisplayName("Singleton bytes value stored and retrieved correctly")
         void testSingletonBytesValue() {
-            Bytes testValue = Bytes.wrap(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+            Bytes testValue = Bytes.wrap(new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
             StateChanges stateChanges = createSingletonBytesStateChange(SINGLETON_STATE_ID, testValue);
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges));
 
@@ -153,8 +152,8 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
         @Test
         @DisplayName("Map entry is readable after verification")
         void testMapEntryAfterVerification() {
-            Bytes key = Bytes.wrap(new byte[]{10, 20, 30});
-            Bytes value = Bytes.wrap(new byte[]{100, 110, 120});
+            Bytes key = Bytes.wrap(new byte[] {10, 20, 30});
+            Bytes value = Bytes.wrap(new byte[] {100, 110, 120});
             StateChanges stateChanges = createMapBytesUpdateStateChange(MAP_STATE_ID, key, value);
 
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges));
@@ -169,8 +168,8 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
         void testMultipleMapEntriesInBlock() {
             List<StateChanges> changesList = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
-                Bytes key = Bytes.wrap(new byte[]{(byte) i});
-                Bytes value = Bytes.wrap(new byte[]{(byte) (i * 10)});
+                Bytes key = Bytes.wrap(new byte[] {(byte) i});
+                Bytes value = Bytes.wrap(new byte[] {(byte) (i * 10)});
                 changesList.add(createMapBytesUpdateStateChange(MAP_STATE_ID, key, value));
             }
 
@@ -179,7 +178,7 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
 
             // All entries should be readable
             for (int i = 0; i < 5; i++) {
-                Bytes key = Bytes.wrap(new byte[]{(byte) i});
+                Bytes key = Bytes.wrap(new byte[] {(byte) i});
                 assertNotNull(plugin.mapValue(MAP_STATE_ID, key), "Entry " + i + " should exist");
             }
         }
@@ -187,9 +186,9 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
         @Test
         @DisplayName("Map entries in different state IDs are independent")
         void testMapEntriesDifferentStateIds() {
-            Bytes key = Bytes.wrap(new byte[]{1});
-            StateChanges changes1 = createMapBytesUpdateStateChange(50, key, Bytes.wrap(new byte[]{10}));
-            StateChanges changes2 = createMapBytesUpdateStateChange(51, key, Bytes.wrap(new byte[]{20}));
+            Bytes key = Bytes.wrap(new byte[] {1});
+            StateChanges changes1 = createMapBytesUpdateStateChange(50, key, Bytes.wrap(new byte[] {10}));
+            StateChanges changes2 = createMapBytesUpdateStateChange(51, key, Bytes.wrap(new byte[] {20}));
 
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(changes1, changes2));
             plugin.handleVerification(createVerificationNotification(0, block, true));
@@ -210,7 +209,7 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
                 largeValueData[i] = (byte) (i % 256);
             }
 
-            Bytes key = Bytes.wrap(new byte[]{1, 2, 3});
+            Bytes key = Bytes.wrap(new byte[] {1, 2, 3});
             Bytes largeValue = Bytes.wrap(largeValueData);
             StateChanges stateChanges = createMapBytesUpdateStateChange(MAP_STATE_ID, key, largeValue);
 
@@ -234,7 +233,7 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
         @Test
         @DisplayName("Queue element is readable after push via verification")
         void testQueuePushAfterVerification() {
-            Bytes element = Bytes.wrap(new byte[]{1, 2, 3, 4, 5});
+            Bytes element = Bytes.wrap(new byte[] {1, 2, 3, 4, 5});
             StateChanges stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, element);
 
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges));
@@ -255,7 +254,7 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
         void testMultipleQueuePushesInBlock() {
             List<StateChanges> changesList = new ArrayList<>();
             for (int i = 0; i < 3; i++) {
-                changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{(byte) i})));
+                changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {(byte) i})));
             }
 
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], changesList);
@@ -275,9 +274,9 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
         @DisplayName("Queue head and tail are different for multiple elements")
         void testQueueHeadTailDifferent() {
             // Push first element with value 1
-            StateChanges push1 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{1}));
+            StateChanges push1 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {1}));
             // Push second element with value 2
-            StateChanges push2 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{2}));
+            StateChanges push2 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {2}));
 
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(push1, push2));
             plugin.handleVerification(createVerificationNotification(0, block, true));
@@ -289,6 +288,30 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
             assertNotNull(tail);
             // They should be different elements
             assertNotEquals(head, tail);
+        }
+
+        @Test
+        @DisplayName("Queue pop removes head element")
+        void testQueuePopRemovesHead() {
+            // Push three elements and pop one in the same block
+            // This avoids needing to track state hashes across blocks
+            List<StateChanges> changesList = new ArrayList<>();
+            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {1})));
+            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {2})));
+            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {3})));
+            changesList.add(createQueuePopStateChange(QUEUE_STATE_ID)); // Pop the first element
+
+            BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], changesList);
+            plugin.handleVerification(createVerificationNotification(0, block, true));
+
+            // After 3 pushes and 1 pop: head should be 2 (advanced by 1), tail should be 4
+            QueueState queueState = plugin.queueState(QUEUE_STATE_ID);
+            assertEquals(2, queueState.head());
+            assertEquals(4, queueState.tail());
+
+            // Should have 2 elements remaining
+            List<Bytes> elements = plugin.queueAsList(QUEUE_STATE_ID);
+            assertEquals(2, elements.size());
         }
     }
 
@@ -310,17 +333,17 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
 
             // Add map change
             changesList.add(createMapBytesUpdateStateChange(
-                    MAP_STATE_ID, Bytes.wrap(new byte[]{1}), Bytes.wrap(new byte[]{10})));
+                    MAP_STATE_ID, Bytes.wrap(new byte[] {1}), Bytes.wrap(new byte[] {10})));
 
             // Add queue push
-            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{100})));
+            changesList.add(createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {100})));
 
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], changesList);
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
             // Verify all changes were applied
             assertNotNull(plugin.singleton(SINGLETON_STATE_ID), "Singleton should exist");
-            assertNotNull(plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[]{1})), "Map entry should exist");
+            assertNotNull(plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[] {1})), "Map entry should exist");
             assertEquals(1, plugin.queueAsList(QUEUE_STATE_ID).size(), "Queue should have one element");
         }
 
@@ -375,5 +398,4 @@ class LiveStateVerificationHandlerTest extends LiveStatePluginTestBase {
             assertEquals(0, plugin.blockNumber());
         }
     }
-
 }

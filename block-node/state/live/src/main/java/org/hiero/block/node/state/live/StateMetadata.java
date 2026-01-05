@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.live;
 
 import java.io.Serializable;
@@ -11,8 +12,4 @@ import java.io.Serializable;
  *                               get data for the next block(lastAppliedBlockNumber+1). It will be null if no blocks
  *                               have been applied yet.
  */
-public record StateMetadata(
-    long lastAppliedBlockNumber,
-    byte[] nextBlockStateRootHash
-) implements Serializable {
-}
+public record StateMetadata(long lastAppliedBlockNumber, byte[] nextBlockStateRootHash) implements Serializable {}

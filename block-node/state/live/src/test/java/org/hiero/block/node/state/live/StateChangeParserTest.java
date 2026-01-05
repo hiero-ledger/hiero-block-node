@@ -26,13 +26,13 @@ import com.swirlds.metrics.api.Metrics;
 import com.swirlds.state.merkle.StateUtils;
 import com.swirlds.state.merkle.VirtualMapState;
 import com.swirlds.virtualmap.VirtualMap;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import java.nio.file.Path;
 
 /**
  * Tests for {@link StateChangeParser}.
@@ -63,8 +63,9 @@ class StateChangeParserTest {
                 .withConfigDataType(com.swirlds.common.io.config.TemporaryFileConfig.class)
                 // State common config
                 .withConfigDataType(com.swirlds.common.config.StateCommonConfig.class)
-                // Set config values
+                // Set config values to use temp directory
                 .withValue("merkleDb.databasePath", tempDir.toString())
+                .withValue("state.savedStateDirectory", tempDir.resolve("saved").toString())
                 .withValue("prometheus.endpointEnabled", "false")
                 .build();
 
@@ -96,18 +97,15 @@ class StateChangeParserTest {
     void testSingletonUpdateWithTimestamp() {
         // Create a SingletonUpdateChange with a Timestamp value
         Timestamp timestamp = new Timestamp(1234567890L, 123);
-        SingletonUpdateChange singletonChange = SingletonUpdateChange.newBuilder()
-                .timestampValue(timestamp)
-                .build();
+        SingletonUpdateChange singletonChange =
+                SingletonUpdateChange.newBuilder().timestampValue(timestamp).build();
 
         StateChange stateChange = StateChange.newBuilder()
                 .stateId(TEST_STATE_ID)
                 .singletonUpdate(singletonChange)
                 .build();
 
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange));
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
 
         Bytes stateChangesBytes = StateChanges.PROTOBUF.toBytes(stateChanges);
 
@@ -123,19 +121,16 @@ class StateChangeParserTest {
     @Test
     @DisplayName("Test singleton update with bytes value")
     void testSingletonUpdateWithBytesValue() {
-        Bytes testBytes = Bytes.wrap(new byte[]{1, 2, 3, 4, 5});
-        SingletonUpdateChange singletonChange = SingletonUpdateChange.newBuilder()
-                .bytesValue(testBytes)
-                .build();
+        Bytes testBytes = Bytes.wrap(new byte[] {1, 2, 3, 4, 5});
+        SingletonUpdateChange singletonChange =
+                SingletonUpdateChange.newBuilder().bytesValue(testBytes).build();
 
         StateChange stateChange = StateChange.newBuilder()
                 .stateId(TEST_STATE_ID)
                 .singletonUpdate(singletonChange)
                 .build();
 
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange));
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
 
         Bytes stateChangesBytes = StateChanges.PROTOBUF.toBytes(stateChanges);
 
@@ -149,18 +144,15 @@ class StateChangeParserTest {
     @Test
     @DisplayName("Test singleton update with entity number value")
     void testSingletonUpdateWithEntityNumber() {
-        SingletonUpdateChange singletonChange = SingletonUpdateChange.newBuilder()
-                .entityNumberValue(999L)
-                .build();
+        SingletonUpdateChange singletonChange =
+                SingletonUpdateChange.newBuilder().entityNumberValue(999L).build();
 
         StateChange stateChange = StateChange.newBuilder()
                 .stateId(TEST_STATE_ID)
                 .singletonUpdate(singletonChange)
                 .build();
 
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange));
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
 
         Bytes stateChangesBytes = StateChanges.PROTOBUF.toBytes(stateChanges);
 
@@ -185,16 +177,13 @@ class StateChangeParserTest {
                 .build();
         Account account = Account.newBuilder()
                 .accountId(accountId)
-                .alias(Bytes.wrap(new byte[]{10, 20, 30}))
+                .alias(Bytes.wrap(new byte[] {10, 20, 30}))
                 .build();
 
-        MapChangeKey mapKey = MapChangeKey.newBuilder()
-                .accountIdKey(accountId)
-                .build();
+        MapChangeKey mapKey = MapChangeKey.newBuilder().accountIdKey(accountId).build();
 
-        MapChangeValue mapValue = MapChangeValue.newBuilder()
-                .accountValue(account)
-                .build();
+        MapChangeValue mapValue =
+                MapChangeValue.newBuilder().accountValue(account).build();
 
         MapUpdateChange mapChange = new MapUpdateChange(mapKey, mapValue, false);
 
@@ -203,9 +192,7 @@ class StateChangeParserTest {
                 .mapUpdate(mapChange)
                 .build();
 
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange));
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
 
         Bytes stateChangesBytes = StateChanges.PROTOBUF.toBytes(stateChanges);
 
@@ -219,15 +206,12 @@ class StateChangeParserTest {
     @Test
     @DisplayName("Test map update with proto bytes key")
     void testMapUpdateWithProtoBytesKey() {
-        Bytes keyBytes = Bytes.wrap(new byte[]{100, 101, 102});
+        Bytes keyBytes = Bytes.wrap(new byte[] {100, 101, 102});
 
-        MapChangeKey mapKey = MapChangeKey.newBuilder()
-                .protoBytesKey(keyBytes)
-                .build();
+        MapChangeKey mapKey = MapChangeKey.newBuilder().protoBytesKey(keyBytes).build();
 
-        MapChangeValue mapValue = MapChangeValue.newBuilder()
-                .protoStringValue("test value")
-                .build();
+        MapChangeValue mapValue =
+                MapChangeValue.newBuilder().protoStringValue("test value").build();
 
         MapUpdateChange mapChange = new MapUpdateChange(mapKey, mapValue, false);
 
@@ -236,9 +220,7 @@ class StateChangeParserTest {
                 .mapUpdate(mapChange)
                 .build();
 
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange));
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
 
         Bytes stateChangesBytes = StateChanges.PROTOBUF.toBytes(stateChanges);
 
@@ -265,11 +247,15 @@ class StateChangeParserTest {
         Account account1 = Account.newBuilder().accountId(accountId1).build();
         Account account2 = Account.newBuilder().accountId(accountId2).build();
 
-        MapChangeKey mapKey1 = MapChangeKey.newBuilder().accountIdKey(accountId1).build();
-        MapChangeKey mapKey2 = MapChangeKey.newBuilder().accountIdKey(accountId2).build();
+        MapChangeKey mapKey1 =
+                MapChangeKey.newBuilder().accountIdKey(accountId1).build();
+        MapChangeKey mapKey2 =
+                MapChangeKey.newBuilder().accountIdKey(accountId2).build();
 
-        MapChangeValue mapValue1 = MapChangeValue.newBuilder().accountValue(account1).build();
-        MapChangeValue mapValue2 = MapChangeValue.newBuilder().accountValue(account2).build();
+        MapChangeValue mapValue1 =
+                MapChangeValue.newBuilder().accountValue(account1).build();
+        MapChangeValue mapValue2 =
+                MapChangeValue.newBuilder().accountValue(account2).build();
 
         MapUpdateChange mapChange1 = new MapUpdateChange(mapKey1, mapValue1, false);
         MapUpdateChange mapChange2 = new MapUpdateChange(mapKey2, mapValue2, false);
@@ -284,9 +270,7 @@ class StateChangeParserTest {
                 .mapUpdate(mapChange2)
                 .build();
 
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange1, stateChange2));
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange1, stateChange2));
 
         Bytes stateChangesBytes = StateChanges.PROTOBUF.toBytes(stateChanges);
 
@@ -311,13 +295,10 @@ class StateChangeParserTest {
                 .build();
         Account account = Account.newBuilder().accountId(accountId).build();
 
-        MapChangeKey mapKey = MapChangeKey.newBuilder()
-                .accountIdKey(accountId)
-                .build();
+        MapChangeKey mapKey = MapChangeKey.newBuilder().accountIdKey(accountId).build();
 
-        MapChangeValue mapValue = MapChangeValue.newBuilder()
-                .accountValue(account)
-                .build();
+        MapChangeValue mapValue =
+                MapChangeValue.newBuilder().accountValue(account).build();
 
         MapUpdateChange mapUpdateChange = new MapUpdateChange(mapKey, mapValue, false);
 
@@ -326,9 +307,7 @@ class StateChangeParserTest {
                 .mapUpdate(mapUpdateChange)
                 .build();
 
-        StateChanges updateStateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(updateStateChange));
+        StateChanges updateStateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(updateStateChange));
 
         long sizeBeforeUpdate = virtualMap.size();
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(updateStateChanges));
@@ -342,9 +321,7 @@ class StateChangeParserTest {
                 .mapDelete(mapDeleteChange)
                 .build();
 
-        StateChanges deleteStateChanges = new StateChanges(
-                new Timestamp(1001L, 0),
-                List.of(deleteStateChange));
+        StateChanges deleteStateChanges = new StateChanges(new Timestamp(1001L, 0), List.of(deleteStateChange));
 
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(deleteStateChanges));
         assertEquals(sizeBeforeUpdate, virtualMap.size(), "Map should return to original size after delete");
@@ -354,15 +331,12 @@ class StateChangeParserTest {
     @DisplayName("Test map delete with proto bytes key")
     void testMapDeleteWithProtoBytesKey() {
         // First, add an entry
-        Bytes keyBytes = Bytes.wrap(new byte[]{1, 2, 3});
+        Bytes keyBytes = Bytes.wrap(new byte[] {1, 2, 3});
 
-        MapChangeKey mapKey = MapChangeKey.newBuilder()
-                .protoBytesKey(keyBytes)
-                .build();
+        MapChangeKey mapKey = MapChangeKey.newBuilder().protoBytesKey(keyBytes).build();
 
-        MapChangeValue mapValue = MapChangeValue.newBuilder()
-                .protoStringValue("test")
-                .build();
+        MapChangeValue mapValue =
+                MapChangeValue.newBuilder().protoStringValue("test").build();
 
         MapUpdateChange mapUpdateChange = new MapUpdateChange(mapKey, mapValue, false);
 
@@ -371,9 +345,7 @@ class StateChangeParserTest {
                 .mapUpdate(mapUpdateChange)
                 .build();
 
-        StateChanges updateStateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(updateStateChange));
+        StateChanges updateStateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(updateStateChange));
 
         long sizeBeforeUpdate = virtualMap.size();
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(updateStateChanges));
@@ -387,9 +359,7 @@ class StateChangeParserTest {
                 .mapDelete(mapDeleteChange)
                 .build();
 
-        StateChanges deleteStateChanges = new StateChanges(
-                new Timestamp(1001L, 0),
-                List.of(deleteStateChange));
+        StateChanges deleteStateChanges = new StateChanges(new Timestamp(1001L, 0), List.of(deleteStateChange));
 
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(deleteStateChanges));
         assertEquals(sizeBeforeUpdate, virtualMap.size(), "Map should return to original size after delete");
@@ -402,19 +372,16 @@ class StateChangeParserTest {
     @Test
     @DisplayName("Test queue push adds element to new queue")
     void testQueuePushToNewQueue() {
-        Bytes testData = Bytes.wrap(new byte[]{1, 2, 3, 4, 5});
-        QueuePushChange queuePush = QueuePushChange.newBuilder()
-                .protoBytesElement(testData)
-                .build();
+        Bytes testData = Bytes.wrap(new byte[] {1, 2, 3, 4, 5});
+        QueuePushChange queuePush =
+                QueuePushChange.newBuilder().protoBytesElement(testData).build();
 
         StateChange stateChange = StateChange.newBuilder()
                 .stateId(QUEUE_STATE_ID)
                 .queuePush(queuePush)
                 .build();
 
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange));
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
 
         Bytes stateChangesBytes = StateChanges.PROTOBUF.toBytes(stateChanges);
 
@@ -438,9 +405,7 @@ class StateChangeParserTest {
                 .queuePush(queuePush)
                 .build();
 
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange));
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
 
         Bytes stateChangesBytes = StateChanges.PROTOBUF.toBytes(stateChanges);
 
@@ -455,7 +420,7 @@ class StateChangeParserTest {
     void testMultipleQueuePushes() {
         // Push the first element
         QueuePushChange queuePush1 = QueuePushChange.newBuilder()
-                .protoBytesElement(Bytes.wrap(new byte[]{1}))
+                .protoBytesElement(Bytes.wrap(new byte[] {1}))
                 .build();
 
         StateChange stateChange1 = StateChange.newBuilder()
@@ -463,9 +428,7 @@ class StateChangeParserTest {
                 .queuePush(queuePush1)
                 .build();
 
-        StateChanges stateChanges1 = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange1));
+        StateChanges stateChanges1 = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange1));
 
         long sizeBefore = virtualMap.size();
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(stateChanges1));
@@ -473,7 +436,7 @@ class StateChangeParserTest {
 
         // Push the second element
         QueuePushChange queuePush2 = QueuePushChange.newBuilder()
-                .protoBytesElement(Bytes.wrap(new byte[]{2}))
+                .protoBytesElement(Bytes.wrap(new byte[] {2}))
                 .build();
 
         StateChange stateChange2 = StateChange.newBuilder()
@@ -481,16 +444,14 @@ class StateChangeParserTest {
                 .queuePush(queuePush2)
                 .build();
 
-        StateChanges stateChanges2 = new StateChanges(
-                new Timestamp(1001L, 0),
-                List.of(stateChange2));
+        StateChanges stateChanges2 = new StateChanges(new Timestamp(1001L, 0), List.of(stateChange2));
 
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(stateChanges2));
         assertEquals(sizeBefore + 3, virtualMap.size(), "Should have queue state + 2 elements");
 
         // Push the third element
         QueuePushChange queuePush3 = QueuePushChange.newBuilder()
-                .protoBytesElement(Bytes.wrap(new byte[]{3}))
+                .protoBytesElement(Bytes.wrap(new byte[] {3}))
                 .build();
 
         StateChange stateChange3 = StateChange.newBuilder()
@@ -498,9 +459,7 @@ class StateChangeParserTest {
                 .queuePush(queuePush3)
                 .build();
 
-        StateChanges stateChanges3 = new StateChanges(
-                new Timestamp(1002L, 0),
-                List.of(stateChange3));
+        StateChanges stateChanges3 = new StateChanges(new Timestamp(1002L, 0), List.of(stateChange3));
 
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(stateChanges3));
         assertEquals(sizeBefore + 4, virtualMap.size(), "Should have queue state + 3 elements");
@@ -521,8 +480,8 @@ class StateChangeParserTest {
         // Add queue elements at positions 1 and 2
         Bytes element1Key = com.swirlds.state.merkle.StateKeyUtils.queueKey(QUEUE_STATE_ID, 1);
         Bytes element2Key = com.swirlds.state.merkle.StateKeyUtils.queueKey(QUEUE_STATE_ID, 2);
-        virtualMap.putBytes(element1Key, Bytes.wrap(new byte[]{10}));
-        virtualMap.putBytes(element2Key, Bytes.wrap(new byte[]{20}));
+        virtualMap.putBytes(element1Key, Bytes.wrap(new byte[] {10}));
+        virtualMap.putBytes(element2Key, Bytes.wrap(new byte[] {20}));
 
         long sizeAfterSetup = virtualMap.size();
 
@@ -534,9 +493,7 @@ class StateChangeParserTest {
                 .queuePop(queuePop)
                 .build();
 
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange));
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
 
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(stateChanges));
 
@@ -560,9 +517,12 @@ class StateChangeParserTest {
         QueueState initialQueueState = new QueueState(1, 4); // head=1, tail=4 (3 elements)
         virtualMap.putBytes(queueStateKey, QueueState.PROTOBUF.toBytes(initialQueueState));
 
-        virtualMap.putBytes(com.swirlds.state.merkle.StateKeyUtils.queueKey(QUEUE_STATE_ID, 1), Bytes.wrap(new byte[]{10}));
-        virtualMap.putBytes(com.swirlds.state.merkle.StateKeyUtils.queueKey(QUEUE_STATE_ID, 2), Bytes.wrap(new byte[]{20}));
-        virtualMap.putBytes(com.swirlds.state.merkle.StateKeyUtils.queueKey(QUEUE_STATE_ID, 3), Bytes.wrap(new byte[]{30}));
+        virtualMap.putBytes(
+                com.swirlds.state.merkle.StateKeyUtils.queueKey(QUEUE_STATE_ID, 1), Bytes.wrap(new byte[] {10}));
+        virtualMap.putBytes(
+                com.swirlds.state.merkle.StateKeyUtils.queueKey(QUEUE_STATE_ID, 2), Bytes.wrap(new byte[] {20}));
+        virtualMap.putBytes(
+                com.swirlds.state.merkle.StateKeyUtils.queueKey(QUEUE_STATE_ID, 3), Bytes.wrap(new byte[] {30}));
 
         long sizeAfterSetup = virtualMap.size();
 
@@ -573,9 +533,7 @@ class StateChangeParserTest {
                 .queuePop(queuePop1)
                 .build();
 
-        StateChanges stateChanges1 = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(stateChange1));
+        StateChanges stateChanges1 = new StateChanges(new Timestamp(1000L, 0), List.of(stateChange1));
 
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(stateChanges1));
         assertEquals(sizeAfterSetup - 1, virtualMap.size(), "Should have one less element after first pop");
@@ -587,9 +545,7 @@ class StateChangeParserTest {
                 .queuePop(queuePop2)
                 .build();
 
-        StateChanges stateChanges2 = new StateChanges(
-                new Timestamp(1001L, 0),
-                List.of(stateChange2));
+        StateChanges stateChanges2 = new StateChanges(new Timestamp(1001L, 0), List.of(stateChange2));
 
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(stateChanges2));
         assertEquals(sizeAfterSetup - 2, virtualMap.size(), "Should have two less elements after second pop");
@@ -608,9 +564,8 @@ class StateChangeParserTest {
     @DisplayName("Test mixed state changes in a single StateChanges")
     void testMixedStateChanges() {
         // Create a singleton update
-        SingletonUpdateChange singletonChange = SingletonUpdateChange.newBuilder()
-                .entityNumberValue(12345L)
-                .build();
+        SingletonUpdateChange singletonChange =
+                SingletonUpdateChange.newBuilder().entityNumberValue(12345L).build();
 
         StateChange singletonStateChange = StateChange.newBuilder()
                 .stateId(1)
@@ -625,28 +580,24 @@ class StateChangeParserTest {
                 .build();
         Account account = Account.newBuilder().accountId(accountId).build();
         MapChangeKey mapKey = MapChangeKey.newBuilder().accountIdKey(accountId).build();
-        MapChangeValue mapValue = MapChangeValue.newBuilder().accountValue(account).build();
+        MapChangeValue mapValue =
+                MapChangeValue.newBuilder().accountValue(account).build();
         MapUpdateChange mapChange = new MapUpdateChange(mapKey, mapValue, false);
 
-        StateChange mapStateChange = StateChange.newBuilder()
-                .stateId(2)
-                .mapUpdate(mapChange)
-                .build();
+        StateChange mapStateChange =
+                StateChange.newBuilder().stateId(2).mapUpdate(mapChange).build();
 
         // Create a queue push
         QueuePushChange queuePush = QueuePushChange.newBuilder()
-                .protoBytesElement(Bytes.wrap(new byte[]{1, 2, 3}))
+                .protoBytesElement(Bytes.wrap(new byte[] {1, 2, 3}))
                 .build();
 
-        StateChange queueStateChange = StateChange.newBuilder()
-                .stateId(3)
-                .queuePush(queuePush)
-                .build();
+        StateChange queueStateChange =
+                StateChange.newBuilder().stateId(3).queuePush(queuePush).build();
 
         // Apply all changes together
         StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of(singletonStateChange, mapStateChange, queueStateChange));
+                new Timestamp(1000L, 0), List.of(singletonStateChange, mapStateChange, queueStateChange));
 
         long sizeBefore = virtualMap.size();
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(stateChanges));
@@ -658,9 +609,7 @@ class StateChangeParserTest {
     @Test
     @DisplayName("Test empty state changes list")
     void testEmptyStateChangesList() {
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of());
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of());
 
         long sizeBefore = virtualMap.size();
         StateChangeParser.applyStateChanges(virtualMap, StateChanges.PROTOBUF.toBytes(stateChanges));
@@ -672,9 +621,7 @@ class StateChangeParserTest {
     @DisplayName("Test state changes with only consensus timestamp")
     void testStateChangesWithOnlyTimestamp() {
         // A StateChanges with just a timestamp and no state changes should be fine
-        StateChanges stateChanges = new StateChanges(
-                new Timestamp(1000L, 0),
-                List.of());
+        StateChanges stateChanges = new StateChanges(new Timestamp(1000L, 0), List.of());
 
         Bytes stateChangesBytes = StateChanges.PROTOBUF.toBytes(stateChanges);
 

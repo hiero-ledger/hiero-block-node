@@ -47,8 +47,8 @@ public final class StateChangeParser {
         }
     }
 
-    private static void processStateChange(@NonNull VirtualMap virtualMap, @NonNull ReadableSequentialData input,
-            long endPosition) {
+    private static void processStateChange(
+            @NonNull VirtualMap virtualMap, @NonNull ReadableSequentialData input, long endPosition) {
         int stateId = -1;
         while (input.position() < endPosition) {
             switch (input.readVarInt(false)) {
@@ -110,8 +110,8 @@ public final class StateChangeParser {
      * @param input the input positioned at the beginning of the singleton update change message
      * @param endPosition the position in input at which this message ends
      */
-    private static void processSingletonUpdateChange(@NonNull VirtualMap virtualMap, int stateId,
-            @NonNull ReadableSequentialData input, long endPosition) {
+    private static void processSingletonUpdateChange(
+            @NonNull VirtualMap virtualMap, int stateId, @NonNull ReadableSequentialData input, long endPosition) {
         // SingletonUpdateChange has 1 single oneof, so we do not need a loop
         final int tag = input.readVarInt(false);
         // we also do not care which field it is as they are all wire type length encoded.
@@ -121,7 +121,7 @@ public final class StateChangeParser {
         // create value bytes
         Bytes value = stateValueWrap(stateId, messageLength, input);
         // put into the virtual merkle map
-        virtualMap.putBytes(key,value);
+        virtualMap.putBytes(key, value);
     }
 
     /**
@@ -132,8 +132,8 @@ public final class StateChangeParser {
      * @param input the input positioned at the beginning of the map update change message
      * @param endPosition the position in input at which this message ends
      */
-    private static void processMapUpdateChange(@NonNull VirtualMap virtualMap, int stateId,
-            @NonNull ReadableSequentialData input, long endPosition) {
+    private static void processMapUpdateChange(
+            @NonNull VirtualMap virtualMap, int stateId, @NonNull ReadableSequentialData input, long endPosition) {
         // read map key and value contents as Bytes
         Bytes mapKeyAsStateKey = null;
         Bytes mapValueAsStateValue = null;
@@ -189,8 +189,8 @@ public final class StateChangeParser {
      * @param input the input positioned at the beginning of the map delete change message
      * @param endPosition the position in input at which this message ends
      */
-    private static void processMapDeleteChange(@NonNull VirtualMap virtualMap, int stateId,
-            @NonNull ReadableSequentialData input, long endPosition) {
+    private static void processMapDeleteChange(
+            @NonNull VirtualMap virtualMap, int stateId, @NonNull ReadableSequentialData input, long endPosition) {
         Bytes mapKeyAsStateKey = null;
         while (input.position() < endPosition) {
             final int tag = input.readVarInt(false);
@@ -233,14 +233,15 @@ public final class StateChangeParser {
      * @param input the input positioned at the beginning of the queue push change message
      * @param endPosition the position in input at which this message ends
      */
-    private static void processQueuePushChange(@NonNull VirtualMap virtualMap, int stateId,
-            @NonNull ReadableSequentialData input, long endPosition) {
+    private static void processQueuePushChange(
+            @NonNull VirtualMap virtualMap, int stateId, @NonNull ReadableSequentialData input, long endPosition) {
         try {
             // Read the current queue state
             Bytes queueStateKey = getStateKeyForSingleton(stateId);
             Bytes existingQueueStateBytes = virtualMap.getBytes(queueStateKey);
-            QueueState queueState = existingQueueStateBytes != null ?
-                QueueState.PROTOBUF.parse(existingQueueStateBytes) : new QueueState(1, 1);
+            QueueState queueState = existingQueueStateBytes != null
+                    ? QueueState.PROTOBUF.parse(existingQueueStateBytes)
+                    : new QueueState(1, 1);
 
             // Parse the QueuePushChange to get the element value
             // QueuePushChange has a value oneof with options:
@@ -275,11 +276,11 @@ public final class StateChangeParser {
             // Put element into virtual map
             virtualMap.putBytes(queueElementKey, elementValue);
             // Update queue state (increment tail)
-            Bytes newQueueStateBytes = QueueState.PROTOBUF.toBytes(
-                new QueueState(queueState.head(), queueState.tail() + 1));
+            Bytes newQueueStateBytes =
+                    QueueState.PROTOBUF.toBytes(new QueueState(queueState.head(), queueState.tail() + 1));
             virtualMap.putBytes(queueStateKey, newQueueStateBytes);
         } catch (ParseException e) {
-            throw new RuntimeException("Failed to parse QueueState.",e);
+            throw new RuntimeException("Failed to parse QueueState.", e);
         }
     }
 
@@ -309,11 +310,11 @@ public final class StateChangeParser {
             Bytes queueElementKey = queueKey(stateId, queueState.head());
             virtualMap.remove(queueElementKey);
             // Update queue state (increment head)
-            Bytes newQueueStateBytes = QueueState.PROTOBUF.toBytes(
-                new QueueState(queueState.head() + 1, queueState.tail()));
+            Bytes newQueueStateBytes =
+                    QueueState.PROTOBUF.toBytes(new QueueState(queueState.head() + 1, queueState.tail()));
             virtualMap.putBytes(queueStateKey, newQueueStateBytes);
         } catch (ParseException e) {
-            throw new RuntimeException("Failed to parse QueueState.",e);
+            throw new RuntimeException("Failed to parse QueueState.", e);
         }
     }
 

@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.live;
 
-import static com.swirlds.state.merkle.StateKeyUtils.kvKey;
-import static com.swirlds.state.merkle.StateKeyUtils.queueKey;
-import static com.swirlds.state.merkle.StateUtils.getStateKeyForSingleton;
-
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
-import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
@@ -26,20 +20,13 @@ import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.state.token.Account;
-import com.hedera.hapi.platform.state.QueueState;
-import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
-import com.swirlds.state.merkle.VirtualMapState;
-import com.swirlds.virtualmap.VirtualMap;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -52,19 +39,18 @@ import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
-import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
+import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
+import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
+import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
-import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
-import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
-import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -76,6 +62,7 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * Base class for LiveStatePlugin tests providing common test infrastructure.
  */
+@SuppressWarnings("SameParameterValue")
 abstract class LiveStatePluginTestBase {
 
     // State IDs for testing - these are arbitrary test values
@@ -112,9 +99,14 @@ abstract class LiveStatePluginTestBase {
                 .withConfigDataType(LiveStateConfig.class)
                 // Set default paths to temp directory
                 .withValue("merkleDb.databasePath", tempDir.resolve("merkledb").toString())
+                .withValue("state.savedStateDirectory", tempDir.resolve("saved").toString())
                 .withValue("state.live.storagePath", tempDir.resolve("state").toString())
-                .withValue("state.live.latestStatePath", tempDir.resolve("state/latest").toString())
-                .withValue("state.live.stateMetadataPath", tempDir.resolve("state/metadata.dat").toString())
+                .withValue(
+                        "state.live.latestStatePath",
+                        tempDir.resolve("state/latest").toString())
+                .withValue(
+                        "state.live.stateMetadataPath",
+                        tempDir.resolve("state/metadata.dat").toString())
                 .withValue("prometheus.endpointEnabled", "false");
 
         // Apply any configuration overrides
@@ -193,14 +185,13 @@ abstract class LiveStatePluginTestBase {
         // Clean up temp directory
         if (tempDir != null && Files.exists(tempDir)) {
             try (var paths = Files.walk(tempDir)) {
-                paths.sorted(Comparator.reverseOrder())
-                        .forEach(path -> {
-                            try {
-                                Files.deleteIfExists(path);
-                            } catch (IOException e) {
-                                // Ignore cleanup errors
-                            }
-                        });
+                paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (IOException e) {
+                        // Ignore cleanup errors
+                    }
+                });
             }
         }
     }
@@ -228,7 +219,7 @@ abstract class LiveStatePluginTestBase {
 
         // Add block footer with state root hash
         byte[] stateRootHash = (blockNumber == 0) ? new byte[48] : previousStateHash;
-        items.add(createBlockFooterItem(blockNumber, stateRootHash));
+        items.add(createBlockFooterItem(stateRootHash));
 
         // Add block proof
         items.add(createBlockProofItem(blockNumber));
@@ -261,7 +252,7 @@ abstract class LiveStatePluginTestBase {
                 .build();
     }
 
-    protected BlockItemUnparsed createBlockFooterItem(long blockNumber, byte[] startOfBlockStateRootHash) {
+    protected BlockItemUnparsed createBlockFooterItem(byte[] startOfBlockStateRootHash) {
         BlockFooter footer = BlockFooter.newBuilder()
                 .previousBlockRootHash(Bytes.wrap(new byte[48]))
                 .rootHashOfAllBlockHashesTree(Bytes.wrap(new byte[48]))
@@ -307,9 +298,8 @@ abstract class LiveStatePluginTestBase {
      * Create a singleton update state change with bytes value.
      */
     protected StateChanges createSingletonBytesStateChange(int stateId, Bytes value) {
-        SingletonUpdateChange singletonChange = SingletonUpdateChange.newBuilder()
-                .bytesValue(value)
-                .build();
+        SingletonUpdateChange singletonChange =
+                SingletonUpdateChange.newBuilder().bytesValue(value).build();
         StateChange stateChange = StateChange.newBuilder()
                 .stateId(stateId)
                 .singletonUpdate(singletonChange)
@@ -331,18 +321,13 @@ abstract class LiveStatePluginTestBase {
                 .alias(Bytes.wrap(("alias_" + accountNum).getBytes()))
                 .build();
 
-        MapChangeKey mapKey = MapChangeKey.newBuilder()
-                .accountIdKey(accountId)
-                .build();
-        MapChangeValue mapValue = MapChangeValue.newBuilder()
-                .accountValue(account)
-                .build();
+        MapChangeKey mapKey = MapChangeKey.newBuilder().accountIdKey(accountId).build();
+        MapChangeValue mapValue =
+                MapChangeValue.newBuilder().accountValue(account).build();
         MapUpdateChange mapChange = new MapUpdateChange(mapKey, mapValue, false);
 
-        StateChange stateChange = StateChange.newBuilder()
-                .stateId(stateId)
-                .mapUpdate(mapChange)
-                .build();
+        StateChange stateChange =
+                StateChange.newBuilder().stateId(stateId).mapUpdate(mapChange).build();
         return new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
     }
 
@@ -350,19 +335,15 @@ abstract class LiveStatePluginTestBase {
      * Create a map update state change with proto bytes key and string value.
      */
     protected StateChanges createMapBytesUpdateStateChange(int stateId, Bytes key, Bytes value) {
-        MapChangeKey mapKey = MapChangeKey.newBuilder()
-                .protoBytesKey(key)
-                .build();
+        MapChangeKey mapKey = MapChangeKey.newBuilder().protoBytesKey(key).build();
         // Use protoStringValue as protoBytesValue doesn't exist
         MapChangeValue mapValue = MapChangeValue.newBuilder()
                 .protoStringValue(new String(value.toByteArray()))
                 .build();
         MapUpdateChange mapChange = new MapUpdateChange(mapKey, mapValue, false);
 
-        StateChange stateChange = StateChange.newBuilder()
-                .stateId(stateId)
-                .mapUpdate(mapChange)
-                .build();
+        StateChange stateChange =
+                StateChange.newBuilder().stateId(stateId).mapUpdate(mapChange).build();
         return new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
     }
 
@@ -376,15 +357,11 @@ abstract class LiveStatePluginTestBase {
                 .accountNum(accountNum)
                 .build();
 
-        MapChangeKey mapKey = MapChangeKey.newBuilder()
-                .accountIdKey(accountId)
-                .build();
+        MapChangeKey mapKey = MapChangeKey.newBuilder().accountIdKey(accountId).build();
         MapDeleteChange mapDelete = new MapDeleteChange(mapKey);
 
-        StateChange stateChange = StateChange.newBuilder()
-                .stateId(stateId)
-                .mapDelete(mapDelete)
-                .build();
+        StateChange stateChange =
+                StateChange.newBuilder().stateId(stateId).mapDelete(mapDelete).build();
         return new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
     }
 
@@ -392,13 +369,10 @@ abstract class LiveStatePluginTestBase {
      * Create a queue push state change.
      */
     protected StateChanges createQueuePushStateChange(int stateId, Bytes element) {
-        QueuePushChange queuePush = QueuePushChange.newBuilder()
-                .protoBytesElement(element)
-                .build();
-        StateChange stateChange = StateChange.newBuilder()
-                .stateId(stateId)
-                .queuePush(queuePush)
-                .build();
+        QueuePushChange queuePush =
+                QueuePushChange.newBuilder().protoBytesElement(element).build();
+        StateChange stateChange =
+                StateChange.newBuilder().stateId(stateId).queuePush(queuePush).build();
         return new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
     }
 
@@ -407,10 +381,8 @@ abstract class LiveStatePluginTestBase {
      */
     protected StateChanges createQueuePopStateChange(int stateId) {
         QueuePopChange queuePop = new QueuePopChange();
-        StateChange stateChange = StateChange.newBuilder()
-                .stateId(stateId)
-                .queuePop(queuePop)
-                .build();
+        StateChange stateChange =
+                StateChange.newBuilder().stateId(stateId).queuePop(queuePop).build();
         return new StateChanges(new Timestamp(1000L, 0), List.of(stateChange));
     }
 
@@ -420,11 +392,7 @@ abstract class LiveStatePluginTestBase {
     protected VerificationNotification createVerificationNotification(
             long blockNumber, BlockUnparsed block, boolean success) {
         return new VerificationNotification(
-                success,
-                blockNumber,
-                Bytes.wrap(new byte[48]),
-                block,
-                BlockSource.PUBLISHER);
+                success, blockNumber, Bytes.wrap(new byte[48]), block, BlockSource.PUBLISHER);
     }
 
     // ========================================
@@ -680,7 +648,7 @@ abstract class LiveStatePluginTestBase {
     protected static ServiceBuilder createMockServiceBuilder() {
         return (ServiceBuilder) Proxy.newProxyInstance(
                 ServiceBuilder.class.getClassLoader(),
-                new Class<?>[]{ServiceBuilder.class},
+                new Class<?>[] {ServiceBuilder.class},
                 (proxy, method, args) -> null);
     }
 

@@ -75,7 +75,7 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
         @Test
         @DisplayName("Returns null for non-existent key")
         void testMapValueNonExistent() {
-            Bytes key = Bytes.wrap(new byte[]{1, 2, 3});
+            Bytes key = Bytes.wrap(new byte[] {1, 2, 3});
             Bytes value = plugin.mapValue(MAP_STATE_ID, key);
             assertNull(value);
         }
@@ -85,15 +85,13 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
         void testMapValueAfterUpdate() {
             // Create a block with a map update state change
             var stateChanges = createMapBytesUpdateStateChange(
-                    MAP_STATE_ID,
-                    Bytes.wrap(new byte[]{1, 2, 3}),
-                    Bytes.wrap(new byte[]{10, 20, 30}));
+                    MAP_STATE_ID, Bytes.wrap(new byte[] {1, 2, 3}), Bytes.wrap(new byte[] {10, 20, 30}));
 
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges));
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
             // Read back the value
-            Bytes value = plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[]{1, 2, 3}));
+            Bytes value = plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[] {1, 2, 3}));
             assertNotNull(value, "Value should exist after map update");
         }
 
@@ -117,24 +115,19 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
         @DisplayName("Different state IDs are independent")
         void testMapValueDifferentStateIds() {
             // Add entry to state ID 42
-            var stateChanges42 = createMapBytesUpdateStateChange(
-                    42,
-                    Bytes.wrap(new byte[]{1}),
-                    Bytes.wrap(new byte[]{100}));
+            var stateChanges42 =
+                    createMapBytesUpdateStateChange(42, Bytes.wrap(new byte[] {1}), Bytes.wrap(new byte[] {100}));
 
             // Add entry to state ID 43
             var stateChanges43 = createMapBytesUpdateStateChange(
-                    43,
-                    Bytes.wrap(new byte[]{1}),
-                    Bytes.wrap(new byte[]{(byte) 200}));
+                    43, Bytes.wrap(new byte[] {1}), Bytes.wrap(new byte[] {(byte) 200}));
 
-            BlockUnparsed block = createBlockWithStateChanges(
-                    0, new byte[48], List.of(stateChanges42, stateChanges43));
+            BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges42, stateChanges43));
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
             // Verify different values for same key in different state IDs
-            Bytes value42 = plugin.mapValue(42, Bytes.wrap(new byte[]{1}));
-            Bytes value43 = plugin.mapValue(43, Bytes.wrap(new byte[]{1}));
+            Bytes value42 = plugin.mapValue(42, Bytes.wrap(new byte[] {1}));
+            Bytes value43 = plugin.mapValue(43, Bytes.wrap(new byte[] {1}));
 
             assertNotNull(value42);
             assertNotNull(value43);
@@ -188,8 +181,7 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
             var stateChanges1 = createSingletonStateChange(100, 111L);
             var stateChanges2 = createSingletonStateChange(101, 222L);
 
-            BlockUnparsed block = createBlockWithStateChanges(
-                    0, new byte[48], List.of(stateChanges1, stateChanges2));
+            BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges1, stateChanges2));
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
             Bytes value1 = plugin.singleton(100);
@@ -236,7 +228,7 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
         @DisplayName("Queue operations after push")
         void testQueueAfterPush() {
             // Push an element to the queue
-            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{1, 2, 3}));
+            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {1, 2, 3}));
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges));
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
@@ -261,13 +253,13 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
         @DisplayName("Queue with multiple elements")
         void testQueueMultipleElements() {
             // Push first element
-            var push1 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{1}));
+            var push1 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {1}));
             BlockUnparsed block0 = createBlockWithStateChanges(0, new byte[48], List.of(push1));
             plugin.handleVerification(createVerificationNotification(0, block0, true));
 
             // Push second element (in same block for simplicity)
-            var push2 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{2}));
-            var push3 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{3}));
+            var push2 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {2}));
+            var push3 = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {3}));
             BlockUnparsed block1 = createBlockWithStateChanges(1, new byte[48], List.of(push2, push3));
             // Note: Hash won't match, this tests API not full integration
 
@@ -281,7 +273,7 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
         @DisplayName("queuePeek with valid index")
         void testQueuePeekValidIndex() {
             // Push an element
-            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{42}));
+            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {42}));
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges));
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
@@ -294,7 +286,7 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
         @DisplayName("queuePeek throws for invalid index - too low")
         void testQueuePeekInvalidIndexLow() {
             // Push an element to create queue with head=1, tail=2
-            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{42}));
+            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {42}));
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges));
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
@@ -306,7 +298,7 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
         @DisplayName("queuePeek throws for invalid index - too high")
         void testQueuePeekInvalidIndexHigh() {
             // Push an element to create queue with head=1, tail=2
-            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{42}));
+            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {42}));
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges));
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
@@ -326,7 +318,7 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
         @DisplayName("queueAsList returns all elements in order")
         void testQueueAsListWithElements() {
             // Push an element
-            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[]{1, 2, 3}));
+            var stateChanges = createQueuePushStateChange(QUEUE_STATE_ID, Bytes.wrap(new byte[] {1, 2, 3}));
             BlockUnparsed block = createBlockWithStateChanges(0, new byte[48], List.of(stateChanges));
             plugin.handleVerification(createVerificationNotification(0, block, true));
 
@@ -366,7 +358,7 @@ class LiveStateAccessTest extends LiveStatePluginTestBase {
                             // Various read operations
                             plugin.blockNumber();
                             plugin.singleton(SINGLETON_STATE_ID);
-                            plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[]{1}));
+                            plugin.mapValue(MAP_STATE_ID, Bytes.wrap(new byte[] {1}));
                             plugin.queueState(QUEUE_STATE_ID);
                         }
                     } catch (Exception e) {
