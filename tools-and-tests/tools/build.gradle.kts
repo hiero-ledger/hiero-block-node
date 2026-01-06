@@ -10,10 +10,6 @@ description = "Hiero Block Stream Tools"
 application { mainClass = "org.hiero.block.tools.BlockStreamTool" }
 
 dependencies {
-    // Explicit failureaccess dependency - ensures Guava internal classes are available
-    // for gRPC/OAuth background threads (safety net for classloader edge cases)
-    implementation("com.google.guava:failureaccess:1.0.3")
-
     testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.3")
     testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.3")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.3")
