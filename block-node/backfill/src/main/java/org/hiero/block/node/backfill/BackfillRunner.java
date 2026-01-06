@@ -115,6 +115,8 @@ final class BackfillRunner {
                     Thread.sleep(Math.max(0, config.delayBetweenBatches()));
                     currentBlock = result.chunk().end() + 1;
                 }
+                // Should never happen due to enum coverage
+                default -> throw new IllegalStateException("Unexpected outcome: " + result.outcome());
             }
         }
 
