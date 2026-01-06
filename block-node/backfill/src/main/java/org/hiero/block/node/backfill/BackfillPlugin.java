@@ -322,15 +322,18 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // Deduplicate live-tail gaps using high-water mark
         GapDetector.Gap effectiveGap = gap;
         if (gap.type() == GapDetector.Type.LIVE_TAIL) {
-            long hwm = liveTailHighWaterMark.get();
-            if (gap.range().end() <= hwm) {
+            long highWaterMark = liveTailHighWaterMark.get();
+            if (gap.range().end() <= highWaterMark) {
                 // Already scheduled this range
-                LOGGER.log(TRACE, "Skipping duplicate live-tail gap [%s], hwm=[%s]".formatted(gap.range(), hwm));
+                LOGGER.log(
+                        TRACE,
+                        "Skipping duplicate live-tail gap [%s], highWaterMark=[%s]"
+                                .formatted(gap.range(), highWaterMark));
                 return;
             }
-            if (gap.range().start() <= hwm) {
+            if (gap.range().start() <= highWaterMark) {
                 // Partial overlap - adjust start
-                long newStart = hwm + 1;
+                long newStart = highWaterMark + 1;
                 effectiveGap =
                         new GapDetector.Gap(new LongRange(newStart, gap.range().end()), GapDetector.Type.LIVE_TAIL);
                 LOGGER.log(
@@ -341,11 +344,19 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     current -> Math.max(current, gap.range().end()));
         }
 
+        // Submit the (possibly adjusted) gap to the appropriate scheduler
+        submitGap(effectiveGap);
+    }
+
+    /**
+     * Submits a gap to the appropriate scheduler based on its type.
+     *
+     * @param gap the gap to submit
+     */
+    private void submitGap(GapDetector.Gap gap) {
         BackfillTaskScheduler scheduler =
-                (effectiveGap.type() == GapDetector.Type.HISTORICAL) ? historicalScheduler : liveTailScheduler;
-        if (scheduler != null) {
-            scheduler.submit(effectiveGap);
-        }
+                (gap.type() == GapDetector.Type.HISTORICAL) ? historicalScheduler : liveTailScheduler;
+        scheduler.submit(gap);
     }
 
     /**
