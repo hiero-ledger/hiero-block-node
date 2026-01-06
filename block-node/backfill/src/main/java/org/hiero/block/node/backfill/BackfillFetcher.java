@@ -235,7 +235,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             }
 
             if (!intersections.isEmpty()) {
-                availability.put(node, mergeContiguousRanges(intersections));
+                availability.put(node, LongRange.mergeContiguousRanges(intersections));
                 nodeStatusMap.put(node, Status.AVAILABLE);
             } else {
                 nodeStatusMap.put(node, Status.UNAVAILABLE);
@@ -341,39 +341,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         double failurePenalty = h.failures * healthPenaltyPerFailure;
         double latencyPenaltyMs = h.successes > 0 ? (h.totalLatencyNanos / (double) h.successes) / 1_000_000.0 : 0;
         return failurePenalty + latencyPenaltyMs;
-    }
-
-    /**
-     * Merges contiguous or overlapping ranges into a minimal set of non-overlapping ranges.
-     * Ranges are considered contiguous if one ends at block N and the next starts at block N+1.
-     *
-     * @param ranges the list of ranges to merge (may be unordered)
-     * @return a new list with contiguous/overlapping ranges merged
-     */
-    private List<LongRange> mergeContiguousRanges(List<LongRange> ranges) {
-        if (ranges.size() <= 1) {
-            return ranges;
-        }
-
-        List<LongRange> sorted = new ArrayList<>(ranges);
-        sorted.sort((a, b) -> Long.compare(a.start(), b.start()));
-
-        List<LongRange> merged = new ArrayList<>();
-        LongRange current = sorted.getFirst();
-
-        for (int i = 1; i < sorted.size(); i++) {
-            LongRange next = sorted.get(i);
-            // Merge if overlapping or contiguous (current.end + 1 >= next.start)
-            if (current.end() + 1 >= next.start()) {
-                current = new LongRange(current.start(), Math.max(current.end(), next.end()));
-            } else {
-                merged.add(current);
-                current = next;
-            }
-        }
-        merged.add(current);
-
-        return merged;
     }
 
     /**
