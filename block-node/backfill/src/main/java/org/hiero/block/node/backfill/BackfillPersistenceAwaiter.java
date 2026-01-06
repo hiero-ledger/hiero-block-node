@@ -56,10 +56,9 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
      *
      * @param blockNumber the block number to wait for
      * @param timeoutMs maximum time to wait in milliseconds
-     * @return true if persistence was confirmed, false if timed out
-     * @throws InterruptedException if the thread is interrupted while waiting
+     * @return true if persistence was confirmed or block was not being tracked, false if timed out or interrupted
      */
-    public boolean awaitPersistence(long blockNumber, long timeoutMs) throws InterruptedException {
+    public boolean awaitPersistence(long blockNumber, long timeoutMs) {
         CountDownLatch latch = pendingBlocks.get(blockNumber);
         if (latch == null) {
             LOGGER.log(DEBUG, "Block [%s] already persisted or not tracked".formatted(blockNumber));
@@ -67,15 +66,21 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
         }
 
         LOGGER.log(TRACE, "Waiting for block [%s] persistence (timeout=[%s]ms)".formatted(blockNumber, timeoutMs));
-        boolean completed = latch.await(timeoutMs, TimeUnit.MILLISECONDS);
-        pendingBlocks.remove(blockNumber);
-
-        if (completed) {
-            LOGGER.log(TRACE, "Block [%s] persistence confirmed".formatted(blockNumber));
-        } else {
-            LOGGER.log(DEBUG, "Block [%s] persistence timed out after [%s]ms".formatted(blockNumber, timeoutMs));
+        try {
+            boolean completed = latch.await(timeoutMs, TimeUnit.MILLISECONDS);
+            if (completed) {
+                LOGGER.log(TRACE, "Block [%s] persistence confirmed".formatted(blockNumber));
+            } else {
+                LOGGER.log(DEBUG, "Block [%s] persistence timed out after [%s]ms".formatted(blockNumber, timeoutMs));
+            }
+            return completed;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.log(DEBUG, "Block [%s] persistence wait interrupted".formatted(blockNumber));
+            return false;
+        } finally {
+            pendingBlocks.remove(blockNumber);
         }
-        return completed;
     }
 
     /**
@@ -129,11 +134,10 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
 
     /**
      * Returns the number of blocks currently being tracked for persistence.
-     * Useful for metrics and debugging.
-     *
+     * Currently only used for testing.
      * @return the number of pending blocks
      */
-    public int getPendingCount() {
+    int getPendingCount() {
         return pendingBlocks.size();
     }
 

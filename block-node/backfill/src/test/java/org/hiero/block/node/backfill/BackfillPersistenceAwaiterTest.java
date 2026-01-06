@@ -87,7 +87,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should return true when block is persisted before timeout")
-        void shouldReturnTrueWhenPersistedBeforeTimeout() throws InterruptedException {
+        void shouldReturnTrueWhenPersistedBeforeTimeout() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -115,7 +115,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should return false when timeout occurs")
-        void shouldReturnFalseOnTimeout() throws InterruptedException {
+        void shouldReturnFalseOnTimeout() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -130,7 +130,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should return true immediately if block not tracked")
-        void shouldReturnTrueIfBlockNotTracked() throws InterruptedException {
+        void shouldReturnTrueIfBlockNotTracked() {
             // given
             long blockNumber = 100L;
             // not tracked
@@ -144,7 +144,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should remove block from pending after await completes")
-        void shouldRemoveBlockAfterAwait() throws InterruptedException {
+        void shouldRemoveBlockAfterAwait() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -167,7 +167,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should release latch on successful persistence notification")
-        void shouldReleaseLatchOnSuccessfulPersistence() throws InterruptedException {
+        void shouldReleaseLatchOnSuccessfulPersistence() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -182,7 +182,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should release latch on failed persistence notification")
-        void shouldReleaseLatchOnFailedPersistence() throws InterruptedException {
+        void shouldReleaseLatchOnFailedPersistence() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -197,7 +197,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should ignore non-BACKFILL source notifications")
-        void shouldIgnoreNonBackfillNotifications() throws InterruptedException {
+        void shouldIgnoreNonBackfillNotifications() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -234,7 +234,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should release latch on verification failure for fail-fast behavior")
-        void shouldReleaseLatchOnVerificationFailure() throws InterruptedException {
+        void shouldReleaseLatchOnVerificationFailure() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -250,7 +250,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should not release latch on verification success")
-        void shouldNotReleaseLatchOnVerificationSuccess() throws InterruptedException {
+        void shouldNotReleaseLatchOnVerificationSuccess() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -269,7 +269,7 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should ignore non-BACKFILL source verification notifications")
-        void shouldIgnoreNonBackfillVerifications() throws InterruptedException {
+        void shouldIgnoreNonBackfillVerifications() {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
@@ -306,22 +306,14 @@ class BackfillPersistenceAwaiterTest {
 
             ExecutorService executor = Executors.newFixedThreadPool(2);
             executor.submit(() -> {
-                try {
-                    threadsStarted.countDown();
-                    subject.awaitPersistence(block1, 5000);
-                    thread1Released.set(true);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+                threadsStarted.countDown();
+                subject.awaitPersistence(block1, 5000);
+                thread1Released.set(true);
             });
             executor.submit(() -> {
-                try {
-                    threadsStarted.countDown();
-                    subject.awaitPersistence(block2, 5000);
-                    thread2Released.set(true);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+                threadsStarted.countDown();
+                subject.awaitPersistence(block2, 5000);
+                thread2Released.set(true);
             });
 
             // Wait for threads to start waiting
@@ -372,14 +364,10 @@ class BackfillPersistenceAwaiterTest {
             for (int i = 0; i < numBlocks; i++) {
                 final long blockNumber = i;
                 executor.submit(() -> {
-                    try {
-                        subject.trackBlock(blockNumber);
-                        subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
-                        subject.awaitPersistence(blockNumber, 1000);
-                        allDone.countDown();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
+                    subject.trackBlock(blockNumber);
+                    subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
+                    subject.awaitPersistence(blockNumber, 1000);
+                    allDone.countDown();
                 });
             }
 
