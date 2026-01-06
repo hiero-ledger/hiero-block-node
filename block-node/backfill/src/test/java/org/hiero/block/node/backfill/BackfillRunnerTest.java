@@ -588,6 +588,130 @@ class BackfillRunnerTest {
     }
 
     @Nested
+    @DisplayName("lastSuccessfulBlock Return Value Tests")
+    class LastSuccessfulBlockTests {
+
+        @Test
+        @DisplayName("should return gap end when all blocks successfully backfilled")
+        void shouldReturnGapEndOnFullCompletion() throws Exception {
+            // given
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 2), GapDetector.Type.HISTORICAL);
+            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+            Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            availability.put(nodeConfig, List.of(new LongRange(0, 2)));
+
+            BlockUnparsed block0 = createTestBlock(0L);
+            BlockUnparsed block1 = createTestBlock(1L);
+            BlockUnparsed block2 = createTestBlock(2L);
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(availability);
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)));
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any())).thenReturn(List.of(block0, block1, block2));
+
+            // Register handlers for persistence flow
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(
+                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                            messaging.sendBlockPersisted(new PersistedNotification(
+                                    notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+                    },
+                    false,
+                    "test-persistence-handler");
+
+            // when
+            long lastSuccessful = subject.run(gap);
+
+            // then
+            assertEquals(2L, lastSuccessful, "Should return gap end (2) on full completion");
+        }
+
+        @Test
+        @DisplayName("should return last successful block when gap partially completed")
+        void shouldReturnLastSuccessfulBlockOnPartialCompletion() throws Exception {
+            // given - gap 0-9 with batch size 5, first batch (0-4) succeeds, second batch fails
+            // Use custom config with fetchBatchSize=5 so we need two chunks
+            BackfillConfiguration smallBatchConfig = BackfillPluginTest.BackfillConfigBuilder.NewBuilder()
+                    .delayBetweenBatches(0)
+                    .fetchBatchSize(5)
+                    .buildRecord();
+            BackfillRunner smallBatchSubject = new BackfillRunner(
+                    mockFetcher,
+                    smallBatchConfig,
+                    messaging,
+                    logger,
+                    mockMetricsHolder,
+                    pendingBackfillBlocks,
+                    persistenceAwaiter);
+
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(0, 9), GapDetector.Type.HISTORICAL);
+            BackfillSourceConfig nodeConfig = mock(BackfillSourceConfig.class);
+
+            Map<BackfillSourceConfig, List<LongRange>> initialAvailability = new HashMap<>();
+            initialAvailability.put(nodeConfig, List.of(new LongRange(0, 9)));
+
+            List<BlockUnparsed> firstBatch = List.of(
+                    createTestBlock(0L),
+                    createTestBlock(1L),
+                    createTestBlock(2L),
+                    createTestBlock(3L),
+                    createTestBlock(4L));
+
+            // First getAvailabilityForRange returns initial, second (replan) returns empty
+            when(mockFetcher.getAvailabilityForRange(any()))
+                    .thenReturn(initialAvailability)
+                    .thenReturn(Collections.emptyMap());
+            // First select returns node for block 0, second for block 5
+            when(mockFetcher.selectNextChunk(anyLong(), anyLong(), any()))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 0L)))
+                    .thenReturn(Optional.of(new NodeSelectionStrategy.NodeSelection(nodeConfig, 5L)));
+            // First fetch succeeds with 5 blocks (0-4), second returns empty (simulating failure)
+            when(mockFetcher.fetchBlocksFromNode(eq(nodeConfig), any()))
+                    .thenReturn(firstBatch)
+                    .thenReturn(Collections.emptyList());
+
+            // Register handlers for persistence flow
+            messaging.registerBlockNotificationHandler(persistenceAwaiter, false, "persistence-awaiter");
+            messaging.registerBlockNotificationHandler(
+                    new org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler() {
+                        @Override
+                        public void handleBackfilled(
+                                org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification notification) {
+                            messaging.sendBlockPersisted(new PersistedNotification(
+                                    notification.blockNumber(), true, 1, BlockSource.BACKFILL));
+                        }
+                    },
+                    false,
+                    "test-persistence-handler");
+
+            // when
+            long lastSuccessful = smallBatchSubject.run(gap);
+
+            // then - chunk 0-4 succeeded, so lastSuccessfulBlock is 4
+            assertEquals(4L, lastSuccessful, "Should return 4 as last successful block (partial completion)");
+        }
+
+        @Test
+        @DisplayName("should return start-1 when no blocks successfully backfilled")
+        void shouldReturnStartMinusOneWhenNoBlocksBackfilled() throws Exception {
+            // given - gap 10-20, availability empty from start
+            GapDetector.Gap gap = new GapDetector.Gap(new LongRange(10, 20), GapDetector.Type.HISTORICAL);
+
+            when(mockFetcher.getAvailabilityForRange(any())).thenReturn(Collections.emptyMap());
+
+            // when
+            long lastSuccessful = subject.run(gap);
+
+            // then
+            assertEquals(9L, lastSuccessful, "Should return 9 (start-1) when no blocks backfilled");
+        }
+    }
+
+    @Nested
     @DisplayName("Metrics Tests")
     class MetricsTests {
 

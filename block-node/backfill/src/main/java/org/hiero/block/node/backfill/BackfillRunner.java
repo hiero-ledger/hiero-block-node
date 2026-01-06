@@ -2,8 +2,8 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
-import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -67,11 +67,12 @@ final class BackfillRunner {
      * Runs the backfill process for the specified gap.
      *
      * @param gap the gap to backfill
+     * @return the last successfully backfilled block number, or {@code gap.range().start() - 1} if no blocks were backfilled
      * @throws ParseException if block parsing fails
      * @throws InterruptedException if the thread is interrupted
      */
-    void run(@NonNull GapDetector.Gap gap) throws ParseException, InterruptedException {
-        backfillGap(gap.range(), gap.type());
+    long run(@NonNull GapDetector.Gap gap) throws ParseException, InterruptedException {
+        return backfillGap(gap.range(), gap.type());
     }
 
     /**
@@ -88,12 +89,14 @@ final class BackfillRunner {
      *
      * @param gap the range of blocks to backfill
      * @param gapType the type of gap (HISTORICAL or LIVE_TAIL)
+     * @return the last successfully backfilled block number, or {@code gap.start() - 1} if no blocks were backfilled
      */
-    private void backfillGap(LongRange gap, GapDetector.Type gapType) throws InterruptedException, ParseException {
-        logger.log(TRACE, "Starting backfillGap type=[%s] range=[%s]".formatted(gapType, gap));
+    private long backfillGap(LongRange gap, GapDetector.Type gapType) throws InterruptedException, ParseException {
+        logger.log(INFO, "Starting backfillGap type=[%s] range=[%s]".formatted(gapType, gap));
         Map<BackfillSourceConfig, List<LongRange>> availability = planAvailabilityForGap(fetcher, gap);
         long currentBlock = gap.start();
         long batchSize = config.fetchBatchSize();
+        long lastSuccessfulBlock = gap.start() - 1;
 
         backfillLoop:
         while (currentBlock <= gap.end()) {
@@ -102,9 +105,17 @@ final class BackfillRunner {
 
             switch (result.outcome()) {
                 case EXHAUSTED -> {
+                    logger.log(
+                            INFO,
+                            "Backfill exhausted for gap [%s]->[%s], last successful block=[%s]"
+                                    .formatted(gap.start(), gap.end(), lastSuccessfulBlock));
                     break backfillLoop;
                 }
                 case RETRY -> {
+                    logger.log(
+                            DEBUG,
+                            "Retrying backfill for gap [%s]->[%s] at block [%s]"
+                                    .formatted(gap.start(), gap.end(), currentBlock));
                     continue;
                 }
                 case SUCCESS -> {
@@ -112,6 +123,7 @@ final class BackfillRunner {
                     sendBlocksForPersistence(result.blocks(), blockNumbers, result.chunk());
                     awaitBlocksPersistence(blockNumbers, result.chunk());
 
+                    lastSuccessfulBlock = result.chunk().end();
                     Thread.sleep(Math.max(0, config.delayBetweenBatches()));
                     currentBlock = result.chunk().end() + 1;
                 }
@@ -120,7 +132,17 @@ final class BackfillRunner {
             }
         }
 
-        logger.log(TRACE, "Completed backfilling task gap [%s]->[%s]".formatted(gap.start(), gap.end()));
+        if (lastSuccessfulBlock >= gap.end()) {
+            logger.log(TRACE, "Successfully completed backfilling gap [%s]->[%s]".formatted(gap.start(), gap.end()));
+        } else if (lastSuccessfulBlock >= gap.start()) {
+            logger.log(
+                    INFO,
+                    "Partially backfilled gap [%s]->[%s], completed up to block [%s]"
+                            .formatted(gap.start(), gap.end(), lastSuccessfulBlock));
+        } else {
+            logger.log(INFO, "Failed to backfill any blocks for gap [%s]->[%s]".formatted(gap.start(), gap.end()));
+        }
+        return lastSuccessfulBlock;
     }
 
     /**
@@ -258,7 +280,7 @@ final class BackfillRunner {
         for (long blockNumber : blockNumbers) {
             boolean persisted = persistenceAwaiter.awaitPersistence(blockNumber, config.perBlockProcessingTimeout());
             if (!persisted) {
-                logger.log(WARNING, "Block [%s] persistence timed out, will be re-detected".formatted(blockNumber));
+                logger.log(INFO, "Block [%s] persistence timed out, will be re-detected".formatted(blockNumber));
             }
         }
         logger.log(TRACE, "All blocks in chunk [%s] persisted".formatted(chunk));

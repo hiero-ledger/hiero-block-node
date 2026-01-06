@@ -230,6 +230,65 @@ class BackfillFetcherTest {
             when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
             return client;
         }
+
+        @Test
+        @DisplayName("returns null when serverStatus throws exception for all nodes")
+        void shouldReturnNullWhenServerStatusThrowsForAllNodes() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+
+            // Mock a reachable client that throws on serverStatus()
+            var serviceClient = mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.serverStatus(any())).thenThrow(new RuntimeException("Connection timeout"));
+            var client = mock(BlockNodeClient.class);
+            when(client.isNodeReachable()).thenReturn(true);
+            when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
+
+            var fetcher = createFetcherWithClient(nodeConfig, 1, createMockMetricsHolder(), client);
+
+            // Should return null when all nodes fail (doesn't crash)
+            assertNull(fetcher.getNewAvailableRange(10L));
+        }
+
+        @Test
+        @DisplayName("returns range from healthy nodes when some nodes timeout on serverStatus")
+        void shouldReturnRangeFromHealthyNodesWhenSomeTimeout() throws Exception {
+            final BackfillSourceConfig failingNode = node("localhost", 1, 1);
+            final BackfillSourceConfig healthyNode = node("localhost", 2, 2);
+
+            // Failing node throws on serverStatus
+            var failingServiceClient = mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(failingServiceClient.serverStatus(any())).thenThrow(new RuntimeException("Connection timeout"));
+            var failingClient = mock(BlockNodeClient.class);
+            when(failingClient.isNodeReachable()).thenReturn(true);
+            when(failingClient.getBlockNodeServiceClient()).thenReturn(failingServiceClient);
+
+            // Healthy node returns valid status
+            var healthyServiceClient = mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(healthyServiceClient.serverStatus(any()))
+                    .thenReturn(ServerStatusResponse.newBuilder()
+                            .firstAvailableBlock(0L)
+                            .lastAvailableBlock(100L)
+                            .build());
+            var healthyClient = mock(BlockNodeClient.class);
+            when(healthyClient.isNodeReachable()).thenReturn(true);
+            when(healthyClient.getBlockNodeServiceClient()).thenReturn(healthyServiceClient);
+
+            // Create fetcher that returns different clients for different nodes
+            final BackfillSource source = createSource(failingNode, healthyNode);
+            final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
+            var fetcher = new BackfillFetcher(source, config, createMockMetricsHolder()) {
+                @Override
+                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                    return node.equals(failingNode) ? failingClient : healthyClient;
+                }
+            };
+
+            // Should return range from healthy node
+            var range = fetcher.getNewAvailableRange(10L);
+            assertNotNull(range);
+            assertEquals(11L, range.start());
+            assertEquals(100L, range.end());
+        }
     }
 
     @Nested

@@ -57,8 +57,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     private final int initialRetryDelayMs;
     /** Global timeout in milliseconds for gRPC calls to block nodes (used as fallback). */
     private final int globalGrpcTimeoutMs;
-    /** Processing timeout per block batch in milliseconds. */
-    private final int perBlockProcessingTimeoutMs;
     /** Enable TLS for secure connections to block nodes. */
     private final boolean enableTls;
     /** Maximum backoff duration in milliseconds (configurable). */
@@ -92,7 +90,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.initialRetryDelayMs = config.initialRetryDelay();
         this.backfillRetries = metrics.backfillRetries();
         this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
-        this.perBlockProcessingTimeoutMs = config.perBlockProcessingTimeout();
         this.enableTls = config.enableTLS();
         this.maxBackoffMs = config.maxBackoffMs();
         this.healthPenaltyPerFailure = config.healthPenaltyPerFailure();
@@ -134,14 +131,23 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 continue;
             }
 
-            final ServerStatusResponse nodeStatus =
-                    currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
-            long firstAvailableBlock = nodeStatus.firstAvailableBlock();
-            long lastAvailableBlock = nodeStatus.lastAvailableBlock();
+            try {
+                final ServerStatusResponse nodeStatus =
+                        currentNodeClient.getBlockNodeServiceClient().serverStatus(new ServerStatusRequest());
+                long firstAvailableBlock = nodeStatus.firstAvailableBlock();
+                long lastAvailableBlock = nodeStatus.lastAvailableBlock();
 
-            // update the earliestPeerBlock to the max lastAvailableBlock
-            latestPeerBlock = Math.max(latestPeerBlock, lastAvailableBlock);
-            earliestPeerBlock = Math.min(earliestPeerBlock, firstAvailableBlock);
+                // update the earliestPeerBlock to the max lastAvailableBlock
+                latestPeerBlock = Math.max(latestPeerBlock, lastAvailableBlock);
+                earliestPeerBlock = Math.min(earliestPeerBlock, firstAvailableBlock);
+            } catch (Exception e) {
+                LOGGER.log(
+                        INFO,
+                        "Failed to get status from node [%s:%d]: %s"
+                                .formatted(node.address(), node.port(), e.getMessage()),
+                        e);
+                nodeStatusMap.put(node, Status.UNAVAILABLE);
+            }
         }
 
         LOGGER.log(
@@ -187,9 +193,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      */
     protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
         return nodeClientMap.computeIfAbsent(
-                node,
-                n -> new BlockNodeClient(
-                        n, globalGrpcTimeoutMs, perBlockProcessingTimeoutMs, enableTls, n.grpcWebclientTuning()));
+                node, n -> new BlockNodeClient(n, globalGrpcTimeoutMs, enableTls, n.grpcWebclientTuning()));
     }
 
     /**
@@ -279,7 +283,18 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 }
                 markSuccess(nodeConfig, System.nanoTime() - startNanos);
                 return batch;
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
+                LOGGER.log(
+                        INFO,
+                        "Failed to fetch blocks [%s->%s] from node [%s] (attempt %d/%d): %s-%s"
+                                .formatted(
+                                        blockRange.start(),
+                                        blockRange.end(),
+                                        nodeConfig.address(),
+                                        attempt,
+                                        maxRetries,
+                                        e.getMessage(),
+                                        e.getCause()));
                 if (attempt == maxRetries) {
                     nodeStatusMap.put(nodeConfig, Status.UNAVAILABLE);
                     markFailure(nodeConfig);
@@ -296,6 +311,10 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             }
         }
 
+        LOGGER.log(
+                TRACE,
+                "All %d attempts exhausted for blocks [%s->%s] from node [%s]"
+                        .formatted(maxRetries, blockRange.start(), blockRange.end(), nodeConfig.address()));
         return Collections.emptyList();
     }
 

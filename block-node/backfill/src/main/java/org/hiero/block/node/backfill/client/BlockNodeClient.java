@@ -54,6 +54,7 @@ public class BlockNodeClient {
 
     private final PbjGrpcClientConfig grpcConfig;
     private final WebClient webClient;
+    private final int globalTimeoutMs;
     private BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
     private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
     private boolean nodeReachable;
@@ -62,34 +63,35 @@ public class BlockNodeClient {
      * Constructs a BlockNodeClient using the provided configuration.
      *
      * @param blockNodeConfig the configuration for the block node, including address and port
-     * @param globalTimeoutMs the global gRPC timeout in ms (fallback when tuning values are 0)
-     * @param perBlockProcessingTimeoutMs timeout for processing each block
+     * @param globalTimeoutMs the global gRPC timeout in ms (fallback when tuning values are 0), also used for latch await
      * @param enableTls whether to enable TLS for connections
      * @param tuning optional tuning for timeouts and HTTP/2 settings
      */
     public BlockNodeClient(
             @NonNull BackfillSourceConfig blockNodeConfig,
             int globalTimeoutMs,
-            int perBlockProcessingTimeoutMs,
             boolean enableTls,
             @Nullable GrpcWebClientTuning tuning) {
 
-        int connectMs = getOrDefault(tuning, GrpcWebClientTuning::connectTimeout, globalTimeoutMs, TIMEOUT_RANGE);
-        int readMs = getOrDefault(tuning, GrpcWebClientTuning::readTimeout, globalTimeoutMs, TIMEOUT_RANGE);
-        int pollMs = getOrDefault(tuning, GrpcWebClientTuning::pollWaitTime, globalTimeoutMs, TIMEOUT_RANGE);
+        this.globalTimeoutMs = globalTimeoutMs;
+        int connectTimeoutMs =
+                getOrDefault(tuning, GrpcWebClientTuning::connectTimeout, globalTimeoutMs, TIMEOUT_RANGE);
+        int readTimeoutMs = getOrDefault(tuning, GrpcWebClientTuning::readTimeout, globalTimeoutMs, TIMEOUT_RANGE);
+        int pollWaitMs = getOrDefault(tuning, GrpcWebClientTuning::pollWaitTime, globalTimeoutMs, TIMEOUT_RANGE);
 
         Tls tls = Tls.builder().enabled(enableTls).build();
-        grpcConfig = new PbjGrpcClientConfig(Duration.ofMillis(readMs), tls, Optional.of(""), "application/grpc");
+        grpcConfig =
+                new PbjGrpcClientConfig(Duration.ofMillis(readTimeoutMs), tls, Optional.of(""), "application/grpc");
 
         webClient = WebClient.builder()
                 .baseUri("http://" + blockNodeConfig.address() + ":" + blockNodeConfig.port())
                 .tls(tls)
-                .protocolConfigs(List.of(buildHttp2Config(tuning), buildGrpcConfig(pollMs, tuning)))
-                .connectTimeout(Duration.ofMillis(connectMs))
+                .protocolConfigs(List.of(buildHttp2Config(tuning), buildGrpcConfig(pollWaitMs, tuning)))
+                .connectTimeout(Duration.ofMillis(connectTimeoutMs))
                 .keepAlive(true)
                 .build();
 
-        initializeClient(perBlockProcessingTimeoutMs);
+        initializeClient();
     }
 
     private Http2ClientProtocolConfig buildHttp2Config(@Nullable GrpcWebClientTuning tuning) {
@@ -142,12 +144,11 @@ public class BlockNodeClient {
         return validator.test(value) ? value : defaultValue;
     }
 
-    public void initializeClient(int perBlockProcessingTimeoutMs) {
+    public void initializeClient() {
         try {
             PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
             blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(pbjGrpcClient, OPTIONS);
-            blockStreamSubscribeUnparsedClient =
-                    new BlockStreamSubscribeUnparsedClient(pbjGrpcClient, perBlockProcessingTimeoutMs);
+            blockStreamSubscribeUnparsedClient = new BlockStreamSubscribeUnparsedClient(pbjGrpcClient, globalTimeoutMs);
             nodeReachable = true;
         } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException ex) {
             nodeReachable = false;

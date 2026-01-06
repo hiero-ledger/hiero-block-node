@@ -3,7 +3,6 @@ package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
-import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -178,12 +177,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 .createVirtualThreadScheduledExecutor(
                         1,
                         "BackfillHistoricalExecutor",
-                        (t, e) -> LOGGER.log(WARNING, "Uncaught exception in thread: " + t.getName(), e));
+                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
         liveTailExecutor = context.threadPoolManager()
                 .createVirtualThreadScheduledExecutor(
                         1,
                         "BackfillLiveTailExecutor",
-                        (t, e) -> LOGGER.log(WARNING, "Uncaught exception in thread: " + t.getName(), e));
+                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
 
         historicalScheduler =
                 createScheduler(historicalExecutor, backfillConfiguration.historicalQueueCapacity(), "Historical");
@@ -219,10 +218,22 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     executor,
                     gap -> {
                         try {
-                            runner.run(gap);
+                            LOGGER.log(
+                                    INFO,
+                                    "Scheduler processing gap type=[%s] range=[%s]".formatted(gap.type(), gap.range()));
+                            long lastSuccessfulBlock = runner.run(gap);
+                            // Reset highWaterMark if the gap didn't complete, allowing re-detection
+                            if (gap.type() == GapDetector.Type.LIVE_TAIL
+                                    && lastSuccessfulBlock < gap.range().end()) {
+                                liveTailHighWaterMark.updateAndGet(current -> Math.min(current, lastSuccessfulBlock));
+                                LOGGER.log(
+                                        INFO,
+                                        "Reset liveTailHighWaterMark to [%s] after incomplete gap [%s]"
+                                                .formatted(lastSuccessfulBlock, gap.range()));
+                            }
                         } catch (ParseException | InterruptedException e) {
                             Thread.currentThread().interrupt();
-                            LOGGER.log(TRACE, "Error executing gap=[%s]".formatted(gap), e);
+                            LOGGER.log(INFO, "Error executing gap=[%s]".formatted(gap), e);
                         }
                     },
                     queueCapacity,
@@ -264,7 +275,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         executor.shutdownNow();
         try {
             if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                LOGGER.log(WARNING, "Executor [%s] did not terminate in time".formatted(name));
+                LOGGER.log(INFO, "Executor [%s] did not terminate in time".formatted(name));
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -342,9 +353,17 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             // Update high-water mark
             liveTailHighWaterMark.updateAndGet(
                     current -> Math.max(current, gap.range().end()));
+            LOGGER.log(
+                    TRACE,
+                    "Updated liveTailHighWaterMark to [%s]"
+                            .formatted(gap.range().end()));
         }
 
         // Submit the (possibly adjusted) gap to the appropriate scheduler
+        LOGGER.log(
+                INFO,
+                "Submitting gap type=[%s] range=[%s] to scheduler"
+                        .formatted(effectiveGap.type(), effectiveGap.range()));
         submitGap(effectiveGap);
     }
 
@@ -373,7 +392,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
         long baseline = Math.max(lastLocal, backfillConfiguration.startBlock() - 1);
-        LongRange peerRange = liveTailScheduler.getFetcher().getNewAvailableRange(baseline);
+        LongRange peerRange;
+        try {
+            peerRange = liveTailScheduler.getFetcher().getNewAvailableRange(baseline);
+        } catch (Exception e) {
+            LOGGER.log(INFO, "Greedy backfill: failed to get peer availability: %s".formatted(e.getMessage()), e);
+            return;
+        }
         if (peerRange == null || peerRange.size() <= 0 || peerRange.start() < 0) {
             return;
         }
