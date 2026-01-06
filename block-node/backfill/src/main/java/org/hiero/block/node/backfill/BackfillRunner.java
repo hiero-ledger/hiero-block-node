@@ -8,6 +8,7 @@ import static java.lang.System.Logger.Level.WARNING;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -112,9 +113,18 @@ final class BackfillRunner {
                 continue;
             }
 
+            // Extract block numbers once (avoid parsing twice per block)
+            List<Long> blockNumbers = new ArrayList<>(batchOfBlocks.size());
             for (BlockUnparsed blockUnparsed : batchOfBlocks) {
-                long blockNumber = extractBlockNumber(blockUnparsed);
+                blockNumbers.add(extractBlockNumber(blockUnparsed));
+            }
+
+            // Send blocks for persistence
+            for (int i = 0; i < batchOfBlocks.size(); i++) {
+                long blockNumber = blockNumbers.get(i);
+                BlockUnparsed blockUnparsed = batchOfBlocks.get(i);
                 metricsHolder.backfillFetchedBlocks().increment();
+                // always track persistence before sending backfill notification to avoid race conditions
                 persistenceAwaiter.trackBlock(blockNumber);
                 messaging.sendBackfilledBlockNotification(new BackfilledBlockNotification(blockNumber, blockUnparsed));
                 logger.log(TRACE, "Backfilling block [%s]".formatted(blockNumber));
@@ -123,8 +133,7 @@ final class BackfillRunner {
             logger.log(TRACE, "Finished sending chunk [%s], waiting for persistence".formatted(chunk));
 
             // Wait for all blocks in batch to be persisted before fetching more
-            for (BlockUnparsed blockUnparsed : batchOfBlocks) {
-                long blockNumber = extractBlockNumber(blockUnparsed);
+            for (long blockNumber : blockNumbers) {
                 boolean persisted =
                         persistenceAwaiter.awaitPersistence(blockNumber, config.perBlockProcessingTimeout());
                 if (!persisted) {
