@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# Change 0.25.0-rc1 to ${VERSION} when versions align
 if [ -n "${PLUGINS:-}" ]; then
   echo "$PLUGINS" | tr ',' '\n' | while read -r plugin; do
     curl -L -o "${BN_WORKDIR}/app-${VERSION}/lib/${plugin}.jar" \

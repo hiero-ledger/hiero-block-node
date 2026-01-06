@@ -91,15 +91,6 @@ COPY --from=distributions app-${VERSION}.tar .
 # Extract the TAR file
 RUN tar -xvf app-${VERSION}.tar
 
-COPY plugins.txt /tmp/plugins.txt
-# Change 0.25.0-rc1 to ${VERSION} when versions align
-RUN if [ -s /tmp/plugins.txt ]; then \
-      while read -r plugin; do \
-        curl -L -o "${BN_WORKDIR}/app-${VERSION}/lib/${plugin}.jar" \
-        "https://repo1.maven.org/maven2/org/hiero/block-node/${plugin}/0.25.0-rc1/${plugin}-0.25.0-rc1.jar"; \
-      done < /tmp/plugins.txt; \
-    fi
-
 # Create a log directory
 RUN mkdir -p ${BN_WORKDIR}/logs/config
 
