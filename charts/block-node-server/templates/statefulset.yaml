@@ -186,11 +186,3 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.live.storageClass }}
         {{- end }}
     {{- end }}
-    - metadata:
-          name: {{ default "plugins" .Values.plugins.volumeName }}
-      spec:
-          accessModes:
-              - ReadWriteOnce
-          resources:
-              requests:
-                  storage: {{ .Values.plugins.size }}

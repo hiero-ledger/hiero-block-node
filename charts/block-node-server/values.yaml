@@ -94,16 +94,6 @@ tolerations: []
 
 affinity: {}
 
-plugins:
-  volumeName: "plugins"
-  size: 2Gi
-  enabled: true
-  baseUrl: "https://repo1.maven.org/maven2/org/hiero/block-node"
-  version: "0.25.0-rc1"
-  targetDir: "/app-{{ .Values.app.version }}/lib"
-  names:
-    -
-
 blockNode:
   # Optional hostPort mappings keyed by container port name.
   # hostPorts:
@@ -129,22 +119,6 @@ blockNode:
           mountPath: /live-pvc
         - name: archive-storage
           mountPath: /archive-pvc
-    - name: download-plugins
-      image: curlimages/curl:8.5.0
-      command:
-        - sh
-        - -c
-        - |
-            {{- if .Values.plugins.enabled }}
-            {{- range .Values.plugins.names }}
-            mkdir -p {{ $.Values.plugins.targetDir | quote }} && \
-            curl -L -o "{{ $.Values.plugins.targetDir }}/{{ . }}.jar" \
-              "{{ $.Values.plugins.baseUrl }}/{{ . }}/{{ $.Values.plugins.version }}/{{ . }}-{{ $.Values.plugins.version }}.jar" && \
-            {{- end }}
-            {{- end }}
-      volumeMounts:
-        - name: plugins
-          mountPath: /app  # Mount root so targetDir resolves correctly
   # if blank will use same as AppVersion of chart.
   version: ""
   config:
@@ -152,6 +126,7 @@ blockNode:
     # key: value
     JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties"
     JAVA_OPTS: '-Xms16G -Xmx16G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+    # PLUGINS: define plugins
     # PRODUCER_TYPE: "NO_OP"
     # PERSISTENCE_STORAGE_TYPE: "NO_OP"
     # VERIFICATION_TYPE: "NO_OP"

@@ -1,8 +1,0 @@
-plugins:
-    volumeName: "plugins"
-    size: 2Gi
-    enabled: true
-    baseUrl: ""
-    version: "1.0.0"
-    names:
-        -
