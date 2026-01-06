@@ -264,11 +264,8 @@ class LongRangeTest {
         assertEquals(new LongRange(50, 60), mergedDisjoint.get(1));
 
         // Multiple ranges, some overlapping, some adjacent, some disjoint
-        List<LongRange> mixed = List.of(
-                new LongRange(50, 60),
-                new LongRange(0, 10),
-                new LongRange(5, 15),
-                new LongRange(16, 20));
+        List<LongRange> mixed =
+                List.of(new LongRange(50, 60), new LongRange(0, 10), new LongRange(5, 15), new LongRange(16, 20));
         List<LongRange> mergedMixed = LongRange.mergeContiguousRanges(mixed);
         assertEquals(2, mergedMixed.size());
         assertEquals(new LongRange(0, 20), mergedMixed.get(0));

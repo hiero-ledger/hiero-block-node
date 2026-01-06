@@ -32,6 +32,7 @@ class BackfillTaskSchedulerTest {
 
     private ExecutorService executor;
     private BackfillFetcher mockFetcher;
+    private BackfillPersistenceAwaiter mockAwaiter;
     private List<GapDetector.Gap> processedGaps;
     private CountDownLatch processingLatch;
 
@@ -39,6 +40,7 @@ class BackfillTaskSchedulerTest {
     void setUp() {
         executor = Executors.newSingleThreadExecutor();
         mockFetcher = mock(BackfillFetcher.class);
+        mockAwaiter = mock(BackfillPersistenceAwaiter.class);
         processedGaps = Collections.synchronizedList(new ArrayList<>());
         processingLatch = new CountDownLatch(1);
     }
@@ -56,7 +58,7 @@ class BackfillTaskSchedulerTest {
     }
 
     private BackfillTaskScheduler createScheduler(int queueCapacity, Consumer<GapDetector.Gap> processor) {
-        return new BackfillTaskScheduler(executor, processor, queueCapacity, mockFetcher);
+        return new BackfillTaskScheduler(executor, processor, queueCapacity, mockFetcher, mockAwaiter);
     }
 
     private GapDetector.Gap createGap(long start, long end, GapDetector.Type type) {

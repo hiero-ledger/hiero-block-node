@@ -91,9 +91,12 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         metricsHolder.backfillInFlightGauge().set(pending);
 
         final BackfillStatus status = pending > 0 ? BackfillStatus.RUNNING : BackfillStatus.IDLE;
+        // rely on ordinal for metric value, as enum names are not supported in metrics
         metricsHolder.backfillStatus().set(status.ordinal());
     }
 
+    // Backfill status enum for metrics, using ordinal values
+    // do not change order or add values in the middle
     private enum BackfillStatus {
         IDLE, // 0
         RUNNING // 1
@@ -223,7 +226,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         }
                     },
                     queueCapacity,
-                    fetcher);
+                    fetcher,
+                    persistenceAwaiter);
         } catch (Exception e) {
             LOGGER.log(INFO, "Failed to create scheduler: [%s]".formatted(e.getMessage()));
             return null;
@@ -235,31 +239,36 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      */
     @Override
     public void stop() {
-        if (periodicExecutor != null) {
-            periodicExecutor.shutdownNow();
-            try {
-                if (!periodicExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    periodicExecutor.shutdown();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        // Close schedulers first (stops accepting new work)
+        // 1. Stop periodic scanner
+        shutdownExecutor(periodicExecutor, "periodicExecutor");
+
+        // 2. Close schedulers (clears queues, awaiters, and releases blocked threads)
         if (historicalScheduler != null) {
             historicalScheduler.close();
         }
         if (liveTailScheduler != null) {
             liveTailScheduler.close();
         }
-        // Then shut down the executors
-        if (historicalExecutor != null) {
-            historicalExecutor.shutdownNow();
-        }
-        if (liveTailExecutor != null) {
-            liveTailExecutor.shutdownNow();
-        }
+
+        // 3. Shutdown executors and wait for termination
+        shutdownExecutor(historicalExecutor, "historicalExecutor");
+        shutdownExecutor(liveTailExecutor, "liveTailExecutor");
+
         LOGGER.log(TRACE, "Stopped backfill plugin");
+    }
+
+    private void shutdownExecutor(ExecutorService executor, String name) {
+        if (executor == null) {
+            return;
+        }
+        executor.shutdownNow();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                LOGGER.log(WARNING, "Executor [%s] did not terminate in time".formatted(name));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void detectGaps() {

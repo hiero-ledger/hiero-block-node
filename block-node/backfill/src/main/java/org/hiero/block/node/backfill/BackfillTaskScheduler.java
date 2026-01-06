@@ -24,6 +24,7 @@ final class BackfillTaskScheduler implements AutoCloseable {
     private final ExecutorService executor;
     private final Consumer<GapDetector.Gap> gapProcessor;
     private final BackfillFetcher fetcher;
+    private final BackfillPersistenceAwaiter persistenceAwaiter;
 
     /**
      * Creates a new scheduler with the specified queue capacity.
@@ -32,16 +33,19 @@ final class BackfillTaskScheduler implements AutoCloseable {
      * @param gapProcessor the consumer that processes each gap
      * @param queueCapacity maximum number of pending gaps (new gaps discarded when full)
      * @param fetcher the fetcher used by this scheduler (for availability queries)
+     * @param persistenceAwaiter the awaiter for backpressure control (cleared on close)
      */
     BackfillTaskScheduler(
             @NonNull ExecutorService executor,
             @NonNull Consumer<GapDetector.Gap> gapProcessor,
             int queueCapacity,
-            @NonNull BackfillFetcher fetcher) {
+            @NonNull BackfillFetcher fetcher,
+            @NonNull BackfillPersistenceAwaiter persistenceAwaiter) {
         this.executor = Objects.requireNonNull(executor);
         this.gapProcessor = Objects.requireNonNull(gapProcessor);
         this.queue = new ArrayBlockingQueue<>(queueCapacity);
         this.fetcher = Objects.requireNonNull(fetcher);
+        this.persistenceAwaiter = Objects.requireNonNull(persistenceAwaiter);
     }
 
     /**
@@ -91,6 +95,7 @@ final class BackfillTaskScheduler implements AutoCloseable {
     public void close() {
         shutdown.set(true);
         queue.clear();
+        persistenceAwaiter.clear();
         // Note: executor lifecycle is managed by the creator (BackfillPlugin)
     }
 
