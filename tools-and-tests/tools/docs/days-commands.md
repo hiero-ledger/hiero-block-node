@@ -9,6 +9,7 @@ Available subcommands:
 - `download-day` - Download all record files for a specific day (v1 implementation)
 - `download-days` - Download many days (v1)
 - `download-days-v2` - Download many days (v2, newer implementation)
+- `download-live2` - Live block download with inline validation and automatic day rollover
 - `print-listing` - Print the listing for a given day from listing files
 - `ls-day-listing` - Print all files in the listing for a day
 - `split-files-listing` - Split a giant JSON listing (files.json) into per-day binary listing files
@@ -118,6 +119,62 @@ Options:
 
 Notes:
 - Both download commands access public GCP storage (requester pays) and require Google Cloud authentication and a project to be set for requester pays. See mirror-related notes below.
+
+---
+
+### `download-live2`
+
+Live block download with inline validation, signature statistics, and automatic day rollover. Downloads blocks in real-time, validates them, and writes to per-day `.tar.zstd` archives.
+
+Usage:
+
+```
+days download-live2 [-l <listingDir>] [-o <outputDir>] [--start-date <YYYY-MM-DD>] [--max-concurrency <n>]
+```
+
+Options:
+- `-l`, `--listing-dir <listingDir>` — Directory where listing files are stored (default: `listingsByDay`).
+- `-o`, `--output-dir <outputDir>` — Directory where compressed day archives are written (default: `compressedDays`).
+- `--start-date <YYYY-MM-DD>` — Start date (default: auto-detect from mirror node).
+- `--state-json <path>` — Path to state JSON file for resume (default: `outputDir/validateCmdStatus.json`).
+- `--stats-csv <path>` — Path to signature statistics CSV file (default: `outputDir/signature_statistics.csv`).
+- `--address-book <path>` — Path to address book file for signature validation.
+- `--max-concurrency <n>` — Maximum concurrent downloads (default: 64).
+
+Features:
+- **Auto-detect start date**: Queries the mirror node to determine the current day if `--start-date` is not specified.
+- **HTTP transport**: Uses HTTP (not gRPC) for GCS downloads to avoid deadlock issues with virtual threads.
+- **Inline validation**: Validates each block's running hash as it's downloaded.
+- **Signature statistics**: Tracks per-day signature counts and writes to CSV (compatible with `validate-with-stats`).
+- **Day rollover**: Automatically finalizes day archives at midnight and starts new ones.
+- **Resume support**: Saves state periodically to allow resuming after interruption.
+
+Example:
+
+```bash
+# Start from a specific date
+java -jar tools-all.jar days download-live2 \
+  -l /path/to/listingsByDay \
+  -o /path/to/compressedDays \
+  --start-date 2026-01-09 \
+  --max-concurrency 64
+
+# Auto-detect today and run continuously
+java -jar tools-all.jar days download-live2 \
+  -l /path/to/listingsByDay \
+  -o /path/to/compressedDays
+```
+
+#### State File Behavior
+
+The command writes its state to `validateCmdStatus.json` in the output directory. This file is shared with the `validate` and `validate-with-stats` commands. Important notes:
+
+|                  Scenario                  |                                          Behavior                                           |
+|--------------------------------------------|---------------------------------------------------------------------------------------------|
+| `download-live2` writes → `validate` reads | ✅ Works (validate ignores extra `blockNumber` field)                                        |
+| `validate` writes → `download-live2` reads | ⚠️ `blockNumber` will be 0, so `download-live2` falls back to `--start-date` or auto-detect |
+
+**If you run `validate` or `validate-with-stats` after `download-live2`**, the state file will be overwritten without the `blockNumber` field. When `download-live2` starts again, it will need `--start-date` to resume from the correct position, or it will auto-detect the current day from the mirror node.
 
 ---
 

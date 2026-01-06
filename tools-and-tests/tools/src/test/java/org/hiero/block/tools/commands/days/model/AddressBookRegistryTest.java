@@ -115,7 +115,10 @@ public class AddressBookRegistryTest {
             assertNull(changes2, "Should NOT detect changes when content is identical");
 
             // Size should still be 2 (no duplicate added)
-            assertEquals(2, addressBookRegistry.getAddressBookCount(), "Should NOT add duplicate entry when content is identical");
+            assertEquals(
+                    2,
+                    addressBookRegistry.getAddressBookCount(),
+                    "Should NOT add duplicate entry when content is identical");
 
             // Third update with empty transaction list - should NOT add entry
             Instant time3 = Instant.parse("2021-06-08T19:00:00.000000000Z");
@@ -123,7 +126,8 @@ public class AddressBookRegistryTest {
             assertNull(changes3, "Should NOT detect changes with empty transactions");
 
             // Size should still be 2
-            assertEquals(2, addressBookRegistry.getAddressBookCount(), "Should NOT add entry when no transactions provided");
+            assertEquals(
+                    2, addressBookRegistry.getAddressBookCount(), "Should NOT add entry when no transactions provided");
         }
     }
 
@@ -190,28 +194,39 @@ public class AddressBookRegistryTest {
             int updatedNodeCount = updatedBook.nodeAddress().size();
             assertEquals(21, updatedNodeCount, "Updated address book should have 21 nodes");
 
-            assertNotEquals(genesisNodeCount, updatedNodeCount, "Genesis and updated books should have different node counts");
+            assertNotEquals(
+                    genesisNodeCount, updatedNodeCount, "Genesis and updated books should have different node counts");
 
             Instant beforeUpdateTime = Instant.parse("2020-01-01T00:00:00.000000000Z");
             NodeAddressBook bookBeforeUpdate = addressBookRegistry.getAddressBookForBlock(beforeUpdateTime);
-            assertEquals(genesisNodeCount, bookBeforeUpdate.nodeAddress().size(),
-                "Block before update should use genesis address book");
+            assertEquals(
+                    genesisNodeCount,
+                    bookBeforeUpdate.nodeAddress().size(),
+                    "Block before update should use genesis address book");
 
             NodeAddressBook bookAtUpdate = addressBookRegistry.getAddressBookForBlock(updateTime);
-            assertEquals(updatedNodeCount, bookAtUpdate.nodeAddress().size(),
-                "Block at update time should use updated address book");
+            assertEquals(
+                    updatedNodeCount,
+                    bookAtUpdate.nodeAddress().size(),
+                    "Block at update time should use updated address book");
 
             Instant afterUpdateTime = Instant.parse("2022-01-01T00:00:00.000000000Z");
             NodeAddressBook bookAfterUpdate = addressBookRegistry.getAddressBookForBlock(afterUpdateTime);
-            assertEquals(updatedNodeCount, bookAfterUpdate.nodeAddress().size(),
-                "Block after update should use updated address book");
+            assertEquals(
+                    updatedNodeCount,
+                    bookAfterUpdate.nodeAddress().size(),
+                    "Block after update should use updated address book");
 
             Instant wayAfterUpdateTime = Instant.parse("2025-11-13T00:00:00.000000000Z");
             NodeAddressBook bookWayAfter = addressBookRegistry.getAddressBookForBlock(wayAfterUpdateTime);
-            assertEquals(updatedNodeCount, bookWayAfter.nodeAddress().size(),
-                "Block way after all entries should use MOST RECENT address book, not genesis");
-            assertNotEquals(genesisNodeCount, bookWayAfter.nodeAddress().size(),
-                "Block way after all entries should NOT fall back to genesis");
+            assertEquals(
+                    updatedNodeCount,
+                    bookWayAfter.nodeAddress().size(),
+                    "Block way after all entries should use MOST RECENT address book, not genesis");
+            assertNotEquals(
+                    genesisNodeCount,
+                    bookWayAfter.nodeAddress().size(),
+                    "Block way after all entries should NOT fall back to genesis");
         }
     }
 }

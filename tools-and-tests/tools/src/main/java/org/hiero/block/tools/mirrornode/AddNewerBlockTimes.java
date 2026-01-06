@@ -52,6 +52,11 @@ public class AddNewerBlockTimes implements Runnable {
             description = "Path to the block times \".bin\" file.")
     private Path blockTimesFile = MetadataFiles.BLOCK_TIMES_FILE;
 
+    @Option(
+            names = {"-p", "--user-project"},
+            description = "GCP project to bill for requester-pays bucket access")
+    private String userProject = System.getenv("GCP_PROJECT_ID");
+
     /**
      * Add block times for blocks newer than mirror node data from GCP. This is done by listing the record files and
      * sorting and counting them.
@@ -75,8 +80,8 @@ public class AddNewerBlockTimes implements Runnable {
             System.out.println(Ansi.AUTO.string("@|yellow lastBlockTime = |@" + lastBlockTime + " nanos @|yellow =|@ "
                     + RecordFileDates.blockTimeLongToInstant(lastBlockTime)));
             // Open connection to get data from mainnet GCP bucket
-            final MainNetBucket mainNetBucket =
-                    new MainNetBucket(cacheEnabled, dataDir.resolve("gcp-cache"), minNodeAccountId, maxNodeAccountId);
+            final MainNetBucket mainNetBucket = new MainNetBucket(
+                    cacheEnabled, dataDir.resolve("gcp-cache"), minNodeAccountId, maxNodeAccountId, userProject);
 
             // find the day containing the last block time
             final Instant lastBlockTimeInstant = blockTimeLongToInstant(lastBlockTime);
