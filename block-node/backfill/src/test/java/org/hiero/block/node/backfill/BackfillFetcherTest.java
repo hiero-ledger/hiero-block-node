@@ -16,8 +16,6 @@ import static org.mockito.Mockito.when;
 import com.hedera.hapi.block.stream.Block;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -368,13 +366,6 @@ class BackfillFetcherTest {
     // Helper methods
     private static BackfillSource createSource(BackfillSourceConfig... nodes) {
         return BackfillSource.newBuilder().nodes(List.of(nodes)).build();
-    }
-
-    private static Path createTempSourceFile(BackfillSourceConfig... nodes) throws Exception {
-        final BackfillSource source = createSource(nodes);
-        final Path tempFile = Files.createTempFile("bn-sources", ".json");
-        Files.write(tempFile, BackfillSource.JSON.toBytes(source).toByteArray());
-        return tempFile;
     }
 
     private static BackfillFetcher createFetcherWithClient(

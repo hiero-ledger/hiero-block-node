@@ -57,20 +57,19 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
     private OptionalLong findEarliestAvailableStart(
             long startBlock, long gapEnd, @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
         long earliestAvailableStart = Long.MAX_VALUE;
-        for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
-            for (LongRange availableRange : entry.getValue()) {
-                long candidateStart = Math.max(startBlock, availableRange.start());
-                if (candidateStart > availableRange.end() || candidateStart > gapEnd) {
-                    continue;
+        // Nested loop needed: each node can have multiple non-contiguous available ranges
+        for (List<LongRange> ranges : availability.values()) {
+            for (LongRange range : ranges) {
+                long candidateStart = Math.max(startBlock, range.start());
+                if (candidateStart <= range.end() && candidateStart <= gapEnd) {
+                    earliestAvailableStart = Math.min(earliestAvailableStart, candidateStart);
                 }
-                earliestAvailableStart = Math.min(earliestAvailableStart, candidateStart);
             }
         }
 
         if (earliestAvailableStart == Long.MAX_VALUE) {
             return OptionalLong.empty();
         }
-
         return OptionalLong.of(earliestAvailableStart);
     }
 
@@ -83,6 +82,7 @@ public final class PriorityHealthBasedStrategy implements NodeSelectionStrategy 
             long earliestAvailableStart,
             @NonNull Map<BackfillSourceConfig, List<LongRange>> availability) {
         List<NodeSelection> candidates = new ArrayList<>();
+        // Cannot use values() here: we need the node key (entry.getKey()) to build NodeSelection
         for (Map.Entry<BackfillSourceConfig, List<LongRange>> entry : availability.entrySet()) {
             for (LongRange availableRange : entry.getValue()) {
                 long candidateStart = Math.max(startBlock, availableRange.start());
