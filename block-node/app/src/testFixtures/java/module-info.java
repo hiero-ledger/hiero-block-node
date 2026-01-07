@@ -6,6 +6,7 @@ module org.hiero.block.node.app.test.fixtures {
     exports org.hiero.block.node.app.fixtures.pipeline;
     exports org.hiero.block.node.app.fixtures.plugintest;
     exports org.hiero.block.node.app.fixtures.server;
+    exports org.hiero.block.node.app.fixtures.logging;
 
     requires com.hedera.pbj.grpc.helidon.config;
     requires com.hedera.pbj.grpc.helidon;
