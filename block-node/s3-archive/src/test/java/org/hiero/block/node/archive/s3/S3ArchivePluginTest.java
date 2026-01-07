@@ -58,7 +58,7 @@ import org.testcontainers.containers.GenericContainer;
 /**
  * Unit tests for the {@link S3ArchivePlugin} class.
  */
-@Timeout(value = 15, unit = TimeUnit.SECONDS)
+@Timeout(value = 5, unit = TimeUnit.SECONDS)
 @SuppressWarnings("SameParameterValue")
 class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorService, ScheduledExecutorService> {
     private static final Instant START_TIME =

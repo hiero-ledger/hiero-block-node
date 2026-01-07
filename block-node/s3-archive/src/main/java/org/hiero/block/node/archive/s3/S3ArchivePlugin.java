@@ -24,7 +24,7 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -80,7 +80,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     /** A completion service for the active uploads. */
     private CompletionService<Void> activeUploads;
     /** Tracks batch starts already queued to avoid duplicate scheduling. */
-    private final Set<Long> pendingBatchStarts = ConcurrentHashMap.newKeySet();
+    private final Set<Long> pendingBatchStarts = new ConcurrentSkipListSet<>();
     /** The latest block number that has been archived. If there are no archived blocks then is UNKNOWN_BLOCK_NUMBER */
     private final AtomicLong lastArchivedBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
 
