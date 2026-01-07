@@ -70,6 +70,21 @@ jobs:
           trap "popd" EXIT
           npm run test
 
+      - name: Display Test Logs
+        run: |
+          pushd ${K6_ROOT} || exit 1
+          trap "popd" EXIT
+          npm run print-logs
+
       - name: Stop Containers
         if: ${{ always() }}
         run: ${GRADLE_EXEC} stopDockerContainer
+
+      - name: Upload Log Directory
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: all-out-logs
+          path: ${{ env.K6_ROOT }}/k6-out/ # This uploads everything inside the logs folder
+          if-no-files-found: "warn" # This will not fail the step if there are no files in the logs folder, but will warn us
+          retention-days: 5 # retain the logs for a period

@@ -2,7 +2,8 @@
   "name": "@hiero-ledger/block-node-k6",
   "version": "0.0.1",
   "scripts": {
-    "test": "./run-k6-tests.sh"
+    "test": "./run-k6-tests.sh",
+    "print-logs": "./print-logs.sh"
   },
   "devDependencies": {
     "@types/k6": "^1.4.0"
