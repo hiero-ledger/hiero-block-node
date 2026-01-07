@@ -48,10 +48,15 @@ public class BlockNodeClient {
         }
 
         int getValidOrDefault(@Nullable GrpcWebClientTuning tuning) {
+            // if null use default
             if (tuning == null) return defaultValue;
+            // get value from tuning
             int value = getter.applyAsInt(tuning);
+            // if 0 use default
             if (value == 0) return defaultValue;
+            // validate range
             if (isValid(value)) return value;
+            // log warning and use default
             LOGGER.log(
                     Level.WARNING,
                     "Invalid tuning value for {0}: {1} is outside valid range [{2}, {3}], using default: {4}",
