@@ -25,13 +25,11 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Client for fetching blocks from block nodes using gRPC.
- * This client handles retries and manages the status of block nodes.
- * It uses a priority and health-based strategy to select nodes for fetching blocks.
- * It also maintains a map of node statuses to avoid hitting unavailable nodes repeatedly.
+ * This client handles retries and uses a priority and health-based strategy to select nodes for fetching blocks.
  * <p>
  * The client fetches blocks in a specified range and retries fetching from different nodes
  * if the initial node does not have the required blocks or is unavailable.
- * It implements exponential backoff with jitter for retries to avoid overwhelming the nodes.
+ * It implements exponential backoff for retries to avoid overwhelming the nodes.
  * <p>
  * The client is initialized with a path to a block node preference file, which contains
  * a list of block nodes with their addresses, ports, and priorities.
@@ -63,8 +61,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     private final double healthPenaltyPerFailure;
     /** Strategy for selecting nodes. */
     private final NodeSelectionStrategy selectionStrategy;
-    /** Current status of the Block Node Clients */
-    private final ConcurrentHashMap<BackfillSourceConfig, Status> nodeStatusMap = new ConcurrentHashMap<>();
     /**
      * Map of BackfillSourceConfig to BlockNodeClient instances.
      * This allows us to reuse clients for the same node configuration.
@@ -124,8 +120,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             BlockNodeClient currentNodeClient = getNodeClient(node);
             if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
-                nodeStatusMap.put(node, Status.UNAVAILABLE);
-                LOGGER.log(INFO, "Unable to reach node [%s], marked as unavailable".formatted(node));
+                LOGGER.log(INFO, "Unable to reach node [%s], skipping".formatted(node));
                 continue;
             }
 
@@ -138,13 +133,12 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 // update the earliestPeerBlock to the max lastAvailableBlock
                 latestPeerBlock = Math.max(latestPeerBlock, lastAvailableBlock);
                 earliestPeerBlock = Math.min(earliestPeerBlock, firstAvailableBlock);
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 LOGGER.log(
                         INFO,
                         "Failed to get status from node [%s:%d]: %s"
                                 .formatted(node.address(), node.port(), e.getMessage()),
                         e);
-                nodeStatusMap.put(node, Status.UNAVAILABLE);
             }
         }
 
@@ -190,17 +184,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     }
 
     /**
-     * Resets the status of all block nodes to UNKNOWN.
-     * This is useful for scenarios where the status of nodes may change,
-     * such as after a network outage or when nodes are restarted.
-     */
-    public void resetStatus() {
-        for (BackfillSourceConfig node : blockNodeSource.nodes()) {
-            nodeStatusMap.put(node, Status.UNKNOWN);
-        }
-    }
-
-    /**
      * Perform a serverStatus call per configured node and compute the available ranges intersecting the target.
      *
      * @param targetRange overall gap we are trying to backfill
@@ -215,7 +198,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             }
             BlockNodeClient currentNodeClient = getNodeClient(node);
             if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
-                nodeStatusMap.put(node, Status.UNAVAILABLE);
                 markFailure(node);
                 continue;
             }
@@ -233,9 +215,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
             if (!intersections.isEmpty()) {
                 availability.put(node, LongRange.mergeContiguousRanges(intersections));
-                nodeStatusMap.put(node, Status.AVAILABLE);
             } else {
-                nodeStatusMap.put(node, Status.UNAVAILABLE);
                 markFailure(node);
             }
         }
@@ -270,7 +250,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                         .getBlockstreamSubscribeUnparsedClient()
                         .getBatchOfBlocks(blockRange.start(), blockRange.end());
                 if (batch.size() != blockRange.size()) {
-                    nodeStatusMap.put(nodeConfig, Status.UNAVAILABLE);
                     markFailure(nodeConfig);
                     return Collections.emptyList();
                 }
@@ -289,7 +268,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                                         e.getMessage(),
                                         e.getCause()));
                 if (attempt == maxRetries) {
-                    nodeStatusMap.put(nodeConfig, Status.UNAVAILABLE);
                     markFailure(nodeConfig);
                 } else {
                     long delay = Math.multiplyExact(initialRetryDelayMs, attempt);
@@ -356,17 +334,11 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     }
 
     /**
-     * Enum representing the status of a block node:
-     * <ul>
-     *     <li>UNKNOWN: The status of the node is unknown.</li>
-     *     <li>AVAILABLE: The node is available and can serve requests.</li>
-     *     <li>UNAVAILABLE: The node is not available, either due to an error or because it does not have the requested blocks.</li>
-     * </ul>>
+     * Resets the health tracking for all nodes, clearing failure counts and backoff times.
+     * This gives all nodes a fresh start for the next backfill cycle.
      */
-    public enum Status {
-        UNKNOWN,
-        AVAILABLE,
-        UNAVAILABLE
+    public void resetHealth() {
+        healthMap.clear();
     }
 
     private record SourceHealth(int failures, long nextAllowedMillis, long successes, long totalLatencyNanos) {}

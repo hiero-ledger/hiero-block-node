@@ -119,6 +119,9 @@ final class BackfillTaskScheduler implements AutoCloseable {
             workerRunning.set(false);
             if (!queue.isEmpty() && !shutdown.get()) {
                 ensureWorkerRunning();
+            } else if (!shutdown.get()) {
+                // Reset health when scheduler becomes idle (queue drained)
+                fetcher.resetHealth();
             }
         }
     }

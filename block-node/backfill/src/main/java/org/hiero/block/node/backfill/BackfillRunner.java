@@ -288,11 +288,9 @@ final class BackfillRunner {
 
     /**
      * Initializes availability by querying all configured nodes for their block ranges.
-     * Resets node status before querying to get fresh availability data.
      */
     private Map<BackfillSourceConfig, List<LongRange>> planAvailabilityForGap(
             BackfillFetcher backfillFetcher, LongRange gap) {
-        backfillFetcher.resetStatus();
         return backfillFetcher.getAvailabilityForRange(gap);
     }
 

@@ -233,7 +233,6 @@ class BackfillRunnerTest {
             subject.run(gap);
 
             // then - should complete without error
-            verify(mockFetcher, atLeastOnce()).resetStatus();
             verify(mockFetcher, atLeastOnce()).getAvailabilityForRange(any());
             // Using real TestBlockMessagingFacility - verify no notifications were sent
             assertTrue(
