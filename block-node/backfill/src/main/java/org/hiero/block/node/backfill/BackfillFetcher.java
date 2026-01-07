@@ -4,10 +4,8 @@ package org.hiero.block.node.backfill;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
-import com.hedera.pbj.runtime.ParseException;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -83,8 +81,9 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @param metrics the metrics holder
      */
     public BackfillFetcher(
-            BackfillSource backfillSource, BackfillConfiguration config, @NonNull BackfillPlugin.MetricsHolder metrics)
-            throws IOException, ParseException {
+            BackfillSource backfillSource,
+            BackfillConfiguration config,
+            @NonNull BackfillPlugin.MetricsHolder metrics) {
         this.blockNodeSource = backfillSource;
         this.maxRetries = config.maxRetries();
         this.initialRetryDelayMs = config.initialRetryDelay();
@@ -125,7 +124,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             BlockNodeClient currentNodeClient = getNodeClient(node);
             if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
-                // to-do: add logic to retry node later to avoid marking it unavailable forever
                 nodeStatusMap.put(node, Status.UNAVAILABLE);
                 LOGGER.log(INFO, "Unable to reach node [%s], marked as unavailable".formatted(node));
                 continue;

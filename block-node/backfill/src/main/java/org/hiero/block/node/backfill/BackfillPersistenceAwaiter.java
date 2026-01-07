@@ -2,8 +2,8 @@
 package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
-import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.concurrent.ConcurrentHashMap;
@@ -102,7 +102,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
             if (notification.succeeded()) {
                 LOGGER.log(TRACE, "Received persistence confirmation for block [%s]".formatted(blockNumber));
             } else {
-                LOGGER.log(WARNING, "Block [%s] persistence failed".formatted(blockNumber));
+                LOGGER.log(INFO, "Block [%s] persistence failed".formatted(blockNumber));
             }
             latch.countDown();
         }
@@ -117,6 +117,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
      */
     @Override
     public void handleVerification(@NonNull VerificationNotification notification) {
+        // we only care for backfilled blocks
         if (notification.source() != BlockSource.BACKFILL) {
             return;
         }
@@ -126,7 +127,7 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
             long blockNumber = notification.blockNumber();
             CountDownLatch latch = pendingBlocks.get(blockNumber);
             if (latch != null) {
-                LOGGER.log(WARNING, "Block [%s] verification failed, releasing latch".formatted(blockNumber));
+                LOGGER.log(INFO, "Block [%s] verification failed, releasing latch".formatted(blockNumber));
                 latch.countDown();
             }
         }

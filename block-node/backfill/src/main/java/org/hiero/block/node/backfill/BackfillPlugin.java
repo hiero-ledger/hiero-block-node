@@ -201,7 +201,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         try {
 
             BackfillFetcher fetcher = new BackfillFetcher(blockNodeSources, backfillConfiguration, metricsHolder);
-            // Create dedicated persistence awaiter for backpressure
+            // Create dedicated persistence awaiter for system backpressure
             BackfillPersistenceAwaiter persistenceAwaiter = new BackfillPersistenceAwaiter();
             context.blockMessaging()
                     .registerBlockNotificationHandler(
@@ -220,7 +220,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                         try {
                             LOGGER.log(
                                     INFO,
-                                    "Scheduler processing gap type=[%s] range=[%s]".formatted(gap.type(), gap.range()));
+                                    "Scheduler processing gap type=[%s] range=[%s] for [%s]"
+                                            .formatted(gap.type(), gap.range(), schedulerName));
                             long lastSuccessfulBlock = runner.run(gap);
                             // Reset highWaterMark if the gap didn't complete, allowing re-detection
                             if (gap.type() == GapDetector.Type.LIVE_TAIL
