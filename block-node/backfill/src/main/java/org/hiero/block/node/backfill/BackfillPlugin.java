@@ -18,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
@@ -213,32 +214,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     metricsHolder,
                     pendingBackfillBlocks,
                     persistenceAwaiter);
-            return new BackfillTaskScheduler(
-                    executor,
-                    gap -> {
-                        try {
-                            LOGGER.log(
-                                    INFO,
-                                    "Scheduler processing gap type=[%s] range=[%s] for [%s]"
-                                            .formatted(gap.type(), gap.range(), schedulerName));
-                            long lastSuccessfulBlock = runner.run(gap);
-                            // Reset highWaterMark if the gap didn't complete, allowing re-detection
-                            if (gap.type() == GapDetector.Type.LIVE_TAIL
-                                    && lastSuccessfulBlock < gap.range().end()) {
-                                liveTailHighWaterMark.updateAndGet(current -> Math.min(current, lastSuccessfulBlock));
-                                LOGGER.log(
-                                        INFO,
-                                        "Reset liveTailHighWaterMark to [%s] after incomplete gap [%s]"
-                                                .formatted(lastSuccessfulBlock, gap.range()));
-                            }
-                        } catch (ParseException | InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            LOGGER.log(INFO, "Error executing gap=[%s]".formatted(gap), e);
-                        }
-                    },
-                    queueCapacity,
-                    fetcher,
-                    persistenceAwaiter);
+            GapProcessor gapProcessor = new GapProcessor(runner, schedulerName);
+            return new BackfillTaskScheduler(executor, gapProcessor, queueCapacity, fetcher, persistenceAwaiter);
         } catch (RuntimeException e) {
             LOGGER.log(INFO, "Failed to create scheduler: [%s]".formatted(e.getMessage()));
             return null;
@@ -470,6 +447,42 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
         scheduleGap(new GapDetector.Gap(new LongRange(startBackfillFrom, cappedEnd), GapDetector.Type.LIVE_TAIL));
+    }
+
+    /**
+     * Processes gaps by delegating to the BackfillRunner and handling high-water mark updates.
+     */
+    private class GapProcessor implements Consumer<GapDetector.Gap> {
+        private final BackfillRunner runner;
+        private final String schedulerName;
+
+        GapProcessor(BackfillRunner runner, String schedulerName) {
+            this.runner = runner;
+            this.schedulerName = schedulerName;
+        }
+
+        @Override
+        public void accept(GapDetector.Gap gap) {
+            try {
+                LOGGER.log(
+                        TRACE,
+                        "Scheduler processing gap type=[%s] range=[%s] for [%s]"
+                                .formatted(gap.type(), gap.range(), schedulerName));
+                long lastSuccessfulBlock = runner.run(gap);
+                // Reset highWaterMark if the gap didn't complete, allowing re-detection
+                if (gap.type() == GapDetector.Type.LIVE_TAIL
+                        && lastSuccessfulBlock < gap.range().end()) {
+                    liveTailHighWaterMark.updateAndGet(current -> Math.min(current, lastSuccessfulBlock));
+                    LOGGER.log(
+                            INFO,
+                            "Reset liveTailHighWaterMark to [%s] after incomplete gap [%s]"
+                                    .formatted(lastSuccessfulBlock, gap.range()));
+                }
+            } catch (ParseException | InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.log(INFO, "Error executing gap=[%s]".formatted(gap), e);
+            }
+        }
     }
 
     /**
