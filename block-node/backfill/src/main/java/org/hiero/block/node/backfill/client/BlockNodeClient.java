@@ -11,17 +11,19 @@ import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
 import io.helidon.webclient.http2.Http2ClientProtocolConfig;
 import java.io.UncheckedIOException;
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.IntPredicate;
 import java.util.function.ToIntFunction;
 import org.hiero.block.api.BlockNodeServiceInterface;
 
 public class BlockNodeClient {
+    private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());
     // Default tuning values optimized for high-throughput block streaming
     private static final int DEFAULT_2MB = 2 * 1024 * 1024;
-    private static final int DEFAULT_FLOW_CONTROL_TIMEOUT_MS = 10_000;
+    private static final int DEFAULT_TIMEOUT_MS = 10_000; // 10 seconds
     private static final int DEFAULT_MAX_HEADER_LIST_SIZE = 8192;
     private static final int DEFAULT_PING_TIMEOUT_MS = 500;
 
@@ -35,17 +37,64 @@ public class BlockNodeClient {
     private static final int MAX_TIMEOUT_MS = 300_000; // 5 minutes
     private static final int MIN_BUFFER_SIZE = 1024; // 1 KB
     private static final int MAX_BUFFER_SIZE = 64 * 1024 * 1024; // 64 MB
-    private static final int MIN_HEADER_LIST_SIZE = 1024; // 1 KB
-    private static final int MAX_HEADER_LIST_SIZE = 1024 * 1024; // 1 MB
+    private static final int MIN_HEADER_LIST_SIZE_BOUND = 1024; // 1 KB
+    private static final int MAX_HEADER_LIST_SIZE_BOUND = 1024 * 1024; // 1 MB
 
-    // Validation predicates
-    private static final IntPredicate TIMEOUT_RANGE = v -> v >= MIN_TIMEOUT_MS && v <= MAX_TIMEOUT_MS;
-    private static final IntPredicate HTTP2_FRAME_SIZE_RANGE =
-            v -> v >= HTTP2_MIN_FRAME_SIZE && v <= HTTP2_MAX_FRAME_SIZE;
-    private static final IntPredicate HTTP2_WINDOW_SIZE_RANGE = v -> v >= 1 && v <= HTTP2_MAX_WINDOW_SIZE;
-    private static final IntPredicate BUFFER_SIZE_RANGE = v -> v >= MIN_BUFFER_SIZE && v <= MAX_BUFFER_SIZE;
-    private static final IntPredicate HEADER_LIST_SIZE_RANGE =
-            v -> v >= MIN_HEADER_LIST_SIZE && v <= MAX_HEADER_LIST_SIZE;
+    // Config specification record bundling name, default, range, and getter
+    private record IntConfigSpec(
+            String name, int defaultValue, int minValue, int maxValue, ToIntFunction<GrpcWebClientTuning> getter) {
+        boolean isValid(int value) {
+            return value >= minValue && value <= maxValue;
+        }
+
+        int getValidOrDefault(@Nullable GrpcWebClientTuning tuning) {
+            if (tuning == null) return defaultValue;
+            int value = getter.applyAsInt(tuning);
+            if (value == 0) return defaultValue;
+            if (isValid(value)) return value;
+            LOGGER.log(
+                    Level.WARNING,
+                    "Invalid tuning value for {0}: {1} is outside valid range [{2}, {3}], using default: {4}",
+                    name,
+                    value,
+                    minValue,
+                    maxValue,
+                    defaultValue);
+            return defaultValue;
+        }
+    }
+
+    // Timeout config specs
+    private static final IntConfigSpec CONNECT_TIMEOUT = new IntConfigSpec(
+            "connectTimeout", DEFAULT_TIMEOUT_MS, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, GrpcWebClientTuning::connectTimeout);
+    private static final IntConfigSpec READ_TIMEOUT = new IntConfigSpec(
+            "readTimeout", DEFAULT_TIMEOUT_MS, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, GrpcWebClientTuning::readTimeout);
+    private static final IntConfigSpec POLL_WAIT_TIME = new IntConfigSpec(
+            "pollWaitTime", DEFAULT_TIMEOUT_MS, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, GrpcWebClientTuning::pollWaitTime);
+    private static final IntConfigSpec FLOW_CONTROL_TIMEOUT = new IntConfigSpec(
+            "flowControlTimeout",
+            DEFAULT_TIMEOUT_MS,
+            MIN_TIMEOUT_MS,
+            MAX_TIMEOUT_MS,
+            GrpcWebClientTuning::flowControlTimeout);
+    private static final IntConfigSpec PING_TIMEOUT = new IntConfigSpec(
+            "pingTimeout", DEFAULT_PING_TIMEOUT_MS, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, GrpcWebClientTuning::pingTimeout);
+
+    // HTTP/2 config specs
+    private static final IntConfigSpec MAX_FRAME_SIZE = new IntConfigSpec(
+            "maxFrameSize", DEFAULT_2MB, HTTP2_MIN_FRAME_SIZE, HTTP2_MAX_FRAME_SIZE, GrpcWebClientTuning::maxFrameSize);
+    private static final IntConfigSpec INITIAL_WINDOW_SIZE = new IntConfigSpec(
+            "initialWindowSize", DEFAULT_2MB, 1, HTTP2_MAX_WINDOW_SIZE, GrpcWebClientTuning::initialWindowSize);
+    private static final IntConfigSpec MAX_HEADER_LIST_SIZE = new IntConfigSpec(
+            "maxHeaderListSize",
+            DEFAULT_MAX_HEADER_LIST_SIZE,
+            MIN_HEADER_LIST_SIZE_BOUND,
+            MAX_HEADER_LIST_SIZE_BOUND,
+            GrpcWebClientTuning::maxHeaderListSize);
+
+    // gRPC config specs
+    private static final IntConfigSpec INITIAL_BUFFER_SIZE = new IntConfigSpec(
+            "initialBufferSize", DEFAULT_2MB, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE, GrpcWebClientTuning::initialBufferSize);
 
     private record Options(Optional<String> authority, String contentType) implements ServiceInterface.RequestOptions {}
 
@@ -74,10 +123,9 @@ public class BlockNodeClient {
             @Nullable GrpcWebClientTuning tuning) {
 
         this.globalTimeoutMs = globalTimeoutMs;
-        int connectTimeoutMs =
-                getOrDefault(tuning, GrpcWebClientTuning::connectTimeout, globalTimeoutMs, TIMEOUT_RANGE);
-        int readTimeoutMs = getOrDefault(tuning, GrpcWebClientTuning::readTimeout, globalTimeoutMs, TIMEOUT_RANGE);
-        int pollWaitMs = getOrDefault(tuning, GrpcWebClientTuning::pollWaitTime, globalTimeoutMs, TIMEOUT_RANGE);
+        int connectTimeoutMs = CONNECT_TIMEOUT.getValidOrDefault(tuning);
+        int readTimeoutMs = READ_TIMEOUT.getValidOrDefault(tuning);
+        int pollWaitMs = POLL_WAIT_TIME.getValidOrDefault(tuning);
 
         Tls tls = Tls.builder().enabled(enableTls).build();
         grpcConfig =
@@ -98,18 +146,13 @@ public class BlockNodeClient {
         // Skip HTTP/1.1 upgrade negotiation for better performance
         final boolean priorKnowledge = tuning == null || tuning.priorKnowledge();
         // HTTP/2 frame and window sizes for flow control (validated per RFC 7540)
-        final int maxFrameSize =
-                getOrDefault(tuning, GrpcWebClientTuning::maxFrameSize, DEFAULT_2MB, HTTP2_FRAME_SIZE_RANGE);
-        final int initialWindowSize =
-                getOrDefault(tuning, GrpcWebClientTuning::initialWindowSize, DEFAULT_2MB, HTTP2_WINDOW_SIZE_RANGE);
-        final int flowControlTimeoutMs = getOrDefault(
-                tuning, GrpcWebClientTuning::flowControlTimeout, DEFAULT_FLOW_CONTROL_TIMEOUT_MS, TIMEOUT_RANGE);
-        final int maxHeaderListSize = getOrDefault(
-                tuning, GrpcWebClientTuning::maxHeaderListSize, DEFAULT_MAX_HEADER_LIST_SIZE, HEADER_LIST_SIZE_RANGE);
+        final int maxFrameSize = MAX_FRAME_SIZE.getValidOrDefault(tuning);
+        final int initialWindowSize = INITIAL_WINDOW_SIZE.getValidOrDefault(tuning);
+        final int flowControlTimeoutMs = FLOW_CONTROL_TIMEOUT.getValidOrDefault(tuning);
+        final int maxHeaderListSize = MAX_HEADER_LIST_SIZE.getValidOrDefault(tuning);
         // HTTP/2 ping for connection keep-alive
         final boolean pingEnabled = tuning == null || tuning.pingEnabled();
-        final int pingTimeoutMs =
-                getOrDefault(tuning, GrpcWebClientTuning::pingTimeout, DEFAULT_PING_TIMEOUT_MS, TIMEOUT_RANGE);
+        final int pingTimeoutMs = PING_TIMEOUT.getValidOrDefault(tuning);
 
         return Http2ClientProtocolConfig.builder()
                 .priorKnowledge(priorKnowledge)
@@ -124,24 +167,13 @@ public class BlockNodeClient {
 
     private GrpcClientProtocolConfig buildGrpcConfig(int pollWaitTimeMs, @Nullable GrpcWebClientTuning tuning) {
         // gRPC buffer size for message serialization (validated within sensible bounds)
-        final int initialBufferSize =
-                getOrDefault(tuning, GrpcWebClientTuning::initialBufferSize, DEFAULT_2MB, BUFFER_SIZE_RANGE);
+        final int initialBufferSize = INITIAL_BUFFER_SIZE.getValidOrDefault(tuning);
 
         return GrpcClientProtocolConfig.builder()
                 .abortPollTimeExpired(false)
                 .pollWaitTime(Duration.ofMillis(pollWaitTimeMs))
                 .initBufferSize(initialBufferSize)
                 .build();
-    }
-
-    private int getOrDefault(
-            @Nullable GrpcWebClientTuning tuning,
-            ToIntFunction<GrpcWebClientTuning> getter,
-            int defaultValue,
-            IntPredicate validator) {
-        if (tuning == null) return defaultValue;
-        int value = getter.applyAsInt(tuning);
-        return validator.test(value) ? value : defaultValue;
     }
 
     public void initializeClient() {

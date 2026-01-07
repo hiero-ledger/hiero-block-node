@@ -25,37 +25,55 @@ message BackfillSourceConfig {
 // All fields are optional - when not specified or set to 0, sensible defaults are used.
 // Timeout defaults fall back to global `backfill.grpcOverallTimeout` configuration.
 // Other defaults are optimized for high-throughput block streaming.
+//
+// VALIDATION: Values are validated against specification limits and sensible bounds.
+// If a value is out of range, a WARNING is logged and the default value is used instead.
+// Validation ranges:
+//   - Timeouts: 100ms to 300,000ms (5 minutes)
+//   - HTTP/2 frame size: 16,384 bytes (16KB) to 16,777,215 bytes (~16MB) per RFC 7540
+//   - HTTP/2 window size: 1 to 2,147,483,647 (2^31-1) per RFC 7540
+//   - Buffer sizes: 1,024 bytes (1KB) to 67,108,864 bytes (64MB)
+//   - Header list size: 1,024 bytes (1KB) to 1,048,576 bytes (1MB)
 message GrpcWebClientTuning {
   // Connection timeout in milliseconds (0 = use global backfill.grpcOverallTimeout)
+  // Valid range: 100ms to 300,000ms
   uint32 connect_timeout = 1;
 
   // Read timeout in milliseconds (0 = use global backfill.grpcOverallTimeout)
+  // Valid range: 100ms to 300,000ms
   uint32 read_timeout = 2;
 
   // Poll wait time in milliseconds (0 = use global backfill.grpcOverallTimeout)
+  // Valid range: 100ms to 300,000ms
   uint32 poll_wait_time = 3;
 
   // HTTP/2 prior knowledge - skip HTTP/1.1 upgrade negotiation (default: true)
   bool prior_knowledge = 4;
 
   // HTTP/2 max frame size in bytes (default: 2MB = 2097152)
+  // Valid range: 16,384 bytes to 16,777,215 bytes per RFC 7540
   uint32 max_frame_size = 5;
 
   // HTTP/2 initial window size in bytes for flow control (default: 2MB = 2097152)
+  // Valid range: 1 to 2,147,483,647 per RFC 7540
   uint32 initial_window_size = 6;
 
   // gRPC initial buffer size in bytes (default: 2MB = 2097152)
+  // Valid range: 1,024 bytes to 67,108,864 bytes
   uint32 initial_buffer_size = 7;
 
   // HTTP/2 flow control blocking timeout in milliseconds (default: 10000)
+  // Valid range: 100ms to 300,000ms
   uint32 flow_control_timeout = 8;
 
   // HTTP/2 max header list size in bytes (default: 8192)
+  // Valid range: 1,024 bytes to 1,048,576 bytes
   uint32 max_header_list_size = 9;
 
   // Enable HTTP/2 ping for connection keep-alive (default: false)
   bool ping_enabled = 10;
 
   // HTTP/2 ping timeout in milliseconds (default: 10000)
+  // Valid range: 100ms to 300,000ms
   uint32 ping_timeout = 11;
 }
