@@ -150,11 +150,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             }
         }
 
-        LOGGER.log(
-                TRACE,
-                "Determined block range from peer blocks nodes earliestPeerBlock=[%s] to latestStoredBlockNumber=[%s]"
-                        .formatted(earliestPeerBlock, latestPeerBlock));
-
         // Determine the earliest block we can actually fetch from peers
         long startBlock = Math.max(latestStoredBlockNumber + 1, earliestPeerBlock);
         // confirm next block is available if not we still can't backfill
@@ -163,7 +158,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         }
 
         LOGGER.log(
-                INFO,
+                TRACE,
                 "Determined available range from peer blocks nodes start=[%s] to end=[%s]"
                         .formatted(startBlock, latestPeerBlock));
         return new LongRange(startBlock, latestPeerBlock);
