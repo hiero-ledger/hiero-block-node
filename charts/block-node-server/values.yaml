@@ -130,6 +130,7 @@ blockNode:
     # key: value
     JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties"
     JAVA_OPTS: '-Xms16G -Xmx16G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+    PLUGINS: ""
     # PRODUCER_TYPE: "NO_OP"
     # PERSISTENCE_STORAGE_TYPE: "NO_OP"
     # VERIFICATION_TYPE: "NO_OP"
