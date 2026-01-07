@@ -1202,6 +1202,67 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         assertEquals(10, blockMessaging.getSentVerificationNotifications().size(), "Should verify available blocks");
     }
 
+    /**
+     * Test that greedy backfill on an empty store correctly splits gaps by earliestManagedBlock.
+     * <p>
+     * With earliestManagedBlock=50:
+     * - Blocks 0-49 should be classified as HISTORICAL
+     * - Blocks 50-99 should be classified as LIVE_TAIL
+     * <p>
+     * Both ranges should be backfilled since the store is empty.
+     */
+    @Test
+    @DisplayName("Greedy backfill should schedule both HISTORICAL and LIVE_TAIL gaps")
+    void greedyBackfillShouldSplitGapByEarliestManagedBlock() throws InterruptedException {
+        // Set up peer server with blocks 0-99
+        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40893)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-split-gap.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(0, 99)));
+
+        // Config: earliestManagedBlock=50, greedy=true
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
+                .initialDelay(50)
+                .build();
+        configOverride.put("block.node.earliestManagedBlock", "50");
+
+        // Start plugin with empty store
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        // Wait for all 100 blocks (0-99) to be backfilled
+        int expectedBlocks = 100;
+        CountDownLatch latch = new CountDownLatch(expectedBlocks);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(latch);
+
+        assertTrue(
+                latch.await(10, TimeUnit.SECONDS),
+                "Should backfill all 100 blocks from both HISTORICAL and LIVE_TAIL gaps");
+
+        // Verify blocks from BOTH ranges were backfilled
+        List<Long> backfilledBlocks = blockMessaging.getSentPersistedNotifications().stream()
+                .map(PersistedNotification::blockNumber)
+                .toList();
+
+        // Check HISTORICAL range (0-49) was backfilled
+        assertTrue(
+                backfilledBlocks.stream().anyMatch(b -> b < 50),
+                "Should backfill HISTORICAL blocks (0-49) below earliestManagedBlock");
+
+        // Check LIVE_TAIL range (50-99) was backfilled
+        assertTrue(
+                backfilledBlocks.stream().anyMatch(b -> b >= 50),
+                "Should backfill LIVE_TAIL blocks (50-99) at or above earliestManagedBlock");
+    }
+
     private void createTestBlockNodeSourcesFile(BackfillSource backfillSource, String configPath) {
         String jsonString = BackfillSource.JSON.toJSON(backfillSource);
         // Write the JSON string to the specified file path

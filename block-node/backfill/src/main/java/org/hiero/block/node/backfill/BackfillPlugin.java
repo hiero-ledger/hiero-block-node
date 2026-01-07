@@ -60,7 +60,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
     // State touched by multiple threads
     private final AtomicLong pendingBackfillBlocks = new AtomicLong(0);
-    private volatile long lastAcknowledgedBlockObserved = -1;
     // Deduplication: highest block scheduled for live-tail (prevents overlapping submissions)
     private final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
 
@@ -286,43 +285,69 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private void detectGaps() {
         LOGGER.log(TRACE, "Detecting gaps in blocks");
 
+        // 1. Get stored blocks
         List<LongRange> blockRanges = context.historicalBlockProvider()
                 .availableBlocks()
                 .streamRanges()
                 .toList();
 
+        // 2. Determine range to scan
+        //    - Lower bound: configured startBlock
+        //    - Upper bound: greedy → peer max, non-greedy → store max (capped by config)
         long startBound = Math.max(0, backfillConfiguration.startBlock());
-        long endCap = backfillConfiguration.endBlock() >= 0 ? backfillConfiguration.endBlock() : Long.MAX_VALUE;
-        if (startBound > endCap) {
-            LOGGER.log(TRACE, "Configured startBlock > endBlock; nothing to backfill");
+        long endCap = determineEndCap(blockRanges);
+        if (endCap < 0 || startBound > endCap) {
+            LOGGER.log(TRACE, "Nothing to backfill: startBound=[%d] endCap=[%d]".formatted(startBound, endCap));
             return;
         }
 
-        long blockRangesLastValue =
-                blockRanges.isEmpty() ? -1 : blockRanges.getLast().end();
-        greedyBackfillRecentBlocks(lastAcknowledgedBlockObserved, blockRangesLastValue);
-        lastAcknowledgedBlockObserved = blockRangesLastValue;
+        // 3. Find gaps and classify as HISTORICAL or LIVE_TAIL
+        //    - Boundary: empty store → earliestManagedBlock-1, has blocks → last stored block
+        //    - Blocks <= boundary → HISTORICAL, blocks > boundary → LIVE_TAIL
+        long liveTailBoundary = blockRanges.isEmpty()
+                ? earliestManagedBlock - 1
+                : blockRanges.getLast().end();
+        List<GapDetector.Gap> gaps = gapDetector.findTypedGaps(blockRanges, startBound, liveTailBoundary, endCap);
 
-        long liveTailBoundary = Math.min(
-                blockRanges.isEmpty()
-                        ? earliestManagedBlock
-                        : blockRanges.getLast().end(),
-                endCap);
-        List<GapDetector.Gap> typedGaps = gapDetector.findTypedGaps(blockRanges, startBound, liveTailBoundary, endCap);
-        if (!typedGaps.isEmpty()) {
-            metricsHolder.backfillGapsDetected().add(typedGaps.size());
+        // 4. Submit each gap to appropriate scheduler
+        if (!gaps.isEmpty()) {
+            metricsHolder.backfillGapsDetected().add(gaps.size());
         }
-        for (GapDetector.Gap gap : typedGaps) {
-            LOGGER.log(
-                    TRACE,
-                    "Detected gap type=[%s] from start=[%s] to end=[%s]"
-                            .formatted(
-                                    gap.type(), gap.range().start(), gap.range().end()));
+        for (GapDetector.Gap gap : gaps) {
+            LOGGER.log(TRACE, "Detected gap type=[%s] range=[%s]".formatted(gap.type(), gap.range()));
             scheduleGap(gap);
         }
+    }
 
-        if (typedGaps.isEmpty()) {
-            LOGGER.log(TRACE, "No gaps detected in historical blocks");
+    /**
+     * Determine the upper limit for gap detection.
+     * - Greedy mode: max latestAvailableBlock from peers
+     * - Non-greedy: last stored block
+     * Both are capped by configured endBlock if set.
+     */
+    private long determineEndCap(List<LongRange> blockRanges) {
+        long configEnd = backfillConfiguration.endBlock();
+        long storeMax = blockRanges.isEmpty() ? -1 : blockRanges.getLast().end();
+
+        if (backfillConfiguration.greedy() && liveTailScheduler != null) {
+            long peerMax = getPeerMaxAvailableBlock(storeMax);
+            long upper = peerMax >= 0 ? peerMax : storeMax;
+            return configEnd >= 0 ? Math.min(configEnd, upper) : upper;
+        } else {
+            return configEnd >= 0 ? Math.min(configEnd, storeMax) : storeMax;
+        }
+    }
+
+    /**
+     * Query peers for the maximum available block number.
+     */
+    private long getPeerMaxAvailableBlock(long baseline) {
+        try {
+            LongRange peerRange = liveTailScheduler.getFetcher().getNewAvailableRange(baseline);
+            return peerRange != null && peerRange.size() > 0 ? peerRange.end() : -1;
+        } catch (RuntimeException e) {
+            LOGGER.log(TRACE, "Failed to get peer availability: %s".formatted(e.getMessage()));
+            return -1;
         }
     }
 
@@ -362,7 +387,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         // Submit the (possibly adjusted) gap to the appropriate scheduler
         LOGGER.log(
-                INFO,
+                TRACE,
                 "Submitting gap type=[%s] range=[%s] to scheduler"
                         .formatted(effectiveGap.type(), effectiveGap.range()));
         submitGap(effectiveGap);
@@ -377,39 +402,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         BackfillTaskScheduler scheduler =
                 (gap.type() == GapDetector.Type.HISTORICAL) ? historicalScheduler : liveTailScheduler;
         scheduler.submit(gap);
-    }
-
-    /**
-     * Opportunistically fetch the newest available range from peers to stay close to head.
-     */
-    private void greedyBackfillRecentBlocks(long lastObserved, long lastLocal) {
-        if (!backfillConfiguration.greedy()) {
-            return;
-        }
-        if (lastObserved > 0 && lastLocal > lastObserved) {
-            return;
-        }
-        if (liveTailScheduler == null) {
-            return;
-        }
-        long baseline = Math.max(lastLocal, backfillConfiguration.startBlock() - 1);
-        LongRange peerRange;
-        try {
-            peerRange = liveTailScheduler.getFetcher().getNewAvailableRange(baseline);
-        } catch (RuntimeException e) {
-            LOGGER.log(INFO, "Greedy backfill: failed to get peer availability: %s".formatted(e.getMessage()), e);
-            return;
-        }
-        if (peerRange == null || peerRange.size() <= 0 || peerRange.start() < 0) {
-            return;
-        }
-        long cappedEnd = backfillConfiguration.endBlock() >= 0
-                ? Math.min(backfillConfiguration.endBlock(), peerRange.end())
-                : peerRange.end();
-        if (cappedEnd < peerRange.start()) {
-            return;
-        }
-        scheduleGap(new GapDetector.Gap(new LongRange(peerRange.start(), cappedEnd), GapDetector.Type.LIVE_TAIL));
     }
 
     // Package-private for test visibility
