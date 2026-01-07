@@ -240,7 +240,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                     queueCapacity,
                     fetcher,
                     persistenceAwaiter);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOGGER.log(INFO, "Failed to create scheduler: [%s]".formatted(e.getMessage()));
             return null;
         }
@@ -396,7 +396,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         LongRange peerRange;
         try {
             peerRange = liveTailScheduler.getFetcher().getNewAvailableRange(baseline);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOGGER.log(INFO, "Greedy backfill: failed to get peer availability: %s".formatted(e.getMessage()), e);
             return;
         }
