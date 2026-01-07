@@ -125,7 +125,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         if (!Files.isRegularFile(blockNodeSourcesPath)) {
             LOGGER.log(
                     TRACE,
-                    "Block node sources path file does not exist: [%s], backfill will not run"
+                    "Block node sources path does not exist or is not a regular file: [%s], backfill will not run"
                             .formatted(backfillConfiguration.blockNodeSourcesPath()));
             return;
         }
