@@ -2,6 +2,8 @@ import { Client, StatusOK, Stream } from 'k6/net/grpc';
 import { check, sleep } from 'k6';
 import { SharedArray } from 'k6/data';
 import {ServerStatusRequest, SubscribeBlockStreamRequest} from "../lib/grpc.js";
+import {Trend} from "k6/metrics";
+import { instance } from 'k6/execution';
 
 // setup options
 export const options = {
@@ -22,6 +24,9 @@ client.load([data.protobufPath],
     'block-node/api/node_service.proto',
     'block-node/api/block_access_service.proto',
     'block-node/api/block_stream_subscribe_service.proto');
+
+// this trend measures the reception of a full block along with its endOfBlock message
+const trend = new Trend('full_block_stream_duration', true);
 
 // run test
 export default () => {
@@ -59,12 +64,27 @@ export default () => {
     const subscribeParams = {
         tags: {name: 'subscribe_block_stream'}
     }
+    const timingMap = new Map();
     const stream = new SubscribeBlockStreamRequest(client).invoke(subscribeParams);
     stream.on('data', (subscribeStreamResponse) => {
         if (subscribeStreamResponse.blockItems) {
-            console.log(`Stream Response: BlockHeader for Block ${JSON.stringify(subscribeStreamResponse.blockItems.blockItems[0].blockHeader.number)}`);
+            const receivedAt = instance.currentTestRunDuration;
+            const header = subscribeStreamResponse.blockItems.blockItems[0].blockHeader;
+            if (header) {
+                // we want to put in the map only if a header is present because a block
+                // could be sent in multiple chunks, we only care about the block received in full, starting from
+                // the first chunk (must include header) to the endOfBlock message
+                const bn = header.number;
+                timingMap.set(parseInt(bn), receivedAt);
+                console.log(`Stream Response: BlockHeader for Block ${JSON.stringify(bn)}`);
+            }
         } else if (subscribeStreamResponse.endOfBlock) {
-            console.log(`Stream Response: endOfBlock for Block ${JSON.stringify(subscribeStreamResponse.endOfBlock.blockNumber)}`);
+            const receivedAt = instance.currentTestRunDuration;
+            const bn = subscribeStreamResponse.endOfBlock.blockNumber;
+            const startedAt = timingMap.get(parseInt(bn));
+            trend.add(receivedAt - startedAt); // This should be accurate for more that millis (micros, nanos)
+            timingMap.delete(parseInt(bn));
+            console.log(`Stream Response: endOfBlock for Block ${JSON.stringify(bn)}`);
         } else {
             console.log(`Unknown Stream Response: , ${JSON.stringify(subscribeStreamResponse)}`);
         }

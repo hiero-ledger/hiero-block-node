@@ -68,15 +68,17 @@ run_server_status_test() {
     run_bn
     run_simulator 0 10
     echo "Running server status test..."
-    k6 run ./average-load/bn-server-status.js >> "${k6_out_file}" 2>&1
+    local out_file=${k6_out_dir}/server_status_test.log
+    k6 run ./average-load/bn-server-status.js >> "${out_file}" 2>&1
     echo "Server status test completed."
 }
 
 run_query_validation_test() {
     run_bn
-    run_simulator 0 10
+    run_simulator 0 100
     echo "Running query validation test..."
-    k6 run ./smoke/bn-query-validation.js >> "${k6_out_file}" 2>&1
+    local out_file=${k6_out_dir}/query_validation_test.log
+    k6 run ./smoke/bn-query-validation.js >> "${out_file}" 2>&1
     echo "Query validation test completed."
 }
 
@@ -84,20 +86,21 @@ run_stream_validation_test() {
     run_bn
     run_simulator 0 10
     echo "Running stream validation test..."
-    k6 run ./smoke/bn-stream-validation.js >> "${k6_out_file}" 2>&1
+    local out_file=${k6_out_dir}/stream_validation_test.log
+    k6 run ./smoke/bn-stream-validation.js >> "${out_file}" 2>&1
     echo "Stream validation test completed."
 }
 
 run_tests() {
     trap cleanup EXIT
-    local k6_out_file="k6-out.txt"
-    rm -f "${k6_out_file}" # remove old output file if exists before running tests
+    local k6_out_dir="k6-out"
+    rm -rf "${k6_out_dir}" # remove old output dir if exists before running tests
+    mkdir -p "${k6_out_dir}"
     setup_proto_defs
     run_server_status_test
     run_query_validation_test
     run_stream_validation_test
-    echo "K6 tests completed. Output written to ${k6_out_file}"
-    cat "${k6_out_file}"
+    echo "K6 tests completed. Output available at: ${k6_out_dir}"
 }
 
 run_tests

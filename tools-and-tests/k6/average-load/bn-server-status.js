@@ -6,8 +6,8 @@ import {ServerStatusRequest} from "../lib/grpc.js";
 // Configure k6 VUs scheduling and iterations & thresholds
 export const options = {
     stages: [
-        { duration: '2m', target: 40 }, // traffic ramp-up from 1 to 40 users (all CNs and a shadow MN) over 5 minutes.
-        { duration: '3m', target: 100 }, // stay at 100 users for 3 minutes
+        { duration: '1m', target: 40 }, // traffic ramp-up from 1 to 40 users (all CNs and a shadow MN) over 5 minutes.
+        { duration: '1m', target: 100 }, // stay at 100 users for 3 minutes
         { duration: '1m', target: 0 }, // ramp-down to 0 users
     ],
     thresholds: { // todo make these good defaults, we need these to display tags in the result, but also to ping us if they go over
