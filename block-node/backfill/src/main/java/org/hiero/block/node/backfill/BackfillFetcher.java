@@ -347,10 +347,11 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
     /**
      * Resets the health tracking for all nodes, clearing failure counts and backoff times.
-     * This gives all nodes a fresh start for the next backfill cycle.
+     * Also clears cached clients so fresh connections are established on the next cycle.
      */
     public void resetHealth() {
         healthMap.clear();
+        nodeClientMap.clear();
     }
 
     private record SourceHealth(int failures, long nextAllowedMillis, long successes, long totalLatencyNanos) {}
