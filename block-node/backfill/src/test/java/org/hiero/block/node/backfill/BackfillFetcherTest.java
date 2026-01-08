@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.internal.BlockUnparsed;
@@ -419,6 +420,68 @@ class BackfillFetcherTest {
 
             availability = fetcher2.getAvailabilityForRange(new LongRange(0, 60));
             assertEquals(2, availability.get(nodeConfig).size());
+        }
+    }
+
+    @Nested
+    @DisplayName("Stale Connection Recovery")
+    class StaleConnectionRecoveryTests {
+
+        /**
+         * Verifies that markFailure() evicts the cached client so a fresh one
+         * is created after the backoff period expires.
+         */
+        @Test
+        @Timeout(value = 10, unit = TimeUnit.SECONDS)
+        @DisplayName("should evict client on failure and create fresh one after backoff")
+        void shouldEvictClientOnFailureAndCreateFreshAfterBackoff() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BackfillSource source = createSource(nodeConfig);
+            final BackfillConfiguration config = createTestConfig(1, 10, 100, 100, 50L, 100.0);
+
+            AtomicBoolean shouldFail = new AtomicBoolean(false);
+
+            BackfillFetcher fetcher = new BackfillFetcher(source, config, createMockMetricsHolder()) {
+                @Override
+                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                    return nodeClientMap.computeIfAbsent(node, n -> createToggleableMockClient(shouldFail));
+                }
+            };
+
+            // Step 1: Initial call - client gets cached
+            assertNotNull(fetcher.getNewAvailableRange(0L));
+            assertNotNull(fetcher.nodeClientMap.get(nodeConfig), "Client should be cached");
+
+            // Step 2: Failure - markFailure() evicts the client
+            shouldFail.set(true);
+            fetcher.getNewAvailableRange(0L);
+            assertTrue(fetcher.nodeClientMap.isEmpty(), "Client should be evicted after failure");
+            assertTrue(fetcher.isInBackoff(nodeConfig));
+
+            // Step 3: After backoff expires, fresh client is created
+            Thread.sleep(15);
+            shouldFail.set(false);
+            assertNotNull(fetcher.getNewAvailableRange(0L));
+            assertNotNull(fetcher.nodeClientMap.get(nodeConfig), "New client should be cached");
+        }
+
+        private BlockNodeClient createToggleableMockClient(AtomicBoolean shouldFail) {
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            when(serviceClient.serverStatus(any())).thenAnswer(invocation -> {
+                if (shouldFail.get()) {
+                    throw new RuntimeException("Socket closed");
+                }
+                return ServerStatusResponse.newBuilder()
+                        .firstAvailableBlock(0L)
+                        .lastAvailableBlock(100L)
+                        .build();
+            });
+
+            BlockNodeClient client = mock(BlockNodeClient.class);
+            when(client.isNodeReachable()).thenReturn(true);
+            when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
+            return client;
         }
     }
 

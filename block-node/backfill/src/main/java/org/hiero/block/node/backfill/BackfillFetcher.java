@@ -64,8 +64,9 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     /**
      * Map of BackfillSourceConfig to BlockNodeClient instances.
      * This allows us to reuse clients for the same node configuration.
+     * Package-private for testing.
      */
-    private final ConcurrentHashMap<BackfillSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
+    final ConcurrentHashMap<BackfillSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
     /** Per-source health for backoff and simple scoring. */
     private final ConcurrentHashMap<BackfillSourceConfig, SourceHealth> healthMap = new ConcurrentHashMap<>();
 
@@ -139,6 +140,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                         "Failed to get status from node [%s:%d]: %s"
                                 .formatted(node.address(), node.port(), e.getMessage()),
                         e);
+                markFailure(node);
             }
         }
 
@@ -202,7 +204,15 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 continue;
             }
 
-            List<LongRange> ranges = resolveAvailableRanges(currentNodeClient);
+            List<LongRange> ranges;
+            try {
+                ranges = resolveAvailableRanges(currentNodeClient);
+            } catch (RuntimeException e) {
+                LOGGER.log(
+                        INFO, "Failed to resolve available ranges from node [%s]: %s".formatted(node, e.getMessage()));
+                markFailure(node);
+                continue;
+            }
 
             List<LongRange> intersections = new ArrayList<>();
             for (LongRange range : ranges) {
@@ -299,6 +309,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     }
 
     private void markFailure(BackfillSourceConfig node) {
+        // Evict cached client so a fresh one is created after backoff expires
+        nodeClientMap.remove(node);
         healthMap.compute(node, (n, h) -> {
             if (h == null) {
                 return new SourceHealth(1, System.currentTimeMillis() + initialRetryDelayMs, 0, 0);
