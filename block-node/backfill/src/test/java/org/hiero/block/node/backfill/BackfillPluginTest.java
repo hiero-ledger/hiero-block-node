@@ -1154,6 +1154,71 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
+    @DisplayName("Historical gaps should be skipped when scheduler is already running")
+    void testHistoricalGapsSkippedWhenSchedulerRunning() throws InterruptedException {
+        // Set up a peer with a large range of blocks
+        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40894)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-skip-historical.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(0, 200)));
+
+        // Config with short scan interval so detectGaps runs multiple times during processing
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .fetchBatchSize(5) // Small batch to slow down processing
+                .initialDelay(50) // Start quickly
+                .scanInterval(500) // Scan every 500ms (will run while still backfilling)
+                .delayBetweenBatches(100) // Add delay between batches
+                .build();
+
+        // Plugin store has blocks 100-200, so gap 0-99 needs backfill (100 blocks)
+        final SimpleInMemoryHistoricalBlockFacility pluginStore = getHistoricalBlockFacility(100, 200);
+        start(new BackfillPlugin(), pluginStore, configOverride);
+
+        // We expect exactly 100 blocks (0-99) to be backfilled
+        // If deduplication fails, we'd see more than 100 persisted notifications
+        int expectedBlocks = 100;
+        CountDownLatch latch = new CountDownLatch(expectedBlocks);
+
+        registerDefaultTestBackfillHandler();
+        this.blockMessaging.registerBlockNotificationHandler(
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleVerification(VerificationNotification notification) {
+                        blockNodeContext
+                                .blockMessaging()
+                                .sendBlockPersisted(new PersistedNotification(
+                                        notification.blockNumber(), true, 10, notification.source()));
+                        latch.countDown();
+                        // Update the store so next scan sees progress
+                        SimpleBlockRangeSet newRange = ((SimpleBlockRangeSet) pluginStore.availableBlocks());
+                        newRange.add(notification.blockNumber());
+                        pluginStore.setTemporaryAvailableBlocks(newRange);
+                    }
+                },
+                false,
+                "test-historical-skip-handler");
+
+        // Wait for backfill to complete
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Should complete backfill within timeout");
+
+        // Allow additional time for any duplicate submissions to process
+        Thread.sleep(1000);
+
+        // Verify exactly 100 blocks were persisted (no duplicates from re-submitted gaps)
+        assertEquals(
+                expectedBlocks,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should persist exactly 100 blocks without duplicates from re-detected historical gaps");
+    }
+
+    @Test
     @DisplayName("Lying BN is marked unavailable when advertised range has gaps")
     void testLyingNodeMarkedUnavailable() throws Exception {
         BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()

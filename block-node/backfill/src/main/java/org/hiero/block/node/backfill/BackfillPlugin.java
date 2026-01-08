@@ -333,6 +333,15 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
+        // Skip historical gaps if scheduler is already processing (historical gaps don't change)
+        // This is to avoid scheduling duplicate historical gaps on each scan while them are still in progress
+        if (gap.type() == GapDetector.Type.HISTORICAL
+                && historicalScheduler != null
+                && historicalScheduler.isRunning()) {
+            LOGGER.log(TRACE, "Skipping historical gap [%s], scheduler already running".formatted(gap.range()));
+            return;
+        }
+
         // Deduplicate live-tail gaps using high-water mark
         GapDetector.Gap effectiveGap = gap;
         if (gap.type() == GapDetector.Type.LIVE_TAIL) {
