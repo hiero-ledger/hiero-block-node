@@ -16,6 +16,8 @@ import static org.mockito.Mockito.when;
 import com.hedera.hapi.block.stream.Block;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -470,7 +472,7 @@ class BackfillFetcherTest {
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
             when(serviceClient.serverStatus(any())).thenAnswer(invocation -> {
                 if (shouldFail.get()) {
-                    throw new RuntimeException("Socket closed");
+                    throw new UncheckedIOException(new IOException("Socket closed"));
                 }
                 return ServerStatusResponse.newBuilder()
                         .firstAvailableBlock(0L)
