@@ -144,6 +144,9 @@ ENV BN_WORKDIR=/opt/hiero/block-node
 
 # Install Java
 COPY --from=java-builder ${JAVA_HOME}/ ${JAVA_HOME}/
+# COPY bash script to container
+COPY download-and-load-plugins.sh ${BN_WORKDIR}/download-and-load-plugins.sh
+RUN chmod +x ${BN_WORKDIR}/download-and-load-plugins.sh
 
 # Expose the port that the application will run on
 EXPOSE 40840/tcp
@@ -157,4 +160,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
       curl -f http://localhost:40840/healthz/readyz || exit 1
 
 # RUN the bin script for starting the server
-ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/app-${VERSION}/bin/app || sleep 30d"]
+ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/download-and-load-plugins.sh || sleep 30d"]

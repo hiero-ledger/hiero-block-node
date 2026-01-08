@@ -1,0 +1,3 @@
+blockNode:
+    config:
+        PLUGINS: "stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill"
