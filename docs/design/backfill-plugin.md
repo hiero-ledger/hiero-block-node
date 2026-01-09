@@ -111,10 +111,10 @@ flowchart TB
 
   PEER[("Peer Block Nodes")]
 
-  subgraph Messaging["Messaging Facility"]
+  subgraph Plugins["Other Plugins"]
     direction LR
-    VER["Verification"]
-    PERS["Persistence"]
+    VER["Verification Plugin"]
+    PERS["Persistence Plugin"]
   end
 
   %% Gap detection flow
@@ -131,11 +131,11 @@ flowchart TB
   CLI <-->|"gRPC"| PEER
 
   %% Dispatch flow
-  RNR -->|"4. BackfilledBlockNotification"| Messaging
+  RNR -->|"4. BackfilledBlockNotification"| VER
   VER --> PERS
 
   %% Backpressure flow
-  Messaging -->|"5. PersistedNotification"| AWT
+  PERS -->|"5. PersistedNotification"| AWT
   AWT -.->|"6. release gate"| RNR
 ```
 
