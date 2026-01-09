@@ -51,7 +51,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private long earliestManagedBlock;
     private boolean hasBNSourcesPath = false;
     private BackfillSource blockNodeSources;
-    private ScheduledExecutorService periodicExecutor;
+    private ScheduledExecutorService autonomousExecutor;
 
     // Two independent schedulers with dedicated executors: historical never blocks live-tail
     private BackfillTaskScheduler historicalScheduler;
@@ -161,13 +161,16 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 "Scheduling backfill process to start in [%s] milliseconds"
                         .formatted(backfillConfiguration.initialDelay()));
 
-        periodicExecutor = context.threadPoolManager()
+        // Create the autonomous executor
+        autonomousExecutor = context.threadPoolManager()
                 .createVirtualThreadScheduledExecutor(
                         1, // single scheduler thread for scans
                         "BackfillPluginRunner",
                         (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
-        periodicExecutor.scheduleAtFixedRate(
-                this::detectGaps,
+
+        // Schedule periodic gap detection task using autonomous executor
+        autonomousExecutor.scheduleAtFixedRate(
+                this::detectAndScheduleGaps,
                 backfillConfiguration.initialDelay(),
                 backfillConfiguration.scanInterval(),
                 TimeUnit.MILLISECONDS);
@@ -228,7 +231,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void stop() {
         // 1. Stop periodic scanner
-        shutdownExecutor(periodicExecutor, "periodicExecutor");
+        shutdownExecutor(autonomousExecutor, "periodicExecutor");
 
         // 2. Close schedulers (clears queues, awaiters, and releases blocked threads)
         if (historicalScheduler != null) {
@@ -267,7 +270,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
     }
 
-    private void detectGaps() {
+    private void detectAndScheduleGaps() {
         LOGGER.log(TRACE, "Detecting gaps in blocks");
 
         // 1. Get stored blocks
@@ -295,12 +298,10 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         List<GapDetector.Gap> gaps = gapDetector.findTypedGaps(blockRanges, startBound, liveTailBoundary, endCap);
 
         // 4. Submit each gap to appropriate scheduler
-        if (!gaps.isEmpty()) {
-            metricsHolder.backfillGapsDetected().add(gaps.size());
-        }
         for (GapDetector.Gap gap : gaps) {
             LOGGER.log(TRACE, "Detected gap type=[%s] range=[%s]".formatted(gap.type(), gap.range()));
             scheduleGap(gap);
+            metricsHolder.backfillGapsDetected.increment();
         }
     }
 
