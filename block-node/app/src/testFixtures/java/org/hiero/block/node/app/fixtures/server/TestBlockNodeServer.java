@@ -54,6 +54,10 @@ public class TestBlockNodeServer {
         }
     }
 
+    /**
+     * Test implementation of BlockStreamSubscribeService that serves blocks from the historical facility.
+     * Simulates a real block node's streaming behavior for backfill integration tests.
+     */
     private static final class TestBlockStreamSubscribeService implements BlockStreamSubscribeServiceInterface {
         private final HistoricalBlockFacility historicalBlockFacility;
 
@@ -66,14 +70,17 @@ public class TestBlockNodeServer {
                 @NonNull final SubscribeStreamRequest request,
                 @NonNull final Pipeline<? super SubscribeStreamResponse> replies) {
             boolean blocksAvailable = true;
+
             for (long i = request.startBlockNumber(); i <= request.endBlockNumber(); i++) {
                 if (!historicalBlockFacility.availableBlocks().contains(i)) {
+                    // Path 1: Requested block not available - send NOT_AVAILABLE and abort
                     replies.onNext(SubscribeStreamResponse.newBuilder()
                             .status(SubscribeStreamResponse.Code.NOT_AVAILABLE)
                             .build());
                     blocksAvailable = false;
                     break;
                 } else {
+                    // Path 2: Block available - send block items followed by end-of-block marker
                     replies.onNext(SubscribeStreamResponse.newBuilder()
                             .blockItems(BlockItemSet.newBuilder()
                                     .blockItems(historicalBlockFacility
@@ -88,6 +95,7 @@ public class TestBlockNodeServer {
                 }
             }
 
+            // Path 3: All requested blocks sent successfully - send SUCCESS status
             if (blocksAvailable) {
                 replies.onNext(SubscribeStreamResponse.newBuilder()
                         .status(Code.SUCCESS)
@@ -97,7 +105,11 @@ public class TestBlockNodeServer {
         }
     }
 
-    private class TrivialBlockNodeServerInterface implements BlockNodeServiceInterface {
+    /**
+     * Test implementation of BlockNodeService that returns server status from the historical facility.
+     * Reports the available block range for backfill source discovery.
+     */
+    private static class TrivialBlockNodeServerInterface implements BlockNodeServiceInterface {
         private final HistoricalBlockFacility historicalBlockFacility;
 
         public TrivialBlockNodeServerInterface(final HistoricalBlockFacility historicalFacility) {
@@ -107,6 +119,7 @@ public class TestBlockNodeServer {
         @Override
         @NonNull
         public ServerStatusResponse serverStatus(@NonNull final ServerStatusRequest request) {
+            // Returns the available block range from the historical facility
             return ServerStatusResponse.newBuilder()
                     .firstAvailableBlock(
                             historicalBlockFacility.availableBlocks().min())

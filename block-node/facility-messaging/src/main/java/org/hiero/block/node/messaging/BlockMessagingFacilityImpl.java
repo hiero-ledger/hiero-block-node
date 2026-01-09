@@ -430,7 +430,12 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBlockPersisted(PersistedNotification notification) {
         messageForwarder.submit(() -> {
-            LOGGER.log(TRACE, "Sending block persisted notification: " + notification);
+            LOGGER.log(
+                    TRACE,
+                    "Sending block persisted notification: block={0} succeeded={1} source={2}",
+                    notification.blockNumber(),
+                    notification.succeeded(),
+                    notification.blockSource());
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             blockPersistedNotificationsCounter.increment();
         });
@@ -442,7 +447,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
         messageForwarder.submit(() -> {
-            LOGGER.log(TRACE, "Sending backfilled block notification: {0}", notification);
+            LOGGER.log(TRACE, "Sending backfilled block notification: block={0}", notification.blockNumber());
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             blockBackfilledNotificationsCounter.increment();
         });
@@ -451,7 +456,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
         messageForwarder.submit(() -> {
-            LOGGER.log(TRACE, "Sending NewestBlockKnownToNetwork notification: " + notification);
+            LOGGER.log(TRACE, "Sending NewestBlockKnownToNetwork notification: block={0}", notification.blockNumber());
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             newestBlockKnownToNetworkNotificationsCounter.increment();
         });

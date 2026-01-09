@@ -2,7 +2,9 @@
 package org.hiero.block.node.spi.historicalblocks;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.stream.LongStream;
 
 /**
@@ -120,6 +122,35 @@ public record LongRange(long start, long end) implements Comparable<LongRange> {
      */
     public LongRange merge(LongRange other) {
         return new LongRange(Math.min(start, other.start()), Math.max(end, other.end()));
+    }
+
+    /**
+     * Merges a list of ranges into a minimal set of non-overlapping ranges.
+     * Overlapping or adjacent ranges are combined into single ranges.
+     *
+     * @param ranges the list of ranges to merge (may be unordered)
+     * @return a new list with contiguous/overlapping ranges merged
+     */
+    public static List<LongRange> mergeContiguousRanges(List<LongRange> ranges) {
+        if (ranges.size() <= 1) {
+            return ranges;
+        }
+        List<LongRange> sorted = new ArrayList<>(ranges);
+        sorted.sort(COMPARATOR);
+
+        List<LongRange> merged = new ArrayList<>();
+        LongRange current = sorted.getFirst();
+        for (int i = 1; i < sorted.size(); i++) {
+            LongRange next = sorted.get(i);
+            if (current.overlaps(next) || current.isAdjacent(next)) {
+                current = current.merge(next);
+            } else {
+                merged.add(current);
+                current = next;
+            }
+        }
+        merged.add(current);
+        return merged;
     }
 
     /**

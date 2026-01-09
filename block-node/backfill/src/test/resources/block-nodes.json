@@ -1,8 +1,38 @@
 {
   "nodes": [
     { "address": "localhost", "port": 40801, "priority": 1 },
-    { "address": "node2.example.com", "port": 40902, "priority": 2 },
-    { "address": "node3.example.com", "port": 40903, "priority": 2 },
-    { "address": "node4.example.com", "port": 40904, "priority": 3 }
+    { "address": "node2.example.com", "port": 40902, "priority": 2, "node_id": "node-2", "name": "Node 2" },
+    {
+      "address": "node3.example.com",
+      "port": 40903,
+      "priority": 2,
+      "node_id": "node-3",
+      "name": "Node 3 (Custom Timeouts)",
+      "grpc_webclient_tuning": {
+        "connect_timeout": 30000,
+        "read_timeout": 45000,
+        "poll_wait_time": 60000
+      }
+    },
+    {
+      "address": "node4.example.com",
+      "port": 40904,
+      "priority": 3,
+      "node_id": "node-4",
+      "name": "Node 4 (Full Custom Config)",
+      "grpc_webclient_tuning": {
+        "connect_timeout": 45000,
+        "read_timeout": 60000,
+        "poll_wait_time": 120000,
+        "prior_knowledge": true,
+        "max_frame_size": 4194304,
+        "initial_window_size": 4194304,
+        "initial_buffer_size": 4194304,
+        "flow_control_timeout": 15000,
+        "max_header_list_size": 16384,
+        "ping_enabled": true,
+        "ping_timeout": 5000
+      }
+    }
   ]
 }
