@@ -30,7 +30,7 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
 
   <dt>Backoff</dt>
   <dd>A time-based cooldown period imposed on a peer node after a failure. Uses exponential backoff
-    (<em>delay = initialRetryDelay × 2^(attempts-1)</em>, capped at <em>maxBackoffMs</em>).
+    (delay = initialRetryDelay × 2^(attempts-1), capped at maxBackoffMs).
     Nodes in backoff are excluded from selection until the period expires.</dd>
 
   <dt>BackfilledBlockNotification</dt>
@@ -38,12 +38,12 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
     from a peer and is being backfilled into the system.</dd>
 
   <dt>BlockSource</dt>
-  <dd>An Enum added to <em>VerificationNotification</em> and <em>PersistedNotification</em> to indicate the
-    original source of a block. Values: <em>PUBLISHER</em> (from consensus), <em>BACKFILL</em> (from peers).</dd>
+  <dd>An Enum added to VerificationNotification and PersistedNotification to indicate the
+    original source of a block. Values: PUBLISHER (from consensus), BACKFILL (from peers).</dd>
 
   <dt>Chunk</dt>
   <dd>A contiguous range of blocks fetched in a single operation, bounded by the peer's available range,
-    the configured <em>fetchBatchSize</em>, and the gap end.</dd>
+    the configured fetchBatchSize, and the gap end.</dd>
 
   <dt>Dual Schedulers</dt>
   <dd>Two independent schedulers (Historical and Live-Tail) that process gaps concurrently,
@@ -53,7 +53,7 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
   <dd>A contiguous range of missing blocks, could be a single block.</dd>
 
   <dt>Greedy Mode</dt>
-  <dd>When enabled (<em>greedy=true</em>), the plugin detects and fills gaps up to the maximum block
+  <dd>When enabled (greedy=true), the plugin detects and fills gaps up to the maximum block
     available from any peer node, allowing catch-up with peers. When disabled, gaps are only detected
     up to the last block stored locally.</dd>
 
@@ -62,7 +62,7 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
 
   <dt>Health Score</dt>
   <dd>A numeric penalty (lower is better) assigned to each peer node based on failure count and average latency.
-    Formula: <em>(failures × healthPenaltyPerFailure) + avgLatencyMs</em>. Used to prefer healthier, faster nodes.</dd>
+    Formula: (failures × healthPenaltyPerFailure) + avgLatencyMs. Used to prefer healthier, faster nodes.</dd>
 
   <dt>HISTORICAL (Gap Type)</dt>
   <dd>A gap type representing older blocks below the live-tail boundary. Processed by the historical
