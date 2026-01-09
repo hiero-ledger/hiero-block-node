@@ -232,10 +232,18 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         // 2. Close schedulers (clears queues, awaiters, and releases blocked threads)
         if (historicalScheduler != null) {
-            historicalScheduler.close();
+            try {
+                historicalScheduler.close();
+            } catch (RuntimeException e) {
+                LOGGER.log(INFO, "Error closing historicalScheduler: " + e.getMessage(), e);
+            }
         }
         if (liveTailScheduler != null) {
-            liveTailScheduler.close();
+            try {
+                liveTailScheduler.close();
+            } catch (RuntimeException e) {
+                LOGGER.log(INFO, "Error closing liveTailScheduler: " + e.getMessage(), e);
+            }
         }
 
         // 3. Shutdown executors and wait for termination
