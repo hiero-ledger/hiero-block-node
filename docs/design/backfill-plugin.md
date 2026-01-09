@@ -30,7 +30,7 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
 
   <dt>Backoff</dt>
   <dd>A time-based cooldown period imposed on a peer node after a failure. Uses exponential backoff
-    (<code>delay = initialRetryDelay × 2^(attempts-1)</code>, capped at <code>maxBackoffMs</code>).
+    (<em>delay = initialRetryDelay × 2^(attempts-1)</em>, capped at <em>maxBackoffMs</em>).
     Nodes in backoff are excluded from selection until the period expires.</dd>
 
   <dt>BackfilledBlockNotification</dt>
@@ -38,12 +38,12 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
     from a peer and is being backfilled into the system.</dd>
 
   <dt>BlockSource</dt>
-  <dd>An Enum added to <code>VerificationNotification</code> and <code>PersistedNotification</code> to indicate the
-    original source of a block. Values: <code>PUBLISHER</code> (from consensus), <code>BACKFILL</code> (from peers).</dd>
+  <dd>An Enum added to <em>VerificationNotification</em> and <em>PersistedNotification</em> to indicate the
+    original source of a block. Values: <em>PUBLISHER</em> (from consensus), <em>BACKFILL</em> (from peers).</dd>
 
   <dt>Chunk</dt>
   <dd>A contiguous range of blocks fetched in a single operation, bounded by the peer's available range,
-    the configured <code>fetchBatchSize</code>, and the gap end.</dd>
+    the configured <em>fetchBatchSize</em>, and the gap end.</dd>
 
   <dt>Dual Schedulers</dt>
   <dd>Two independent schedulers (Historical and Live-Tail) that process gaps concurrently,
@@ -53,7 +53,7 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
   <dd>A contiguous range of missing blocks, could be a single block.</dd>
 
   <dt>Greedy Mode</dt>
-  <dd>When enabled (<code>greedy=true</code>), the plugin detects and fills gaps up to the maximum block
+  <dd>When enabled (<em>greedy=true</em>), the plugin detects and fills gaps up to the maximum block
     available from any peer node, allowing catch-up with peers. When disabled, gaps are only detected
     up to the last block stored locally.</dd>
 
@@ -62,7 +62,7 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
 
   <dt>Health Score</dt>
   <dd>A numeric penalty (lower is better) assigned to each peer node based on failure count and average latency.
-    Formula: <code>(failures × healthPenaltyPerFailure) + avgLatencyMs</code>. Used to prefer healthier, faster nodes.</dd>
+    Formula: <em>(failures × healthPenaltyPerFailure) + avgLatencyMs</em>. Used to prefer healthier, faster nodes.</dd>
 
   <dt>HISTORICAL (Gap Type)</dt>
   <dd>A gap type representing older blocks below the live-tail boundary. Processed by the historical
@@ -294,14 +294,14 @@ The `blockNodeSourcesPath` file defines peer block nodes:
 }
 ```
 
-|          Field          |  Type   | Required |           Description            |
-|-------------------------|---------|----------|----------------------------------|
-| `address`               | string  | Yes      | Hostname or IP address           |
-| `port`                  | integer | Yes      | gRPC port                        |
-| `priority`              | integer | Yes      | Selection priority (0 = highest) |
+|          Field          |  Type   | Required |             Description              |
+|-------------------------|---------|----------|--------------------------------------|
+| `address`               | string  | Yes      | Hostname or IP address               |
+| `port`                  | integer | Yes      | gRPC port                            |
+| `priority`              | integer | Yes      | Selection priority (0 = highest)     |
 | `node_id`               | integer | No       | Unique node identifier (0 = not set) |
-| `name`                  | string  | No       | Human-readable label             |
-| `grpc_webclient_tuning` | object  | No       | Per-node gRPC tuning (see below) |
+| `name`                  | string  | No       | Human-readable label                 |
+| `grpc_webclient_tuning` | object  | No       | Per-node gRPC tuning (see below)     |
 
 #### gRPC Tuning Options
 
