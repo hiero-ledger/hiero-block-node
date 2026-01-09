@@ -22,6 +22,65 @@ Detect missing gaps in the stored block sequence and autonomously fetch missing 
 3. Asynchronously recover blocks without blocking live ingestion
 4. Provide instrumentation, logging, and metrics
 
+## Terms
+
+<dl>
+  <dt>Backfill</dt>
+  <dd>The process of fetching and storing missing blocks in the local storage.</dd>
+
+  <dt>Backoff</dt>
+  <dd>A time-based cooldown period imposed on a peer node after a failure. Uses exponential backoff
+    (<code>delay = initialRetryDelay × 2^(attempts-1)</code>, capped at <code>maxBackoffMs</code>).
+    Nodes in backoff are excluded from selection until the period expires.</dd>
+
+  <dt>BackfilledBlockNotification</dt>
+  <dd>A Notification Type published to the Messaging Facility containing a whole block that was fetched
+    from a peer and is being backfilled into the system.</dd>
+
+  <dt>BlockSource</dt>
+  <dd>An Enum added to <code>VerificationNotification</code> and <code>PersistedNotification</code> to indicate the
+    original source of a block. Values: <code>PUBLISHER</code> (from consensus), <code>BACKFILL</code> (from peers).</dd>
+
+  <dt>Chunk</dt>
+  <dd>A contiguous range of blocks fetched in a single operation, bounded by the peer's available range,
+    the configured <code>fetchBatchSize</code>, and the gap end.</dd>
+
+  <dt>Dual Schedulers</dt>
+  <dd>Two independent schedulers (Historical and Live-Tail) that process gaps concurrently,
+    preventing historical backfill from blocking live-tail catch-up.</dd>
+
+  <dt>Gap</dt>
+  <dd>A contiguous range of missing blocks, could be a single block.</dd>
+
+  <dt>Greedy Mode</dt>
+  <dd>When enabled (<code>greedy=true</code>), the plugin detects and fills gaps up to the maximum block
+    available from any peer node, allowing catch-up with peers. When disabled, gaps are only detected
+    up to the last block stored locally.</dd>
+
+  <dt>gRPC Client</dt>
+  <dd>A client that connects to another Block Node to fetch missing blocks.</dd>
+
+  <dt>Health Score</dt>
+  <dd>A numeric penalty (lower is better) assigned to each peer node based on failure count and average latency.
+    Formula: <code>(failures × healthPenaltyPerFailure) + avgLatencyMs</code>. Used to prefer healthier, faster nodes.</dd>
+
+  <dt>HISTORICAL (Gap Type)</dt>
+  <dd>A gap type representing older blocks below the live-tail boundary. Processed by the historical
+    scheduler with lower priority.</dd>
+
+  <dt>LIVE_TAIL (Gap Type)</dt>
+  <dd>A gap type representing recent blocks near the current chain head. Processed by the live-tail
+    scheduler with higher priority to stay current with the network.</dd>
+
+  <dt>NewestBlockKnownToNetwork</dt>
+  <dd>Notification sent by a plugin (e.g., publisher) to indicate that the Block Node is behind and must
+    be brought up-to-date. Triggers on-demand backfill via the live-tail scheduler.</dd>
+
+  <dt>Priority</dt>
+  <dd>An integer field on peer node configuration where lower numbers indicate higher preference
+    (1 = highest priority). Used as the primary tiebreaker in node selection after availability.</dd>
+</dl>
+
 ## Architecture
 
 ```mermaid
