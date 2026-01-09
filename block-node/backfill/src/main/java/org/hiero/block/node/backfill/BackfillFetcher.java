@@ -97,7 +97,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                     INFO,
                     "Node: [%s] (%s) Address: [%s], Port: [%s], Priority: [%s], Tuning: %s"
                             .formatted(
-                                    node.nodeId().isEmpty() ? "n/a" : node.nodeId(),
+                                    node.nodeId() == 0 ? "n/a" : node.nodeId(),
                                     node.name().isEmpty() ? "unnamed" : node.name(),
                                     node.address(),
                                     node.port(),

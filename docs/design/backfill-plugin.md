@@ -283,7 +283,7 @@ The `blockNodeSourcesPath` file defines peer block nodes:
       "address": "peer2.example.com",
       "port": 8080,
       "priority": 2,
-      "node_id": "peer-2",
+      "node_id": 2,
       "name": "Backup Peer",
       "grpc_webclient_tuning": {
         "connect_timeout": 45000,
@@ -299,7 +299,7 @@ The `blockNodeSourcesPath` file defines peer block nodes:
 | `address`               | string  | Yes      | Hostname or IP address           |
 | `port`                  | integer | Yes      | gRPC port                        |
 | `priority`              | integer | Yes      | Selection priority (0 = highest) |
-| `node_id`               | string  | No       | Unique identifier for logging    |
+| `node_id`               | integer | No       | Unique node identifier (0 = not set) |
 | `name`                  | string  | No       | Human-readable label             |
 | `grpc_webclient_tuning` | object  | No       | Per-node gRPC tuning (see below) |
 

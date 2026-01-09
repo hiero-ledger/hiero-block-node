@@ -13,7 +13,7 @@ message BackfillSourceConfig {
   uint32 priority = 3; // Priority for each node
 
   // Identification fields (Issue #1502)
-  string node_id = 4; // Unique identifier for the node
+  uint32 node_id = 4; // Unique identifier for the node (0 = not specified)
   string name = 5; // Human-readable name for the node
 
   // Optional gRPC WebClient tuning configuration (Issue #1778)
