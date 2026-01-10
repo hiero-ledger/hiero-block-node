@@ -115,7 +115,10 @@ public class AddressBookRegistryTest {
             assertNull(changes2, "Should NOT detect changes when content is identical");
 
             // Size should still be 2 (no duplicate added)
-            assertEquals(2, addressBookRegistry.getAddressBookCount(), "Should NOT add duplicate entry when content is identical");
+            assertEquals(
+                    2,
+                    addressBookRegistry.getAddressBookCount(),
+                    "Should NOT add duplicate entry when content is identical");
 
             // Third update with empty transaction list - should NOT add entry
             Instant time3 = Instant.parse("2021-06-08T19:00:00.000000000Z");
@@ -123,7 +126,8 @@ public class AddressBookRegistryTest {
             assertNull(changes3, "Should NOT detect changes with empty transactions");
 
             // Size should still be 2
-            assertEquals(2, addressBookRegistry.getAddressBookCount(), "Should NOT add entry when no transactions provided");
+            assertEquals(
+                    2, addressBookRegistry.getAddressBookCount(), "Should NOT add entry when no transactions provided");
         }
     }
 
@@ -152,5 +156,77 @@ public class AddressBookRegistryTest {
         int count1 = registry1.toPrettyString().split("\n").length - 1;
         int count2 = registry2.toPrettyString().split("\n").length - 1;
         assertEquals(count1, count2, "Both registries should start with same number of entries");
+    }
+
+    /**
+     * Test that getAddressBookForBlock() returns the most recent address book when
+     * the block time is after all address book entries in the registry.
+     *
+     * This test verifies the fix for the bug where blocks with timestamps after all
+     * address book entries were incorrectly returning the genesis address book (13 nodes)
+     * instead of the most recent address book (e.g., 31 nodes).
+     *
+     * Bug scenario: When validating blocks from Nov 13, 2025 onwards with an address book
+     * history that only goes up to Nov 12, 2025, the old code would fall back to genesis
+     * instead of using the Nov 12, 2025 address book.
+     */
+    @Test
+    public void testGetAddressBookForBlockAfterAllEntries() throws Exception {
+        try (var in = new ReadableStreamingData(AddressBookRegistryTest.class.getResourceAsStream(
+                "/2021-06-08T17_35_26.000831000Z-file-102-update-transaction-body.bin"))) {
+            int numOfTransactions = in.readInt();
+            List<TransactionBody> transactionBodies = new ArrayList<>(numOfTransactions);
+            for (int i = 0; i < numOfTransactions; i++) {
+                int len = in.readInt();
+                Bytes tbBytes = in.readBytes(len);
+                transactionBodies.add(TransactionBody.PROTOBUF.parse(tbBytes));
+            }
+
+            AddressBookRegistry addressBookRegistry = new AddressBookRegistry();
+
+            NodeAddressBook genesisBook = addressBookRegistry.getCurrentAddressBook();
+            int genesisNodeCount = genesisBook.nodeAddress().size();
+
+            Instant updateTime = Instant.parse("2021-06-08T17:35:26.000831000Z");
+            addressBookRegistry.updateAddressBook(updateTime, transactionBodies);
+
+            NodeAddressBook updatedBook = addressBookRegistry.getCurrentAddressBook();
+            int updatedNodeCount = updatedBook.nodeAddress().size();
+            assertEquals(21, updatedNodeCount, "Updated address book should have 21 nodes");
+
+            assertNotEquals(
+                    genesisNodeCount, updatedNodeCount, "Genesis and updated books should have different node counts");
+
+            Instant beforeUpdateTime = Instant.parse("2020-01-01T00:00:00.000000000Z");
+            NodeAddressBook bookBeforeUpdate = addressBookRegistry.getAddressBookForBlock(beforeUpdateTime);
+            assertEquals(
+                    genesisNodeCount,
+                    bookBeforeUpdate.nodeAddress().size(),
+                    "Block before update should use genesis address book");
+
+            NodeAddressBook bookAtUpdate = addressBookRegistry.getAddressBookForBlock(updateTime);
+            assertEquals(
+                    updatedNodeCount,
+                    bookAtUpdate.nodeAddress().size(),
+                    "Block at update time should use updated address book");
+
+            Instant afterUpdateTime = Instant.parse("2022-01-01T00:00:00.000000000Z");
+            NodeAddressBook bookAfterUpdate = addressBookRegistry.getAddressBookForBlock(afterUpdateTime);
+            assertEquals(
+                    updatedNodeCount,
+                    bookAfterUpdate.nodeAddress().size(),
+                    "Block after update should use updated address book");
+
+            Instant wayAfterUpdateTime = Instant.parse("2025-11-13T00:00:00.000000000Z");
+            NodeAddressBook bookWayAfter = addressBookRegistry.getAddressBookForBlock(wayAfterUpdateTime);
+            assertEquals(
+                    updatedNodeCount,
+                    bookWayAfter.nodeAddress().size(),
+                    "Block way after all entries should use MOST RECENT address book, not genesis");
+            assertNotEquals(
+                    genesisNodeCount,
+                    bookWayAfter.nodeAddress().size(),
+                    "Block way after all entries should NOT fall back to genesis");
+        }
     }
 }
