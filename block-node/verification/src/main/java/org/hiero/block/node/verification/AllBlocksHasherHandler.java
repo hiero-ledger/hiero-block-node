@@ -6,7 +6,6 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -20,12 +19,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.common.hasher.StreamingHasher;
-import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -266,6 +264,13 @@ public class AllBlocksHasherHandler {
     private void fullyRebuildFromStore() throws ParseException {
         if (available.streamRanges().count() == 1 && available.min() == 0) {
             syncBlockHashesFromStore(0, available.max());
+        } else {
+            LOGGER.log(
+                    INFO,
+                    "Cannot rebuild hasher from store: requires a single contiguous range starting from genesis. "
+                            + "Found {0} range(s) starting at block {1}. Will fall back to block footer values.",
+                    available.streamRanges().count(),
+                    available.min());
         }
     }
 
@@ -299,26 +304,16 @@ public class AllBlocksHasherHandler {
      * @throws ParseException if there is an error parsing the block or its items.
      */
     private byte[] calculateBlockHashFromBlockNumber(long blockNumber, byte[] previousBlockHash) throws ParseException {
-        final Block block = context.historicalBlockProvider().block(blockNumber).block();
-        final BlockHeader blockHeader = block.items().getFirst().blockHeader();
-
-        final List<BlockItemUnparsed> items = new ArrayList<>(block.items().size());
-        for (final BlockItem item : block.items()) {
-            try {
-                items.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
-            } catch (ParseException e) {
-                LOGGER.log(
-                        WARNING,
-                        "Failed to parse block item during block hash calculation for block " + blockNumber,
-                        e);
-                throw e;
-            }
-        }
+        final BlockUnparsed block =
+                context.historicalBlockProvider().block(blockNumber).blockUnparsed();
+        // is safe to assume first item is always block header
+        final BlockHeader blockHeader =
+                BlockHeader.PROTOBUF.parse(block.blockItems().getFirst().blockHeader());
 
         final VerificationSession session = HapiVersionSessionFactory.createSession(
-                blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion());
+                blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion());
 
-        session.processBlockItems(items);
+        session.processBlockItems(block.blockItems());
 
         final Bytes previousBlockHashBytes = (previousBlockHash == null) ? null : Bytes.wrap(previousBlockHash);
         final VerificationNotification result = session.finalizeVerification(null, previousBlockHashBytes);
@@ -328,7 +323,7 @@ public class AllBlocksHasherHandler {
     private byte[] extractPreviousRootHashFromBlock(long blockNumber) {
         var items = context.historicalBlockProvider().block(blockNumber).block().items();
 
-        // blocks place the footer closet to the very end.
+        // blocks place the footer close to the very end.
         // We iterate backwards to find it almost instantly.
         for (int i = items.size() - 1; i >= 0; i--) {
             var item = items.get(i);
