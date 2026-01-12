@@ -110,6 +110,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
 
         // for now, we only support TSS based signature proofs, we expect only 1 of these.
+        // @todo(2019) extend to support other proof types as well
         BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
         if (tssBasedProof != null) {
             return getVerificationResult(

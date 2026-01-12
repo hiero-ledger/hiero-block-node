@@ -81,15 +81,15 @@ public final class BlockUtils {
      */
     public enum SAMPLE_BLOCKS {
         HAPI_0_66_0_BLOCK_10(
-                "HAPI-0-66-0/000000000000000000000000000000000010.blk.gz",
+                "HAPI-0-66-0/10.blk.gz",
                 "30783030", // dummy hash
                 10),
         HAPI_0_68_0_BLOCK_14(
-                "HAPI-0-68-0/000000000000000000000000000000000014.blk.gz",
+                "HAPI-0-68-0/14.blk.gz",
                 "30783030", // dummy hash
                 14),
         HAPI_0_69_0_BLOCK_240(
-                "HAPI_0-69-0/000000000000000000000000000000000240.blk.gz",
+                "HAPI_0-69-0/240.blk.gz",
                 "325ee93ae5ba606903527674073931d5a33b8900ef720b0d34849b804e39198251995a9e20750ec84ce80e6fc0c361d5",
                 240);
 
