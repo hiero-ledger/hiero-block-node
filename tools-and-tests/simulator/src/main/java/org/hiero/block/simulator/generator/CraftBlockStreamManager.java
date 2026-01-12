@@ -246,7 +246,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
     private Block createNextBlock() throws BlockSimulatorParsingException, ParseException {
         LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
-        // todo(683) Refactor common hFasher to accept protoc types, in order to avoid the additional overhead of
+        // todo(683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of
         // keeping
         // and unparsing.
         final List<BlockItemUnparsed> blockItemsUnparsed = new ArrayList<>();
