@@ -28,7 +28,6 @@ module org.hiero.block.node.backfill {
     requires io.helidon.webclient.grpc;
     requires io.helidon.webclient.http2;
     requires java.logging;
-    requires org.antlr.antlr4.runtime;
     requires static transitive com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
