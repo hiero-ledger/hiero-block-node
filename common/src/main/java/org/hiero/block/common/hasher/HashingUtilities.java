@@ -203,19 +203,6 @@ public final class HashingUtilities {
     }
 
     /**
-     * returns the ByteBuffer of the hash of the given block item.
-     * @param blockItem the block item
-     * @return the ByteBuffer of the hash of the given block item
-     */
-    public static ByteBuffer getBlockItemHash(@NonNull BlockItem blockItem) {
-        final var digest = sha384DigestOrThrow();
-        ByteBuffer buffer = ByteBuffer.allocate(HASH_SIZE);
-        buffer.put(digest.digest(BlockItem.PROTOBUF.toBytes(blockItem).toByteArray()));
-
-        return buffer.flip();
-    }
-
-    /**
      * Computes the final block hash from the given block footer, timestamp and tree hashers.
      * @param blockTimestamp the block timestamp
      * @param previousBlockHash the previous block hash

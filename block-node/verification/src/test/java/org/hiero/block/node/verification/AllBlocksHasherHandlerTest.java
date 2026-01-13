@@ -226,8 +226,9 @@ class AllBlocksHasherHandlerTest {
         StreamingTreeHasher emptyHasher = new NaiveStreamingTreeHasher();
         StreamingTreeHasher outputTreeHasher = new NaiveStreamingTreeHasher();
 
-        outputTreeHasher.addLeaf(
-                getBlockItemHash(BlockItem.newBuilder().blockHeader(header).build()));
+        outputTreeHasher.addLeaf(getBlockItemHash(BlockItemUnparsed.newBuilder()
+                .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                .build()));
         Bytes blockHash = HashingUtilities.computeFinalBlockHash(
                 header.blockTimestamp(),
                 Bytes.wrap(previousBlockHash),
