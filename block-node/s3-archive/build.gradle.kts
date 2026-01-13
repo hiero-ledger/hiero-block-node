@@ -19,4 +19,5 @@ testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
     requires("org.testcontainers")
     requires("io.minio")
+    requires("java.logging")
 }
