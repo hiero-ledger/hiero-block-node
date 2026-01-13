@@ -25,13 +25,3 @@ testModuleInfo {
 }
 
 pbj { generateTestClasses = false }
-
-sourceSets {
-    main {
-        pbj {
-            srcDir(
-                layout.projectDirectory.dir("src/main/java/org/hiero/block/node/verification/proto")
-            )
-        }
-    }
-}
