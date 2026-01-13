@@ -4,6 +4,7 @@ package org.hiero.block.node.backfill;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -537,7 +538,8 @@ class BackfillFetcherTest {
 
             // Step 1: Initial call - client gets cached
             assertNotNull(fetcher.getNewAvailableRange(0L));
-            assertNotNull(fetcher.nodeClientMap.get(nodeConfig), "Client should be cached");
+            BlockNodeClient firstClient = fetcher.nodeClientMap.get(nodeConfig);
+            assertNotNull(firstClient, "Client should be cached");
 
             // Step 2: Failure - markFailure() evicts the client
             shouldFail.set(true);
@@ -549,7 +551,9 @@ class BackfillFetcherTest {
             Thread.sleep(15);
             shouldFail.set(false);
             assertNotNull(fetcher.getNewAvailableRange(0L));
-            assertNotNull(fetcher.nodeClientMap.get(nodeConfig), "New client should be cached");
+            BlockNodeClient newClient = fetcher.nodeClientMap.get(nodeConfig);
+            assertNotNull(newClient, "New client should be cached");
+            assertNotSame(firstClient, newClient, "Should be a fresh client instance");
         }
 
         private BlockNodeClient createToggleableMockClient(AtomicBoolean shouldFail) {
