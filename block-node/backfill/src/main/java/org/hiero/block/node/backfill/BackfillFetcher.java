@@ -277,6 +277,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 LOGGER.log(INFO, failedToFetchBlocksMsg, e);
                 if (attempt == maxRetries) {
                     markFailure(nodeConfig);
+                    // Only log exception stack trace on final failure to prevent log spam
+                    LOGGER.log(TRACE, "Final failure stack trace:", e);
                 } else {
                     long delay = Math.multiplyExact(initialRetryDelayMs, attempt);
                     try {
