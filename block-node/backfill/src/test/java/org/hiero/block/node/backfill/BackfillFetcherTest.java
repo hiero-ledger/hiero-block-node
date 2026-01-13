@@ -102,13 +102,12 @@ class BackfillFetcherTest {
     class SelectNextChunkTests {
 
         @Test
-        @DisplayName("selects earliest start, breaks ties by priority, returns empty when no match")
-        void selectNextChunkBehaviors() throws Exception {
+        @DisplayName("selects node with earliest start block")
+        void selectsEarliestStart() throws Exception {
             final BackfillSourceConfig lowPriority = node("localhost", 1, 1);
             final BackfillSourceConfig highPriority = node("localhost", 2, 2);
             final BackfillFetcher client = newClient(lowPriority, highPriority);
 
-            // Selects earliest start even if higher priority
             Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(
                     10,
                     30,
@@ -116,21 +115,42 @@ class BackfillFetcherTest {
             assertTrue(selection.isPresent());
             assertEquals(highPriority, selection.get().nodeConfig());
             assertEquals(10, selection.get().startBlock());
+        }
 
-            // Breaks ties by lower priority
-            selection = client.selectNextChunk(
+        @Test
+        @DisplayName("breaks ties by lower priority value")
+        void breaksTiesByPriority() throws Exception {
+            final BackfillSourceConfig lowPriority = node("localhost", 1, 1);
+            final BackfillSourceConfig highPriority = node("localhost", 2, 2);
+            final BackfillFetcher client = newClient(lowPriority, highPriority);
+
+            Optional<NodeSelectionStrategy.NodeSelection> selection = client.selectNextChunk(
                     15,
                     30,
                     Map.of(lowPriority, List.of(new LongRange(15, 25)), highPriority, List.of(new LongRange(15, 20))));
             assertTrue(selection.isPresent());
             assertEquals(lowPriority, selection.get().nodeConfig());
+        }
 
-            // Returns empty when no range covers start
-            selection = client.selectNextChunk(25, 30, Map.of(lowPriority, List.of(new LongRange(10, 20))));
+        @Test
+        @DisplayName("returns empty when no range covers start")
+        void returnsEmptyWhenNoRangeCoversStart() throws Exception {
+            final BackfillSourceConfig lowPriority = node("localhost", 1, 1);
+            final BackfillFetcher client = newClient(lowPriority);
+
+            Optional<NodeSelectionStrategy.NodeSelection> selection =
+                    client.selectNextChunk(25, 30, Map.of(lowPriority, List.of(new LongRange(10, 20))));
             assertTrue(selection.isEmpty());
+        }
 
-            // Returns empty for empty availability
-            selection = client.selectNextChunk(10, 30, Collections.emptyMap());
+        @Test
+        @DisplayName("returns empty for empty availability")
+        void returnsEmptyForEmptyAvailability() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BackfillFetcher client = newClient(nodeConfig);
+
+            Optional<NodeSelectionStrategy.NodeSelection> selection =
+                    client.selectNextChunk(10, 30, Collections.emptyMap());
             assertTrue(selection.isEmpty());
         }
     }
@@ -141,12 +161,11 @@ class BackfillFetcherTest {
 
         @Test
         @Timeout(value = 10, unit = TimeUnit.SECONDS)
-        @DisplayName("returns blocks on success, retries on failure, returns empty on mismatch")
-        void fetchBehaviors() throws Exception {
+        @DisplayName("returns blocks on success")
+        void returnsBlocksOnSuccess() throws Exception {
             final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
             final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
 
-            // Success case
             long retriesBefore = metrics.backfillRetries().get();
             BlockNodeClient successClient = mockClientReturning(List.of(createTestBlock(0L), createTestBlock(1L)));
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 3, metrics, successClient);
@@ -154,17 +173,31 @@ class BackfillFetcherTest {
                     2,
                     fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).size());
             assertEquals(retriesBefore, metrics.backfillRetries().get());
+        }
 
-            // Mismatch case - returns fewer blocks than expected
+        @Test
+        @Timeout(value = 10, unit = TimeUnit.SECONDS)
+        @DisplayName("returns empty on block count mismatch")
+        void returnsEmptyOnMismatch() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
+
             BlockNodeClient mismatchClient = mockClientReturning(List.of(createTestBlock(0L)));
-            fetcher = createFetcherWithClient(nodeConfig, 1, metrics, mismatchClient);
+            BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, metrics, mismatchClient);
             assertTrue(
                     fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).isEmpty());
+        }
 
-            // Failure with retry case
-            retriesBefore = metrics.backfillRetries().get();
+        @Test
+        @Timeout(value = 10, unit = TimeUnit.SECONDS)
+        @DisplayName("retries on failure and increments retry metric")
+        void retriesOnFailure() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BackfillPlugin.MetricsHolder metrics = createTestMetricsHolder();
+
+            long retriesBefore = metrics.backfillRetries().get();
             BlockNodeClient failingClient = mockClientThrowing(new RuntimeException("fail"));
-            fetcher = createFetcherWithClient(nodeConfig, 2, metrics, failingClient);
+            BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 2, metrics, failingClient);
             assertTrue(
                     fetcher.fetchBlocksFromNode(nodeConfig, new LongRange(0, 1)).isEmpty());
             assertEquals(retriesBefore + 1, metrics.backfillRetries().get());
@@ -194,31 +227,43 @@ class BackfillFetcherTest {
     class GetNewAvailableRangeTests {
 
         @Test
-        @DisplayName("returns null when unreachable, returns range when reachable, null when ahead of peers")
-        void getNewAvailableRangeBehaviors() throws Exception {
+        @DisplayName("returns null when node is unreachable")
+        void returnsNullWhenUnreachable() throws Exception {
             final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
 
-            // Unreachable node
             BlockNodeClient unreachable = mock(BlockNodeClient.class);
             when(unreachable.isNodeReachable()).thenReturn(false);
             BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), unreachable);
             assertNull(fetcher.getNewAvailableRange(0L));
+        }
 
-            // Reachable node with range
+        @Test
+        @DisplayName("returns range when node is reachable")
+        void returnsRangeWhenReachable() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+
             BlockNodeClient reachable = mockReachableClientWithStatus(0L, 100L);
-            fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), reachable);
+            BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), reachable);
             LongRange range = fetcher.getNewAvailableRange(10L);
             assertNotNull(range);
             assertEquals(11L, range.start());
             assertEquals(100L, range.end());
+        }
 
-            // Already ahead of peers
-            range = fetcher.getNewAvailableRange(100L);
+        @Test
+        @DisplayName("returns null when already ahead of peers")
+        void returnsNullWhenAheadOfPeers() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+
+            BlockNodeClient reachable = mockReachableClientWithStatus(0L, 100L);
+            BackfillFetcher fetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), reachable);
+            LongRange range = fetcher.getNewAvailableRange(100L);
             assertNull(range);
         }
 
         private BlockNodeClient mockReachableClientWithStatus(long first, long last) {
-            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient = mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
             when(serviceClient.serverStatus(any()))
                     .thenReturn(ServerStatusResponse.newBuilder()
                             .firstAvailableBlock(first)
@@ -236,7 +281,8 @@ class BackfillFetcherTest {
             final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
 
             // Mock a reachable client that throws on serverStatus()
-            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient = mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
             when(serviceClient.serverStatus(any())).thenThrow(new RuntimeException("Connection timeout"));
             BlockNodeClient client = mock(BlockNodeClient.class);
             when(client.isNodeReachable()).thenReturn(true);
@@ -255,14 +301,16 @@ class BackfillFetcherTest {
             final BackfillSourceConfig healthyNode = node("localhost", 2, 2);
 
             // Failing node throws on serverStatus
-            BlockNodeServiceInterface.BlockNodeServiceClient failingServiceClient = mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            BlockNodeServiceInterface.BlockNodeServiceClient failingServiceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
             when(failingServiceClient.serverStatus(any())).thenThrow(new RuntimeException("Connection timeout"));
             BlockNodeClient failingClient = mock(BlockNodeClient.class);
             when(failingClient.isNodeReachable()).thenReturn(true);
             when(failingClient.getBlockNodeServiceClient()).thenReturn(failingServiceClient);
 
             // Healthy node returns valid status
-            BlockNodeServiceInterface.BlockNodeServiceClient healthyServiceClient = mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+            BlockNodeServiceInterface.BlockNodeServiceClient healthyServiceClient =
+                    mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
             when(healthyServiceClient.serverStatus(any()))
                     .thenReturn(ServerStatusResponse.newBuilder()
                             .firstAvailableBlock(0L)
@@ -295,13 +343,12 @@ class BackfillFetcherTest {
     class GetAvailabilityForRangeTests {
 
         @Test
-        @DisplayName("returns intersection for reachable nodes, empty when no overlap or unreachable")
-        void getAvailabilityBehaviors() throws Exception {
+        @DisplayName("returns intersection for reachable nodes with overlap")
+        void returnsIntersectionForReachableNodes() throws Exception {
             final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
             final BackfillSource source = createSource(nodeConfig);
             final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
 
-            // Reachable with overlap - use custom fetcher to control resolveAvailableRanges
             BlockNodeClient reachable = mock(BlockNodeClient.class);
             when(reachable.isNodeReachable()).thenReturn(true);
 
@@ -317,19 +364,50 @@ class BackfillFetcherTest {
                 }
             };
 
-            Map<BackfillSourceConfig, List<LongRange>> availability = fetcher.getAvailabilityForRange(new LongRange(10, 50));
+            Map<BackfillSourceConfig, List<LongRange>> availability =
+                    fetcher.getAvailabilityForRange(new LongRange(10, 50));
             assertFalse(availability.isEmpty());
             assertEquals(new LongRange(10, 50), availability.get(nodeConfig).get(0));
+        }
 
-            // No overlap
-            availability = fetcher.getAvailabilityForRange(new LongRange(200, 300));
+        @Test
+        @DisplayName("returns empty when no overlap with requested range")
+        void returnsEmptyWhenNoOverlap() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BackfillSource source = createSource(nodeConfig);
+            final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
+
+            BlockNodeClient reachable = mock(BlockNodeClient.class);
+            when(reachable.isNodeReachable()).thenReturn(true);
+
+            BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
+                @Override
+                protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
+                    return reachable;
+                }
+
+                @Override
+                protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
+                    return List.of(new LongRange(0, 100));
+                }
+            };
+
+            Map<BackfillSourceConfig, List<LongRange>> availability =
+                    fetcher.getAvailabilityForRange(new LongRange(200, 300));
             assertTrue(availability.isEmpty());
+        }
 
-            // Unreachable
+        @Test
+        @DisplayName("returns empty when node is unreachable")
+        void returnsEmptyWhenUnreachable() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+
             BlockNodeClient unreachable = mock(BlockNodeClient.class);
             when(unreachable.isNodeReachable()).thenReturn(false);
-            BackfillFetcher unreachableFetcher = createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), unreachable);
-            availability = unreachableFetcher.getAvailabilityForRange(new LongRange(0, 100));
+            BackfillFetcher unreachableFetcher =
+                    createFetcherWithClient(nodeConfig, 1, createTestMetricsHolder(), unreachable);
+            Map<BackfillSourceConfig, List<LongRange>> availability =
+                    unreachableFetcher.getAvailabilityForRange(new LongRange(0, 100));
             assertTrue(availability.isEmpty());
         }
     }
@@ -377,8 +455,8 @@ class BackfillFetcherTest {
     class MergeRangesTests {
 
         @Test
-        @DisplayName("merges overlapping/contiguous ranges, keeps disjoint separate")
-        void mergeBehaviors() throws Exception {
+        @DisplayName("merges overlapping and contiguous ranges into single range")
+        void mergesOverlappingRanges() throws Exception {
             final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
             final BackfillSource source = createSource(nodeConfig);
             final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
@@ -386,8 +464,7 @@ class BackfillFetcherTest {
             BlockNodeClient reachable = mock(BlockNodeClient.class);
             when(reachable.isNodeReachable()).thenReturn(true);
 
-            // Overlapping ranges merge to single range
-            BackfillFetcher fetcher1 = new BackfillFetcher(source, config, createTestMetricsHolder()) {
+            BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
                 protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
                     return reachable;
@@ -399,12 +476,23 @@ class BackfillFetcherTest {
                 }
             };
 
-            Map<BackfillSourceConfig, List<LongRange>> availability = fetcher1.getAvailabilityForRange(new LongRange(0, 20));
+            Map<BackfillSourceConfig, List<LongRange>> availability =
+                    fetcher.getAvailabilityForRange(new LongRange(0, 20));
             assertEquals(1, availability.get(nodeConfig).size());
             assertEquals(new LongRange(0, 20), availability.get(nodeConfig).get(0));
+        }
 
-            // Disjoint ranges stay separate
-            BackfillFetcher fetcher2 = new BackfillFetcher(source, config, createTestMetricsHolder()) {
+        @Test
+        @DisplayName("keeps disjoint ranges separate")
+        void keepsDisjointRangesSeparate() throws Exception {
+            final BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            final BackfillSource source = createSource(nodeConfig);
+            final BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
+
+            BlockNodeClient reachable = mock(BlockNodeClient.class);
+            when(reachable.isNodeReachable()).thenReturn(true);
+
+            BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
                 @Override
                 protected BlockNodeClient getNodeClient(BackfillSourceConfig ignored) {
                     return reachable;
@@ -416,7 +504,8 @@ class BackfillFetcherTest {
                 }
             };
 
-            availability = fetcher2.getAvailabilityForRange(new LongRange(0, 60));
+            Map<BackfillSourceConfig, List<LongRange>> availability =
+                    fetcher.getAvailabilityForRange(new LongRange(0, 60));
             assertEquals(2, availability.get(nodeConfig).size());
         }
     }
