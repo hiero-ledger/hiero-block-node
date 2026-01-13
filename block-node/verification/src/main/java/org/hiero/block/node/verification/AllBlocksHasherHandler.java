@@ -155,7 +155,7 @@ public class AllBlocksHasherHandler {
                 persistHasherSnapshot();
 
             } catch (IOException | NoSuchAlgorithmException | IllegalStateException | ParseException e) {
-                LOGGER.log(WARNING, "Falling back to footer values. Reason: " + e.getMessage(), e);
+                LOGGER.log(WARNING, "Falling back to footer values. Reason: %s".formatted(e.getMessage()), e);
                 this.hasher = null; // Ensure we return null on failure
             }
         }
@@ -174,7 +174,7 @@ public class AllBlocksHasherHandler {
                 .createVirtualThreadScheduledExecutor(
                         2, // Two threads: one for autonomous backfill, one for on-demand backfill
                         "AllBlocksHasherHandler-Persistence",
-                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
+                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: %s".formatted(t.getName()), e));
 
         scheduler.scheduleAtFixedRate(
                 this::persistHasherSnapshot,
@@ -226,7 +226,7 @@ public class AllBlocksHasherHandler {
             }
 
         } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to persist hasher snapshot to " + hasherFilePath, e);
+            LOGGER.log(WARNING, "Failed to persist hasher snapshot to %s".formatted(hasherFilePath), e);
         } finally {
             if (tmp != null) {
                 try {

@@ -217,15 +217,14 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     @Override
     public void resetToBlock(final long block) {
         try {
-            LOGGER.log(
-                    DEBUG,
-                    "Resetting to block number %s. current block number = %s".formatted(block, currentBlockNumber));
+            LOGGER.log(DEBUG, "Resetting to block number {0}. current block number = {1}", block, currentBlockNumber);
             // if current block is bigger, we reset state and start from 0 up to block
             if (currentBlockNumber > block) {
                 LOGGER.log(
                         DEBUG,
-                        "Current block number %s is greater than target block number %s. Resetting state and starting from block 0."
-                                .formatted(currentBlockNumber, block));
+                        "Current block number {0} is greater than target block number {1}. Resetting state and starting from block 0.",
+                        currentBlockNumber,
+                        block);
                 resetState();
                 currentBlockNumber = 0;
                 previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
@@ -237,8 +236,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             }
             LOGGER.log(
                     DEBUG,
-                    "Reset to block number %s completed. current block number = %s"
-                            .formatted(block, currentBlockNumber));
+                    "Reset to block number {0} completed. current block number = {1}",
+                    block,
+                    currentBlockNumber);
         } catch (BlockSimulatorParsingException | ParseException e) {
             LOGGER.log(ERROR, "Error while resetting to block " + block, e);
             throw new RuntimeException(e);
@@ -246,7 +246,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     }
 
     private Block createNextBlock() throws BlockSimulatorParsingException, ParseException {
-        LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
+        LOGGER.log(DEBUG, "Started creation of block number {0}.", currentBlockNumber);
         // todo(683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of
         // keeping and unparsing.
         final List<BlockItemUnparsed> blockItemsUnparsed = new ArrayList<>();
@@ -273,7 +273,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             }
         }
 
-        LOGGER.log(DEBUG, "Appending %s number of block items in this block.".formatted(items.size()));
+        LOGGER.log(DEBUG, "Appending {0} number of block items in this block.", items.size());
 
         processBlockItems(blockItemsUnparsed);
 
@@ -296,9 +296,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         ItemHandler proofItemHandler = new BlockProofHandler(currentBlockHash, currentBlockNumber);
         items.add(proofItemHandler);
-        LOGGER.log(
-                DEBUG,
-                "Created block number %s with hash %s".formatted(currentBlockNumber, Bytes.wrap(currentBlockHash)));
+        LOGGER.log(DEBUG, "Created block number {0} with hash {1}", currentBlockNumber, Bytes.wrap(currentBlockHash));
 
         if (rootHashOfAllBlockHashesTreeHasher != null) {
             rootHashOfAllBlockHashesTreeHasher.addLeaf(currentBlockHash);
@@ -419,7 +417,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             // this condition is not supposed to be met when valid configurations are provided
             // maxAttempts variable serves for endless loop prevention in case of inaccurate config inputs
             if (list.equals(originalList)) {
-                LOGGER.log(WARNING, "Scramble unsuccessful after " + maxAttempts + " attempts");
+                LOGGER.log(WARNING, "Scramble unsuccessful after {0} attempts", maxAttempts);
             }
         }
     }
