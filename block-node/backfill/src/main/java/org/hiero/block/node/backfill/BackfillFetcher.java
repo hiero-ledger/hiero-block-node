@@ -98,7 +98,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                     INFO,
                     nodeConfigLogMsg,
                     node.nodeId() == 0 ? "n/a" : node.nodeId(),
-                    node.name().isEmpty() ? "unnamed" : node.name(),
+                    node.name().isBlank() ? "unnamed" : node.name(),
                     node.address(),
                     node.port(),
                     node.priority(),

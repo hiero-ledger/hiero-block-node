@@ -81,8 +81,8 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
             return completed;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            final String waitInterruptedMsg = "Block [{0}] persistence wait interrupted";
-            LOGGER.log(DEBUG, waitInterruptedMsg, blockNumber);
+            final String waitInterruptedMsg = "Block [%s] persistence wait interrupted".formatted(blockNumber);
+            LOGGER.log(DEBUG, waitInterruptedMsg, e);
             return false;
         } finally {
             pendingBlocks.remove(blockNumber);
