@@ -216,39 +216,39 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
     @Override
     public void resetToBlock(final long block) {
-        LOGGER.log(
-                DEBUG, "Resetting to block number %s. current block number = %s".formatted(block, currentBlockNumber));
-
-        // if current block is bigger, we reset state and start from 0 up to block
-        if (currentBlockNumber > block) {
+        try {
             LOGGER.log(
                     DEBUG,
-                    "Current block number %s is greater than target block number %s. Resetting state and starting from block 0."
-                            .formatted(currentBlockNumber, block));
-            resetState();
-            currentBlockNumber = 0;
-            previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
-            initRootHashOfAllBlockHashesTreeHasher();
-        }
-
-        while (currentBlockNumber < block) {
-            try {
-                createNextBlock();
-            } catch (Exception e) {
-                LOGGER.log(ERROR, "Error while resetting to block " + block, e);
-                throw new RuntimeException(e);
+                    "Resetting to block number %s. current block number = %s".formatted(block, currentBlockNumber));
+            // if current block is bigger, we reset state and start from 0 up to block
+            if (currentBlockNumber > block) {
+                LOGGER.log(
+                        DEBUG,
+                        "Current block number %s is greater than target block number %s. Resetting state and starting from block 0."
+                                .formatted(currentBlockNumber, block));
+                resetState();
+                currentBlockNumber = 0;
+                previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
+                initRootHashOfAllBlockHashesTreeHasher();
             }
+
+            while (currentBlockNumber < block) {
+                createNextBlock();
+            }
+            LOGGER.log(
+                    DEBUG,
+                    "Reset to block number %s completed. current block number = %s"
+                            .formatted(block, currentBlockNumber));
+        } catch (BlockSimulatorParsingException | ParseException e) {
+            LOGGER.log(ERROR, "Error while resetting to block " + block, e);
+            throw new RuntimeException(e);
         }
-        LOGGER.log(
-                DEBUG,
-                "Reset to block number %s completed. current block number = %s".formatted(block, currentBlockNumber));
     }
 
     private Block createNextBlock() throws BlockSimulatorParsingException, ParseException {
         LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
         // todo(683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of
-        // keeping
-        // and unparsing.
+        // keeping and unparsing.
         final List<BlockItemUnparsed> blockItemsUnparsed = new ArrayList<>();
         final List<ItemHandler> items = new ArrayList<>();
 
