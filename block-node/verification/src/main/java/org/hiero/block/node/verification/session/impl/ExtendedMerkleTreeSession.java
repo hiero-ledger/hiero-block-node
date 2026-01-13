@@ -20,6 +20,7 @@ import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.session.VerificationSession;
@@ -56,8 +57,26 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
     private List<BlockProof> blockProofs = new ArrayList<>();
 
-    public ExtendedMerkleTreeSession(final long blockNumber, final BlockSource blockSource) {
+    private final Bytes previousBlockHash;
+
+    private final Bytes allPreviousBlockRootHash;
+
+    /**
+     * Constructor for ExtendedMerkleTreeSession.
+     *
+     * @param blockNumber the block number
+     * @param blockSource the source of the block
+     * @param previousBlockHash the previous block hash, may be null
+     * @param allPreviousBlocksRootHash the all previous blocks root hash, may be null
+     */
+    public ExtendedMerkleTreeSession(
+            final long blockNumber,
+            final BlockSource blockSource,
+            final Bytes previousBlockHash,
+            final Bytes allPreviousBlocksRootHash) {
         this.blockNumber = blockNumber;
+        this.previousBlockHash = previousBlockHash;
+        this.allPreviousBlockRootHash = allPreviousBlocksRootHash;
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
@@ -69,7 +88,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     }
 
     @Override
-    public void processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
+    public VerificationNotification processBlockItems(BlockItems blockItemsMessage) throws ParseException {
+        List<BlockItemUnparsed> blockItems = blockItemsMessage.blockItems();
 
         // collect block items
         this.blockItems.addAll(blockItems);
@@ -95,6 +115,11 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 }
             }
         }
+
+        if (blockItemsMessage.isEndOfBlock()) {
+            return finalizeVerification(allPreviousBlockRootHash, previousBlockHash);
+        }
+        return null;
     }
 
     public VerificationNotification finalizeVerification(Bytes rootHashOfAllBlockHashesTree, Bytes previousBlockHash) {

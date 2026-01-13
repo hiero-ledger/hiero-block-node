@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,10 +37,12 @@ class ExtendedMerkleTreeSessionTest {
 
         long blockNumber = blockHeader.number();
 
-        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER);
+        ExtendedMerkleTreeSession session =
+                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null);
 
-        session.processBlockItems(blockItems);
-        VerificationNotification blockNotification = session.finalizeVerification(null, null);
+        // Create BlockItems with isEndOfBlock=true to trigger finalization
+        BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber);
+        VerificationNotification blockNotification = session.processBlockItems(blockItemsMessage);
 
         assertArrayEquals(
                 blockItems.toArray(),

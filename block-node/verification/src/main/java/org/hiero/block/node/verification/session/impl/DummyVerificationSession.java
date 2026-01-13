@@ -4,12 +4,12 @@ package org.hiero.block.node.verification.session.impl;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
-import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.session.VerificationSession;
@@ -48,18 +48,16 @@ public class DummyVerificationSession implements VerificationSession {
     }
 
     @Override
-    public void processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
+    public VerificationNotification processBlockItems(BlockItems blockItemsMessage) {
+        List<BlockItemUnparsed> blockItems = blockItemsMessage.blockItems();
         this.blockItems.addAll(blockItems);
         LOGGER.log(TRACE, "Processed {0} block items for block {1}", blockItems.size(), blockNumber);
-        if (blockItems.getLast().hasBlockProof()) {
+        if (blockItemsMessage.isEndOfBlock()) {
             block = BlockUnparsed.newBuilder().blockItems(this.blockItems).build();
             blockHash = Bytes.wrap("0x00");
             LOGGER.log(TRACE, "Returning always True verification notification for block {0}", blockNumber);
+            return new VerificationNotification(true, blockNumber, blockHash, block, blockSource);
         }
-    }
-
-    @Override
-    public VerificationNotification finalizeVerification(Bytes rootHashOfAllBlockHashesTree, Bytes previousBlockHash) {
-        return new VerificationNotification(true, blockNumber, blockHash, block, blockSource);
+        return null;
     }
 }

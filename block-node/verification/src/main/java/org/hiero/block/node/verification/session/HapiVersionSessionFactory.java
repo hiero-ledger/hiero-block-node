@@ -2,6 +2,7 @@
 package org.hiero.block.node.verification.session;
 
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Objects;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -24,12 +25,18 @@ public final class HapiVersionSessionFactory {
      * @param blockNumber the block number (>= 0)
      * @param blockSource the source of blocks
      * @param hapiVersion the semantic HAPI version
+     * @param previousBlockHash the previous block hash, may be null
+     * @param allPreviousBlocksRootHash the all blocks root hash, may be null
      *
      * @throws NullPointerException if blockSource or hapiVersion is null
      * @throws IllegalArgumentException if blockNumber less than 0 or version unsupported
      */
     public static VerificationSession createSession(
-            final long blockNumber, final BlockSource blockSource, final SemanticVersion hapiVersion) {
+            final long blockNumber,
+            final BlockSource blockSource,
+            final SemanticVersion hapiVersion,
+            final Bytes previousBlockHash,
+            final Bytes allPreviousBlocksRootHash) {
         Objects.requireNonNull(blockSource, "blockSource cannot be null");
         Objects.requireNonNull(hapiVersion, "hapiVersion cannot be null");
         Preconditions.requireWhole(blockNumber, "blockNumber must be >= 0");
@@ -40,7 +47,8 @@ public final class HapiVersionSessionFactory {
         }
 
         if (isGreaterThanOrEqual(hapiVersion, V_0_69_0)) {
-            return new ExtendedMerkleTreeSession(blockNumber, blockSource);
+            return new ExtendedMerkleTreeSession(
+                    blockNumber, blockSource, previousBlockHash, allPreviousBlocksRootHash);
         }
 
         // TODO, before going live we should remove the Dummy Implementation.

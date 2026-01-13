@@ -38,6 +38,7 @@ import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -192,7 +193,6 @@ class AllBlocksHasherHandlerTest {
     private BlockChainData buildBlockChain(final int blockCount) throws ParseException, NoSuchAlgorithmException {
         final StreamingHasher hasher = new StreamingHasher();
         hasher.addLeaf(AllBlocksHasherHandler.ZERO_BLOCK_HASH);
-
         final List<Block> blocks = new ArrayList<>(blockCount);
         final List<byte[]> blockHashes = new ArrayList<>(blockCount);
         byte[] previousHash = AllBlocksHasherHandler.ZERO_BLOCK_HASH;
@@ -214,8 +214,7 @@ class AllBlocksHasherHandlerTest {
     }
 
     private Block buildBlock(
-            final long blockNumber, final byte[] previousBlockHash, final byte[] rootHashOfAllBlockHashesTree)
-            throws ParseException {
+            final long blockNumber, final byte[] previousBlockHash, final byte[] rootHashOfAllBlockHashesTree) {
         final BlockHeader header = buildBlockHeader(blockNumber);
         final BlockFooter footer = BlockFooter.newBuilder()
                 .previousBlockRootHash(Bytes.wrap(Arrays.copyOf(previousBlockHash, previousBlockHash.length)))
@@ -291,18 +290,17 @@ class AllBlocksHasherHandlerTest {
             parsedItems.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
         }
 
+        final Bytes previousBlockHash = prevHash == null ? null : Bytes.wrap(prevHash);
         final VerificationSession session = HapiVersionSessionFactory.createSession(
                 blockNumber,
                 BlockSource.UNKNOWN,
-                blockItems.getFirst().blockHeader().hapiProtoVersion());
+                blockItems.getFirst().blockHeader().hapiProtoVersion(),
+                previousBlockHash,
+                Bytes.wrap(rootHashOfAllPreviousBlocks));
 
-        session.processBlockItems(parsedItems);
+        BlockItems blockItemsMessage = new BlockItems(parsedItems, blockNumber);
 
-        final Bytes previousRootHash =
-                rootHashOfAllPreviousBlocks == null ? null : Bytes.wrap(rootHashOfAllPreviousBlocks);
-        final Bytes previousBlockHash = prevHash == null ? null : Bytes.wrap(prevHash);
-
-        final VerificationNotification notification = session.finalizeVerification(previousRootHash, previousBlockHash);
+        final VerificationNotification notification = session.processBlockItems(blockItemsMessage);
 
         return notification.blockHash().toByteArray();
     }

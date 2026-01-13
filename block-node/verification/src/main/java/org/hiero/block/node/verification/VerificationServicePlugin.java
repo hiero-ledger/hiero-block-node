@@ -168,7 +168,11 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
                 // create a new verification session for the new block based on hapi version on block header.
                 currentSession = HapiVersionSessionFactory.createSession(
-                        currentBlockNumber, BlockSource.PUBLISHER, semanticVersion);
+                        currentBlockNumber,
+                        BlockSource.PUBLISHER,
+                        semanticVersion,
+                        previousBlockHash,
+                        getRootOfAllPreviousBlocks());
                 LOGGER.log(TRACE, "Started new block verification session for block number {0}", currentBlockNumber);
             } else {
                 headerValid = true; // header not present, assume it was valid
@@ -183,18 +187,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 final String traceMessage = "Appending {0} block items to the current session for block number: {1}";
                 LOGGER.log(TRACE, traceMessage, blockItems.blockItems().size(), currentBlockNumber);
                 long startHashingTime = System.nanoTime();
-                currentSession.processBlockItems(blockItems.blockItems());
+                // processBlockItems returns notification when isEndOfBlock(), null otherwise
+                VerificationNotification notification = currentSession.processBlockItems(blockItems);
                 long hashingTime = System.nanoTime() - startHashingTime;
                 hashingBlockTimeNs.add(hashingTime);
-                // if this is the end of the block, finalize verification
-                if (blockItems.isEndOfBlock()) {
-                    Bytes rootHashOfAllBlockHashesTree = null;
-                    if (allBlocksHasherHandler.isAvailable()) {
-                        rootHashOfAllBlockHashesTree = Bytes.wrap(allBlocksHasherHandler.computeRootHash());
-                        this.previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
-                    }
-                    VerificationNotification notification =
-                            currentSession.finalizeVerification(rootHashOfAllBlockHashesTree, this.previousBlockHash);
+                // if this is the end of the block, handle verification result
+                if (notification != null) {
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
                     if (notification.success()) {
                         verificationBlocksVerified.increment();
@@ -206,7 +204,6 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         // Update streamingHasherAllPreviousBlocks
                         allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                 this.previousBlockHash.toByteArray());
-
                     } else {
                         LOGGER.log(INFO, "Verification failed for block={0}", currentBlockNumber);
                         sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
@@ -227,6 +224,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, "Failed to verify BlockItems.", e);
             sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
+        }
+    }
+
+    private Bytes getRootOfAllPreviousBlocks() {
+        if (allBlocksHasherHandler != null && allBlocksHasherHandler.isAvailable()) {
+            return Bytes.wrap(allBlocksHasherHandler.computeRootHash());
+        } else {
+            return null;
         }
     }
 
@@ -257,14 +262,28 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL);
             } else {
                 VerificationSession backfillSession = HapiVersionSessionFactory.createSession(
-                        notification.blockNumber(), BlockSource.BACKFILL, blockHeader.hapiProtoVersionOrThrow());
+                        notification.blockNumber(),
+                        BlockSource.BACKFILL,
+                        blockHeader.hapiProtoVersionOrThrow(),
+                        null,
+                        null);
                 // process the block items in the backfilled notification
-                backfillSession.processBlockItems(notification.block().blockItems());
-                VerificationNotification backfillNotification = backfillSession.finalizeVerification(null, null);
-                // Log the backfill verification result
-                LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
-                // send the verification notification for the backfilled block
-                context.blockMessaging().sendBlockVerification(backfillNotification);
+                // For backfill, we wrap items in BlockItems with isEndOfBlock=true (last item should be block proof)
+                BlockItems backfillBlockItems =
+                        new BlockItems(notification.block().blockItems(), notification.blockNumber());
+                VerificationNotification backfillNotification = backfillSession.processBlockItems(backfillBlockItems);
+                if (backfillNotification != null) {
+                    // Log the backfill verification result
+                    LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
+                    // send the verification notification for the backfilled block
+                    context.blockMessaging().sendBlockVerification(backfillNotification);
+                } else {
+                    LOGGER.log(
+                            WARNING,
+                            "Backfill verification returned null notification for block={0}",
+                            notification.blockNumber());
+                    sendFailureNotification(notification.blockNumber(), BlockSource.BACKFILL);
+                }
             }
         } catch (RuntimeException | ParseException e) {
             LOGGER.log(WARNING, "Failed to handle backfill notification ", e);

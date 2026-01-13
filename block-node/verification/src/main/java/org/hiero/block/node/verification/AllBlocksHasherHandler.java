@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
@@ -310,13 +311,19 @@ public class AllBlocksHasherHandler {
         final BlockHeader blockHeader =
                 BlockHeader.PROTOBUF.parse(block.blockItems().getFirst().blockHeader());
 
-        final VerificationSession session = HapiVersionSessionFactory.createSession(
-                blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion());
-
-        session.processBlockItems(block.blockItems());
+        BlockItems blockItemsMessage = new BlockItems(block.blockItems(), blockNumber);
 
         final Bytes previousBlockHashBytes = (previousBlockHash == null) ? null : Bytes.wrap(previousBlockHash);
-        final VerificationNotification result = session.finalizeVerification(null, previousBlockHashBytes);
+
+        final VerificationSession session = HapiVersionSessionFactory.createSession(
+                blockNumber,
+                BlockSource.HISTORY,
+                blockHeader.hapiProtoVersion(),
+                previousBlockHashBytes,
+                Bytes.wrap(hasher.computeRootHash()));
+
+        final VerificationNotification result = session.processBlockItems(blockItemsMessage);
+
         return result.blockHash().toByteArray();
     }
 

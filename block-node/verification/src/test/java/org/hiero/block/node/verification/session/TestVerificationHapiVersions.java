@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.DisplayName;
@@ -48,14 +49,14 @@ class TestVerificationHapiVersions {
         final VerificationSession session = assertTimeoutPreemptively(
                 Duration.ofSeconds(2),
                 () -> HapiVersionSessionFactory.createSession(
-                        blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion()),
+                        blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion(), null, null),
                 sampleName + ": creating verification session exceeded time budget");
 
         final VerificationNotification note = assertTimeoutPreemptively(
                 Duration.ofSeconds(3),
                 () -> {
-                    session.processBlockItems(blockItems);
-                    return session.finalizeVerification(null, null);
+                    BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber);
+                    return session.processBlockItems(blockItemsMessage);
                 },
                 sampleName + ": processing block items exceeded time budget");
 
