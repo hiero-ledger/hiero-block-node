@@ -7,6 +7,13 @@ import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
+// It is known that spotless does not format this file well
+// We use the https://github.com/palantir/palantir-java-format formatter.
+// @ConfigProperty(defaultValue = "10") – force a line break after the annotation.
+// It is a non-configurable format without complete documentation
+// we might consider switching to another formatter in the future.
+// spotless:off
+
 /**
  * Configuration for the Backfill module.
  *
@@ -27,48 +34,25 @@ import org.hiero.block.node.base.Loggable;
  */
 @ConfigData("backfill")
 public record BackfillConfiguration(
-        @Loggable @ConfigProperty(defaultValue = "0") @Min(0)
-        long startBlock,
-
-        @Loggable @ConfigProperty(defaultValue = "-1") @Min(-1)
-        long endBlock,
-
+        @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long startBlock,
+        @Loggable @ConfigProperty(defaultValue = "-1") @Min(-1) long endBlock,
         @Loggable @ConfigProperty(defaultValue = "") String blockNodeSourcesPath,
-
-        @Loggable @ConfigProperty(defaultValue = "60000") @Min(100)
-        int scanInterval,
-
-        @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(10)
-        int maxRetries,
-
-        @Loggable @ConfigProperty(defaultValue = "5000") @Min(500)
-        int initialRetryDelay,
-
-        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(1024)
-        int fetchBatchSize,
-
-        @Loggable @ConfigProperty(defaultValue = "1000") @Min(100)
-        int delayBetweenBatches,
-
-        @Loggable @ConfigProperty(defaultValue = "15000") @Min(5)
-        int initialDelay,
-
-        @Loggable @ConfigProperty(defaultValue = "1000") @Min(500)
-        int perBlockProcessingTimeout,
-
-        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000)
-        int grpcOverallTimeout,
-
+        @Loggable @ConfigProperty(defaultValue = "60000") @Min(100) int scanInterval,
+        @Loggable @ConfigProperty(defaultValue = "3") @Min(0) @Max(10) int maxRetries,
+        @Loggable @ConfigProperty(defaultValue = "5000") @Min(500) int initialRetryDelay,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(1024) int fetchBatchSize,
+        @Loggable @ConfigProperty(defaultValue = "1000") @Min(100) int delayBetweenBatches,
+        @Loggable @ConfigProperty(defaultValue = "15000") @Min(5) int initialDelay,
+        @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
+        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
         @Loggable @ConfigProperty(defaultValue = "false") boolean greedy,
         // Queue capacity settings for bounded queues
-        @Loggable @ConfigProperty(defaultValue = "20") @Min(1) @Max(1000)
-        int historicalQueueCapacity,
-
-        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(100)
-        int liveTailQueueCapacity,
+        @Loggable @ConfigProperty(defaultValue = "20") @Min(1) @Max(1000) int historicalQueueCapacity,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(100) int liveTailQueueCapacity,
         // Health scoring constants
         @Loggable @ConfigProperty(defaultValue = "1000.0") double healthPenaltyPerFailure,
+        @Loggable @ConfigProperty(defaultValue = "300000") @Min(30000) long maxBackoffMs) {}
 
-        @Loggable @ConfigProperty(defaultValue = "300000") @Min(30000)
-        long maxBackoffMs) {}
+// restore spotless formatting
+// spotless:on

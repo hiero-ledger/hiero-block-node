@@ -92,7 +92,8 @@ final class BackfillRunner {
      * @return the last successfully backfilled block number, or {@code gap.start() - 1} if no blocks were backfilled
      */
     private long backfillGap(LongRange gap, GapDetector.Type gapType) throws InterruptedException, ParseException {
-        logger.log(INFO, "Starting backfillGap type=[%s] range=[%s]".formatted(gapType, gap));
+        final String startingBackfillGapMsg = "Starting backfillGap type=[{0}] range=[{1}]";
+        logger.log(INFO, startingBackfillGapMsg, gapType, gap);
         Map<BackfillSourceConfig, List<LongRange>> availability = planAvailabilityForGap(fetcher, gap);
         long currentBlock = gap.start();
         long batchSize = config.fetchBatchSize();
@@ -105,17 +106,14 @@ final class BackfillRunner {
 
             switch (result.outcome()) {
                 case EXHAUSTED -> {
-                    logger.log(
-                            INFO,
-                            "Backfill exhausted for gap [%s]->[%s], last successful block=[%s]"
-                                    .formatted(gap.start(), gap.end(), lastSuccessfulBlock));
+                    final String backfillExhaustedMsg =
+                            "Backfill exhausted for gap [{0}]->[{1}], last successful block=[{2}]";
+                    logger.log(INFO, backfillExhaustedMsg, gap.start(), gap.end(), lastSuccessfulBlock);
                     break backfillLoop;
                 }
                 case RETRY -> {
-                    logger.log(
-                            DEBUG,
-                            "Retrying backfill for gap [%s]->[%s] at block [%s]"
-                                    .formatted(gap.start(), gap.end(), currentBlock));
+                    final String retryingBackfillMsg = "Retrying backfill for gap [{0}]->[{1}] at block [{2}]";
+                    logger.log(DEBUG, retryingBackfillMsg, gap.start(), gap.end(), currentBlock);
                     continue;
                 }
                 case SUCCESS -> {
@@ -133,14 +131,14 @@ final class BackfillRunner {
         }
 
         if (lastSuccessfulBlock >= gap.end()) {
-            logger.log(TRACE, "Successfully completed backfilling gap [%s]->[%s]".formatted(gap.start(), gap.end()));
+            final String successfullyCompletedMsg = "Successfully completed backfilling gap [{0}]->[{1}]";
+            logger.log(TRACE, successfullyCompletedMsg, gap.start(), gap.end());
         } else if (lastSuccessfulBlock >= gap.start()) {
-            logger.log(
-                    INFO,
-                    "Partially backfilled gap [%s]->[%s], completed up to block [%s]"
-                            .formatted(gap.start(), gap.end(), lastSuccessfulBlock));
+            final String partiallyBackfilledMsg = "Partially backfilled gap [{0}]->[{1}], completed up to block [{2}]";
+            logger.log(INFO, partiallyBackfilledMsg, gap.start(), gap.end(), lastSuccessfulBlock);
         } else {
-            logger.log(INFO, "Failed to backfill any blocks for gap [%s]->[%s]".formatted(gap.start(), gap.end()));
+            final String failedToBackfillMsg = "Failed to backfill any blocks for gap [{0}]->[{1}]";
+            logger.log(INFO, failedToBackfillMsg, gap.start(), gap.end());
         }
         return lastSuccessfulBlock;
     }
@@ -195,7 +193,8 @@ final class BackfillRunner {
                 fetcher.selectNextChunk(currentBlock, gapEnd, availability);
 
         if (selection.isEmpty()) {
-            logger.log(TRACE, "No available nodes found for block [%s]".formatted(currentBlock));
+            final String noAvailableNodesMsg = "No available nodes found for block [{0}]";
+            logger.log(TRACE, noAvailableNodesMsg, currentBlock);
             metricsHolder.backfillFetchErrors().increment();
             Map<BackfillSourceConfig, List<LongRange>> replanned = replanAvailability(currentBlock, gapEnd);
             FetchOutcome outcome = replanned.isEmpty() ? FetchOutcome.EXHAUSTED : FetchOutcome.RETRY;
@@ -217,7 +216,8 @@ final class BackfillRunner {
 
         if (blocks.isEmpty()) {
             availability.remove(nodeChoice.nodeConfig());
-            logger.log(DEBUG, "No blocks fetched for gap [%s], skipping".formatted(chunk));
+            final String noBlocksFetchedMsg = "No blocks fetched for gap [{0}], skipping";
+            logger.log(DEBUG, noBlocksFetchedMsg, chunk);
             Map<BackfillSourceConfig, List<LongRange>> replanned = replanAvailability(currentBlock, gapEnd);
             FetchOutcome outcome = replanned.isEmpty() ? FetchOutcome.EXHAUSTED : FetchOutcome.RETRY;
             return new ChunkFetchResult(replanned, null, List.of(), outcome);
@@ -261,10 +261,12 @@ final class BackfillRunner {
             // always track persistence before sending backfill notification to avoid race conditions
             persistenceAwaiter.trackBlock(blockNumber);
             messaging.sendBackfilledBlockNotification(new BackfilledBlockNotification(blockNumber, blockUnparsed));
-            logger.log(TRACE, "Backfilling block [%s]".formatted(blockNumber));
+            final String backfillingBlockMsg = "Backfilling block [{0}]";
+            logger.log(TRACE, backfillingBlockMsg, blockNumber);
             pendingBackfillBlocks.incrementAndGet();
         }
-        logger.log(TRACE, "Finished sending chunk [%s], waiting for persistence".formatted(chunk));
+        final String finishedSendingChunkMsg = "Finished sending chunk [{0}], waiting for persistence";
+        logger.log(TRACE, finishedSendingChunkMsg, chunk);
     }
 
     /**
@@ -280,10 +282,12 @@ final class BackfillRunner {
         for (long blockNumber : blockNumbers) {
             boolean persisted = persistenceAwaiter.awaitPersistence(blockNumber, config.perBlockProcessingTimeout());
             if (!persisted) {
-                logger.log(INFO, "Block [%s] persistence timed out, will be re-detected".formatted(blockNumber));
+                final String persistenceTimedOutMsg = "Block [{0}] persistence timed out, will be re-detected";
+                logger.log(INFO, persistenceTimedOutMsg, blockNumber);
             }
         }
-        logger.log(TRACE, "All blocks in chunk [%s] persisted".formatted(chunk));
+        final String allBlocksPersistedMsg = "All blocks in chunk [{0}] persisted";
+        logger.log(TRACE, allBlocksPersistedMsg, chunk);
     }
 
     /**

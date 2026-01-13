@@ -91,18 +91,18 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.healthPenaltyPerFailure = config.healthPenaltyPerFailure();
         this.selectionStrategy = new PriorityHealthBasedStrategy(this);
 
+        final String nodeConfigLogMsg = "Node: [{0}] ({1}) Address: [{2}], Port: [{3}], Priority: [{4}], Tuning: {5}";
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             GrpcWebClientTuning tuning = node.grpcWebclientTuning();
             LOGGER.log(
                     INFO,
-                    "Node: [%s] (%s) Address: [%s], Port: [%s], Priority: [%s], Tuning: %s"
-                            .formatted(
-                                    node.nodeId() == 0 ? "n/a" : node.nodeId(),
-                                    node.name().isEmpty() ? "unnamed" : node.name(),
-                                    node.address(),
-                                    node.port(),
-                                    node.priority(),
-                                    tuning != null ? "custom" : "defaults"));
+                    nodeConfigLogMsg,
+                    node.nodeId() == 0 ? "n/a" : node.nodeId(),
+                    node.name().isEmpty() ? "unnamed" : node.name(),
+                    node.address(),
+                    node.port(),
+                    node.priority(),
+                    tuning != null ? "custom" : "defaults");
         }
     }
 
@@ -121,7 +121,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             BlockNodeClient currentNodeClient = getNodeClient(node);
             if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
-                LOGGER.log(INFO, "Unable to reach node [%s], skipping".formatted(node));
+                final String unableToReachNodeMsg = "Unable to reach node [{0}], skipping";
+                LOGGER.log(INFO, unableToReachNodeMsg, node);
                 continue;
             }
 
@@ -135,11 +136,9 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 latestPeerBlock = Math.max(latestPeerBlock, lastAvailableBlock);
                 earliestPeerBlock = Math.min(earliestPeerBlock, firstAvailableBlock);
             } catch (RuntimeException e) {
-                LOGGER.log(
-                        INFO,
-                        "Failed to get status from node [%s:%d]: %s"
-                                .formatted(node.address(), node.port(), e.getMessage()),
-                        e);
+                final String failedToGetStatusMsg = "Failed to get status from node [%s:%d]: %s"
+                        .formatted(node.address(), node.port(), e.getMessage());
+                LOGGER.log(INFO, failedToGetStatusMsg, e);
                 markFailure(node);
             }
         }
@@ -151,10 +150,9 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             return null;
         }
 
-        LOGGER.log(
-                TRACE,
-                "Determined available range from peer blocks nodes start=[%s] to end=[%s]"
-                        .formatted(startBlock, latestPeerBlock));
+        final String determinedAvailableRangeMsg =
+                "Determined available range from peer blocks nodes start=[{0}] to end=[{1}]";
+        LOGGER.log(TRACE, determinedAvailableRangeMsg, startBlock, latestPeerBlock);
         return new LongRange(startBlock, latestPeerBlock);
     }
 
@@ -208,8 +206,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             try {
                 ranges = resolveAvailableRanges(currentNodeClient);
             } catch (RuntimeException e) {
-                LOGGER.log(
-                        INFO, "Failed to resolve available ranges from node [%s]: %s".formatted(node, e.getMessage()));
+                final String failedToResolveRangesMsg = "Failed to resolve available ranges from node [{0}]: {1}";
+                LOGGER.log(INFO, failedToResolveRangesMsg, node, e.getMessage());
                 markFailure(node);
                 continue;
             }
@@ -266,8 +264,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 markSuccess(nodeConfig, System.nanoTime() - startNanos);
                 return batch;
             } catch (RuntimeException e) {
-                LOGGER.log(
-                        INFO,
+                final String failedToFetchBlocksMsg =
                         "Failed to fetch blocks [%s->%s] from node [%s] (attempt %d/%d): %s-%s"
                                 .formatted(
                                         blockRange.start(),
@@ -276,7 +273,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                                         attempt,
                                         maxRetries,
                                         e.getMessage(),
-                                        e.getCause()));
+                                        e.getCause());
+                LOGGER.log(INFO, failedToFetchBlocksMsg, e);
                 if (attempt == maxRetries) {
                     markFailure(nodeConfig);
                 } else {
@@ -292,10 +290,9 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             }
         }
 
+        final String allAttemptsExhaustedMsg = "All {0} attempts exhausted for blocks [{1}->{2}] from node [{3}]";
         LOGGER.log(
-                TRACE,
-                "All %d attempts exhausted for blocks [%s->%s] from node [%s]"
-                        .formatted(maxRetries, blockRange.start(), blockRange.end(), nodeConfig.address()));
+                TRACE, allAttemptsExhaustedMsg, maxRetries, blockRange.start(), blockRange.end(), nodeConfig.address());
         return Collections.emptyList();
     }
 

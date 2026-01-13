@@ -72,7 +72,8 @@ final class BackfillTaskScheduler implements AutoCloseable {
         if (accepted) {
             ensureWorkerRunning();
         } else {
-            LOGGER.log(System.Logger.Level.TRACE, "Queue full, discarding gap: [%s]".formatted(gap));
+            final String queueFullMsg = "Queue full, discarding gap: [{0}]";
+            LOGGER.log(System.Logger.Level.TRACE, queueFullMsg, gap);
         }
         return accepted;
     }

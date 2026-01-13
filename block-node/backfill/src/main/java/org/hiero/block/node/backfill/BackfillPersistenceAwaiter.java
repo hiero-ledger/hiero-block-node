@@ -46,7 +46,8 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
      */
     public void trackBlock(long blockNumber) {
         pendingBlocks.computeIfAbsent(blockNumber, k -> {
-            LOGGER.log(TRACE, "Tracking block [%s] for persistence".formatted(blockNumber));
+            final String trackingBlockMsg = "Tracking block [{0}] for persistence";
+            LOGGER.log(TRACE, trackingBlockMsg, blockNumber);
             return new CountDownLatch(1);
         });
     }
@@ -61,22 +62,27 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
     public boolean awaitPersistence(long blockNumber, long timeoutMs) {
         CountDownLatch latch = pendingBlocks.get(blockNumber);
         if (latch == null) {
-            LOGGER.log(DEBUG, "Block [%s] already persisted or not tracked".formatted(blockNumber));
+            final String alreadyPersistedMsg = "Block [{0}] already persisted or not tracked";
+            LOGGER.log(DEBUG, alreadyPersistedMsg, blockNumber);
             return true;
         }
 
-        LOGGER.log(TRACE, "Waiting for block [%s] persistence (timeout=[%s]ms)".formatted(blockNumber, timeoutMs));
+        final String waitingForBlockMsg = "Waiting for block [{0}] persistence (timeout=[{1}]ms)";
+        LOGGER.log(TRACE, waitingForBlockMsg, blockNumber, timeoutMs);
         try {
             boolean completed = latch.await(timeoutMs, TimeUnit.MILLISECONDS);
             if (completed) {
-                LOGGER.log(TRACE, "Block [%s] persistence confirmed".formatted(blockNumber));
+                final String persistenceConfirmedMsg = "Block [{0}] persistence confirmed";
+                LOGGER.log(TRACE, persistenceConfirmedMsg, blockNumber);
             } else {
-                LOGGER.log(DEBUG, "Block [%s] persistence timed out after [%s]ms".formatted(blockNumber, timeoutMs));
+                final String persistenceTimedOutMsg = "Block [{0}] persistence timed out after [{1}]ms";
+                LOGGER.log(DEBUG, persistenceTimedOutMsg, blockNumber, timeoutMs);
             }
             return completed;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOGGER.log(DEBUG, "Block [%s] persistence wait interrupted".formatted(blockNumber));
+            final String waitInterruptedMsg = "Block [{0}] persistence wait interrupted";
+            LOGGER.log(DEBUG, waitInterruptedMsg, blockNumber);
             return false;
         } finally {
             pendingBlocks.remove(blockNumber);
@@ -100,9 +106,11 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
         CountDownLatch latch = pendingBlocks.get(blockNumber);
         if (latch != null) {
             if (notification.succeeded()) {
-                LOGGER.log(TRACE, "Received persistence confirmation for block [%s]".formatted(blockNumber));
+                final String receivedConfirmationMsg = "Received persistence confirmation for block [{0}]";
+                LOGGER.log(TRACE, receivedConfirmationMsg, blockNumber);
             } else {
-                LOGGER.log(INFO, "Block [%s] persistence failed".formatted(blockNumber));
+                final String persistenceFailedMsg = "Block [{0}] persistence failed";
+                LOGGER.log(INFO, persistenceFailedMsg, blockNumber);
             }
             latch.countDown();
         }
@@ -127,7 +135,8 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
             long blockNumber = notification.blockNumber();
             CountDownLatch latch = pendingBlocks.get(blockNumber);
             if (latch != null) {
-                LOGGER.log(INFO, "Block [%s] verification failed, releasing latch".formatted(blockNumber));
+                final String verificationFailedMsg = "Block [{0}] verification failed, releasing latch";
+                LOGGER.log(INFO, verificationFailedMsg, blockNumber);
                 latch.countDown();
             }
         }
