@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
-    api(platform("io.netty:netty-bom:4.2.8.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.72.0"))
+    api(platform("io.netty:netty-bom:4.2.9.Final"))
+    api(platform("com.google.cloud:libraries-bom:26.73.0"))
 }
 
 dependencies.constraints {
     val daggerVersion = "2.57.2"
-    val grpcIoVersion = "1.77.0"
-    val helidonVersion = "4.3.2"
+    val grpcIoVersion = "1.78.0"
+    val helidonVersion = "4.3.3"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.33.2"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.21.0"
-    val testContainersVersion = "1.21.3"
+    val testContainersVersion = "1.21.4"
 
     api("com.github.luben:zstd-jni:1.5.7-6") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.8") {
