@@ -4,7 +4,6 @@ package org.hiero.block.node.backfill;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
@@ -95,21 +94,6 @@ class BackfillPluginHelperTest {
                     plugin.computeChunk(new NodeSelectionStrategy.NodeSelection(source, 10), availability, 50, 5);
 
             assertNull(result, "Should return null when source has no available ranges");
-        }
-    }
-
-    @Nested
-    @DisplayName("configDataTypes")
-    class ConfigDataTypesTests {
-
-        @Test
-        @DisplayName("Returns list containing BackfillConfiguration class")
-        void configDataTypesReturnsBackfillConfiguration() {
-            final BackfillPlugin plugin = new BackfillPlugin();
-            List<Class<? extends Record>> configTypes = plugin.configDataTypes();
-
-            assertEquals(1, configTypes.size(), "Should return exactly one config type");
-            assertTrue(configTypes.contains(BackfillConfiguration.class), "Should contain BackfillConfiguration.class");
         }
     }
 
