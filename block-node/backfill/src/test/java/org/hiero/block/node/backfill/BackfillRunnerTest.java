@@ -491,8 +491,7 @@ class BackfillRunnerTest {
             // when
             subject.run(gap);
 
-            // then - block was tracked and then cleared after persistence
-            assertEquals(0, persistenceAwaiter.getPendingCount(), "All blocks should be persisted and cleared");
+            // then
             verify(mockFetchedBlocksCounter).increment();
             // pendingBackfillBlocks was incremented when block was dispatched
             // Note: we can't easily verify the exact increment since it's an AtomicLong, but the test passed
@@ -580,9 +579,6 @@ class BackfillRunnerTest {
 
             // then - completed despite timeout, metrics still reported
             verify(mockFetchedBlocksCounter).increment();
-            // pendingBackfillBlocks was incremented when block was dispatched
-            // Pending count is 0 because awaitPersistence removes the block after await (timeout or success)
-            assertEquals(0, persistenceAwaiter.getPendingCount(), "Block should be removed after await");
         }
     }
 

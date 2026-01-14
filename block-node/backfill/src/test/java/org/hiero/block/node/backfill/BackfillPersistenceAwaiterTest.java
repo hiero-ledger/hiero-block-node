@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,7 +36,7 @@ class BackfillPersistenceAwaiterTest {
     class TrackBlockTests {
 
         @Test
-        @DisplayName("should track a new block and increment pending count")
+        @DisplayName("should track a new block - await times out without notification")
         void shouldTrackNewBlock() {
             // given
             long blockNumber = 100L;
@@ -45,8 +44,9 @@ class BackfillPersistenceAwaiterTest {
             // when
             subject.trackBlock(blockNumber);
 
-            // then
-            assertEquals(1, subject.getPendingCount());
+            // then - block is tracked, so await times out without notification
+            boolean result = subject.awaitPersistence(blockNumber, 50);
+            assertFalse(result);
         }
 
         @Test
@@ -59,12 +59,14 @@ class BackfillPersistenceAwaiterTest {
             subject.trackBlock(blockNumber);
             subject.trackBlock(blockNumber);
 
-            // then
-            assertEquals(1, subject.getPendingCount());
+            // then - still only one latch, notification releases it
+            subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
+            boolean result = subject.awaitPersistence(blockNumber, 100);
+            assertTrue(result);
         }
 
         @Test
-        @DisplayName("should track multiple different blocks")
+        @DisplayName("should track multiple different blocks independently")
         void shouldTrackMultipleBlocks() {
             // given
             long block1 = 100L;
@@ -76,8 +78,11 @@ class BackfillPersistenceAwaiterTest {
             subject.trackBlock(block2);
             subject.trackBlock(block3);
 
-            // then
-            assertEquals(3, subject.getPendingCount());
+            // then - each block can be persisted independently
+            subject.handlePersisted(new PersistedNotification(block2, true, 1, BlockSource.BACKFILL));
+            assertTrue(subject.awaitPersistence(block2, 100));
+            assertFalse(subject.awaitPersistence(block1, 50)); // still waiting
+            assertFalse(subject.awaitPersistence(block3, 50)); // still waiting
         }
     }
 
@@ -87,30 +92,30 @@ class BackfillPersistenceAwaiterTest {
 
         @Test
         @DisplayName("should return true when block is persisted before timeout")
-        void shouldReturnTrueWhenPersistedBeforeTimeout() {
+        void shouldReturnTrueWhenPersistedBeforeTimeout() throws InterruptedException {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
 
-            // Simulate persistence notification arriving in another thread
+            CountDownLatch awaitStarted = new CountDownLatch(1);
+            AtomicBoolean result = new AtomicBoolean(false);
+
+            // Start awaiting in another thread
             ExecutorService executor = Executors.newSingleThreadExecutor();
             executor.submit(() -> {
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
+                awaitStarted.countDown();
+                result.set(subject.awaitPersistence(blockNumber, 1000));
             });
 
-            // when
-            boolean result = subject.awaitPersistence(blockNumber, 1000);
+            // Wait for await to start, then send persistence notification
+            assertTrue(awaitStarted.await(1, TimeUnit.SECONDS), "Await thread should start");
+            Thread.sleep(10); // Brief pause to ensure await is blocking
+            subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
 
             // then
-            assertTrue(result);
-            assertEquals(0, subject.getPendingCount());
-
             executor.shutdown();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS));
+            assertTrue(result.get());
         }
 
         @Test
@@ -125,7 +130,6 @@ class BackfillPersistenceAwaiterTest {
 
             // then
             assertFalse(result);
-            assertEquals(0, subject.getPendingCount()); // removed after await
         }
 
         @Test
@@ -148,16 +152,17 @@ class BackfillPersistenceAwaiterTest {
             // given
             long blockNumber = 100L;
             subject.trackBlock(blockNumber);
-            assertEquals(1, subject.getPendingCount());
 
             // Persist the block
             subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
 
             // when
-            subject.awaitPersistence(blockNumber, 100);
+            boolean firstAwait = subject.awaitPersistence(blockNumber, 100);
 
-            // then
-            assertEquals(0, subject.getPendingCount());
+            // then - first await succeeds, second await returns true immediately (not tracked)
+            assertTrue(firstAwait);
+            boolean secondAwait = subject.awaitPersistence(blockNumber, 50);
+            assertTrue(secondAwait); // returns true because block is no longer tracked
         }
     }
 
@@ -205,10 +210,7 @@ class BackfillPersistenceAwaiterTest {
             // when - notification from PUBLISHER source
             subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.PUBLISHER));
 
-            // then - block should still be pending (latch not released)
-            assertEquals(1, subject.getPendingCount());
-
-            // await should timeout
+            // then - block should still be pending (latch not released), await times out
             boolean result = subject.awaitPersistence(blockNumber, 50);
             assertFalse(result);
         }
@@ -223,8 +225,9 @@ class BackfillPersistenceAwaiterTest {
             // when - should not throw
             subject.handlePersisted(new PersistedNotification(blockNumber, true, 1, BlockSource.BACKFILL));
 
-            // then
-            assertEquals(0, subject.getPendingCount());
+            // then - await returns true immediately (block was never tracked)
+            boolean result = subject.awaitPersistence(blockNumber, 50);
+            assertTrue(result);
         }
     }
 
@@ -259,10 +262,7 @@ class BackfillPersistenceAwaiterTest {
             subject.handleVerification(
                     new VerificationNotification(true, blockNumber, null, null, BlockSource.BACKFILL));
 
-            // then - block should still be pending, waiting for persistence
-            assertEquals(1, subject.getPendingCount());
-
-            // await should timeout
+            // then - block should still be pending (waiting for persistence), await times out
             boolean result = subject.awaitPersistence(blockNumber, 50);
             assertFalse(result);
         }
@@ -278,10 +278,7 @@ class BackfillPersistenceAwaiterTest {
             subject.handleVerification(
                     new VerificationNotification(false, blockNumber, null, null, BlockSource.PUBLISHER));
 
-            // then - block should still be pending
-            assertEquals(1, subject.getPendingCount());
-
-            // await should timeout
+            // then - block should still be pending, await times out
             boolean result = subject.awaitPersistence(blockNumber, 50);
             assertFalse(result);
         }
@@ -317,34 +314,37 @@ class BackfillPersistenceAwaiterTest {
             });
 
             // Wait for threads to start waiting
-            threadsStarted.await(1, TimeUnit.SECONDS);
+            assertTrue(threadsStarted.await(1, TimeUnit.SECONDS), "Threads should start");
             Thread.sleep(50); // Give threads time to enter await
 
             // when
             subject.clear();
 
-            // then - give threads time to be released
-            Thread.sleep(100);
+            // then
+            executor.shutdown();
+            assertTrue(executor.awaitTermination(1, TimeUnit.SECONDS), "Threads should be released");
             assertTrue(thread1Released.get());
             assertTrue(thread2Released.get());
-
-            executor.shutdown();
         }
 
         @Test
         @DisplayName("should empty pending map after clear")
         void shouldEmptyPendingMap() {
             // given
-            subject.trackBlock(100L);
-            subject.trackBlock(101L);
-            subject.trackBlock(102L);
-            assertEquals(3, subject.getPendingCount());
+            long block1 = 100L;
+            long block2 = 101L;
+            long block3 = 102L;
+            subject.trackBlock(block1);
+            subject.trackBlock(block2);
+            subject.trackBlock(block3);
 
             // when
             subject.clear();
 
-            // then
-            assertEquals(0, subject.getPendingCount());
+            // then - all awaits return true immediately (blocks no longer tracked)
+            assertTrue(subject.awaitPersistence(block1, 50));
+            assertTrue(subject.awaitPersistence(block2, 50));
+            assertTrue(subject.awaitPersistence(block3, 50));
         }
     }
 
@@ -374,39 +374,8 @@ class BackfillPersistenceAwaiterTest {
             // then
             boolean completed = allDone.await(4, TimeUnit.SECONDS);
             assertTrue(completed);
-            assertEquals(0, subject.getPendingCount());
 
             executor.shutdown();
-        }
-    }
-
-    @Nested
-    @DisplayName("getPendingCount Tests")
-    class GetPendingCountTests {
-
-        @Test
-        @DisplayName("should return zero initially")
-        void shouldReturnZeroInitially() {
-            // when
-            int count = subject.getPendingCount();
-
-            // then
-            assertEquals(0, count);
-        }
-
-        @Test
-        @DisplayName("should return correct count after tracking blocks")
-        void shouldReturnCorrectCountAfterTracking() {
-            // given
-            subject.trackBlock(1L);
-            subject.trackBlock(2L);
-            subject.trackBlock(3L);
-
-            // when
-            int count = subject.getPendingCount();
-
-            // then
-            assertEquals(3, count);
         }
     }
 }

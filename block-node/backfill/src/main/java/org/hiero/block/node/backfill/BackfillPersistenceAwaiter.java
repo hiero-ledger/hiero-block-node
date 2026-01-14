@@ -143,15 +143,6 @@ public class BackfillPersistenceAwaiter implements BlockNotificationHandler {
     }
 
     /**
-     * Returns the number of blocks currently being tracked for persistence.
-     * Currently only used for testing.
-     * @return the number of pending blocks
-     */
-    int getPendingCount() {
-        return pendingBlocks.size();
-    }
-
-    /**
      * Clears all pending blocks. Should be called during shutdown or when
      * resetting state.
      */
