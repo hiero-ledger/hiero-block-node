@@ -2,6 +2,7 @@
 package org.hiero.block.node.backfill;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Collections;
@@ -105,7 +106,7 @@ class PriorityHealthBasedStrategyTest {
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
             assertTrue(result.isPresent());
-            assertEquals(node, result.get().nodeConfig());
+            assertSame(node, result.get().nodeConfig());
             assertEquals(0, result.get().startBlock());
         }
 
@@ -151,7 +152,7 @@ class PriorityHealthBasedStrategyTest {
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
             assertTrue(result.isPresent());
-            assertEquals(highPriority, result.get().nodeConfig());
+            assertSame(highPriority, result.get().nodeConfig());
         }
 
         @Test
@@ -185,7 +186,7 @@ class PriorityHealthBasedStrategyTest {
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
             assertTrue(result.isPresent());
-            assertEquals(availableNode, result.get().nodeConfig());
+            assertSame(availableNode, result.get().nodeConfig());
         }
     }
 
@@ -211,7 +212,7 @@ class PriorityHealthBasedStrategyTest {
 
             assertTrue(result.isPresent());
             // Verify by reference that we got the healthy node, not just any node
-            assertEquals(healthy, result.get().nodeConfig());
+            assertSame(healthy, result.get().nodeConfig());
         }
     }
 
@@ -233,7 +234,7 @@ class PriorityHealthBasedStrategyTest {
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
             assertTrue(result.isPresent());
-            assertEquals(earlierNode, result.get().nodeConfig());
+            assertSame(earlierNode, result.get().nodeConfig());
             assertEquals(10, result.get().startBlock());
         }
     }

@@ -1268,16 +1268,15 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     /**
-     * Test that greedy backfill on an empty store correctly splits gaps by earliestManagedBlock.
+     * Test that greedy backfill on an empty store backfills blocks on both sides of
+     * the earliestManagedBlock boundary.
      * <p>
-     * With earliestManagedBlock=50:
-     * - Blocks 0-49 should be classified as HISTORICAL
-     * - Blocks 50-99 should be classified as LIVE_TAIL
-     * <p>
-     * Both ranges should be backfilled since the store is empty.
+     * Gap classification (HISTORICAL vs LIVE_TAIL) is tested in {@link GapDetectorTest}.
+     * This integration test verifies the end-to-end behavior: all blocks get backfilled
+     * regardless of which side of the boundary they fall on.
      */
     @Test
-    @DisplayName("Greedy backfill should schedule both HISTORICAL and LIVE_TAIL gaps")
+    @DisplayName("Greedy backfill should backfill blocks on both sides of earliestManagedBlock boundary")
     void greedyBackfillShouldSplitGapByEarliestManagedBlock() throws InterruptedException {
         // Set up peer server with blocks 0-99
         BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
