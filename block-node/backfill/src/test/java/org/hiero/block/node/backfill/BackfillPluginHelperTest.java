@@ -141,13 +141,13 @@ class BackfillPluginHelperTest {
         }
 
         @Test
-        @DisplayName("handleNewestBlockKnownToNetwork returns early when no sources configured")
-        void handleNewestBlockReturnsEarlyWhenNoSources() {
+        @DisplayName("handleNewestBlockKnownToNetwork handles missing sources gracefully")
+        void handleNewestBlockHandlesMissingSourcesGracefully() {
             final BackfillPlugin plugin = new BackfillPlugin();
             // Plugin not initialized, so hasBNSourcesPath is false
             NewestBlockKnownToNetworkNotification notification = new NewestBlockKnownToNetworkNotification(500L);
 
-            // Should return early without error
+            // Should not throw when no sources are configured
             assertDoesNotThrow(() -> plugin.handleNewestBlockKnownToNetwork(notification));
         }
     }

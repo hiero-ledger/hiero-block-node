@@ -60,7 +60,8 @@ class PriorityHealthBasedStrategyTest {
         @DisplayName("should return empty when startBlock exceeds gapEnd")
         void shouldReturnEmptyWhenStartExceedsEnd() {
             BackfillSourceConfig node = createNode("localhost", 8080, 1);
-            Map<BackfillSourceConfig, List<LongRange>> availability = Map.of(node, List.of(new LongRange(0, 100)));
+            // Availability covers the requested range, but startBlock (200) > gapEnd (100)
+            Map<BackfillSourceConfig, List<LongRange>> availability = Map.of(node, List.of(new LongRange(0, 300)));
 
             Optional<NodeSelection> result = strategy.select(200, 100, availability);
 
@@ -139,7 +140,7 @@ class PriorityHealthBasedStrategyTest {
     class PrioritySelectionTests {
 
         @Test
-        @DisplayName("should select node with lowest priority number (highest priority)")
+        @DisplayName("should select node with highest priority")
         void shouldSelectLowestPriorityNumber() {
             BackfillSourceConfig lowPriority = createNode("low", 8080, 10);
             BackfillSourceConfig highPriority = createNode("high", 8081, 1);
@@ -195,17 +196,21 @@ class PriorityHealthBasedStrategyTest {
         @Test
         @DisplayName("should select healthier node when priorities are equal")
         void shouldSelectHealthierNodeWhenSamePriority() {
+            // Create nodes with same priority but different health scores
+            // Using distinct scores (1.0 vs 10.0) to ensure selection is by health, not insertion order
             BackfillSourceConfig unhealthy = createNode("unhealthy", 8080, 1);
             BackfillSourceConfig healthy = createNode("healthy", 8081, 1);
-            healthProvider.setHealthScore(unhealthy, 10.0);
-            healthProvider.setHealthScore(healthy, 1.0);
+            healthProvider.setHealthScore(unhealthy, 10.0); // Higher score = less healthy
+            healthProvider.setHealthScore(healthy, 1.0); // Lower score = more healthy
             Map<BackfillSourceConfig, List<LongRange>> availability = new HashMap<>();
+            // Insert unhealthy first to verify selection is by health, not insertion order
             availability.put(unhealthy, List.of(new LongRange(0, 100)));
             availability.put(healthy, List.of(new LongRange(0, 100)));
 
             Optional<NodeSelection> result = strategy.select(0, 100, availability);
 
             assertTrue(result.isPresent());
+            // Verify by reference that we got the healthy node, not just any node
             assertEquals(healthy, result.get().nodeConfig());
         }
     }
