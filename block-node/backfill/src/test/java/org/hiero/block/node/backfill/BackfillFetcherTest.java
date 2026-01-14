@@ -42,6 +42,8 @@ import org.junit.jupiter.api.Timeout;
 @Timeout(value = 5, unit = TimeUnit.SECONDS)
 class BackfillFetcherTest {
 
+    private static Metrics testMetrics;
+
     private static BackfillSourceConfig node(String host, int port, int priority) {
         return BackfillSourceConfig.newBuilder()
                 .address(host)
@@ -88,8 +90,6 @@ class BackfillFetcherTest {
                 healthPenaltyPerFailure,
                 maxBackoffMs);
     }
-
-    private static Metrics testMetrics;
 
     private static BackfillPlugin.MetricsHolder createTestMetricsHolder() {
         if (testMetrics == null) {
