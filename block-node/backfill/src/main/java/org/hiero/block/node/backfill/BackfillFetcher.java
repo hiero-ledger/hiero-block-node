@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
@@ -20,7 +21,6 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.backfill.client.BlockNodeClient;
-import org.hiero.block.node.backfill.client.GrpcWebClientTuning;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -91,18 +91,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.healthPenaltyPerFailure = config.healthPenaltyPerFailure();
         this.selectionStrategy = new PriorityHealthBasedStrategy(this);
 
-        final String nodeConfigLogMsg = "Node: [{0}] ({1}) Address: [{2}], Port: [{3}], Priority: [{4}], Tuning: {5}";
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
-            GrpcWebClientTuning tuning = node.grpcWebclientTuning();
-            LOGGER.log(
-                    INFO,
-                    nodeConfigLogMsg,
-                    node.nodeId() == 0 ? "n/a" : node.nodeId(),
-                    node.name().isBlank() ? "unnamed" : node.name(),
-                    node.address(),
-                    node.port(),
-                    node.priority(),
-                    tuning != null ? "custom" : "defaults");
+            LOGGER.log(INFO, "Loaded backfill source node: {0}", node);
         }
     }
 
@@ -265,20 +255,22 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 return batch;
             } catch (RuntimeException e) {
                 final String failedToFetchBlocksMsg =
-                        "Failed to fetch blocks [%s->%s] from node [%s] (attempt %d/%d): %s-%s"
-                                .formatted(
-                                        blockRange.start(),
-                                        blockRange.end(),
-                                        nodeConfig.address(),
-                                        attempt,
-                                        maxRetries,
-                                        e.getMessage(),
-                                        e.getCause());
-                LOGGER.log(INFO, failedToFetchBlocksMsg, e);
+                        "Failed to fetch blocks [{0}->{1}] from node [{2}] (attempt {3}/{4}) due to {5} - {6}.";
+                final String cause = e.getCause() != null ? ", " + e.getCause() : "";
+                LOGGER.log(
+                        DEBUG,
+                        failedToFetchBlocksMsg,
+                        blockRange.start(),
+                        blockRange.end(),
+                        nodeConfig.address(),
+                        attempt,
+                        maxRetries,
+                        e.getMessage(),
+                        cause);
                 if (attempt == maxRetries) {
                     markFailure(nodeConfig);
-                    // Only log exception stack trace on final failure to prevent log spam
-                    LOGGER.log(TRACE, "Final failure stack trace:", e);
+                    // Log exception details on final failure for debugging
+                    LOGGER.log(TRACE, "Final failure stack trace.\n", e);
                 } else {
                     long delay = Math.multiplyExact(initialRetryDelayMs, attempt);
                     try {
