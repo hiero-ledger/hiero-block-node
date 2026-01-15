@@ -6,15 +6,15 @@ Define and validate Hiero network topologies for testing and deployment.
 
 Topologies are defined in YAML following `network-topology.schema.yaml`. The schema supports:
 
-| Section | Required | Description |
-|---------|----------|-------------|
-| `name` | Yes | Topology identifier |
-| `description` | No | Human-readable description |
-| `block_nodes` | Yes | Block nodes that receive streams from consensus nodes |
-| `consensus_nodes` | Yes | Consensus nodes that produce block streams |
-| `mirror_nodes` | No | Mirror nodes that subscribe to block nodes |
-| `relay_nodes` | No | JSON-RPC relay nodes that connect to mirror nodes |
-| `explorer_nodes` | No | Explorer UI nodes that display data from mirror nodes |
+|      Section      | Required |                      Description                      |
+|-------------------|----------|-------------------------------------------------------|
+| `name`            | Yes      | Topology identifier                                   |
+| `description`     | No       | Human-readable description                            |
+| `block_nodes`     | Yes      | Block nodes that receive streams from consensus nodes |
+| `consensus_nodes` | Yes      | Consensus nodes that produce block streams            |
+| `mirror_nodes`    | No       | Mirror nodes that subscribe to block nodes            |
+| `relay_nodes`     | No       | JSON-RPC relay nodes that connect to mirror nodes     |
+| `explorer_nodes`  | No       | Explorer UI nodes that display data from mirror nodes |
 
 ## Node References
 
@@ -39,11 +39,11 @@ block_nodes:
 
 ## Topologies
 
-| Name | CN | BN | Description |
-|------|----|----|-------------|
-| `single` | 1 | 1 | Minimal setup for basic testing |
-| `paired-3` | 3 | 3 | Each CN streams to its paired BN |
-| `fan-out-3cn-2bn` | 3 | 2 | All CNs can stream to all BNs |
+|       Name        | CN | BN |           Description            |
+|-------------------|----|----|----------------------------------|
+| `single`          | 1  | 1  | Minimal setup for basic testing  |
+| `paired-3`        | 3  | 3  | Each CN streams to its paired BN |
+| `fan-out-3cn-2bn` | 3  | 2  | All CNs can stream to all BNs    |
 
 ## Example
 
