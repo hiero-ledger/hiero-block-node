@@ -92,11 +92,15 @@ public class UpdateDayListingsCommand implements Runnable {
         updateDayListings(listingDir, cacheDir.toPath(), cacheEnabled, minNodeAccountId, maxNodeAccountId, userProject);
     }
 
+    /** The first day of Hedera mainnet. */
+    private static final LocalDate HEDERA_START_DATE = LocalDate.of(2019, 9, 13);
+
     /**
      * Update day listing files by fetching file metadata from Google Cloud Storage.
      *
-     * <p>This method scans the local listing directory to find the last complete day,
-     * then downloads metadata for all subsequent days up to (but not including) today.
+     * <p>This method scans the local listing directory to find missing days (including gaps),
+     * then downloads metadata for all missing days up to (but not including) today.
+     * Today is excluded because the day is still in progress and would be incomplete.
      *
      * @param listingDir the directory where listing files are stored
      * @param cacheDir the directory for GCS cache
@@ -125,45 +129,33 @@ public class UpdateDayListingsCommand implements Runnable {
                 Files.createDirectories(cacheDir);
             }
 
-            // Find the last day that exists on disk
-            final LocalDate lastDayOnDisk = findLastDayOnDiskStatic(listingDir);
             final LocalDate today = LocalDate.now(ZoneOffset.UTC);
             final LocalDate yesterday = today.minusDays(1);
 
-            // Determine the first day to process
-            final LocalDate firstDayToProcess;
-            if (lastDayOnDisk == null) {
-                // No existing data - start from the first day of Hedera mainnet
-                firstDayToProcess = LocalDate.of(2019, 9, 13);
-                System.out.println("No existing listings found. Starting from " + firstDayToProcess);
-            } else {
-                firstDayToProcess = lastDayOnDisk.plusDays(1);
-                System.out.println("Last day on disk: " + lastDayOnDisk);
-            }
+            // Find all missing days (including gaps) from Hedera start to yesterday
+            final List<LocalDate> missingDays = findMissingDaysStatic(listingDir, HEDERA_START_DATE, yesterday);
 
             // Check if there are any days to process
-            if (!firstDayToProcess.isBefore(today)) {
+            if (missingDays.isEmpty()) {
                 System.out.println("All listings are up to date (through " + yesterday + ")");
                 return;
             }
 
-            System.out.println("Will update listings from " + firstDayToProcess + " to " + yesterday);
+            System.out.println("Found " + missingDays.size() + " missing day(s) to process");
+            System.out.println("First missing: " + missingDays.getFirst() + ", Last missing: " + missingDays.getLast());
             System.out.println("Using nodes " + minNodeAccountId + " to " + maxNodeAccountId);
 
             // Create MainNetBucket for GCS access
             final MainNetBucket mainNetBucket =
                     new MainNetBucket(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
 
-            // Calculate total number of days to process
-            final long totalDays = firstDayToProcess.until(today, java.time.temporal.ChronoUnit.DAYS);
+            // Process each missing day
+            final long totalDays = missingDays.size();
             long processedDays = 0;
             final long startTimeNanos = System.nanoTime();
 
-            // Process each day
-            LocalDate currentDay = firstDayToProcess;
-            while (currentDay.isBefore(today)) {
-                processDayStatic(listingDir, mainNetBucket, currentDay, processedDays, totalDays, startTimeNanos);
-                currentDay = currentDay.plusDays(1);
+            for (LocalDate missingDay : missingDays) {
+                processDayStatic(listingDir, mainNetBucket, missingDay, processedDays, totalDays, startTimeNanos);
                 processedDays++;
             }
 
@@ -178,6 +170,42 @@ public class UpdateDayListingsCommand implements Runnable {
             System.err.println("Error: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    /**
+     * Finds all missing days between startDate and endDate (inclusive).
+     *
+     * @param listingDir the directory where listing files are stored
+     * @param startDate the start date to check from
+     * @param endDate the end date to check to (inclusive)
+     * @return a list of missing dates in chronological order
+     */
+    private static List<LocalDate> findMissingDaysStatic(
+            final Path listingDir, final LocalDate startDate, final LocalDate endDate) {
+        final List<LocalDate> missingDays = new java.util.ArrayList<>();
+        LocalDate current = startDate;
+        while (!current.isAfter(endDate)) {
+            if (!dayListingExistsStatic(listingDir, current)) {
+                missingDays.add(current);
+            }
+            current = current.plusDays(1);
+        }
+        return missingDays;
+    }
+
+    /**
+     * Checks if a listing file exists for the given day.
+     *
+     * @param listingDir the directory where listing files are stored
+     * @param day the day to check
+     * @return true if the listing file exists, false otherwise
+     */
+    private static boolean dayListingExistsStatic(final Path listingDir, final LocalDate day) {
+        final Path dayFile = listingDir
+                .resolve(String.format("%04d", day.getYear()))
+                .resolve(String.format("%02d", day.getMonthValue()))
+                .resolve(String.format("%02d.bin", day.getDayOfMonth()));
+        return Files.exists(dayFile);
     }
 
     /**

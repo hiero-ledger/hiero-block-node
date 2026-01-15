@@ -152,7 +152,7 @@ public class ToWrappedBlocksCommand implements Runnable {
             final Instant highestStoredBlockTime = highestStoredBlockNumber == -1
                     ? FIRST_BLOCK_TIME_INSTANT
                     : blockTimeReader.getBlockInstant(highestStoredBlockNumber);
-            System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockNumber + " @|"));
+            System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockTime + " @|"));
 
             // compute the block to start processing at
             final long startBlock = highestStoredBlockNumber == -1 ? 0 : highestStoredBlockNumber + 1;
@@ -184,7 +184,9 @@ public class ToWrappedBlocksCommand implements Runnable {
 
             // Progress tracking setup
             final long startNanos = System.nanoTime();
-            final long totalBlocksToProcess = highestStoredBlockNumber - startBlock;
+            // Calculate total blocks to process from the last day's info
+            final DayBlockInfo lastDayInfo = dayMap.get(dayPathToLocalDate(dayPaths.getLast()));
+            final long totalBlocksToProcess = lastDayInfo != null ? lastDayInfo.lastBlockNumber - startBlock + 1 : 0;
             final AtomicLong blocksProcessed = new AtomicLong(0);
             // Track last block time for speed calculation
             final AtomicReference<Instant> lastSpeedCalcBlockTime = new AtomicReference<>();

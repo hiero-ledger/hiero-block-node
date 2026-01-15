@@ -304,6 +304,57 @@ class UpdateDayListingsCommandTest {
     }
 
     /**
+     * Test that gap detection finds missing days correctly.
+     *
+     * @throws Exception if file operations fail
+     */
+    @Test
+    void testFindMissingDaysDetectsGaps() throws Exception {
+        // Create listing files with a gap (missing 2019-09-15)
+        createEmptyListingFile(testOutputDir, 2019, 9, 13);
+        createEmptyListingFile(testOutputDir, 2019, 9, 14);
+        // Skip 2019-09-15
+        createEmptyListingFile(testOutputDir, 2019, 9, 16);
+        createEmptyListingFile(testOutputDir, 2019, 9, 17);
+
+        // Check that day 15 is detected as missing
+        LocalDate day15 = LocalDate.of(2019, 9, 15);
+        Path day15File = testOutputDir.resolve("2019").resolve("09").resolve("15.bin");
+
+        assertTrue(!java.nio.file.Files.exists(day15File), "Day 15 file should not exist");
+
+        // Verify other days exist
+        assertTrue(java.nio.file.Files.exists(testOutputDir.resolve("2019/09/13.bin")), "Day 13 should exist");
+        assertTrue(java.nio.file.Files.exists(testOutputDir.resolve("2019/09/14.bin")), "Day 14 should exist");
+        assertTrue(java.nio.file.Files.exists(testOutputDir.resolve("2019/09/16.bin")), "Day 16 should exist");
+    }
+
+    /**
+     * Test that gap detection finds multiple gaps.
+     *
+     * @throws Exception if file operations fail
+     */
+    @Test
+    void testFindMissingDaysMultipleGaps() throws Exception {
+        // Create listing files with multiple gaps
+        createEmptyListingFile(testOutputDir, 2019, 9, 13);
+        // Gap: 14, 15
+        createEmptyListingFile(testOutputDir, 2019, 9, 16);
+        // Gap: 17
+        createEmptyListingFile(testOutputDir, 2019, 9, 18);
+
+        // Verify gaps exist (files don't exist)
+        assertTrue(!java.nio.file.Files.exists(testOutputDir.resolve("2019/09/14.bin")), "Day 14 should be missing");
+        assertTrue(!java.nio.file.Files.exists(testOutputDir.resolve("2019/09/15.bin")), "Day 15 should be missing");
+        assertTrue(!java.nio.file.Files.exists(testOutputDir.resolve("2019/09/17.bin")), "Day 17 should be missing");
+
+        // Verify existing files are there
+        assertTrue(java.nio.file.Files.exists(testOutputDir.resolve("2019/09/13.bin")), "Day 13 should exist");
+        assertTrue(java.nio.file.Files.exists(testOutputDir.resolve("2019/09/16.bin")), "Day 16 should exist");
+        assertTrue(java.nio.file.Files.exists(testOutputDir.resolve("2019/09/18.bin")), "Day 18 should exist");
+    }
+
+    /**
      * Creates an empty listing file for testing findLastDayOnDisk.
      *
      * @param baseDir base directory
