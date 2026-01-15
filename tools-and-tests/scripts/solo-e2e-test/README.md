@@ -55,14 +55,14 @@ task down
 
 ## Prerequisites
 
-| Tool | Installation |
-|------|--------------|
-| Docker | [docker.com](https://docs.docker.com/get-docker/) |
-| kubectl | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
-| Helm | [helm.sh](https://helm.sh/docs/intro/install/) |
-| Kind | [kind.sigs.k8s.io](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) |
-| Solo CLI | `npm i @hashgraph/solo -g` |
-| Task | [taskfile.dev](https://taskfile.dev/installation/) |
+|        Tool        |                                      Installation                                       |
+|--------------------|-----------------------------------------------------------------------------------------|
+| Docker             | [docker.com](https://docs.docker.com/get-docker/)                                       |
+| kubectl            | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/)                                |
+| Helm               | [helm.sh](https://helm.sh/docs/intro/install/)                                          |
+| Kind               | [kind.sigs.k8s.io](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)        |
+| Solo CLI           | `npm i @hashgraph/solo -g`                                                              |
+| Task               | [taskfile.dev](https://taskfile.dev/installation/)                                      |
 | grpcurl (optional) | [github.com/fullstorydev/grpcurl](https://github.com/fullstorydev/grpcurl#installation) |
 
 ```bash
@@ -72,6 +72,7 @@ task check  # Verify all installed
 ## Commands
 
 ### Core
+
 ```bash
 task up                    # Full setup (cluster + network + port-forwards)
 task down                  # Tear down everything
@@ -79,6 +80,7 @@ task restart               # down + up
 ```
 
 ### Topologies
+
 ```bash
 task up                    # single (1 CN, 1 BN) - default
 task up:paired             # paired-3 (3 CN, 3 BN)
@@ -88,6 +90,7 @@ task topologies            # list available topologies
 ```
 
 ### Verification
+
 ```bash
 task verify                # Check Block Node via gRPC
 task verify:mirror         # Check Mirror Node REST API
@@ -98,6 +101,7 @@ task logs:mn               # Stream Mirror Node logs
 ```
 
 ### Utilities
+
 ```bash
 task solo:install          # Install/update Solo CLI
 task resolve-versions      # Show resolved GA versions
@@ -109,6 +113,7 @@ task port-forward          # Restart port forwards
 After `task up` completes, verify the network is working:
 
 ### 1. Check All Pods Are Running
+
 ```bash
 kubectl get pods -n solo-network
 
@@ -121,6 +126,7 @@ kubectl get pods -n solo-network
 ```
 
 ### 2. Check Block Node Is Receiving Blocks
+
 ```bash
 # View Block Node logs - should show blocks being processed
 kubectl logs -n solo-network -l app.kubernetes.io/name=block-node-1 --tail=20
@@ -129,6 +135,7 @@ kubectl logs -n solo-network -l app.kubernetes.io/name=block-node-1 --tail=20
 ```
 
 ### 3. Check Mirror Node Is Importing
+
 ```bash
 # View Mirror importer logs
 kubectl logs -n solo-network -l app.kubernetes.io/component=importer --tail=10
@@ -137,6 +144,7 @@ kubectl logs -n solo-network -l app.kubernetes.io/component=importer --tail=10
 ```
 
 ### 4. Query Block Node Status (requires grpcurl)
+
 ```bash
 task port-forward  # Ensure port forwards are active
 
@@ -145,6 +153,7 @@ grpcurl -plaintext localhost:40840 \
 ```
 
 ### 5. Query Mirror Node REST API
+
 ```bash
 curl -s http://localhost:5551/api/v1/blocks?limit=3 | jq .
 ```
@@ -154,29 +163,31 @@ curl -s http://localhost:5551/api/v1/blocks?limit=3 | jq .
 ### Environment Variables
 
 Copy `.env.example` to `.env`:
+
 ```bash
 cp .env.example .env
 ```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TOPOLOGY` | `single` | Network topology to deploy |
-| `CLUSTER_NAME` | `solo-cluster` | Kind cluster name |
-| `NAMESPACE` | `solo-network` | Kubernetes namespace |
-| `CN_VERSION` | `latest` | Consensus Node version |
-| `MN_VERSION` | `latest` | Mirror Node version |
-| `BN_VERSION` | `latest` | Block Node version |
-| `SOLO_VERSION` | `latest` | Solo CLI version |
+|    Variable    |    Default     |        Description         |
+|----------------|----------------|----------------------------|
+| `TOPOLOGY`     | `single`       | Network topology to deploy |
+| `CLUSTER_NAME` | `solo-cluster` | Kind cluster name          |
+| `NAMESPACE`    | `solo-network` | Kubernetes namespace       |
+| `CN_VERSION`   | `latest`       | Consensus Node version     |
+| `MN_VERSION`   | `latest`       | Mirror Node version        |
+| `BN_VERSION`   | `latest`       | Block Node version         |
+| `SOLO_VERSION` | `latest`       | Solo CLI version           |
 
 ### Version Keywords
 
-| Keyword | Resolves To |
-|---------|-------------|
+| Keyword  |          Resolves To          |
+|----------|-------------------------------|
 | `latest` | Latest GA release from GitHub |
-| `main` | Current development snapshot |
-| `v0.x.y` | Specific version tag |
+| `main`   | Current development snapshot  |
+| `v0.x.y` | Specific version tag          |
 
 ### Command-Line Overrides
+
 ```bash
 task up TOPOLOGY=paired-3 BN_VERSION=v0.24.0
 ```
@@ -185,11 +196,11 @@ task up TOPOLOGY=paired-3 BN_VERSION=v0.24.0
 
 Topologies define network configuration. Located in `../network-topology-tool/topologies/`.
 
-| Name | CN | BN | Use Case |
-|------|----|----|----------|
-| `single` | 1 | 1 | Basic testing, fastest startup |
-| `paired-3` | 3 | 3 | Multi-node testing, each CN->BN pair |
-| `fan-out-3cn-2bn` | 3 | 2 | Redundancy testing, all CNs->all BNs |
+|       Name        | CN | BN |               Use Case               |
+|-------------------|----|----|--------------------------------------|
+| `single`          | 1  | 1  | Basic testing, fastest startup       |
+| `paired-3`        | 3  | 3  | Multi-node testing, each CN->BN pair |
+| `fan-out-3cn-2bn` | 3  | 2  | Redundancy testing, all CNs->all BNs |
 
 See `../network-topology-tool/README.md` for topology schema details.
 
@@ -227,14 +238,15 @@ task up
 
 ### CI Workflow Equivalence
 
-| Taskfile | CI Workflow |
-|----------|-------------|
+|         Taskfile          |                 CI Workflow                 |
+|---------------------------|---------------------------------------------|
 | `task up TOPOLOGY=single` | `workflow_dispatch` with `topology: single` |
-| `TOPOLOGY` variable | `inputs.topology` |
-| `CN_VERSION=v0.68.6` | `inputs.consensus-node-version` |
-| `.env` file | Workflow `env:` block |
+| `TOPOLOGY` variable       | `inputs.topology`                           |
+| `CN_VERSION=v0.68.6`      | `inputs.consensus-node-version`             |
+| `.env` file               | Workflow `env:` block                       |
 
 The CI workflow calls the same scripts:
+
 ```yaml
 # CI workflow excerpt
 - name: Setup cluster
@@ -248,23 +260,25 @@ The CI workflow calls the same scripts:
 
 After deployment with port-forwards active:
 
-| Service | Endpoint |
-|---------|----------|
-| Consensus Node gRPC | `localhost:50211` |
-| Block Node gRPC | `localhost:40840` |
-| Mirror REST API | `http://localhost:5551` |
-| Mirror Monitor | `http://localhost:5600` |
-| Mirror REST Java | `http://localhost:8084` |
+|       Service       |        Endpoint         |
+|---------------------|-------------------------|
+| Consensus Node gRPC | `localhost:50211`       |
+| Block Node gRPC     | `localhost:40840`       |
+| Mirror REST API     | `http://localhost:5551` |
+| Mirror Monitor      | `http://localhost:5600` |
+| Mirror REST Java    | `http://localhost:8084` |
 
 ## Troubleshooting
 
 ### Full Reset
+
 ```bash
 task down    # Destroys cluster and cleans Solo config via CLI
 task up
 ```
 
 If `task down` doesn't fully clean up (e.g., Solo CLI errors), manually clean Solo config:
+
 ```bash
 solo deployment config delete -d deployment-solo -q
 solo cluster-ref config disconnect -c kind-solo-cluster -q
@@ -272,20 +286,25 @@ solo cluster-ref config disconnect -c kind-solo-cluster -q
 ```
 
 ### Mirror Importer CrashLoopBackOff
+
 During initial deployment, `mirror-1-importer` may show `CrashLoopBackOff` status. This is **expected** - it's waiting for Postgres to be ready. It will recover automatically within 2-3 minutes.
 
 ### Network Timeouts
+
 Helm repo operations may timeout with "context deadline exceeded". Retry the deployment:
+
 ```bash
 task network:deploy
 ```
 
 ### Solo Version Issues
+
 ```bash
 task solo:install SOLO_VERSION=0.52.0
 ```
 
 ### Check What's Running
+
 ```bash
 task cluster:status
 kubectl describe pod <pod-name> -n solo-network
