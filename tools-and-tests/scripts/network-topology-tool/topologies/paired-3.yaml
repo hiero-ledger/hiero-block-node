@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+# Paired topology: 3 Consensus Nodes, 3 Block Nodes, 1 Mirror Node
+#
+# Each Consensus Node streams to its corresponding Block Node (CN1->BN1, CN2->BN2, CN3->BN3).
+# This configuration tests paired streaming mode where each BN has a dedicated CN source.
+# Mirror Node subscribes to all Block Nodes for redundancy.
+
+name: paired-3
+description: "3 Consensus Nodes, 3 Block Nodes (paired streaming)"
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+  block-node-2:
+    address: block-node-2
+    port: 40840
+  block-node-3:
+    address: block-node-3
+    port: 40840
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1]
+  node2:
+    block_nodes: [block-node-2]
+  node3:
+    block_nodes: [block-node-3]
+
+mirror_nodes:
+  mirror-1:
+    block_nodes: [block-node-1, block-node-2, block-node-3]
+
+relay_nodes:
+  relay-1:
+    mirror_nodes: [mirror-1]
+
+explorer_nodes:
+  explorer-1:
+    mirror_nodes: [mirror-1]
