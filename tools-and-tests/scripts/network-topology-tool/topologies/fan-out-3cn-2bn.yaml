@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: Apache-2.0
+# Fan-out topology: 3 Consensus Nodes, 2 Block Nodes, 1 Mirror Node
+#
+# All Consensus Nodes can stream to all Block Nodes (fan-out pattern).
+# This configuration tests redundancy and failover scenarios where
+# Block Nodes can receive blocks from multiple sources.
+# Block Nodes are peers of each other for gossip.
+#
+# Network diagram:
+#   CN1 ----+----> BN1 <---> BN2 <---- Mirror Node
+#           |              ^
+#   CN2 ----+--------------+
+#           |              |
+#   CN3 ----+--------------+
+
+name: fan-out-3cn-2bn
+description: "3 Consensus Nodes, 2 Block Nodes (fan-out streaming)"
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+    peers: [block-node-2]
+  block-node-2:
+    address: block-node-2
+    port: 40840
+    peers: [block-node-1]
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1, block-node-2]
+  node2:
+    block_nodes: [block-node-1, block-node-2]
+  node3:
+    block_nodes: [block-node-1, block-node-2]
+
+mirror_nodes:
+  mirror-1:
+    block_nodes: [block-node-1, block-node-2]
+
+relay_nodes:
+  relay-1:
+    mirror_nodes: [mirror-1]
+
+explorer_nodes:
+  explorer-1:
+    mirror_nodes: [mirror-1]
