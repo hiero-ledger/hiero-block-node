@@ -123,6 +123,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     }
 
     public VerificationNotification finalizeVerification(Bytes rootHashOfAllBlockHashesTree, Bytes previousBlockHash) {
+        // since we always need block footer to finalize, we check for its presence
+        if (this.blockFooter == null) {
+            // return failed verification notification
+            return new VerificationNotification(false, blockNumber, null, null, blockSource);
+        }
+
         // if provided, use the provided root hash of all previous block hashes tree, otherwise use the one from the
         // footer
         Bytes rootOfAllPreviousBlockHashes = rootHashOfAllBlockHashesTree != null

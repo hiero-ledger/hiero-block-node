@@ -194,9 +194,11 @@ public class AllBlocksHasherHandler {
         final Path dir =
                 requireNonNull(hasherFilePath.getParent(), "Hasher snapshot path must have a parent directory");
 
-        LOGGER.log(TRACE, "Persisting all blocks hasher with {0} leaves snapshot to {1}", new Object[] {
-            hasher.leafCount(), hasherFilePath
-        });
+        LOGGER.log(
+                TRACE,
+                "Persisting all blocks hasher with {0} leaves snapshot to {1}",
+                hasher.leafCount(),
+                hasherFilePath);
 
         final AllPreviousBlocksRootHashHasherSnapshot snapshot = AllPreviousBlocksRootHashHasherSnapshot.newBuilder()
                 .lastRootHash(Bytes.wrap(lastBlockHash))
