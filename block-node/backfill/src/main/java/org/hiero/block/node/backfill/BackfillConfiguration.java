@@ -7,11 +7,9 @@ import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
-// It is known that spotless does not format this file well
-// We use the https://github.com/palantir/palantir-java-format formatter.
-// @ConfigProperty(defaultValue = "10") – force a line break after the annotation.
-// It is a non-configurable format without complete documentation
-// we might consider switching to another formatter in the future.
+// Spotless uses palantir-java-format which forces line breaks after annotations
+// like @ConfigProperty(defaultValue = "10"), making multi-annotation records hard to read.
+// Disabling spotless here for readability.
 // spotless:off
 
 /**
