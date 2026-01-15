@@ -1,0 +1,346 @@
+# SPDX-License-Identifier: Apache-2.0
+# Solo E2E Test Taskfile - Local development helper for Hiero network deployments
+#
+# Prerequisites:
+#   - Docker (for Kind)
+#   - kubectl
+#   - helm
+#   - kind
+#   - solo CLI (npm i @hashgraph/solo -g)
+#   - grpcurl (optional, for verification)
+#
+# Quick start:
+#   1. Copy .env.example to .env and customize (optional)
+#   2. Run: task up
+#   3. When done: task down
+#
+# Available topologies:
+#   task up                       # Uses 'single' topology (1 CN, 1 BN)
+#   task up TOPOLOGY=paired-3     # Uses 'paired-3' topology (3 CN, 3 BN)
+#   task up TOPOLOGY=fan-out-3cn-2bn  # Uses 'fan-out' topology (3 CN, 2 BN)
+#
+# List all topologies:
+#   task topologies
+
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  # Path to shared scripts (in CI-approved location)
+  SCRIPTS_DIR: "{{.ROOT_DIR}}/../../../.github/workflows/support/scripts"
+  # Path to topology files (in network-topology-tool)
+  TOPOLOGIES_DIR: "{{.ROOT_DIR}}/../network-topology-tool/topologies"
+
+  # Defaults (can be overridden by .env or command line)
+  TOPOLOGY: '{{.TOPOLOGY | default "single"}}'
+  CLUSTER_NAME: '{{.CLUSTER_NAME | default "solo-cluster"}}'
+  NAMESPACE: '{{.NAMESPACE | default "solo-network"}}'
+  DEPLOYMENT: '{{.DEPLOYMENT | default "deployment-solo"}}'
+  CLUSTER_REF: 'kind-{{.CLUSTER_NAME}}'
+
+  # Version defaults
+  CN_VERSION: '{{.CN_VERSION | default "latest"}}'
+  MN_VERSION: '{{.MN_VERSION | default "latest"}}'
+  BN_VERSION: '{{.BN_VERSION | default "latest"}}'
+  SOLO_VERSION: '{{.SOLO_VERSION | default "latest"}}'
+
+tasks:
+  # ============================================================================
+  # Prerequisites & Info
+  # ============================================================================
+  check:
+    desc: Check all prerequisites are installed
+    cmds:
+      - |
+        echo "Checking prerequisites..."
+        command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not found"; exit 1; }
+        command -v kubectl >/dev/null 2>&1 || { echo "ERROR: kubectl not found"; exit 1; }
+        command -v helm >/dev/null 2>&1 || { echo "ERROR: helm not found"; exit 1; }
+        command -v kind >/dev/null 2>&1 || { echo "ERROR: kind not found"; exit 1; }
+        command -v solo >/dev/null 2>&1 || { echo "ERROR: solo not found. Install with: npm i @hashgraph/solo -g"; exit 1; }
+        echo "All prerequisites found!"
+        echo ""
+        echo "Versions:"
+        echo "  Docker: $(docker --version)"
+        echo "  kubectl: $(kubectl version --client --short 2>/dev/null || kubectl version --client)"
+        echo "  Helm: $(helm version --short)"
+        echo "  Kind: $(kind --version)"
+        echo "  Solo: $(solo --version)"
+    silent: true
+
+  solo:install:
+    desc: "Install or update Solo CLI to specified version (use SOLO_VERSION=x.y.z)"
+    cmds:
+      - |
+        echo "Installing Solo CLI version: {{.SOLO_VERSION}}"
+        npm i @hashgraph/solo@{{.SOLO_VERSION}} -g
+        echo ""
+        echo "Installed:"
+        solo --version
+
+  topologies:
+    desc: List available network topologies
+    cmds:
+      - |
+        echo "Available topologies:"
+        echo ""
+        for f in "{{.TOPOLOGIES_DIR}}"/*.yaml; do
+          if [[ -f "$f" ]]; then
+            name=$(grep "^name:" "$f" | sed 's/name:[[:space:]]*//')
+            desc=$(grep "^description:" "$f" | sed 's/description:[[:space:]]*//' | tr -d '"')
+            printf "  %-20s %s\n" "${name}" "${desc}"
+          fi
+        done
+        echo ""
+        echo "Usage: task up TOPOLOGY=<name>"
+    silent: true
+
+  # ============================================================================
+  # Version Resolution
+  # ============================================================================
+  resolve-versions:
+    desc: Resolve 'latest' versions to actual GA releases
+    cmds:
+      - "{{.SCRIPTS_DIR}}/resolve-versions.sh" "{{.CN_VERSION}}" "{{.MN_VERSION}}" "{{.BN_VERSION}}"
+    silent: false
+
+  # ============================================================================
+  # Cluster Lifecycle
+  # ============================================================================
+  cluster:create:
+    desc: Create Kind cluster with Solo initialization
+    cmds:
+      - task: check
+      - |
+        "{{.SCRIPTS_DIR}}/solo-setup-cluster.sh" \
+          --cluster-name "{{.CLUSTER_NAME}}" \
+          --namespace "{{.NAMESPACE}}" \
+          --deployment "{{.DEPLOYMENT}}" \
+          --topology "{{.TOPOLOGY}}" \
+          --topologies-dir "{{.TOPOLOGIES_DIR}}"
+
+  cluster:destroy:
+    desc: Destroy Kind cluster and clean up Solo config
+    cmds:
+      - |
+        echo "Cleaning up Solo local config..."
+        solo deployment config delete -d "{{.DEPLOYMENT}}" -q 2>/dev/null || true
+        solo cluster-ref config disconnect -c "{{.CLUSTER_REF}}" -q 2>/dev/null || true
+
+        # Fallback: if Solo CLI failed, clean config directly with yq
+        if yq -e '.deployments[] | select(.name == "{{.DEPLOYMENT}}")' ~/.solo/local-config.yaml >/dev/null 2>&1; then
+          echo "Solo CLI cleanup incomplete, removing stale config entry..."
+          yq -i 'del(.deployments[] | select(.name == "{{.DEPLOYMENT}}"))' ~/.solo/local-config.yaml 2>/dev/null || true
+          yq -i 'del(.clusterRefs["{{.CLUSTER_REF}}"])' ~/.solo/local-config.yaml 2>/dev/null || true
+        fi
+
+        echo "Destroying Kind cluster '{{.CLUSTER_NAME}}'..."
+        kind delete cluster -n "{{.CLUSTER_NAME}}" || true
+        echo "Cluster and Solo config cleaned up."
+
+  cluster:status:
+    desc: Show cluster status
+    cmds:
+      - |
+        echo "Cluster Status"
+        echo "=============="
+        echo ""
+        echo "Kind clusters:"
+        kind get clusters
+        echo ""
+        echo "Current kubectl context:"
+        kubectl config current-context
+        echo ""
+        echo "Pods in namespace {{.NAMESPACE}}:"
+        kubectl get pods -n "{{.NAMESPACE}}" 2>/dev/null || echo "  (namespace not found or no pods)"
+        echo ""
+        echo "Services in namespace {{.NAMESPACE}}:"
+        kubectl get svc -n "{{.NAMESPACE}}" 2>/dev/null || echo "  (namespace not found or no services)"
+
+  # ============================================================================
+  # Network Deployment
+  # ============================================================================
+  network:deploy:
+    desc: "Deploy network using topology (default: single)"
+    cmds:
+      - |
+        # Resolve versions (latest -> actual GA versions)
+        VERSIONS=$("{{.SCRIPTS_DIR}}/resolve-versions.sh" "{{.CN_VERSION}}" "{{.MN_VERSION}}" "{{.BN_VERSION}}")
+
+        # Parse resolved versions
+        CN_RESOLVED=$(echo "$VERSIONS" | grep "^cn_version=" | cut -d= -f2)
+        MN_RESOLVED=$(echo "$VERSIONS" | grep "^mn_version=" | cut -d= -f2)
+        BN_RESOLVED=$(echo "$VERSIONS" | grep "^bn_version=" | cut -d= -f2)
+
+        echo "Using resolved versions: CN=$CN_RESOLVED, MN=$MN_RESOLVED, BN=$BN_RESOLVED"
+
+        "{{.SCRIPTS_DIR}}/solo-deploy-network.sh" \
+          --deployment "{{.DEPLOYMENT}}" \
+          --namespace "{{.NAMESPACE}}" \
+          --cluster-ref "{{.CLUSTER_REF}}" \
+          --topology "{{.TOPOLOGY}}" \
+          --topologies-dir "{{.TOPOLOGIES_DIR}}" \
+          --cn-version "$CN_RESOLVED" \
+          --mn-version "$MN_RESOLVED" \
+          --bn-version "$BN_RESOLVED"
+
+  network:destroy:
+    desc: Destroy the deployed network (keeps cluster)
+    cmds:
+      - |
+        echo "Destroying network deployment..."
+        kubectl delete namespace "{{.NAMESPACE}}" --ignore-not-found
+        echo "Network destroyed. Cluster still running."
+
+  # ============================================================================
+  # Port Forwarding
+  # ============================================================================
+  port-forward:
+    desc: Set up port forwards for local access
+    cmds:
+      - |
+        echo "Waiting for services to be ready..."
+        kubectl wait --for=condition=ready pod -l app=haproxy-node1 -n "{{.NAMESPACE}}" --timeout=120s 2>/dev/null || true
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=block-node-1 -n "{{.NAMESPACE}}" --timeout=120s 2>/dev/null || true
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=rest -n "{{.NAMESPACE}}" --timeout=120s 2>/dev/null || true
+
+        echo "Setting up port forwards..."
+        echo "  Consensus Node (50211) -> localhost:50211"
+        echo "  Block Node (40840) -> localhost:40840"
+        echo "  Mirror REST (80) -> localhost:5551"
+        echo "  Mirror Monitor (80) -> localhost:5600"
+        echo ""
+
+        # Kill any existing port-forwards
+        pkill -f "kubectl port-forward" 2>/dev/null || true
+
+        kubectl port-forward svc/haproxy-node1-svc -n "{{.NAMESPACE}}" 50211:50211 &
+        kubectl port-forward svc/block-node-1 -n "{{.NAMESPACE}}" 40840:40840 &
+        kubectl port-forward svc/mirror-1-rest -n "{{.NAMESPACE}}" 5551:80 &
+        kubectl port-forward svc/mirror-1-monitor -n "{{.NAMESPACE}}" 5600:80 &
+        kubectl port-forward svc/mirror-1-restjava -n "{{.NAMESPACE}}" 8084:80 &
+
+        sleep 2
+        echo ""
+        echo "Port forwards active. Endpoints:"
+        echo "  Consensus Node: localhost:50211"
+        echo "  Block Node gRPC: localhost:40840"
+        echo "  Mirror REST API: http://localhost:5551"
+        echo "  Mirror Monitor: http://localhost:5600"
+        echo "  Mirror REST Java: http://localhost:8084"
+
+  port-forward:stop:
+    desc: Stop all port forwards
+    cmds:
+      - |
+        echo "Stopping port forwards..."
+        pkill -f "kubectl port-forward" 2>/dev/null || true
+        echo "Port forwards stopped."
+
+  # ============================================================================
+  # Verification
+  # ============================================================================
+  verify:
+    desc: Verify Block Node is receiving blocks
+    cmds:
+      - |
+        echo "Verifying Block Node status..."
+        if ! command -v grpcurl >/dev/null 2>&1; then
+          echo "ERROR: grpcurl not found. Install from: https://github.com/fullstorydev/grpcurl"
+          exit 1
+        fi
+
+        STATUS=$(grpcurl -plaintext localhost:40840 org.hiero.block.api.BlockNodeService/serverStatus 2>&1) || {
+          echo "ERROR: Could not connect to Block Node. Is port-forward running?"
+          echo "Run: task port-forward"
+          exit 1
+        }
+
+        echo "Block Node Status:"
+        echo "$STATUS" | grep -E "(firstAvailableBlock|lastAvailableBlock)" || echo "$STATUS"
+
+  verify:mirror:
+    desc: Verify Mirror Node is receiving blocks from Block Node
+    cmds:
+      - |
+        echo "Verifying Mirror Node..."
+        BLOCKS=$(curl -s "http://localhost:5551/api/v1/blocks?limit=5" 2>&1) || {
+          echo "ERROR: Could not connect to Mirror Node. Is port-forward running?"
+          exit 1
+        }
+        echo "Recent blocks on Mirror Node:"
+        echo "$BLOCKS" | jq '.blocks[] | {number, timestamp}' 2>/dev/null || echo "$BLOCKS"
+
+  # ============================================================================
+  # Logs
+  # ============================================================================
+  logs:bn:
+    desc: View Block Node logs
+    cmds:
+      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/name=block-node-1" --all-containers -f
+
+  logs:cn:
+    desc: View Consensus Node logs
+    cmds:
+      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/name=network-node1" --all-containers -f
+
+  logs:mn:
+    desc: View Mirror Node importer logs
+    cmds:
+      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" --all-containers -f
+
+  # ============================================================================
+  # Convenience Tasks
+  # ============================================================================
+  up:
+    desc: "Full setup - create cluster, deploy network, start port-forwards (use TOPOLOGY=<name>)"
+    cmds:
+      - task: cluster:create
+      - task: network:deploy
+      - task: port-forward
+      - |
+        echo ""
+        echo "=========================================="
+        echo "Network is up and running!"
+        echo "=========================================="
+        echo ""
+        echo "Topology: {{.TOPOLOGY}}"
+        echo ""
+        echo "Endpoints:"
+        echo "  Block Node gRPC: localhost:40840"
+        echo "  Consensus Node: localhost:50211"
+        echo "  Mirror REST: http://localhost:5551"
+        echo ""
+        echo "Useful commands:"
+        echo "  task verify       - Check Block Node status"
+        echo "  task logs:bn      - View Block Node logs"
+        echo "  task cluster:status - View pod status"
+        echo "  task down         - Tear down everything"
+
+  up:paired:
+    desc: Full setup with paired-3 topology (3 CN, 3 BN)
+    cmds:
+      - task: up
+        vars: { TOPOLOGY: "paired-3" }
+
+  up:fan-out:
+    desc: Full setup with fan-out-3cn-2bn topology (3 CN, 2 BN)
+    cmds:
+      - task: up
+        vars: { TOPOLOGY: "fan-out-3cn-2bn" }
+
+  down:
+    desc: Tear down everything - stop port-forwards and destroy cluster
+    cmds:
+      - task: port-forward:stop
+      - task: cluster:destroy
+      - |
+        echo ""
+        echo "All resources cleaned up."
+
+  restart:
+    desc: Restart the network (destroy and recreate)
+    cmds:
+      - task: down
+      - task: up

@@ -4,22 +4,27 @@ name: Solo E2E Test
 on:
   workflow_dispatch:
     inputs:
-      block-node-helm-chart-version:
-        description: "Block Node Helm Chart Version"
-        required: true
-        default: "v0.21.2"
-      consensus-node-release-tag:
-        description: "Consensus Node Release Tag"
-        required: true
-        default: "v0.67.2"
-      mirror-node-release-tag:
-        description: "Mirror Node Release Tag (for now ignored since using XIN Image)"
-        required: true
-        default: "v0.141.0"
-      solo-network-size:
-        description: "Solo Network Size (Number of Consensus Nodes)"
-        required: true
-        default: "1"
+      topology:
+        description: "Network topology"
+        required: false
+        default: "single"
+        type: choice
+        options:
+          - single           # 1 CN, 1 BN
+          - paired-3         # 3 CN, 3 BN
+          - fan-out-3cn-2bn  # 3 CN, 2 BN
+      block-node-version:
+        description: "Block Node version ('latest' for GA, 'main' for snapshot, or specific tag like 'v0.21.2')"
+        required: false
+        default: "latest"
+      consensus-node-version:
+        description: "Consensus Node version ('latest' for GA or specific tag like 'v0.68.6')"
+        required: false
+        default: "latest"
+      mirror-node-version:
+        description: "Mirror Node version ('latest' for GA or specific tag like 'v0.146.0')"
+        required: false
+        default: "latest"
       solo-version:
         description: "Solo CLI Version"
         required: false
@@ -44,8 +49,7 @@ concurrency:
 
 env:
   GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
-  # Solo ENV Hardcoded
-  NODE_IDENTIFIERS: "node1"
+  # Solo ENV
   DEPLOYMENT: "deployment-network-with-block-node"
   NAMESPACE: "namespace-network-with-block-node"
   CLUSTER_NAME: "solo-cluster"
@@ -65,7 +69,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.block-node-helm-chart-version }}
 
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -91,91 +94,119 @@ jobs:
           distribution: "temurin"
           java-version: "25.0.2"
 
-      # install solo cli
+      # Resolve 'latest' versions to actual GA releases
+      - name: Resolve component versions
+        id: versions
+        run: |
+          OUTPUT=$(./.github/workflows/support/scripts/resolve-versions.sh \
+            "${{ inputs.consensus-node-version }}" \
+            "${{ inputs.mirror-node-version }}" \
+            "${{ inputs.block-node-version }}")
+          echo "$OUTPUT"
+          # Parse output and write to GITHUB_OUTPUT
+          echo "$OUTPUT" | grep "^cn_version=" >> "${GITHUB_OUTPUT}"
+          echo "$OUTPUT" | grep "^mn_version=" >> "${GITHUB_OUTPUT}"
+          echo "$OUTPUT" | grep "^bn_version=" >> "${GITHUB_OUTPUT}"
+
+      # Install Solo CLI
       - name: Install Solo CLI via npm
         run: |
           npm i @hashgraph/solo@${{ inputs.solo-version }} -g
+          echo "Solo version: $(solo --version)"
 
-      # Prepare Overrides
-      # Create Mirror Values Override File (uses BN service)
-      - name: Create Mirror Values Override File
-        run: |
-          cat <<EOF > mirror-bn-values.yaml
-            config:
-              hiero:
-                mirror:
-                  importer:
-                    block:
-                      enabled: true
-                      nodes:
-                        - host: block-node-1.${NAMESPACE}.svc.cluster.local
-                          port: 40840
-                      sourceType: BLOCK_NODE
-                    downloader:
-                      record:
-                        enabled: false
-                    startDate: 1970-01-01T00:00:00Z
-                    stream:
-                      maxSubscribeAttempts: 10
-                      responseTimeout: 10s
-          EOF
-
-      - name: Verify Mirror Values Override File Created
-        run: |
-          cat mirror-bn-values.yaml
-
-      # Solo Cluster Setup
+      # Setup cluster using shared script
       - name: Cluster setup (Kind + Solo)
+        id: cluster
         run: |
-          kind create cluster -n "${CLUSTER_NAME}"
-          sleep 10
-          kubectl config use-context "${CONTEXT}"
-          solo init
-          solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
-          solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
-          solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
-          solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
+          OUTPUT=$(./.github/workflows/support/scripts/solo-setup-cluster.sh \
+            --cluster-name "${CLUSTER_NAME}" \
+            --namespace "${NAMESPACE}" \
+            --deployment "${DEPLOYMENT}" \
+            --topology "${{ inputs.topology }}" \
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/network-topology-tool/topologies")
+          echo "$OUTPUT"
+          # Parse output and write to GITHUB_OUTPUT
+          echo "$OUTPUT" | grep "^node_count=" >> "${GITHUB_OUTPUT}"
+          echo "$OUTPUT" | grep "^node_aliases=" >> "${GITHUB_OUTPUT}"
 
-      # Node Deployment
-      - name: Solo Nodes Deployment (BN, CN, MN)
+          # Add to step summary
+          {
+            echo "### Cluster Configuration"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---------|-------|"
+            echo "| Topology | ${{ inputs.topology }} |"
+            echo "| Cluster Name | ${CLUSTER_NAME} |"
+            echo "| Namespace | ${NAMESPACE} |"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # Deploy network using shared script
+      - name: Deploy network
+        id: network
         run: |
-          solo block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
-          solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-          solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-          solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress --mirror-node-version "${{ inputs.mirror-node-release-tag }}" -f mirror-bn-values.yaml
-          solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
-          solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
-          sleep 10
+          OUTPUT=$(./.github/workflows/support/scripts/solo-deploy-network.sh \
+            --deployment "${DEPLOYMENT}" \
+            --namespace "${NAMESPACE}" \
+            --cluster-ref "${CLUSTER_REFERENCE}" \
+            --topology "${{ inputs.topology }}" \
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/network-topology-tool/topologies" \
+            --cn-version "${{ steps.versions.outputs.cn_version }}" \
+            --mn-version "${{ steps.versions.outputs.mn_version }}" \
+            --bn-version "${{ steps.versions.outputs.bn_version }}")
+          echo "$OUTPUT"
+          # Parse output and write to GITHUB_OUTPUT
+          echo "$OUTPUT" | grep "^cn_count=" >> "${GITHUB_OUTPUT}"
+          echo "$OUTPUT" | grep "^bn_count=" >> "${GITHUB_OUTPUT}"
+          echo "$OUTPUT" | grep "^node_aliases=" >> "${GITHUB_OUTPUT}"
 
-      - name: show running pods and services
+          # Add to step summary
+          {
+            echo "### Network Deployment"
+            echo ""
+            echo "| Component | Value |"
+            echo "|-----------|-------|"
+            echo "| Consensus Node Version | \`${{ steps.versions.outputs.cn_version }}\` |"
+            echo "| Mirror Node Version | \`${{ steps.versions.outputs.mn_version }}\` |"
+            echo "| Block Node Version | \`${{ steps.versions.outputs.bn_version }}\` |"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Show running pods and services
         run: |
           kubectl get pods -n ${NAMESPACE}
           kubectl get svc -n ${NAMESPACE}
 
-      # port forwards
+      # Port forwards
       - name: Solo Port forwards
         run: |
+          # Port forward for first consensus node (haproxy)
           kubectl port-forward svc/haproxy-node1-svc -n "${NAMESPACE}" 50211:50211 &
+
+          # Port forward for mirror node services
           kubectl port-forward svc/mirror-1-monitor -n "${NAMESPACE}" 5600:80 &
           kubectl port-forward svc/mirror-1-rest -n "${NAMESPACE}" 5551:80 &
           kubectl port-forward svc/mirror-1-restjava -n "${NAMESPACE}" 8084:80 &
+
+          # Port forward for first block node
           kubectl port-forward svc/block-node-1 -n "${NAMESPACE}" 40840:40840 &
+
           sleep 5
 
       # ---- BN verification with grpcurl ----
 
-      # produce protobuf source artifact
+      # Produce protobuf source artifact
       - name: Produce Protobuf proto artifact
         run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
 
-      # untar protobuf sources
+      # Untar protobuf sources
       - name: Untar Protobuf Sources
         working-directory: protobuf-sources
         run: |
           mkdir -p proto
-          PROTO_TAG="${{ inputs.block-node-helm-chart-version }}"
+          BN_VERSION="${{ steps.versions.outputs.bn_version }}"
+          # Remove -SNAPSHOT suffix if present for protobuf lookup
+          PROTO_TAG="${BN_VERSION%-SNAPSHOT}"
           PROTO_TAG="${PROTO_TAG#v}"
           tar -xzf block-node-protobuf-${PROTO_TAG}.tgz -C proto
 
@@ -281,7 +312,7 @@ jobs:
             exit 1
           fi
 
-          echo "Mirror Node first block matches Block Node first block ✅"
+          echo "Mirror Node first block matches Block Node first block"
 
       - name: Validate last block on Mirror Node
         run: |
@@ -303,7 +334,7 @@ jobs:
               exit 1
           fi
 
-          echo "Mirror Node last block matches Block Node last block ✅"
+          echo "Mirror Node last block matches Block Node last block"
 
       # TCK Regression Tests related steps
       - name: Setup PNPM
@@ -448,7 +479,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "### 📜 Logs"
+            echo "### Logs"
             echo ""
             echo "You can download the logs from this run here:"
             echo "- [Download BN-MN-logs](${{ steps.upload_logs_bn_mn.outputs.artifact-url }})"
