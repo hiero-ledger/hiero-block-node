@@ -102,7 +102,7 @@ tasks:
   resolve-versions:
     desc: Resolve 'latest' versions to actual GA releases
     cmds:
-      - "{{.SCRIPTS_DIR}}/resolve-versions.sh" "{{.CN_VERSION}}" "{{.MN_VERSION}}" "{{.BN_VERSION}}"
+      - '{{.SCRIPTS_DIR}}/resolve-versions.sh "{{.CN_VERSION}}" "{{.MN_VERSION}}" "{{.BN_VERSION}}"'
     silent: false
 
   # ============================================================================
@@ -209,7 +209,6 @@ tasks:
         echo "  Consensus Node (50211) -> localhost:50211"
         echo "  Block Node (40840) -> localhost:40840"
         echo "  Mirror REST (80) -> localhost:5551"
-        echo "  Mirror Monitor (80) -> localhost:5600"
         echo ""
 
         # Kill any existing port-forwards
@@ -218,8 +217,6 @@ tasks:
         kubectl port-forward svc/haproxy-node1-svc -n "{{.NAMESPACE}}" 50211:50211 &
         kubectl port-forward svc/block-node-1 -n "{{.NAMESPACE}}" 40840:40840 &
         kubectl port-forward svc/mirror-1-rest -n "{{.NAMESPACE}}" 5551:80 &
-        kubectl port-forward svc/mirror-1-monitor -n "{{.NAMESPACE}}" 5600:80 &
-        kubectl port-forward svc/mirror-1-restjava -n "{{.NAMESPACE}}" 8084:80 &
 
         sleep 2
         echo ""
@@ -227,8 +224,6 @@ tasks:
         echo "  Consensus Node: localhost:50211"
         echo "  Block Node gRPC: localhost:40840"
         echo "  Mirror REST API: http://localhost:5551"
-        echo "  Mirror Monitor: http://localhost:5600"
-        echo "  Mirror REST Java: http://localhost:8084"
 
   port-forward:stop:
     desc: Stop all port forwards
