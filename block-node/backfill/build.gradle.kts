@@ -34,15 +34,3 @@ testModuleInfo {
     requires("org.hiero.block.node.app.test.fixtures")
     requires("org.mockito")
 }
-
-sourceSets {
-    main {
-        pbj {
-            srcDir(
-                layout.projectDirectory.dir(
-                    "src/main/java/org/hiero/block/node/backfill/client/proto"
-                )
-            )
-        }
-    }
-}

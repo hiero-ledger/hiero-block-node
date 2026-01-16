@@ -7,6 +7,11 @@ import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
+// Spotless uses palantir-java-format which forces line breaks after annotations
+// like @ConfigProperty(defaultValue = "10"), making multi-annotation records hard to read.
+// Disabling spotless here for readability.
+// spotless:off
+
 /**
  * Configuration for the Backfill module.
  *
@@ -39,4 +44,13 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
-        @Loggable @ConfigProperty(defaultValue = "false") boolean greedy) {}
+        @Loggable @ConfigProperty(defaultValue = "false") boolean greedy,
+        // Queue capacity settings for bounded queues
+        @Loggable @ConfigProperty(defaultValue = "20") @Min(1) @Max(1000) int historicalQueueCapacity,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(1) @Max(100) int liveTailQueueCapacity,
+        // Health scoring constants
+        @Loggable @ConfigProperty(defaultValue = "1000.0") double healthPenaltyPerFailure,
+        @Loggable @ConfigProperty(defaultValue = "300000") @Min(30000) long maxBackoffMs) {}
+
+// restore spotless formatting
+// spotless:on

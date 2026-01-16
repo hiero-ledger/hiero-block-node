@@ -39,8 +39,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
+/**
+ * Integration tests for {@link BackfillPlugin}.
+ */
+@Timeout(value = 30, unit = TimeUnit.SECONDS)
 class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
     /** TempDir for the current test */
@@ -1149,6 +1154,71 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
     }
 
     @Test
+    @DisplayName("Historical gaps should be skipped when scheduler is already running")
+    void testHistoricalGapsSkippedWhenSchedulerRunning() throws InterruptedException {
+        // Set up a peer with a large range of blocks
+        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40894)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-skip-historical.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(0, 200)));
+
+        // Config with short scan interval so detectGaps runs multiple times during processing
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .fetchBatchSize(5) // Small batch to slow down processing
+                .initialDelay(50) // Start quickly
+                .scanInterval(500) // Scan every 500ms (will run while still backfilling)
+                .delayBetweenBatches(100) // Add delay between batches
+                .build();
+
+        // Plugin store has blocks 100-200, so gap 0-99 needs backfill (100 blocks)
+        final SimpleInMemoryHistoricalBlockFacility pluginStore = getHistoricalBlockFacility(100, 200);
+        start(new BackfillPlugin(), pluginStore, configOverride);
+
+        // We expect exactly 100 blocks (0-99) to be backfilled
+        // If deduplication fails, we'd see more than 100 persisted notifications
+        int expectedBlocks = 100;
+        CountDownLatch latch = new CountDownLatch(expectedBlocks);
+
+        registerDefaultTestBackfillHandler();
+        this.blockMessaging.registerBlockNotificationHandler(
+                new BlockNotificationHandler() {
+                    @Override
+                    public void handleVerification(VerificationNotification notification) {
+                        blockNodeContext
+                                .blockMessaging()
+                                .sendBlockPersisted(new PersistedNotification(
+                                        notification.blockNumber(), true, 10, notification.source()));
+                        latch.countDown();
+                        // Update the store so next scan sees progress
+                        SimpleBlockRangeSet newRange = ((SimpleBlockRangeSet) pluginStore.availableBlocks());
+                        newRange.add(notification.blockNumber());
+                        pluginStore.setTemporaryAvailableBlocks(newRange);
+                    }
+                },
+                false,
+                "test-historical-skip-handler");
+
+        // Wait for backfill to complete
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Should complete backfill within timeout");
+
+        // Allow additional time for any duplicate submissions to process
+        Thread.sleep(1000);
+
+        // Verify exactly 100 blocks were persisted (no duplicates from re-submitted gaps)
+        assertEquals(
+                expectedBlocks,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "Should persist exactly 100 blocks without duplicates from re-detected historical gaps");
+    }
+
+    @Test
     @DisplayName("Lying BN is marked unavailable when advertised range has gaps")
     void testLyingNodeMarkedUnavailable() throws Exception {
         BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
@@ -1195,6 +1265,66 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         assertEquals(0, latch.getCount(), "Should have backfilled available prefix before hitting the gap");
         assertEquals(10, blockMessaging.getSentPersistedNotifications().size(), "Should persist available blocks");
         assertEquals(10, blockMessaging.getSentVerificationNotifications().size(), "Should verify available blocks");
+    }
+
+    /**
+     * Test that greedy backfill on an empty store backfills blocks on both sides of
+     * the earliestManagedBlock boundary.
+     * <p>
+     * Gap classification (HISTORICAL vs LIVE_TAIL) is tested in {@link GapDetectorTest}.
+     * This integration test verifies the end-to-end behavior: all blocks get backfilled
+     * regardless of which side of the boundary they fall on.
+     */
+    @Test
+    @DisplayName("Greedy backfill should backfill blocks on both sides of earliestManagedBlock boundary")
+    void greedyBackfillShouldSplitGapByEarliestManagedBlock() throws InterruptedException {
+        // Set up peer server with blocks 0-99
+        BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40893)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(sourceConfig).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-split-gap.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(0, 99)));
+
+        // Config: earliestManagedBlock=50, greedy=true
+        Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .greedy(true)
+                .initialDelay(50)
+                .build();
+        configOverride.put("block.node.earliestManagedBlock", "50");
+
+        // Start plugin with empty store
+        start(new BackfillPlugin(), new SimpleInMemoryHistoricalBlockFacility(), configOverride);
+
+        // Wait for all 100 blocks (0-99) to be backfilled
+        int expectedBlocks = 100;
+        CountDownLatch latch = new CountDownLatch(expectedBlocks);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(latch);
+
+        assertTrue(
+                latch.await(10, TimeUnit.SECONDS),
+                "Should backfill all 100 blocks from both HISTORICAL and LIVE_TAIL gaps");
+
+        // Verify blocks from BOTH ranges were backfilled
+        List<Long> backfilledBlocks = blockMessaging.getSentPersistedNotifications().stream()
+                .map(PersistedNotification::blockNumber)
+                .toList();
+
+        // Check HISTORICAL range (0-49) was backfilled
+        assertTrue(
+                backfilledBlocks.stream().anyMatch(b -> b < 50),
+                "Should backfill HISTORICAL blocks (0-49) below earliestManagedBlock");
+
+        // Check LIVE_TAIL range (50-99) was backfilled
+        assertTrue(
+                backfilledBlocks.stream().anyMatch(b -> b >= 50),
+                "Should backfill LIVE_TAIL blocks (50-99) at or above earliestManagedBlock");
     }
 
     private void createTestBlockNodeSourcesFile(BackfillSource backfillSource, String configPath) {
@@ -1252,7 +1382,10 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 "test-backfill-handler");
     }
 
-    private static class BackfillConfigBuilder {
+    /**
+     * Builder for creating backfill configuration maps for testing.
+     */
+    public static class BackfillConfigBuilder {
 
         // Fields with default values
         private String backfillSourcePath;
@@ -1335,7 +1468,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 throw new IllegalStateException("backfillSourcePath is required");
             }
 
-            Map backfillConfig = new HashMap(Map.of(
+            Map<String, String> backfillConfig = new HashMap<>(Map.of(
                     "backfill.blockNodeSourcesPath", backfillSourcePath,
                     "backfill.fetchBatchSize", String.valueOf(fetchBatchSize),
                     "backfill.delayBetweenBatches", String.valueOf(delayBetweenBatches),
@@ -1350,6 +1483,31 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
             backfillConfig.put("backfill.greedy", String.valueOf(greedy));
 
             return backfillConfig;
+        }
+
+        /**
+         * Builds a BackfillConfiguration record for use in unit tests.
+         */
+        public BackfillConfiguration buildRecord() {
+            return new BackfillConfiguration(
+                    startBlock,
+                    endBlock,
+                    backfillSourcePath != null ? backfillSourcePath : "",
+                    scanIntervalMs,
+                    maxRetries,
+                    initialRetryDelay,
+                    fetchBatchSize,
+                    delayBetweenBatches,
+                    initialDelay,
+                    perBlockProcessingTimeout,
+                    60000, // grpcOverallTimeout - default
+                    false, // enableTLS - default
+                    greedy,
+                    20, // historicalQueueCapacity - default
+                    10, // liveTailQueueCapacity - default
+                    1000.0, // healthPenaltyPerFailure - default
+                    300000L // maxBackoffMs - default
+                    );
         }
     }
 }

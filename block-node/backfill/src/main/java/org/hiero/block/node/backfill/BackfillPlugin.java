@@ -1,32 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill;
 
-import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
-import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import org.hiero.block.internal.BlockUnparsed;
+import java.util.function.Consumer;
+import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
@@ -45,48 +43,29 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
+    private final GapDetector gapDetector = new GapDetector();
+
     // Plugin infrastructure
     private BlockNodeContext context;
     private BackfillConfiguration backfillConfiguration;
+    private long earliestManagedBlock;
     private boolean hasBNSourcesPath = false;
-    private ScheduledExecutorService scheduler;
+    private BackfillSource blockNodeSources;
+    private ScheduledExecutorService autonomousExecutor;
 
-    // Backfill state
-    private List<LongRange> detectedGaps = new ArrayList<>();
-    private BackfillGrpcClient backfillGrpcClientAutonomous;
-    private BackfillGrpcClient backfillGrpcClientOnDemand;
+    // Two independent schedulers with dedicated executors: historical never blocks live-tail
+    private BackfillTaskScheduler historicalScheduler;
+    private BackfillTaskScheduler liveTailScheduler;
+    private ExecutorService historicalExecutor;
+    private ExecutorService liveTailExecutor;
 
     // State touched by multiple threads
-    private final AtomicReference<CountDownLatch> autonomousLatch = new AtomicReference<>(new CountDownLatch(0));
-    private final AtomicReference<CountDownLatch> onDemandLatch = new AtomicReference<>(new CountDownLatch(0));
-    private volatile boolean autonomousError = false;
-    private volatile boolean onDemandError = false;
-    private final AtomicLong autonomousBackfillEndBlock = new AtomicLong(-1);
-    private final AtomicLong onDemandBackfillStartBlock = new AtomicLong(-1);
-    private final AtomicLong onDemandBackfillEndBlock = new AtomicLong(-1);
-    private final AtomicLong lastAcknowledgedBlockObserved = new AtomicLong(-1);
+    private final AtomicLong pendingBackfillBlocks = new AtomicLong(0);
+    // Deduplication: highest block scheduled for live-tail (prevents overlapping submissions)
+    private final AtomicLong liveTailHighWaterMark = new AtomicLong(-1);
 
-    // Metrics
-    private Counter backfillGapsDetected;
-    private Counter backfillFetchedBlocks;
-    private Counter backfillBlocksBackfilled;
-    private Counter backfillFetchErrors;
-    private Counter backfillRetries;
-    private LongGauge backfillStatus; // 0 = idle, 1 = running, 2 = autonomous-error, 3 = on-demand-error
-    private LongGauge backfillPendingBlocksGauge;
-
-    private AtomicReference<CountDownLatch> getLatch(BackfillType t) {
-        if (t == BackfillType.AUTONOMOUS) {
-            return autonomousLatch;
-        } else if (t == BackfillType.ON_DEMAND) {
-            return onDemandLatch;
-        } else {
-            // This should never happen (as the code is right now is impossible)
-            // but we throw an exception to be safe in the future in case the enum is extended
-            LOGGER.log(INFO, "Unknown backfill type={0}", t);
-            throw new IllegalArgumentException("Unknown backfill type: " + t);
-        }
-    }
+    // Metrics holder containing all backfill metrics
+    private MetricsHolder metricsHolder;
 
     /**
      * {@inheritDoc}
@@ -97,59 +76,29 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         return List.of(BackfillConfiguration.class);
     }
 
-    /***
+    /**
      * Initializes the metrics for the backfill process.
      */
     private void initMetrics() {
-        final var metrics = context.metrics();
-        backfillGapsDetected = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_gaps_detected")
-                .withDescription("Number of gaps detected during the backfill process."));
-        backfillFetchedBlocks = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_fetched")
-                .withDescription("Number of blocks fetched during the backfill process."));
-        backfillBlocksBackfilled =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_backfilled")
-                        .withDescription("Number of blocks backfilled during the backfill process."));
-        backfillFetchErrors = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_fetch_errors")
-                .withDescription("Number of errors encountered during the backfill process."));
-        backfillRetries = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_retries")
-                .withDescription("Number of retries during the backfill process."));
-        backfillStatus = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_status")
-                .withDescription("Current status of the backfill process (e.g., idle = 0, running = 1, error = 2)."));
-        backfillPendingBlocksGauge =
-                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_pending_blocks")
-                        .withDescription("Current amount of blocks pending to be backfilled."));
-
-        metrics.addUpdater(this::updateMetrics);
+        metricsHolder = MetricsHolder.createMetrics(context.metrics());
+        context.metrics().addUpdater(this::updateMetrics);
     }
 
     private void updateMetrics() {
-        // calculate the gauge of pending blocks metrics
-        long pendingBackfillBlocks =
-                autonomousLatch.get().getCount() + onDemandLatch.get().getCount();
-        backfillPendingBlocksGauge.set(pendingBackfillBlocks);
+        long pending = Math.max(pendingBackfillBlocks.get(), 0);
+        metricsHolder.backfillPendingBlocksGauge().set(pending);
+        metricsHolder.backfillInFlightGauge().set(pending);
 
-        final BackfillStatus status;
-        if (pendingBackfillBlocks > 0) {
-            status = BackfillStatus.RUNNING;
-        } else if (pendingBackfillBlocks == 0 && !autonomousError && !onDemandError) {
-            status = BackfillStatus.IDLE;
-        } else if (autonomousError) {
-            status = BackfillStatus.ERROR;
-        } else if (onDemandError) { // onDemandError
-            status = BackfillStatus.ON_DEMAND_ERROR;
-        } else {
-            status = BackfillStatus.UNKNOWN;
-        }
-
-        backfillStatus.set(status.ordinal());
+        final BackfillStatus status = pending > 0 ? BackfillStatus.RUNNING : BackfillStatus.IDLE;
+        // rely on ordinal for metric value, as enum names are not supported in metrics
+        metricsHolder.backfillStatus().set(status.ordinal());
     }
 
+    // Backfill status enum for metrics, using ordinal values
+    // do not change order or add values in the middle
     private enum BackfillStatus {
         IDLE, // 0
-        RUNNING, // 1
-        ERROR, // 2
-        ON_DEMAND_ERROR, // 3
-        UNKNOWN // 4
+        RUNNING // 1
     }
 
     /**
@@ -159,8 +108,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
         backfillConfiguration = context.configuration().getConfigData(BackfillConfiguration.class);
-        autonomousLatch.set(new CountDownLatch(0));
-        onDemandLatch.set(new CountDownLatch(0));
+        earliestManagedBlock =
+                context.configuration().getConfigData(NodeConfig.class).earliestManagedBlock();
 
         // Initialize metrics
         initMetrics();
@@ -174,40 +123,25 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         Path blockNodeSourcesPath = Path.of(backfillConfiguration.blockNodeSourcesPath());
         if (!Files.isRegularFile(blockNodeSourcesPath)) {
-            LOGGER.log(
-                    TRACE,
-                    "Block node sources path file does not exist: {0}, backfill will not run",
-                    backfillConfiguration.blockNodeSourcesPath());
+            final String blockNodeSourcesPathNotFoundMsg =
+                    "Block node sources path does not exist or is not a regular file: [{0}], backfill will not run";
+            LOGGER.log(TRACE, blockNodeSourcesPathNotFoundMsg, backfillConfiguration.blockNodeSourcesPath());
             return;
         }
 
-        // Initialize the gRPC client
         try {
-            backfillGrpcClientAutonomous = new BackfillGrpcClient(
-                    blockNodeSourcesPath,
-                    backfillConfiguration.maxRetries(),
-                    this.backfillRetries,
-                    backfillConfiguration.initialRetryDelay(),
-                    backfillConfiguration.grpcOverallTimeout(),
-                    backfillConfiguration.enableTLS());
-
-            backfillGrpcClientOnDemand = new BackfillGrpcClient(
-                    blockNodeSourcesPath,
-                    backfillConfiguration.maxRetries(),
-                    this.backfillRetries,
-                    backfillConfiguration.initialRetryDelay(),
-                    backfillConfiguration.grpcOverallTimeout(),
-                    backfillConfiguration.enableTLS());
-
-            LOGGER.log(TRACE, "Initialized gRPC client with sources path: {0}", blockNodeSourcesPath);
-        } catch (Exception e) {
-            LOGGER.log(INFO, "Failed to initialize gRPC client: {0}", e);
-            hasBNSourcesPath = false;
+            blockNodeSources = BackfillSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
+        } catch (ParseException | IOException e) {
+            final String parseFailedMsg =
+                    "Failed to parse block node sources from path: [%s], backfill will not run: %s"
+                            .formatted(backfillConfiguration.blockNodeSourcesPath(), e.getMessage());
+            LOGGER.log(TRACE, parseFailedMsg, e);
             return;
         }
 
-        // set the flag indicating that we have a valid block node sources path
+        // ready for backfill.
         hasBNSourcesPath = true;
+
         // Register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BackfillPlugin");
     }
@@ -221,22 +155,73 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
-        LOGGER.log(
-                TRACE,
-                "Scheduling backfill process to start in {0} milliseconds",
-                backfillConfiguration.initialDelay());
+        final String schedulingMsg = "Scheduling backfill process to start in [{0}] milliseconds";
+        LOGGER.log(TRACE, schedulingMsg, backfillConfiguration.initialDelay());
 
-        scheduler = context.threadPoolManager()
+        // Create the autonomous executor
+        autonomousExecutor = context.threadPoolManager()
                 .createVirtualThreadScheduledExecutor(
-                        2, // Two threads: one for autonomous backfill, one for on-demand backfill
+                        1, // single scheduler thread for scans
                         "BackfillPluginRunner",
                         (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
 
-        scheduler.scheduleAtFixedRate(
-                this::detectGaps,
+        // Schedule periodic gap detection task using autonomous executor
+        autonomousExecutor.scheduleAtFixedRate(
+                this::detectAndScheduleGaps,
                 backfillConfiguration.initialDelay(),
                 backfillConfiguration.scanInterval(),
                 TimeUnit.MILLISECONDS);
+
+        // Create two independent schedulers with dedicated executors for full isolation
+        historicalExecutor = context.threadPoolManager()
+                .createVirtualThreadScheduledExecutor(
+                        1,
+                        "BackfillHistoricalExecutor",
+                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
+        liveTailExecutor = context.threadPoolManager()
+                .createVirtualThreadScheduledExecutor(
+                        1,
+                        "BackfillLiveTailExecutor",
+                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
+
+        historicalScheduler =
+                createScheduler(historicalExecutor, backfillConfiguration.historicalQueueCapacity(), "Historical");
+        liveTailScheduler =
+                createScheduler(liveTailExecutor, backfillConfiguration.liveTailQueueCapacity(), "LiveTail");
+
+        final String initializedSchedulersMsg =
+                "Initialized dual schedulers: historical(cap=[{0}]), liveTail(cap=[{1}])";
+        LOGGER.log(
+                TRACE,
+                initializedSchedulersMsg,
+                backfillConfiguration.historicalQueueCapacity(),
+                backfillConfiguration.liveTailQueueCapacity());
+    }
+
+    private BackfillTaskScheduler createScheduler(ExecutorService executor, int queueCapacity, String schedulerName) {
+        try {
+
+            BackfillFetcher fetcher = new BackfillFetcher(blockNodeSources, backfillConfiguration, metricsHolder);
+            // Create dedicated persistence awaiter for system backpressure
+            BackfillPersistenceAwaiter persistenceAwaiter = new BackfillPersistenceAwaiter();
+            context.blockMessaging()
+                    .registerBlockNotificationHandler(
+                            persistenceAwaiter, false, "BackfillPersistenceAwaiter-" + schedulerName);
+            BackfillRunner runner = new BackfillRunner(
+                    fetcher,
+                    backfillConfiguration,
+                    context.blockMessaging(),
+                    LOGGER,
+                    metricsHolder,
+                    pendingBackfillBlocks,
+                    persistenceAwaiter);
+            GapProcessor gapProcessor = new GapProcessor(runner, schedulerName);
+            return new BackfillTaskScheduler(executor, gapProcessor, queueCapacity, fetcher, persistenceAwaiter);
+        } catch (RuntimeException e) {
+            final String createSchedulerFailedMsg = "Failed to create scheduler: [%s]".formatted(e.getMessage());
+            LOGGER.log(INFO, createSchedulerFailedMsg, e);
+            return null;
+        }
     }
 
     /**
@@ -244,301 +229,182 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      */
     @Override
     public void stop() {
-        if (scheduler != null) {
-            scheduler.shutdownNow();
+        // 1. Stop periodic scanner
+        shutdownExecutor(autonomousExecutor, "periodicExecutor");
+
+        // 2. Close schedulers (clears queues, awaiters, and releases blocked threads)
+        if (historicalScheduler != null) {
             try {
-                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                    LOGGER.log(TRACE, "Scheduler did not terminate in time");
-                    // terminate forcefully
-                    scheduler.shutdown();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                historicalScheduler.close();
+            } catch (RuntimeException e) {
+                LOGGER.log(INFO, "Error closing historicalScheduler: " + e.getMessage(), e);
             }
-            LOGGER.log(TRACE, "Stopped backfill process");
         }
+        if (liveTailScheduler != null) {
+            try {
+                liveTailScheduler.close();
+            } catch (RuntimeException e) {
+                LOGGER.log(INFO, "Error closing liveTailScheduler: " + e.getMessage(), e);
+            }
+        }
+
+        // 3. Shutdown executors and wait for termination
+        shutdownExecutor(historicalExecutor, "historicalExecutor");
+        shutdownExecutor(liveTailExecutor, "liveTailExecutor");
+
+        LOGGER.log(TRACE, "Stopped backfill plugin");
     }
 
-    private boolean isAutonomousBackfillRunning() {
-        return autonomousBackfillEndBlock.get() != -1;
-    }
-
-    private boolean isOnDemandBackfillRunning() {
-        return onDemandBackfillStartBlock.get() != -1;
-    }
-
-    private void greedyBackfillRecentBlocks(long lastAcknowledgedBlockObserved, long lastAcknowledgedBlock) {
-        if (!backfillConfiguration.greedy()) {
+    private void shutdownExecutor(ExecutorService executor, String name) {
+        if (executor == null) {
             return;
         }
-
-        // Skip if last acknowledged block observed has increased
-        if (lastAcknowledgedBlockObserved > 0 && lastAcknowledgedBlock > lastAcknowledgedBlockObserved) {
-            LOGGER.log(
-                    TRACE,
-                    "Last acknowledged block observed has increased from {0} to {1}, skipping greedy backfill",
-                    lastAcknowledgedBlockObserved,
-                    lastAcknowledgedBlock);
-            return;
-        }
-
+        executor.shutdownNow();
         try {
-            LOGGER.log(TRACE, "Greedy backfilling recent blocks to stay close to network");
-            detectedGaps = new ArrayList<>();
-            long baselineBlock = Math.max(lastAcknowledgedBlock, backfillConfiguration.startBlock() - 1);
-            LongRange detectedRecentGapRange = backfillGrpcClientAutonomous.getNewAvailableRange(baselineBlock);
-
-            if (detectedRecentGapRange != null
-                    && detectedRecentGapRange.size() > 0
-                    && detectedRecentGapRange.start() >= 0) {
-                // check if on-demand is running and remove overlapping range from detectedRecentGapRange
-                if (isOnDemandBackfillRunning()
-                        && detectedRecentGapRange.overlaps(
-                                new LongRange(onDemandBackfillStartBlock.get(), onDemandBackfillEndBlock.get()))) {
-                    detectedRecentGapRange = new LongRange(
-                            Math.max(onDemandBackfillEndBlock.get() + 1, detectedRecentGapRange.start()),
-                            detectedRecentGapRange.end());
-                }
-
-                detectedGaps.add(detectedRecentGapRange);
-                LOGGER.log(
-                        TRACE,
-                        "Detected recent gaps, numGaps={0} totalMissingBlocks={1}",
-                        detectedGaps.size(),
-                        detectedRecentGapRange.size());
-
-                autonomousBackfillEndBlock.set(detectedRecentGapRange.end());
-                processDetectedGaps();
-                autonomousBackfillEndBlock.set(-1);
-            } else {
-                LOGGER.log(TRACE, "No recent gaps detected from other block node sources");
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                final String executorTerminationMsg = "Executor [{0}] did not terminate in time";
+                LOGGER.log(INFO, executorTerminationMsg, name);
             }
-
-            autonomousError = false;
-        } catch (Exception e) {
-            LOGGER.log(TRACE, "Error during backfill autonomous process: {0}", e);
-            autonomousError = true;
-            autonomousBackfillEndBlock.set(-1);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
-    private void detectGaps() {
-        // Skip if already running
-        if (isAutonomousBackfillRunning()) {
-            LOGGER.log(
-                    TRACE,
-                    "Autonomous backfill is already running up to {0}, skipping autonomous gap detection",
-                    autonomousBackfillEndBlock.get());
+    private void detectAndScheduleGaps() {
+        LOGGER.log(TRACE, "Detecting gaps in blocks");
+
+        // 1. Get stored blocks
+        List<LongRange> blockRanges = context.historicalBlockProvider()
+                .availableBlocks()
+                .streamRanges()
+                .toList();
+
+        // 2. Determine range to scan
+        //    - Lower bound: configured startBlock
+        //    - Upper bound: greedy → peer max, non-greedy → store max (capped by config)
+        long startBound = Math.max(0, backfillConfiguration.startBlock());
+        long endCap = determineEndCap(blockRanges);
+        if (endCap < 0 || startBound > endCap) {
+            final String nothingToBackfillMsg = "Nothing to backfill: startBound=[{0}] endCap=[{1}]";
+            LOGGER.log(TRACE, nothingToBackfillMsg, startBound, endCap);
             return;
         }
 
-        // Skip if OnDemand backfill is running
-        if (isOnDemandBackfillRunning() && !backfillConfiguration.greedy()) {
-            LOGGER.log(
-                    TRACE,
-                    "On-Demand backfill is running starting from block {0} to {1}, skipping autonomous gap detection",
-                    onDemandBackfillStartBlock.get(),
-                    onDemandBackfillEndBlock.get());
-            return;
-        }
+        // 3. Find gaps and classify as HISTORICAL or LIVE_TAIL
+        //    - Boundary: empty store → earliestManagedBlock-1, has blocks → last stored block
+        //    - Blocks <= boundary → HISTORICAL, blocks > boundary → LIVE_TAIL
+        long liveTailBoundary = blockRanges.isEmpty()
+                ? earliestManagedBlock - 1
+                : blockRanges.getLast().end();
+        List<GapDetector.Gap> gaps = gapDetector.findTypedGaps(blockRanges, startBound, liveTailBoundary, endCap);
 
-        try {
-            LOGGER.log(TRACE, "Detecting gaps in blocks");
-
-            // Calculate total missing blocks
-            long pendingBlocks = 0;
-
-            // Check for gaps between ranges
-            List<LongRange> blockRanges = context.historicalBlockProvider()
-                    .availableBlocks()
-                    .streamRanges()
-                    .toList();
-
-            // greedy backfill newer blocks available from peer BN sources to prioritize staying close to the network
-            long blockRangesLastValue =
-                    blockRanges.isEmpty() ? -1 : blockRanges.getLast().end();
-            greedyBackfillRecentBlocks(lastAcknowledgedBlockObserved.get(), blockRangesLastValue);
-            lastAcknowledgedBlockObserved.set(blockRangesLastValue); // update the last observed acknowledged block
-
-            // backfill missing historical blocks from peer BN sources
-            detectedGaps = new ArrayList<>();
-            long expectedFirstBlock = backfillConfiguration.startBlock();
-            long previousRangeEnd = expectedFirstBlock - 1;
-            for (LongRange range : blockRanges) {
-                if (range.start() > previousRangeEnd + 1) {
-                    LongRange gap = new LongRange(previousRangeEnd + 1, range.start() - 1);
-                    detectedGaps.add(gap);
-                    pendingBlocks += gap.size();
-                    LOGGER.log(
-                            TRACE,
-                            "Detected gap in historical blocks from start={0,number,#} to end={1,number,#}",
-                            gap.start(),
-                            gap.end());
-                }
-                previousRangeEnd = range.end();
-            }
-
-            // increase only if detectedGaps is not empty
-            if (!detectedGaps.isEmpty()) {
-                backfillGapsDetected.add(detectedGaps.size());
-                LOGGER.log(
-                        TRACE,
-                        "Detected historical gaps, numGaps={0} totalMissingBlocks={1}",
-                        detectedGaps.size(),
-                        pendingBlocks);
-                processDetectedGaps();
-            } else {
-                LOGGER.log(TRACE, "No gaps detected in historical blocks");
-            }
-
-            autonomousError = false;
-        } catch (Exception e) {
-            LOGGER.log(TRACE, "Error during backfill autonomous process", e);
-            autonomousError = true;
-            autonomousBackfillEndBlock.set(-1);
-        }
-    }
-
-    private void processDetectedGaps() throws ParseException, InterruptedException {
-        // Process each gap
-        for (LongRange gap : detectedGaps) {
-            LOGGER.log(TRACE, "Fetching blocks from start={0} to end={1}", gap.start(), gap.end());
-            backfillGap(gap, BackfillType.AUTONOMOUS);
+        // 4. Submit each gap to appropriate scheduler
+        final String detectedGapMsg = "Detected gap type=[{0}] range=[{1}]";
+        for (GapDetector.Gap gap : gaps) {
+            LOGGER.log(TRACE, detectedGapMsg, gap.type(), gap.range());
+            scheduleGap(gap);
+            metricsHolder.backfillGapsDetected.increment();
         }
     }
 
     /**
-     * Backfills a specific gap by fetching blocks from the gRPC client and
-     * sends backfilled block notifications for each missing block.
-     *
-     * @param gap the range of blocks to backfill
-     * @throws InterruptedException if the thread is interrupted while waiting
-     * @throws ParseException if there is an error parsing the block header
+     * Determine the upper limit for gap detection.
+     * - Greedy mode: max latestAvailableBlock from peers
+     * - Non-greedy: last stored block
+     * Both are capped by configured endBlock if set.
      */
-    private void backfillGap(LongRange gap, BackfillType backfillType) throws InterruptedException, ParseException {
-        BackfillGrpcClient backfillGrpcClient =
-                switch (backfillType) {
-                    case AUTONOMOUS -> backfillGrpcClientAutonomous;
-                    case ON_DEMAND -> backfillGrpcClientOnDemand;
-                };
-        Map<BackfillSourceConfig, List<LongRange>> availability = planAvailabilityForGap(backfillGrpcClient, gap);
-        long currentBlock = gap.start();
-        long batchSize = backfillConfiguration.fetchBatchSize();
+    private long determineEndCap(List<LongRange> blockRanges) {
+        long configEnd = backfillConfiguration.endBlock();
+        long storeMax = blockRanges.isEmpty() ? -1 : blockRanges.getLast().end();
 
-        while (currentBlock <= gap.end()) {
-            Optional<BackfillGrpcClient.NodeSelection> selection =
-                    backfillGrpcClient.selectNextChunk(currentBlock, gap.end(), availability);
-            if (selection.isEmpty()) {
-                LOGGER.log(TRACE, "No available nodes found for block {0}", currentBlock);
-                backfillFetchErrors.increment();
-                break;
-            }
-
-            BackfillGrpcClient.NodeSelection nodeChoice = selection.get();
-            LongRange chunk = computeChunk(nodeChoice, availability, gap.end(), batchSize);
-            if (chunk == null) {
-                availability.remove(nodeChoice.nodeConfig());
-                continue;
-            }
-            List<BlockUnparsed> batchOfBlocks = backfillGrpcClient.fetchBlocksFromNode(nodeChoice.nodeConfig(), chunk);
-            // Set up latch for verification and persistence tracking
-            // normally will be decremented only by persisted notifications
-            // however if it fails verification, it will be decremented as well
-            // to avoid deadlocks, since blocks that fail verification are not persisted
-            getLatch(backfillType).set(new CountDownLatch(batchOfBlocks.size()));
-
-            if (batchOfBlocks.isEmpty()) {
-                availability.remove(nodeChoice.nodeConfig());
-                LOGGER.log(DEBUG, "No blocks fetched for gap {0}, skipping", chunk);
-                continue; // Skip empty batches
-            }
-
-            // Process each fetched block
-            for (BlockUnparsed blockUnparsed : batchOfBlocks) {
-                long blockNumber = extractBlockNumber(blockUnparsed);
-                context.blockMessaging()
-                        .sendBackfilledBlockNotification(new BackfilledBlockNotification(blockNumber, blockUnparsed));
-
-                LOGGER.log(TRACE, "Backfilling block {0}", blockNumber);
-                backfillFetchedBlocks.increment();
-            }
-
-            // Wait for verification and persistence to complete
-            // Timeout is set using a configuration config as multiplier of the per-block processing timeout
-            long timeout = (long) backfillConfiguration.perBlockProcessingTimeout() * batchOfBlocks.size();
-            boolean backfillFinished = getLatch(backfillType).get().await(timeout, TimeUnit.MILLISECONDS);
-
-            // Check if the backfill finished successfully
-            if (backfillFinished) {
-                // just log a victory message for each chunk
-                LOGGER.log(TRACE, "Successfully backfilled gap {0}", chunk);
-            } else {
-                LOGGER.log(TRACE, "Backfill for gap {0} did not finish in time", chunk);
-                backfillFetchErrors.increment();
-                // If it didn't finish, we will retry it later but move on to next chunk
-            }
-
-            // Cooldown between batches
-            Thread.sleep(backfillConfiguration.delayBetweenBatches());
-            currentBlock = chunk.end() + 1;
-        }
-
-        LOGGER.log(
-                TRACE,
-                "Completed backfilling task (completion only) of type {0} gap from {1} to {2} ",
-                backfillType,
-                gap.start(),
-                gap.end());
-        if (backfillType.equals(BackfillType.ON_DEMAND)) {
-            onDemandBackfillStartBlock.set(-1); // Reset on-demand start block after backfill
-            onDemandBackfillEndBlock.set(-1);
+        if (backfillConfiguration.greedy() && liveTailScheduler != null) {
+            long peerMax = getPeerMaxAvailableBlock(storeMax);
+            long upper = peerMax >= 0 ? peerMax : storeMax;
+            return configEnd >= 0 ? Math.min(configEnd, upper) : upper;
+        } else {
+            return configEnd >= 0 ? Math.min(configEnd, storeMax) : storeMax;
         }
     }
 
-    private Map<BackfillSourceConfig, List<LongRange>> planAvailabilityForGap(
-            BackfillGrpcClient backfillGrpcClient, LongRange gap) {
-        backfillGrpcClient.resetStatus();
-        return backfillGrpcClient.getAvailabilityForRange(gap);
+    /**
+     * Query peers for the maximum available block number.
+     */
+    private long getPeerMaxAvailableBlock(long baseline) {
+        try {
+            LongRange peerRange = liveTailScheduler.getFetcher().getNewAvailableRange(baseline);
+            return peerRange != null && peerRange.size() > 0 ? peerRange.end() : -1;
+        } catch (RuntimeException e) {
+            final String peerAvailabilityFailedMsg = "Failed to get peer availability: %s".formatted(e.getMessage());
+            LOGGER.log(TRACE, peerAvailabilityFailedMsg, e);
+            return -1;
+        }
+    }
+
+    private void scheduleGap(GapDetector.Gap gap) {
+        if (gap.range().size() <= 0) {
+            return;
+        }
+
+        // Skip historical gaps if scheduler is already processing (historical gaps don't change)
+        // This is to avoid scheduling duplicate historical gaps on each scan while them are still in progress
+        if (gap.type() == GapDetector.Type.HISTORICAL
+                && historicalScheduler != null
+                && historicalScheduler.isRunning()) {
+            final String skippingHistoricalGapMsg = "Skipping historical gap [{0}], scheduler already running";
+            LOGGER.log(TRACE, skippingHistoricalGapMsg, gap.range());
+            return;
+        }
+
+        // Deduplicate live-tail gaps using high-water mark
+        GapDetector.Gap effectiveGap = gap;
+        if (gap.type() == GapDetector.Type.LIVE_TAIL) {
+            long highWaterMark = liveTailHighWaterMark.get();
+            if (gap.range().end() <= highWaterMark) {
+                // Already scheduled this range
+                final String skippingDuplicateLiveTailMsg =
+                        "Skipping duplicate live-tail gap [{0}], highWaterMark=[{1}]";
+                LOGGER.log(TRACE, skippingDuplicateLiveTailMsg, gap.range(), highWaterMark);
+                return;
+            }
+            if (gap.range().start() <= highWaterMark) {
+                // Partial overlap - adjust start
+                long newStart = highWaterMark + 1;
+                effectiveGap =
+                        new GapDetector.Gap(new LongRange(newStart, gap.range().end()), GapDetector.Type.LIVE_TAIL);
+                final String adjustedLiveTailGapMsg = "Adjusted live-tail gap from [{0}] to [{1}]";
+                LOGGER.log(TRACE, adjustedLiveTailGapMsg, gap.range(), effectiveGap.range());
+            }
+            // Update high-water mark
+            liveTailHighWaterMark.updateAndGet(
+                    current -> Math.max(current, gap.range().end()));
+            final String updatedHighWaterMarkMsg = "Updated liveTailHighWaterMark to [{0}]";
+            LOGGER.log(TRACE, updatedHighWaterMarkMsg, gap.range().end());
+        }
+
+        // Submit the (possibly adjusted) gap to the appropriate scheduler
+        final String submittingGapMsg = "Submitting gap type=[{0}] range=[{1}] to scheduler";
+        LOGGER.log(TRACE, submittingGapMsg, effectiveGap.type(), effectiveGap.range());
+        submitGap(effectiveGap);
+    }
+
+    /**
+     * Submits a gap to the appropriate scheduler based on its type.
+     *
+     * @param gap the gap to submit
+     */
+    private void submitGap(GapDetector.Gap gap) {
+        BackfillTaskScheduler scheduler =
+                (gap.type() == GapDetector.Type.HISTORICAL) ? historicalScheduler : liveTailScheduler;
+        scheduler.submit(gap);
     }
 
     // Package-private for test visibility
-    /**
-     * Determine the chunk to request for a given node selection, respecting both availability and gap bounds.
-     */
     LongRange computeChunk(
-            @NonNull BackfillGrpcClient.NodeSelection selection,
+            @NonNull NodeSelectionStrategy.NodeSelection selection,
             @NonNull Map<BackfillSourceConfig, List<LongRange>> availability,
             long gapEnd,
             long batchSize) {
-        List<LongRange> ranges = availability.get(selection.nodeConfig());
-        if (ranges == null) {
-            return null;
-        }
-
-        long start = selection.startBlock();
-        LongRange coveringRange = ranges.stream()
-                .filter(range -> start >= range.start() && start <= range.end())
-                .findFirst()
-                .orElse(null);
-        if (coveringRange == null) {
-            return null;
-        }
-
-        long chunkEnd = Math.min(Math.min(start + batchSize - 1, coveringRange.end()), gapEnd);
-        return new LongRange(start, chunkEnd);
-    }
-
-    /**
-     * Extracts the block number from the BlockUnparsed object.
-     *
-     * @param blockUnparsed the BlockUnparsed object containing the block header
-     * @return the block number
-     * @throws ParseException if there is an error parsing the block header
-     */
-    private long extractBlockNumber(BlockUnparsed blockUnparsed) throws ParseException {
-        return BlockHeader.PROTOBUF
-                .parse(blockUnparsed.blockItems().getFirst().blockHeaderOrThrow())
-                .number();
+        return BackfillRunner.computeChunk(selection, availability, gapEnd, batchSize);
     }
 
     /**
@@ -547,20 +413,15 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handlePersisted(PersistedNotification notification) {
         if (notification.blockSource() == BlockSource.BACKFILL) {
-            BackfillType backfillType = getBackfillTypeForBlock(notification.blockNumber());
-
             // Add more detailed logging for persistence notifications
-            LOGGER.log(
-                    TRACE,
-                    "Received backfillType={0} persisted notification for block={1,number,#}",
-                    backfillType,
-                    notification.blockNumber());
+            final String backfillPersistedMsg = "Received backfill persisted notification for block=[{0}]";
+            LOGGER.log(TRACE, backfillPersistedMsg, notification.blockNumber());
 
-            backfillBlocksBackfilled.increment();
-            // decrement the latch for the backfill type
-            getLatch(backfillType).get().countDown();
+            metricsHolder.backfillBlocksBackfilled().increment();
+            pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
         } else {
-            LOGGER.log(TRACE, "Received non-backfill persisted notification: {0}", notification);
+            final String nonBackfillPersistedMsg = "Received non-backfill persisted notification: [{0}]";
+            LOGGER.log(TRACE, nonBackfillPersistedMsg, notification);
         }
     }
 
@@ -570,13 +431,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handleVerification(VerificationNotification notification) {
         if (notification.source() == BlockSource.BACKFILL) {
-            LOGGER.log(TRACE, "Received verification notification for block {0,number,#}", notification.blockNumber());
+            final String verificationNotificationMsg = "Received verification notification for block [{0}]";
+            LOGGER.log(TRACE, verificationNotificationMsg, notification.blockNumber());
             if (!notification.success()) {
-                LOGGER.log(INFO, "Block verification failed, block={0,number,#}", notification.blockNumber());
-                backfillFetchErrors.increment();
-                // lastly, count down the latch to signal that this block has been processed
-                BackfillType backfillType = getBackfillTypeForBlock(notification.blockNumber());
-                getLatch(backfillType).get().countDown();
+                final String blockVerificationFailedMsg = "Block verification failed, block=[{0}]";
+                LOGGER.log(INFO, blockVerificationFailedMsg, notification.blockNumber());
+                metricsHolder.backfillFetchErrors().increment();
+                pendingBackfillBlocks.updateAndGet(v -> Math.max(0, v - 1));
                 // If a block verification fails, we will backfill it again later on the next gap detection run.
             }
         }
@@ -589,82 +450,97 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return;
         }
 
-        // Skip if another On-Demand backfill is already running
-        if (isOnDemandBackfillRunning()) {
-            LOGGER.log(TRACE, "On-Demand backfill is already running, skipping new on-demand backfill");
-            return;
-        }
-
-        // we should create  new Gap and a new task to backfill it
         long lastPersistedBlock =
                 context.historicalBlockProvider().availableBlocks().max();
-        // if lastPersistedBlock is less than backfill start block, we start from backfill start block
         long startBackfillFrom = Math.max(lastPersistedBlock + 1, backfillConfiguration.startBlock());
         long newestBlockKnown = notification.blockNumber();
-        LongRange gap = new LongRange(startBackfillFrom, newestBlockKnown);
-        LOGGER.log(
-                TRACE,
-                "Detected new block known to network: {0,number,#}, starting backfill task for gap: {1}",
-                newestBlockKnown,
-                gap);
+        long cappedEnd = backfillConfiguration.endBlock() >= 0
+                ? Math.min(backfillConfiguration.endBlock(), newestBlockKnown)
+                : newestBlockKnown;
+        if (cappedEnd < startBackfillFrom) {
+            final String skippingOnDemandBackfillMsg =
+                    "Newest block [{0}] is before startBackfillFrom [{1}], skipping on-demand backfill";
+            LOGGER.log(TRACE, skippingOnDemandBackfillMsg, cappedEnd, startBackfillFrom);
+            return;
+        }
+        scheduleGap(new GapDetector.Gap(new LongRange(startBackfillFrom, cappedEnd), GapDetector.Type.LIVE_TAIL));
+    }
 
-        lastAcknowledgedBlockObserved.set(lastPersistedBlock); // update the last observed acknowledged block
+    /**
+     * Processes gaps by delegating to the BackfillRunner and handling high-water mark updates.
+     */
+    private class GapProcessor implements Consumer<GapDetector.Gap> {
+        private final BackfillRunner runner;
+        private final String schedulerName;
 
-        // if the gap is not empty, we can backfill it
-        if (gap.size() > 0) {
+        GapProcessor(BackfillRunner runner, String schedulerName) {
+            this.runner = runner;
+            this.schedulerName = schedulerName;
+        }
+
+        @Override
+        public void accept(GapDetector.Gap gap) {
             try {
-                // Skip if greedy autonomous backfill is greedy is more aggressive and will like cover more blocks
-                if (isAutonomousBackfillRunning() && backfillConfiguration.greedy()) {
-                    LOGGER.log(TRACE, "Greedy autonomous backfill is running, skipping on-demand gap detection");
-                    return;
+                final String processingGapMsg = "Scheduler processing gap type=[{0}] range=[{1}] for [{2}]";
+                LOGGER.log(TRACE, processingGapMsg, gap.type(), gap.range(), schedulerName);
+                long lastSuccessfulBlock = runner.run(gap);
+                // Reset highWaterMark if the gap didn't complete, allowing re-detection
+                if (gap.type() == GapDetector.Type.LIVE_TAIL
+                        && lastSuccessfulBlock < gap.range().end()) {
+                    liveTailHighWaterMark.updateAndGet(current -> Math.min(current, lastSuccessfulBlock));
+                    final String resetHighWaterMarkMsg =
+                            "Reset liveTailHighWaterMark to [{0}] after incomplete gap [{1}]";
+                    LOGGER.log(INFO, resetHighWaterMarkMsg, lastSuccessfulBlock, gap.range());
                 }
-
-                // Set the start block for on-demand backfill BEFORE scheduling the task
-                onDemandBackfillStartBlock.set(gap.start());
-                onDemandBackfillEndBlock.set(gap.end());
-                onDemandError = false;
-
-                // use the scheduler to run the backfill in its own thread (only call backfillGap once)
-                scheduler.submit(() -> {
-                    try {
-                        LOGGER.log(TRACE, "Starting on-demand backfill for gap: {0}", gap);
-                        backfillGap(gap, BackfillType.ON_DEMAND);
-                        lastAcknowledgedBlockObserved.set(context.historicalBlockProvider()
-                                .availableBlocks()
-                                .max()); // update the last observed acknowledged block
-                    } catch (ParseException | InterruptedException | RuntimeException e) {
-                        LOGGER.log(TRACE, "Error backfilling gap {0}: {1}", gap, e);
-                        backfillFetchErrors.add(1);
-                        onDemandError = true;
-                        onDemandBackfillStartBlock.set(-1); // Reset on error to allow new backfills
-                        onDemandBackfillEndBlock.set(-1);
-                    }
-                });
-
-            } catch (RuntimeException e) {
-                LOGGER.log(TRACE, "Error scheduling backfill for gap {0}: {1}", gap, e);
-                backfillFetchErrors.add(1);
-                onDemandError = true;
-                onDemandBackfillStartBlock.set(-1); // Reset on error to allow new backfills
-                onDemandBackfillEndBlock.set(-1);
+            } catch (ParseException | InterruptedException e) {
+                Thread.currentThread().interrupt();
+                final String errorExecutingGapMsg = "Error executing gap=[%s]".formatted(gap);
+                LOGGER.log(INFO, errorExecutingGapMsg, e);
             }
-        } else {
-            LOGGER.log(TRACE, "No gap to backfill for newest block known: {0}", newestBlockKnown);
         }
     }
 
-    // to-do: remove method, instead update notification with backfill types instead of just backfill
-    private BackfillType getBackfillTypeForBlock(long blockNumber) {
-        // Determine if the block is old (Autonomous) or new (On-Demand)
-        long onDemandStartBlock = onDemandBackfillStartBlock.get();
-        if (onDemandStartBlock != -1 && blockNumber >= onDemandStartBlock) {
-            return BackfillType.ON_DEMAND;
-        }
-        return BackfillType.AUTONOMOUS;
-    }
+    /**
+     * Holder for all backfill-related metrics.
+     * This record groups all metrics used by the backfill plugin and its components,
+     * allowing them to be passed as a single parameter.
+     */
+    public record MetricsHolder(
+            Counter backfillGapsDetected,
+            Counter backfillFetchedBlocks,
+            Counter backfillBlocksBackfilled,
+            Counter backfillFetchErrors,
+            Counter backfillRetries,
+            LongGauge backfillStatus,
+            LongGauge backfillPendingBlocksGauge,
+            LongGauge backfillInFlightGauge) {
 
-    private enum BackfillType {
-        AUTONOMOUS,
-        ON_DEMAND
+        /**
+         * Factory method to create a MetricsHolder with all metrics registered.
+         *
+         * @param metrics the metrics instance to register metrics with
+         * @return a new MetricsHolder with all metrics created
+         */
+        public static MetricsHolder createMetrics(@NonNull final com.swirlds.metrics.api.Metrics metrics) {
+            return new MetricsHolder(
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_gaps_detected")
+                            .withDescription("Number of gaps detected during the backfill process.")),
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_fetched")
+                            .withDescription("Number of blocks fetched during the backfill process.")),
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_backfilled")
+                            .withDescription("Number of blocks backfilled during the backfill process.")),
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_fetch_errors")
+                            .withDescription("Number of errors encountered during the backfill process.")),
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_retries")
+                            .withDescription("Number of retries during the backfill process.")),
+                    metrics.getOrCreate(
+                            new LongGauge.Config(METRICS_CATEGORY, "backfill_status")
+                                    .withDescription(
+                                            "Current status of the backfill process (e.g., idle = 0, running = 1, error = 2).")),
+                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_pending_blocks")
+                            .withDescription("Current amount of blocks pending to be backfilled.")),
+                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_inflight_blocks")
+                            .withDescription("Current in-flight backfill blocks awaiting verification/persistence.")));
+        }
     }
 }
