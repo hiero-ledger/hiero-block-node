@@ -307,12 +307,12 @@ tasks:
   load:start:
     desc: "Start NLG load generation (TPS, DURATION, TEST_CLASS)"
     cmds:
-      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --action start --tps "{{.TPS}}" --duration "{{.DURATION}}" --test-class "{{.TEST_CLASS}}"'
+      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --namespace "{{.NAMESPACE}}" --action start --tps "{{.TPS}}" --duration "{{.DURATION}}" --test-class "{{.TEST_CLASS}}"'
 
   load:stop:
     desc: "Stop NLG load generation"
     cmds:
-      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --action stop'
+      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --namespace "{{.NAMESPACE}}" --action stop'
 
   # ============================================================================
   # Convenience Tasks
