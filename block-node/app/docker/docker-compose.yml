@@ -7,8 +7,6 @@ services:
       - ./backfill-sources.json:/opt/hiero/block-node/backfill/backfill-sources.json
     env_file:
       - .env
-    environment:
-        PLUGINS: ""
     ports:
       - "40840:40840"
       - "5005:5005"
