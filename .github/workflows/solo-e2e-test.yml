@@ -90,7 +90,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: "20.19.4"
+          node-version: "22"
 
       - name: Install Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
@@ -130,7 +130,8 @@ jobs:
         id: solo
         run: |
           npm i @hashgraph/solo@${{ inputs.solo-version }} -g
-          SOLO_INSTALLED=$(solo --version)
+          # Extract version number only (strip decorative banners)
+          SOLO_INSTALLED=$(solo --version 2>/dev/null | grep -E "^Version" | awk '{print $3}')
           echo "Solo version: ${SOLO_INSTALLED}"
           echo "solo_version=${SOLO_INSTALLED}" >> "${GITHUB_OUTPUT}"
 
@@ -195,8 +196,8 @@ jobs:
 
       - name: Show running pods and services
         run: |
-          kubectl get pods -n ${NAMESPACE}
-          kubectl get svc -n ${NAMESPACE}
+          kubectl --context "${CONTEXT}" get pods -n ${NAMESPACE}
+          kubectl --context "${CONTEXT}" get svc -n ${NAMESPACE}
 
       # Port forwards - dynamically discover and forward all nodes
       - name: Solo Port forwards
@@ -519,11 +520,15 @@ jobs:
       - name: Collect BN and MN Logs
         if: always()
         run: |
-          # Get BN Logs
-          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=block-node-1" --all-containers --since=24h --timestamps --prefix --tail=-1 > bn0-logs.log
+          # Get BN Logs (graceful fallback if cluster is gone)
+          kubectl --context "${CONTEXT}" logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=block-node-1" \
+            --all-containers --since=24h --timestamps --prefix --tail=-1 > bn0-logs.log 2>&1 || \
+            echo "Failed to collect BN logs (cluster may be unavailable)" > bn0-logs.log
 
           # Get MN Logs
-          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" --all-containers --since=24h --timestamps --prefix --tail=-1 > mn0-logs.log
+          kubectl --context "${CONTEXT}" logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" \
+            --all-containers --since=24h --timestamps --prefix --tail=-1 > mn0-logs.log 2>&1 || \
+            echo "Failed to collect MN logs (cluster may be unavailable)" > mn0-logs.log
 
       - name: Collect CN Logs
         if: always()
