@@ -95,12 +95,12 @@ tolerations: []
 affinity: {}
 
 plugins:
-    volumeName: "plugins"
-    size: 2Gi
-    enabled: true
-    baseUrl: "https://repo1.maven.org/maven2/org/hiero/block-node"
-    version: "0.25.0-rc1"
-    names: ""
+  volumeName: "plugins"
+  size: 2Gi
+  enabled: true
+  baseUrl: "https://repo1.maven.org/maven2/org/hiero/block-node"
+  version: "0.25.0-rc1"
+  names: ""
 
 blockNode:
   # Optional hostPort mappings keyed by container port name.
