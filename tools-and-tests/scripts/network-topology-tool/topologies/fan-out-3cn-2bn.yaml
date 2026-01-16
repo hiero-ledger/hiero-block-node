@@ -21,10 +21,12 @@ block_nodes:
     address: block-node-1
     port: 40840
     peers: [block-node-2]
+    greedy: true
   block-node-2:
     address: block-node-2
     port: 40840
     peers: [block-node-1]
+    greedy: true
 
 consensus_nodes:
   node1:

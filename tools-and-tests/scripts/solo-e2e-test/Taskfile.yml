@@ -304,7 +304,9 @@ tasks:
     desc: "Full setup - create cluster, deploy network, start port-forwards (use TOPOLOGY=<name>)"
     cmds:
       - task: cluster:create
+        vars: { TOPOLOGY: "{{.TOPOLOGY}}" }
       - task: network:deploy
+        vars: { TOPOLOGY: "{{.TOPOLOGY}}" }
       - task: port-forward
       - |
         echo ""

@@ -164,7 +164,7 @@ done
 [[ -z "${NAMESPACE}" ]] && fail "ERROR: --namespace is required" 1
 [[ -z "${CLUSTER_REF}" ]] && fail "ERROR: --cluster-ref is required" 1
 
-# Load topology from YAML file (PR #1834 schema format)
+# Load topology from YAML file
 function load_topology {
   local topology_name="${1}"
   local topology_file="${TOPOLOGIES_DIR}/${topology_name}.yaml"

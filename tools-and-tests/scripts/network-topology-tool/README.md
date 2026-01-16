@@ -55,6 +55,7 @@ block_nodes:
   block-node-1:
     address: block-node-1
     port: 40840
+    greedy: false  # Enable greedy backfill mode (defaults to false)
 
 consensus_nodes:
   node1:
@@ -114,13 +115,13 @@ Generate Helm values overlays from topology files for Solo CLI deployments.
 
 ### Block Node Overlay
 
-Generated for block nodes that have `peers` configured. Enables backfill with greedy mode:
+Generated for block nodes that have `peers` configured. The `greedy` value comes from the topology (defaults to false):
 
 ```yaml
 blockNode:
   config:
     BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
-    BACKFILL_GREEDY: "true"
+    BACKFILL_GREEDY: "false"  # Value from topology's greedy field
   backfill:
     path: "/opt/hiero/block-node/backfill"
     filename: "block-node-sources.json"
