@@ -254,11 +254,15 @@ jobs:
         working-directory: protobuf-sources
         run: |
           mkdir -p proto
-          BN_VERSION="${{ steps.versions.outputs.bn_version }}"
-          # Remove -SNAPSHOT suffix if present for protobuf lookup
-          PROTO_TAG="${BN_VERSION%-SNAPSHOT}"
-          PROTO_TAG="${PROTO_TAG#v}"
-          tar -xzf block-node-protobuf-${PROTO_TAG}.tgz -C proto
+          # Use the generated protobuf artifact (matches local project version)
+          PROTO_FILE=$(ls block-node-protobuf-*.tgz 2>/dev/null | head -1)
+          if [[ -z "$PROTO_FILE" ]]; then
+            echo "Error: No protobuf artifact found"
+            ls -la
+            exit 1
+          fi
+          echo "Using protobuf artifact: $PROTO_FILE"
+          tar -xzf "$PROTO_FILE" -C proto
 
       - name: Install grpcurl
         run: |
@@ -533,8 +537,9 @@ jobs:
       - name: Collect CN Logs
         if: always()
         run: |
-          # Get CN Logs
-          solo consensus diagnostics all --dev --deployment "${DEPLOYMENT}"
+          # Get CN Logs (Solo 0.52+ uses 'deployment diagnostics' instead of 'consensus diagnostics')
+          solo deployment diagnostics all --dev --deployment "${DEPLOYMENT}" || \
+            echo "Failed to collect CN diagnostics (deployment may be unavailable)"
           BASE="${HOME}/.solo/logs/${NAMESPACE}"
           LOG_FOLDER=$(ls -1d "$BASE"/* | sort -r | head -n1)
           echo "Latest log folder is $LOG_FOLDER"
