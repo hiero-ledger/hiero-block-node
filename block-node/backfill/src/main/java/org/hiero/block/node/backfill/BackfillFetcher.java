@@ -265,7 +265,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                         nodeConfig.address(),
                         attempt,
                         maxRetries,
-                        e.getMessage(),
+                        e.toString(),
                         cause);
                 if (attempt == maxRetries) {
                     markFailure(nodeConfig);
