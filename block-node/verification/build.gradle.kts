@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-plugins { id("org.hiero.gradle.module.library") }
+plugins {
+    id("org.hiero.gradle.module.library")
+    id("com.hedera.pbj.pbj-compiler")
+}
 
 description = "Hiero Block Node Verification Service"
 
@@ -20,3 +23,5 @@ testModuleInfo {
     requires("org.mockito")
     requires("org.junit.jupiter.params")
 }
+
+pbj { generateTestClasses = false }

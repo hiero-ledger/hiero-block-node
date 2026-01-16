@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.DisplayName;
@@ -48,12 +49,15 @@ class TestVerificationHapiVersions {
         final VerificationSession session = assertTimeoutPreemptively(
                 Duration.ofSeconds(2),
                 () -> HapiVersionSessionFactory.createSession(
-                        blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion()),
+                        blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion(), null, null),
                 sampleName + ": creating verification session exceeded time budget");
 
         final VerificationNotification note = assertTimeoutPreemptively(
                 Duration.ofSeconds(3),
-                () -> session.processBlockItems(blockItems),
+                () -> {
+                    BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber);
+                    return session.processBlockItems(blockItemsMessage);
+                },
                 sampleName + ": processing block items exceeded time budget");
 
         // Group assertions for a single, readable failure report per sample
@@ -74,6 +78,12 @@ class TestVerificationHapiVersions {
         final BlockUtils.SampleBlockInfo s2 =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_66_0_BLOCK_10);
 
-        return Stream.of(Arguments.of("HAPI_0_68_0_BLOCK_14", s1), Arguments.of("HAPI_0_66_0_BLOCK_10", s2));
+        final BlockUtils.SampleBlockInfo s3 =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_69_0_BLOCK_240);
+
+        return Stream.of(
+                Arguments.of("HAPI_0_68_0_BLOCK_14", s1), // Disabled due to protobuf mismatch
+                Arguments.of("HAPI_0_66_0_BLOCK_10", s2),
+                Arguments.of("HAPI_0_69_0_BLOCK_240", s3));
     }
 }

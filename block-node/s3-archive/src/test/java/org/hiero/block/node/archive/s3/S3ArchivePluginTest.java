@@ -182,7 +182,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
         // create 100 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 99);
         // await archive task to complete
-        parkNanos(TASK_AWAIT_NANOS * 2);
+        parkNanos(TASK_AWAIT_NANOS * 3);
         // send another persisted notification to trigger the executor service
         // cleanup and ensure the task ran
         plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));

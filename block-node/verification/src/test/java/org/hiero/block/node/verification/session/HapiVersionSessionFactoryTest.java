@@ -37,7 +37,7 @@ class HapiVersionSessionFactoryTest {
     }
 
     private static <T> void assertCreates(SemanticVersion ver, Class<T> expectedType, BlockSource src) {
-        var session = HapiVersionSessionFactory.createSession(123L, src, ver);
+        var session = HapiVersionSessionFactory.createSession(123L, src, ver, null, null);
         assertNotNull(session, "session should not be null");
         assertTrue(
                 expectedType.isInstance(session),
@@ -49,12 +49,12 @@ class HapiVersionSessionFactoryTest {
     // ---------- Version selection tests ----------
 
     static Stream<Arguments> latestImplVersions() {
-        return Stream.of(Arguments.of(sv(0, 68, 0)), Arguments.of(sv(0, 68, 1)));
+        return Stream.of(Arguments.of(sv(0, 69, 0)), Arguments.of(sv(0, 69, 1)));
     }
 
-    @ParameterizedTest(name = ">= 0.68.0 resolves to ExtendedMerkleTreeSession for {0}")
+    @ParameterizedTest(name = ">= 0.69.0 resolves to ExtendedMerkleTreeSession for {0}")
     @MethodSource("latestImplVersions")
-    void selectsLatestImplFor0680AndAbove(SemanticVersion v) {
+    void selectsLatestImplFor0690AndAbove(SemanticVersion v) {
         assertCreates(v, ExtendedMerkleTreeSession.class, blockSource);
     }
 
@@ -65,7 +65,14 @@ class HapiVersionSessionFactoryTest {
                 Arguments.of(sv(0, 65, 0)),
                 Arguments.of(sv(0, 65, 1)),
                 Arguments.of(sv(0, 66, 0)),
-                Arguments.of(sv(0, 67, 999)));
+                Arguments.of(sv(0, 67, 999), Arguments.of(sv(0, 68, 999))));
+    }
+
+    // @todo(1661): Fix this test when upgrading to CN 0.70+
+    @Test
+    @DisplayName("Upcoming changes on 0.70.0 should resolve to DummyVerificationSession")
+    void selectsDummyImplFor0700() {
+        assertCreates(sv(0, 70, 0), DummyVerificationSession.class, blockSource);
     }
 
     @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to DummyVerificationSession for {0}")
@@ -75,10 +82,10 @@ class HapiVersionSessionFactoryTest {
     }
 
     @Test
-    @DisplayName("Boundary: 0.67.x resolves to 0640; 0.68.0 flips to 0680")
+    @DisplayName("Boundary: 0.67.x resolves to Dummy; 0.69.0 flips to ExtendedMerkleTreeSession")
     void boundaryFlipAt0680() {
-        assertCreates(sv(0, 67, 999), DummyVerificationSession.class, blockSource);
-        assertCreates(sv(0, 68, 0), ExtendedMerkleTreeSession.class, blockSource);
+        assertCreates(sv(0, 68, 999), DummyVerificationSession.class, blockSource);
+        assertCreates(sv(0, 69, 0), ExtendedMerkleTreeSession.class, blockSource);
     }
 
     @Test
@@ -86,7 +93,7 @@ class HapiVersionSessionFactoryTest {
     void belowLowestThrows() {
         var ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> HapiVersionSessionFactory.createSession(0L, blockSource, sv(0, 63, 1)));
+                () -> HapiVersionSessionFactory.createSession(0L, blockSource, sv(0, 63, 1), null, null));
         assertTrue(
                 ex.getMessage().toLowerCase().contains("unsupported hapi version"),
                 "message should mention unsupported");
@@ -97,13 +104,17 @@ class HapiVersionSessionFactoryTest {
     @Test
     @DisplayName("Null blockSource throws NPE")
     void nullBlockSourceThrows() {
-        assertThrows(NullPointerException.class, () -> HapiVersionSessionFactory.createSession(0L, null, sv(0, 68, 0)));
+        assertThrows(
+                NullPointerException.class,
+                () -> HapiVersionSessionFactory.createSession(0L, null, sv(0, 68, 0), null, null));
     }
 
     @Test
     @DisplayName("Null hapiVersion throws NPE")
     void nullVersionThrows() {
-        assertThrows(NullPointerException.class, () -> HapiVersionSessionFactory.createSession(0L, blockSource, null));
+        assertThrows(
+                NullPointerException.class,
+                () -> HapiVersionSessionFactory.createSession(0L, blockSource, null, null, null));
     }
 
     @Test
@@ -111,7 +122,7 @@ class HapiVersionSessionFactoryTest {
     void negativeBlockNumberThrows() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> HapiVersionSessionFactory.createSession(-1L, blockSource, sv(0, 68, 0)));
+                () -> HapiVersionSessionFactory.createSession(-1L, blockSource, sv(0, 68, 0), null, null));
     }
 
     // ---------- Smoke tests with different block numbers ----------
@@ -121,9 +132,9 @@ class HapiVersionSessionFactoryTest {
         @Test
         @DisplayName("Uses the same impl regardless of blockNumber (0 and large)")
         void blockNumberDoesNotAffectImpl() {
-            var v = sv(0, 68, 3);
-            var s1 = HapiVersionSessionFactory.createSession(0L, blockSource, v);
-            var s2 = HapiVersionSessionFactory.createSession(9_999_999L, blockSource, v);
+            var v = sv(0, 69, 3);
+            var s1 = HapiVersionSessionFactory.createSession(0L, blockSource, v, null, null);
+            var s2 = HapiVersionSessionFactory.createSession(9_999_999L, blockSource, v, null, null);
 
             assertAll(
                     () -> assertTrue(s1 instanceof ExtendedMerkleTreeSession),

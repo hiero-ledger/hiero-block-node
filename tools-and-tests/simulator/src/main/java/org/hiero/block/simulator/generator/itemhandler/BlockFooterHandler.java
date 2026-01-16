@@ -24,10 +24,11 @@ public class BlockFooterHandler extends AbstractBlockItemHandler {
      * @param previousBlockHash Hash of the previous block
      * @throws NullPointerException if previousBlockHash or currentBlockHash is null
      */
-    public BlockFooterHandler(@NonNull final byte[] previousBlockHash) {
+    public BlockFooterHandler(@NonNull final byte[] previousBlockHash, final byte[] hashOfAllBlockHashesTree) {
         this.previousBlockHash = requireNonNull(previousBlockHash);
         this.previousStateRootHash = new byte[StreamingTreeHasher.HASH_LENGTH];
-        this.hashOfAllBlockHashesTree = new byte[StreamingTreeHasher.HASH_LENGTH];
+        this.hashOfAllBlockHashesTree =
+                hashOfAllBlockHashesTree != null ? hashOfAllBlockHashesTree : new byte[StreamingTreeHasher.HASH_LENGTH];
     }
 
     @Override
