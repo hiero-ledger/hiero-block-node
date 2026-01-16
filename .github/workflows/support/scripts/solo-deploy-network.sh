@@ -112,6 +112,9 @@ SKIP_MIRROR="false"
 SKIP_RELAY="false"
 SKIP_EXPLORER="false"
 
+# Generated overlay directory (set by deploy_block_nodes, used by deploy_mirror_node)
+OVERLAY_DIR=""
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -242,45 +245,6 @@ function generate_node_aliases {
   echo "${aliases}"
 }
 
-# Create Mirror Node values override file for Block Node integration
-function create_mirror_values_override {
-  local bn_count="${1}"
-
-  start_task "Creating Mirror Node values override"
-
-  # Build the nodes list based on BN count
-  local nodes_config=""
-  for ((i = 1; i <= bn_count; i++)); do
-    if [[ -n "${nodes_config}" ]]; then
-      nodes_config="${nodes_config}
-"
-    fi
-    nodes_config="${nodes_config}                        - host: block-node-${i}.${NAMESPACE}.svc.cluster.local
-                          port: 40840"
-  done
-
-  cat > mirror-bn-values.yaml << EOF
-config:
-  hiero:
-    mirror:
-      importer:
-        block:
-          enabled: true
-          nodes:
-${nodes_config}
-          sourceType: BLOCK_NODE
-        downloader:
-          record:
-            enabled: false
-        startDate: 1970-01-01T00:00:00Z
-        stream:
-          maxSubscribeAttempts: 10
-          responseTimeout: 10s
-EOF
-
-  end_task
-}
-
 function deploy_block_nodes {
   log_line ""
   log_line "Deploying Block Nodes"
@@ -294,15 +258,42 @@ function deploy_block_nodes {
     bn_args="${bn_args} --release-tag ${CN_VERSION}"
   fi
 
+  # Generate Helm overlays from topology
+  local overlay_dir
+  overlay_dir=$(mktemp -d)
+  local generator_script="${TOPOLOGIES_DIR}/../generate-chart-values-config-overlays.sh"
+  local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+
+  [[ ! -x "${generator_script}" ]] && fail "ERROR: Generator script not found: ${generator_script}" 1
+  [[ ! -f "${topology_file}" ]] && fail "ERROR: Topology file not found: ${topology_file}" 1
+
+  start_task "Generating Helm overlays from topology"
+  "${generator_script}" "${topology_file}" \
+    --namespace "${NAMESPACE}" \
+    --output-dir "${overlay_dir}" || fail "ERROR: Failed to generate Helm overlays" 1
+  end_task
+
   for ((i = 1; i <= BN_COUNT; i++)); do
+    local bn_overlay="${overlay_dir}/bn-block-node-${i}-values.yaml"
+    local overlay_args=""
+
+    if [[ -f "${bn_overlay}" ]]; then
+      overlay_args="-f ${bn_overlay}"
+      log_line "  Using backfill overlay for block-node-${i}"
+    fi
+
     start_task "Deploying Block Node ${i}"
     # shellcheck disable=SC2086
     solo block node add \
       --deployment "${DEPLOYMENT}" \
       --cluster-ref "${CLUSTER_REF}" \
-      ${bn_args} || fail "ERROR: Failed to deploy Block Node ${i}" 1
+      ${bn_args} \
+      ${overlay_args} || fail "ERROR: Failed to deploy Block Node ${i}" 1
     end_task
   done
+
+  # Store overlay directory for mirror node deployment
+  OVERLAY_DIR="${overlay_dir}"
 }
 
 function deploy_consensus_nodes {
@@ -358,7 +349,9 @@ function deploy_mirror_node {
   log_line "Deploying Mirror Node"
   log_line "---------------------"
 
-  create_mirror_values_override "${BN_COUNT}"
+  local mn_overlay="${OVERLAY_DIR}/mn-mirror-1-values.yaml"
+  [[ ! -f "${mn_overlay}" ]] && fail "ERROR: Mirror Node overlay not found: ${mn_overlay}" 1
+  log_line "  Using generated overlay: %s" "${mn_overlay}"
 
   local mn_args=""
   if [[ -n "${MN_VERSION}" ]]; then
@@ -373,11 +366,8 @@ function deploy_mirror_node {
     --cluster-ref "${CLUSTER_REF}" \
     --enable-ingress \
     ${mn_args} \
-    -f mirror-bn-values.yaml || fail "ERROR: Failed to deploy Mirror Node" 1
+    -f "${mn_overlay}" || fail "ERROR: Failed to deploy Mirror Node" 1
   end_task
-
-  # Clean up the values file
-  rm -f mirror-bn-values.yaml
 }
 
 function deploy_relay {
@@ -493,6 +483,11 @@ function main {
 
   wait_for_pods
   print_summary
+
+  # Clean up generated overlay directory
+  if [[ -n "${OVERLAY_DIR}" ]] && [[ -d "${OVERLAY_DIR}" ]]; then
+    rm -rf "${OVERLAY_DIR}"
+  fi
 
   log_line ""
   log_line "Network deployment complete!"

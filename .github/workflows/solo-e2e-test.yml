@@ -177,21 +177,11 @@ jobs:
           kubectl get pods -n ${NAMESPACE}
           kubectl get svc -n ${NAMESPACE}
 
-      # Port forwards
+      # Port forwards - dynamically discover and forward all nodes
       - name: Solo Port forwards
         run: |
-          # Port forward for first consensus node (haproxy)
-          kubectl port-forward svc/haproxy-node1-svc -n "${NAMESPACE}" 50211:50211 &
-
-          # Port forward for mirror node services
-          kubectl port-forward svc/mirror-1-monitor -n "${NAMESPACE}" 5600:80 &
-          kubectl port-forward svc/mirror-1-rest -n "${NAMESPACE}" 5551:80 &
-          kubectl port-forward svc/mirror-1-restjava -n "${NAMESPACE}" 8084:80 &
-
-          # Port forward for first block node
-          kubectl port-forward svc/block-node-1 -n "${NAMESPACE}" 40840:40840 &
-
-          sleep 5
+          ${{ github.workspace }}/.github/workflows/support/scripts/solo-port-forward.sh \
+            --namespace "${NAMESPACE}"
 
       # ---- BN verification with grpcurl ----
 
