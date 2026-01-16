@@ -45,6 +45,11 @@ vars:
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
   SOLO_VERSION: '{{.SOLO_VERSION | default "latest"}}'
 
+  # Load generation defaults
+  TPS: '{{.TPS | default "1000"}}'
+  DURATION: '{{.DURATION | default "15m"}}'
+  TEST_CLASS: '{{.TEST_CLASS | default "CryptoTransferLoadTest"}}'
+
 tasks:
   # ============================================================================
   # Prerequisites & Info
@@ -298,6 +303,19 @@ tasks:
       - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/instance=relay-{{.NODE}}" --all-containers -f
 
   # ============================================================================
+  # Load Generation
+  # ============================================================================
+  load:start:
+    desc: "Start NLG load generation (TPS, DURATION, TEST_CLASS)"
+    cmds:
+      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --action start --tps "{{.TPS}}" --duration "{{.DURATION}}" --test-class "{{.TEST_CLASS}}"'
+
+  load:stop:
+    desc: "Stop NLG load generation"
+    cmds:
+      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --action stop'
+
+  # ============================================================================
   # Convenience Tasks
   # ============================================================================
   up:
@@ -334,6 +352,13 @@ tasks:
     cmds:
       - task: up
         vars: { TOPOLOGY: "fan-out-3cn-2bn" }
+
+  up:load:
+    desc: "Full setup with load generation (TPS, DURATION, TEST_CLASS)"
+    cmds:
+      - task: up
+        vars: { TOPOLOGY: "{{.TOPOLOGY}}" }
+      - task: load:start
 
   down:
     desc: Tear down everything - stop port-forwards and destroy cluster
