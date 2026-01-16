@@ -12,12 +12,15 @@ block_nodes:
   block-node-1:
     address: block-node-1
     port: 40840
+    peers: [block-node-2, block-node-3]
   block-node-2:
     address: block-node-2
     port: 40840
+    peers: [block-node-3, block-node-1]
   block-node-3:
     address: block-node-3
     port: 40840
+    peers: [block-node-1, block-node-2]
 
 consensus_nodes:
   node1:
