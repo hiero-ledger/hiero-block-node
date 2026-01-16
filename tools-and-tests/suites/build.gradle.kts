@@ -45,6 +45,10 @@ tasks.register<Test>("runAPISuites") {
     description = "Runs API E2E Test Suites"
     group = "api"
     mainModuleInfo {
+        runtimeOnly("org.hiero.block.node.messaging")
+        runtimeOnly("org.hiero.block.node.health")
+        runtimeOnly("org.hiero.block.node.access.service")
+        runtimeOnly("org.hiero.block.node.server.status")
         runtimeOnly("org.hiero.block.node.archive.s3cloud")
         runtimeOnly("org.hiero.block.node.stream.publisher")
         runtimeOnly("org.hiero.block.node.stream.subscriber")

@@ -106,12 +106,6 @@ mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
-    // In the future, we may get Gradle to automatically infer this block
-    //   https://github.com/gradlex-org/java-module-dependencies/issues/174
-    runtimeOnly("org.hiero.block.node.messaging")
-    runtimeOnly("org.hiero.block.node.health")
-    runtimeOnly("org.hiero.block.node.access.service")
-    runtimeOnly("org.hiero.block.node.server.status")
 }
 
 testModuleInfo {

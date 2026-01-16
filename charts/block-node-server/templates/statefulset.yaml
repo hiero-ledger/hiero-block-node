@@ -120,6 +120,11 @@ spec:
             mountPath: {{ .Values.blockNode.backfill.path }}
             readOnly: true
           {{- end }}
+          {{- if .Values.plugins.enabled }}
+          - name: {{ default "plugins" .Values.plugins.volumeName }}
+            mountPath: /opt/hiero/block-node/app/plugins
+            readOnly: true
+          {{- end }}
         {{- with  .Values.resources }}
         {{- if not (and .limits .requests) }}
           {{- fail "Both resource requests and limits must be specified for containers" }}
@@ -206,4 +211,14 @@ spec:
         {{- if .Values.blockNode.persistence.verification.storageClass }}
         storageClassName: {{ .Values.blockNode.persistence.verification.storageClass }}
         {{- end }}
+    {{- end }}
+    {{- if .Values.plugins.enabled }}
+    - metadata:
+        name: {{ default "plugins" .Values.plugins.volumeName }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.plugins.size }}
     {{- end }}
