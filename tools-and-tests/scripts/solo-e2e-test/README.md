@@ -310,3 +310,39 @@ task cluster:status
 kubectl describe pod <pod-name> -n solo-network
 kubectl logs <pod-name> -n solo-network
 ```
+
+### Backfill Not Working Between Block Nodes
+
+If backfill shows "Unable to reach node" errors but pods are running:
+
+1. **Test TCP connectivity** from the failing pod:
+
+   ```bash
+   # Exec into the pod that can't connect
+   kubectl exec -it -n solo-network block-node-2-0 -- /bin/bash
+
+   # Test TCP to target (curl is usually available, nc may not be)
+   curl -v telnet://block-node-1.solo-network.svc.cluster.local:40840
+   # Success: "Connected to block-node-1..."
+   # Failure: "Could not resolve host" or "Connection refused"
+   ```
+2. **Check service exists**:
+
+   ```bash
+   kubectl get svc -n solo-network | grep block-node
+   ```
+
+### Multi-Node Port Forwarding
+
+When using multi-node topologies, ports are assigned incrementally:
+
+|   Service   | Node 1 | Node 2 | Node 3 |
+|-------------|--------|--------|--------|
+| Block Node  | 40840  | 40841  | 40842  |
+| Mirror REST | 5551   | 5552   | 5553   |
+| Relay       | 7546   | 7547   | 7548   |
+
+```bash
+task verify NODE=2        # Check Block Node 2 on port 40841
+task logs:bn NODE=2       # View Block Node 2 logs
+```
