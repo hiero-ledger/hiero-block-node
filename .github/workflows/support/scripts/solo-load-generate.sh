@@ -7,6 +7,7 @@
 #
 # Options:
 #   --deployment NAME       Solo deployment name (required)
+#   --namespace NAMESPACE   Kubernetes namespace (default: solo-network)
 #   --action start|stop     Action to perform (default: start)
 #   --tps TPS               Approx target TPS (1-20000, default: 10)
 #                           Maps to concurrency/accounts (NLG has no direct TPS control)
@@ -29,12 +30,19 @@ TPS="10"
 DURATION="5m"
 TEST_CLASS="CryptoTransferLoadTest"
 DEPLOYMENT=""
+# Store env var before potentially overriding with --namespace param
+NAMESPACE_ENV="${NAMESPACE:-}"
+NAMESPACE=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --deployment)
             DEPLOYMENT="$2"
+            shift 2
+            ;;
+        --namespace)
+            NAMESPACE="$2"
             shift 2
             ;;
         --action)
@@ -54,7 +62,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help)
-            head -22 "$0" | tail -18
+            head -23 "$0" | tail -19
             exit 0
             ;;
         *)
@@ -92,7 +100,8 @@ if [[ "$ACTION" == "stop" ]]; then
         echo "Solo stop command failed, cleaning up directly..."
         # Fallback: clean up NLG resources directly
         # This handles cases where the NLG container crashed or is unresponsive
-        NAMESPACE="${NAMESPACE:-solo-network}"
+        # Use --namespace param if provided, else NAMESPACE env var, else default
+        NAMESPACE="${NAMESPACE:-${NAMESPACE_ENV:-solo-network}}"
 
         # Delete the Helm release if it exists
         if helm status network-load-generator -n "$NAMESPACE" &>/dev/null; then

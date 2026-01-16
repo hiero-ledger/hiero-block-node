@@ -212,6 +212,7 @@ jobs:
         run: |
           OUTPUT=$(./.github/workflows/support/scripts/solo-load-generate.sh \
             --deployment "${DEPLOYMENT}" \
+            --namespace "${NAMESPACE}" \
             --action start \
             --tps "${{ inputs.load-tps }}" \
             --duration "${{ inputs.load-duration }}" \
@@ -512,6 +513,7 @@ jobs:
         run: |
           ./.github/workflows/support/scripts/solo-load-generate.sh \
             --deployment "${DEPLOYMENT}" \
+            --namespace "${NAMESPACE}" \
             --action stop || true
 
       - name: Collect BN and MN Logs
