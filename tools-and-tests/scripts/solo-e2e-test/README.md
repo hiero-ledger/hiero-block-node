@@ -100,6 +100,23 @@ task logs:cn               # Stream Consensus Node logs
 task logs:mn               # Stream Mirror Node logs
 ```
 
+### Load Generation
+
+```bash
+task load:start            # Start NLG with defaults (10 TPS, 5m)
+task load:start TPS=100 DURATION=10m  # Custom TPS and duration
+task load:start TEST_CLASS=HCSLoadTest  # Use different test class
+task load:status           # Check load generator logs, TODO, fix this, is not showing anything but it works :)
+task load:stop             # Stop load generation
+```
+
+Combined convenience task:
+
+```bash
+task up:load               # Deploy network AND start load generation
+task up:load TPS=100 DURATION=10m  # With custom settings
+```
+
 ### Utilities
 
 ```bash
@@ -191,6 +208,77 @@ cp .env.example .env
 ```bash
 task up TOPOLOGY=paired-3 BN_VERSION=v0.24.0
 ```
+
+## Load Generation
+
+Both the CI workflow and local Taskfile support configurable transaction load generation using Solo's Network Load Generator (NLG). This allows testing at various TPS levels from 1 to 20,000.
+
+### Local Load Generation
+
+```bash
+# Deploy network AND start load in one command
+task up:load TPS=100 DURATION=10m
+
+# Or deploy first, then start load separately
+task up
+task load:start TPS=100 DURATION=10m
+
+# Check load generator status
+task load:status
+
+# Stop load generation
+task load:stop
+```
+
+### CI Workflow Inputs
+
+|      Input       |        Default         |                      Description                      |
+|------------------|------------------------|-------------------------------------------------------|
+| `load-tps`       | `10`                   | Approx TPS (1-20000, 0 to disable). Maps to concurrency/accounts. |
+| `load-duration`  | `5m`                   | Duration (e.g., `5m`, `1h`, `30s`, or plain seconds like `300`) |
+| `load-test-class`| `CryptoTransferLoadTest` | NLG test class to run                               |
+
+> **Note:** NLG doesn't have direct TPS control. The TPS value is used to calculate appropriate concurrency and account counts. Actual throughput depends on network capacity and test class.
+
+### Available Test Classes
+
+|       Test Class        |                  Description                  |
+|-------------------------|-----------------------------------------------|
+| `CryptoTransferLoadTest`| HBAR transfers between accounts (default)     |
+| `HCSLoadTest`           | Hedera Consensus Service message submissions  |
+| `TokenTransferLoadTest` | HTS token transfers                           |
+
+### Example: Running High TPS Test
+
+Via GitHub Actions workflow dispatch:
+
+1. Go to Actions → "Solo E2E Test" → "Run workflow"
+2. Set parameters:
+   - `load-tps`: `1000`
+   - `load-duration`: `10m`
+   - `load-test-class`: `CryptoTransferLoadTest`
+
+### How It Works
+
+The load generator:
+
+1. Deploys the NLG pod into the cluster via `solo rapid-fire load start`
+2. Creates test accounts based on TPS (scales automatically)
+3. Generates transactions using calculated concurrency and accounts
+4. Runs for the specified duration (converted to seconds internally)
+5. Cleans up via `solo rapid-fire load stop`
+
+**NLG Parameters** (passed via `--args`):
+- `-c` = concurrency (parallel clients)
+- `-a` = accounts (test accounts to create)
+- `-t` = time in seconds
+
+### NLG Parameters (Auto-Calculated)
+
+| Parameter   |                  Calculation                  |
+|-------------|-----------------------------------------------|
+| Accounts    | `TPS < 100 ? 10 : TPS / 10`                   |
+| Concurrency | `TPS < 50 ? 5 : (TPS < 500 ? 10 : 32)`        |
 
 ## Topologies
 
