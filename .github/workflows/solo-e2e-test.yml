@@ -34,6 +34,23 @@ on:
         required: false
         default: false
         type: boolean
+      load-tps:
+        description: "Target TPS for load generation (1-20000, 0 to disable load gen and use pinger only)"
+        required: false
+        default: "100"
+      load-duration:
+        description: "Duration for load generation (e.g., '5m' for 5 minutes, '1h' for 1 hour)"
+        required: false
+        default: "5m"
+      load-test-class:
+        description: "NLG test class to run"
+        required: false
+        default: "CryptoTransferLoadTest"
+        type: choice
+        options:
+          - CryptoTransferLoadTest
+          - HCSLoadTest
+          - TokenTransferLoadTest
 
 defaults:
   run:
@@ -183,6 +200,43 @@ jobs:
           ${{ github.workspace }}/.github/workflows/support/scripts/solo-port-forward.sh \
             --namespace "${NAMESPACE}"
 
+      # ---- Load Generation with NLG ----
+
+      # Start load generation if TPS > 0
+      - name: Start NLG Load Generation
+        if: ${{ inputs.load-tps != '0' }}
+        run: |
+          OUTPUT=$(./.github/workflows/support/scripts/solo-load-generate.sh \
+            --deployment "${DEPLOYMENT}" \
+            --action start \
+            --tps "${{ inputs.load-tps }}" \
+            --duration "${{ inputs.load-duration }}" \
+            --test-class "${{ inputs.load-test-class }}")
+          echo "$OUTPUT"
+
+          # Parse output for step summary
+          ACCOUNTS=$(echo "$OUTPUT" | grep "^accounts=" | cut -d= -f2)
+          CONCURRENCY=$(echo "$OUTPUT" | grep "^concurrency=" | cut -d= -f2)
+
+          # Add to step summary
+          {
+            echo "### Load Generation"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---------|-------|"
+            echo "| Test Class | \`${{ inputs.load-test-class }}\` |"
+            echo "| Target TPS | ${{ inputs.load-tps }} |"
+            echo "| Duration | ${{ inputs.load-duration }} |"
+            echo "| Accounts | ${ACCOUNTS} |"
+            echo "| Concurrency | ${CONCURRENCY} |"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Skip load generation (using pinger only)
+        if: ${{ inputs.load-tps == '0' }}
+        run: |
+          echo "Load generation disabled (TPS=0), relying on Mirror Node pinger for minimal transaction generation"
+
       # ---- BN verification with grpcurl ----
 
       # Produce protobuf source artifact
@@ -245,8 +299,32 @@ jobs:
           echo "FIRST_AVAILABLE_BLOCK=$FIRST_AVAILABLE_BLOCK" >> $GITHUB_ENV
           echo "LAST_AVAILABLE_BLOCK=$LAST_AVAILABLE_BLOCK" >> $GITHUB_ENV
 
-      - name: Give some time to produce more blocks
-        run: sleep 200
+      # Wait for load generation to complete and blocks to be produced
+      - name: Wait for load generation to complete
+        run: |
+          DURATION="${{ inputs.load-duration }}"
+          # Parse duration (e.g., "5m" -> 300 seconds, "1h" -> 3600 seconds)
+          if [[ "$DURATION" =~ ^([0-9]+)m$ ]]; then
+            WAIT_SECONDS=$((${BASH_REMATCH[1]} * 60))
+          elif [[ "$DURATION" =~ ^([0-9]+)h$ ]]; then
+            WAIT_SECONDS=$((${BASH_REMATCH[1]} * 3600))
+          elif [[ "$DURATION" =~ ^([0-9]+)s$ ]]; then
+            WAIT_SECONDS=${BASH_REMATCH[1]}
+          else
+            # Default to 5 minutes if parsing fails
+            WAIT_SECONDS=300
+          fi
+
+          # Add 30 seconds buffer for block propagation
+          WAIT_SECONDS=$((WAIT_SECONDS + 30))
+
+          # Minimum wait of 60 seconds
+          if (( WAIT_SECONDS < 60 )); then
+            WAIT_SECONDS=60
+          fi
+
+          echo "Waiting ${WAIT_SECONDS} seconds for load generation to complete..."
+          sleep ${WAIT_SECONDS}
 
       - name: Get first block from Block Node
         run: |
@@ -422,6 +500,15 @@ jobs:
           name: SDK TCK Regression Test Report
           path: "**/sdk-tck/regression/mochawesome-report/mochawesome.*"
           retention-days: 7
+
+      # Stop load generator if it was started
+      - name: Stop NLG Load Generation
+        if: ${{ always() && inputs.load-tps != '0' }}
+        continue-on-error: true
+        run: |
+          ./.github/workflows/support/scripts/solo-load-generate.sh \
+            --deployment "${DEPLOYMENT}" \
+            --action stop || true
 
       - name: Collect BN and MN Logs
         if: always()
