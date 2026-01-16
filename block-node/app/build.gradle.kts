@@ -172,7 +172,7 @@ tasks.register<Exec>("startDockerContainer") {
         "Starts the docker production container of the Block Node Server for the current version"
     group = "docker"
 
-    dependsOn(createDockerImage)
+    dependsOn(createDockerImageCI)
     workingDir(dockerBuildRootDirectory)
     commandLine(
         "sh",

@@ -5,4 +5,3 @@ plugins:
   baseUrl: ""
   version: ""
   names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent"
-
