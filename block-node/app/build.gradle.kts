@@ -11,12 +11,60 @@ description = "Hiero Block Node Server App"
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
+// Adjust the generated start scripts to use the 'lib' and 'plugins' folder for the module path.
+// We need to do this because we want to add selected plugins in 'plugins' and load them
+// via the module path.
+tasks.startScripts {
+    classpath = files()
+    doLast {
+        unixScript.writeText(
+            unixScript
+                .readText()
+                .replace("MODULE_PATH=\n", "MODULE_PATH=\$APP_HOME/lib/:\$APP_HOME/plugins/\n")
+        )
+    }
+}
+
+distributions {
+    main {
+        contents {
+            val pluginsDir = layout.buildDirectory.dir("tmp/plugins")
+
+            from(pluginsDir) { into("plugins") }
+        }
+    }
+}
+
+tasks.distTar {
+    val pluginsDir = layout.buildDirectory.dir("tmp/plugins")
+
+    // We need to put something in the folder. If it is empty we will not have the folder in the tar
+    doFirst {
+        val dir = pluginsDir.get().asFile
+        dir.mkdirs()
+        File(dir, "readme").writeText("")
+    }
+}
+
 tasks.withType<JavaExec>().configureEach {
     modularity.inferModulePath = true
     val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
     environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
     environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
+    mainModuleInfo {
+        runtimeOnly("org.hiero.block.node.messaging")
+        runtimeOnly("org.hiero.block.node.health")
+        runtimeOnly("org.hiero.block.node.access.service")
+        runtimeOnly("org.hiero.block.node.server.status")
+        runtimeOnly("org.hiero.block.node.archive.s3cloud")
+        runtimeOnly("org.hiero.block.node.stream.publisher")
+        runtimeOnly("org.hiero.block.node.stream.subscriber")
+        runtimeOnly("org.hiero.block.node.verification")
+        runtimeOnly("org.hiero.block.node.blocks.files.historic")
+        runtimeOnly("org.hiero.block.node.blocks.files.recent")
+        runtimeOnly("org.hiero.block.node.backfill")
+    }
 }
 
 tasks.register<JavaExec>("runWithCleanStorage") {
@@ -49,20 +97,6 @@ mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
-    // List of all "plugin modules" we might someday need at runtime.
-    // In the future, we may get Gradle to automatically infer this block
-    //   https://github.com/gradlex-org/java-module-dependencies/issues/174
-    runtimeOnly("org.hiero.block.node.archive.s3cloud")
-    runtimeOnly("org.hiero.block.node.messaging")
-    runtimeOnly("org.hiero.block.node.health")
-    runtimeOnly("org.hiero.block.node.stream.publisher")
-    runtimeOnly("org.hiero.block.node.stream.subscriber")
-    runtimeOnly("org.hiero.block.node.verification")
-    runtimeOnly("org.hiero.block.node.blocks.files.historic")
-    runtimeOnly("org.hiero.block.node.blocks.files.recent")
-    runtimeOnly("org.hiero.block.node.access.service")
-    runtimeOnly("org.hiero.block.node.server.status")
-    runtimeOnly("org.hiero.block.node.backfill")
 }
 
 testModuleInfo {
@@ -118,6 +152,19 @@ val createDockerImageCI: TaskProvider<Exec> =
         description =
             "Creates the production docker image of the Block Node Server based on the current version, but with CI optimizations. Intended only for use in CI environments, like running E2E tests!"
         group = "docker"
+        mainModuleInfo {
+            runtimeOnly("org.hiero.block.node.messaging")
+            runtimeOnly("org.hiero.block.node.health")
+            runtimeOnly("org.hiero.block.node.access.service")
+            runtimeOnly("org.hiero.block.node.server.status")
+            runtimeOnly("org.hiero.block.node.archive.s3cloud")
+            runtimeOnly("org.hiero.block.node.stream.publisher")
+            runtimeOnly("org.hiero.block.node.stream.subscriber")
+            runtimeOnly("org.hiero.block.node.verification")
+            runtimeOnly("org.hiero.block.node.blocks.files.historic")
+            runtimeOnly("org.hiero.block.node.blocks.files.recent")
+            runtimeOnly("org.hiero.block.node.backfill")
+        }
 
         dependsOn(copyDockerFolderCI, tasks.assemble)
         workingDir(dockerBuildRootDirectory)
@@ -129,7 +176,7 @@ tasks.register<Exec>("startDockerContainer") {
         "Starts the docker production container of the Block Node Server for the current version"
     group = "docker"
 
-    dependsOn(createDockerImage)
+    dependsOn(createDockerImageCI)
     workingDir(dockerBuildRootDirectory)
     commandLine(
         "sh",
