@@ -232,21 +232,21 @@ task load:stop
 
 ### CI Workflow Inputs
 
-|      Input       |        Default         |                      Description                      |
-|------------------|------------------------|-------------------------------------------------------|
-| `load-tps`       | `10`                   | Approx TPS (1-20000, 0 to disable). Maps to concurrency/accounts. |
-| `load-duration`  | `5m`                   | Duration (e.g., `5m`, `1h`, `30s`, or plain seconds like `300`) |
-| `load-test-class`| `CryptoTransferLoadTest` | NLG test class to run                               |
+|       Input       |         Default          |                            Description                            |
+|-------------------|--------------------------|-------------------------------------------------------------------|
+| `load-tps`        | `10`                     | Approx TPS (1-20000, 0 to disable). Maps to concurrency/accounts. |
+| `load-duration`   | `5m`                     | Duration (e.g., `5m`, `1h`, `30s`, or plain seconds like `300`)   |
+| `load-test-class` | `CryptoTransferLoadTest` | NLG test class to run                                             |
 
 > **Note:** NLG doesn't have direct TPS control. The TPS value is used to calculate appropriate concurrency and account counts. Actual throughput depends on network capacity and test class.
 
 ### Available Test Classes
 
-|       Test Class        |                  Description                  |
-|-------------------------|-----------------------------------------------|
-| `CryptoTransferLoadTest`| HBAR transfers between accounts (default)     |
-| `HCSLoadTest`           | Hedera Consensus Service message submissions  |
-| `TokenTransferLoadTest` | HTS token transfers                           |
+|        Test Class        |                 Description                  |
+|--------------------------|----------------------------------------------|
+| `CryptoTransferLoadTest` | HBAR transfers between accounts (default)    |
+| `HCSLoadTest`            | Hedera Consensus Service message submissions |
+| `TokenTransferLoadTest`  | HTS token transfers                          |
 
 ### Example: Running High TPS Test
 
@@ -275,10 +275,10 @@ The load generator:
 
 ### NLG Parameters (Auto-Calculated)
 
-| Parameter   |                  Calculation                  |
-|-------------|-----------------------------------------------|
-| Accounts    | `TPS < 100 ? 10 : TPS / 10`                   |
-| Concurrency | `TPS < 50 ? 5 : (TPS < 500 ? 10 : 32)`        |
+|  Parameter  |              Calculation               |
+|-------------|----------------------------------------|
+| Accounts    | `TPS < 100 ? 10 : TPS / 10`            |
+| Concurrency | `TPS < 50 ? 5 : (TPS < 500 ? 10 : 32)` |
 
 ## Topologies
 
