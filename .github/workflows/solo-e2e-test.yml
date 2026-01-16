@@ -127,9 +127,12 @@ jobs:
 
       # Install Solo CLI
       - name: Install Solo CLI via npm
+        id: solo
         run: |
           npm i @hashgraph/solo@${{ inputs.solo-version }} -g
-          echo "Solo version: $(solo --version)"
+          SOLO_INSTALLED=$(solo --version)
+          echo "Solo version: ${SOLO_INSTALLED}"
+          echo "solo_version=${SOLO_INSTALLED}" >> "${GITHUB_OUTPUT}"
 
       # Setup cluster using shared script
       - name: Cluster setup (Kind + Solo)
@@ -177,15 +180,16 @@ jobs:
           echo "$OUTPUT" | grep "^bn_count=" >> "${GITHUB_OUTPUT}"
           echo "$OUTPUT" | grep "^node_aliases=" >> "${GITHUB_OUTPUT}"
 
-          # Add to step summary
+          # Add to step summary - comprehensive version summary
           {
-            echo "### Network Deployment"
+            echo "### Component Versions"
             echo ""
-            echo "| Component | Value |"
-            echo "|-----------|-------|"
-            echo "| Consensus Node Version | \`${{ steps.versions.outputs.cn_version }}\` |"
-            echo "| Mirror Node Version | \`${{ steps.versions.outputs.mn_version }}\` |"
-            echo "| Block Node Version | \`${{ steps.versions.outputs.bn_version }}\` |"
+            echo "| Component | Requested | Resolved |"
+            echo "|-----------|-----------|----------|"
+            echo "| Consensus Node | \`${{ inputs.consensus-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.cn_version }}\` |"
+            echo "| Mirror Node | \`${{ inputs.mirror-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.mn_version }}\` |"
+            echo "| Block Node | \`${{ inputs.block-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.bn_version }}\` |"
+            echo "| Solo CLI | \`${{ inputs.solo-version || 'latest' }}\` | \`${{ steps.solo.outputs.solo_version }}\` |"
             echo ""
           } >> "${GITHUB_STEP_SUMMARY}"
 

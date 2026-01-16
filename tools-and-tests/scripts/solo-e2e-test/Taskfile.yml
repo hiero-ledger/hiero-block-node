@@ -168,6 +168,7 @@ tasks:
   # ============================================================================
   network:deploy:
     desc: "Deploy network using topology (default: single)"
+    silent: true
     cmds:
       - |
         # Resolve versions (latest -> actual GA versions)
@@ -177,8 +178,6 @@ tasks:
         CN_RESOLVED=$(echo "$VERSIONS" | grep "^cn_version=" | cut -d= -f2)
         MN_RESOLVED=$(echo "$VERSIONS" | grep "^mn_version=" | cut -d= -f2)
         BN_RESOLVED=$(echo "$VERSIONS" | grep "^bn_version=" | cut -d= -f2)
-
-        echo "Using resolved versions: CN=$CN_RESOLVED, MN=$MN_RESOLVED, BN=$BN_RESOLVED"
 
         "{{.SCRIPTS_DIR}}/solo-deploy-network.sh" \
           --deployment "{{.DEPLOYMENT}}" \
@@ -333,7 +332,6 @@ tasks:
         echo "=========================================="
         echo ""
         echo "Topology: {{.TOPOLOGY}}"
-        echo ""
         echo ""
         echo "Useful commands:"
         echo "  task verify         - Check Block Node status"

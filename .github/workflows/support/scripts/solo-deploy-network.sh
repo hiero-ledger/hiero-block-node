@@ -443,6 +443,7 @@ function print_summary {
   log_line "  Explorer:        %s" "$([[ "${SKIP_EXPLORER}" == "true" ]] && echo "Skipped" || echo "Deployed")"
   log_line ""
   log_line "Versions:"
+  log_line "  Solo CLI:        %s" "$(solo --version 2>/dev/null | grep 'Version' | awk -F': ' '{print $2}' || echo 'unknown')"
   log_line "  CN Version:      %s" "${CN_VERSION:-default}"
   log_line "  MN Version:      %s" "${MN_VERSION:-default}"
   log_line "  BN Version:      %s" "${BN_VERSION:-default}"
