@@ -67,8 +67,8 @@ concurrency:
 env:
   GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
   # Solo ENV
-  DEPLOYMENT: "deployment-network-with-block-node"
-  NAMESPACE: "namespace-network-with-block-node"
+  DEPLOYMENT: "deployment-solo"
+  NAMESPACE: "solo-network"
   CLUSTER_NAME: "solo-cluster"
   CONTEXT: "kind-solo-cluster"
   CLUSTER_REFERENCE: "kind-solo-cluster"
@@ -513,9 +513,7 @@ jobs:
           # Get CN Logs (Solo 0.52+ uses 'deployment diagnostics' instead of 'consensus diagnostics')
           solo deployment diagnostics all --dev --deployment "${DEPLOYMENT}" || \
             echo "Failed to collect CN diagnostics (deployment may be unavailable)"
-          BASE="${HOME}/.solo/logs/${NAMESPACE}"
-          LOG_FOLDER=$(ls -1d "$BASE"/* | sort -r | head -n1)
-          echo "Latest log folder is $LOG_FOLDER"
+          LOG_FOLDER="${HOME}/.solo/logs"
           echo "CN_LOG_FOLDER=$LOG_FOLDER" >> $GITHUB_ENV
           ls -lR "$LOG_FOLDER"
 
