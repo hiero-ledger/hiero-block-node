@@ -63,6 +63,9 @@ properties:
                 - { $ref: "#/$defs/nodeRef" }
                 - { $ref: "#/$defs/nodeLink" }
                 - { $ref: "#/$defs/nodePriorityEntry" }
+          greedy:
+            type: boolean
+            description: "Enable greedy backfill mode (defaults to false)"
 
   consensus_nodes:
     type: object
