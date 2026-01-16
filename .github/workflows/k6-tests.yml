@@ -70,6 +70,12 @@ jobs:
           trap "popd" EXIT
           npm run test
 
+      - name: Display Test Logs
+        run: |
+          pushd ${K6_ROOT} || exit 1
+          trap "popd" EXIT
+          npm run print-logs
+
       - name: Stop Containers
         if: ${{ always() }}
         run: ${GRADLE_EXEC} stopDockerContainer
