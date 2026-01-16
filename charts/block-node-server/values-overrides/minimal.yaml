@@ -1,8 +1,8 @@
 plugins:
-    volumeName: "plugins"
-    size: 2Gi
-    enabled: true
-    baseUrl: ""
-    version: ""
-    names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent"
+  volumeName: "plugins"
+  size: 2Gi
+  enabled: true
+  baseUrl: ""
+  version: ""
+  names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent"
 
