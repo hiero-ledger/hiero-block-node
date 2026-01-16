@@ -309,33 +309,6 @@ jobs:
           echo "FIRST_AVAILABLE_BLOCK=$FIRST_AVAILABLE_BLOCK" >> $GITHUB_ENV
           echo "LAST_AVAILABLE_BLOCK=$LAST_AVAILABLE_BLOCK" >> $GITHUB_ENV
 
-      # Wait for load generation to complete and blocks to be produced
-      - name: Wait for load generation to complete
-        run: |
-          DURATION="${{ inputs.load-duration }}"
-          # Parse duration (e.g., "5m" -> 300 seconds, "1h" -> 3600 seconds)
-          if [[ "$DURATION" =~ ^([0-9]+)m$ ]]; then
-            WAIT_SECONDS=$((${BASH_REMATCH[1]} * 60))
-          elif [[ "$DURATION" =~ ^([0-9]+)h$ ]]; then
-            WAIT_SECONDS=$((${BASH_REMATCH[1]} * 3600))
-          elif [[ "$DURATION" =~ ^([0-9]+)s$ ]]; then
-            WAIT_SECONDS=${BASH_REMATCH[1]}
-          else
-            # Default to 5 minutes if parsing fails
-            WAIT_SECONDS=300
-          fi
-
-          # Add 30 seconds buffer for block propagation
-          WAIT_SECONDS=$((WAIT_SECONDS + 30))
-
-          # Minimum wait of 60 seconds
-          if (( WAIT_SECONDS < 60 )); then
-            WAIT_SECONDS=60
-          fi
-
-          echo "Waiting ${WAIT_SECONDS} seconds for load generation to complete..."
-          sleep ${WAIT_SECONDS}
-
       - name: Get first block from Block Node
         run: |
           FIRST_BLOCK=$(grpcurl \
