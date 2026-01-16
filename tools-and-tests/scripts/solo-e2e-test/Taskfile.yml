@@ -197,33 +197,9 @@ tasks:
   # Port Forwarding
   # ============================================================================
   port-forward:
-    desc: Set up port forwards for local access
+    desc: Set up port forwards for local access (supports multiple BNs/MNs/Relays/Explorers)
     cmds:
-      - |
-        echo "Waiting for services to be ready..."
-        kubectl wait --for=condition=ready pod -l app=haproxy-node1 -n "{{.NAMESPACE}}" --timeout=120s 2>/dev/null || true
-        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=block-node-1 -n "{{.NAMESPACE}}" --timeout=120s 2>/dev/null || true
-        kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=rest -n "{{.NAMESPACE}}" --timeout=120s 2>/dev/null || true
-
-        echo "Setting up port forwards..."
-        echo "  Consensus Node (50211) -> localhost:50211"
-        echo "  Block Node (40840) -> localhost:40840"
-        echo "  Mirror REST (80) -> localhost:5551"
-        echo ""
-
-        # Kill any existing port-forwards
-        pkill -f "kubectl port-forward" 2>/dev/null || true
-
-        kubectl port-forward svc/haproxy-node1-svc -n "{{.NAMESPACE}}" 50211:50211 &
-        kubectl port-forward svc/block-node-1 -n "{{.NAMESPACE}}" 40840:40840 &
-        kubectl port-forward svc/mirror-1-rest -n "{{.NAMESPACE}}" 5551:80 &
-
-        sleep 2
-        echo ""
-        echo "Port forwards active. Endpoints:"
-        echo "  Consensus Node: localhost:50211"
-        echo "  Block Node gRPC: localhost:40840"
-        echo "  Mirror REST API: http://localhost:5551"
+      - '"{{.SCRIPTS_DIR}}/solo-port-forward.sh" --namespace "{{.NAMESPACE}}"'
 
   port-forward:stop:
     desc: Stop all port forwards
@@ -237,53 +213,89 @@ tasks:
   # Verification
   # ============================================================================
   verify:
-    desc: Verify Block Node is receiving blocks
+    desc: "Verify Block Node is receiving blocks (NODE=n for specific node, default: 1)"
+    vars:
+      NODE: '{{.NODE | default "1"}}'
     cmds:
       - |
-        echo "Verifying Block Node status..."
+        PORT=$((40839 + {{.NODE}}))
+        echo "Verifying Block Node {{.NODE}} on localhost:${PORT}..."
         if ! command -v grpcurl >/dev/null 2>&1; then
           echo "ERROR: grpcurl not found. Install from: https://github.com/fullstorydev/grpcurl"
           exit 1
         fi
 
-        STATUS=$(grpcurl -plaintext localhost:40840 org.hiero.block.api.BlockNodeService/serverStatus 2>&1) || {
+        STATUS=$(grpcurl -plaintext localhost:${PORT} org.hiero.block.api.BlockNodeService/serverStatus 2>&1) || {
           echo "ERROR: Could not connect to Block Node. Is port-forward running?"
           echo "Run: task port-forward"
           exit 1
         }
 
-        echo "Block Node Status:"
+        echo "Block Node {{.NODE}} Status:"
         echo "$STATUS" | grep -E "(firstAvailableBlock|lastAvailableBlock)" || echo "$STATUS"
 
   verify:mirror:
-    desc: Verify Mirror Node is receiving blocks from Block Node
+    desc: "Verify Mirror Node is receiving blocks (NODE=n for specific node, default: 1)"
+    vars:
+      NODE: '{{.NODE | default "1"}}'
     cmds:
       - |
-        echo "Verifying Mirror Node..."
-        BLOCKS=$(curl -s "http://localhost:5551/api/v1/blocks?limit=5" 2>&1) || {
+        PORT=$((5550 + {{.NODE}}))
+        echo "Verifying Mirror Node {{.NODE}} on localhost:${PORT}..."
+        BLOCKS=$(curl -s "http://localhost:${PORT}/api/v1/blocks?limit=5" 2>&1) || {
           echo "ERROR: Could not connect to Mirror Node. Is port-forward running?"
           exit 1
         }
-        echo "Recent blocks on Mirror Node:"
+        echo "Recent blocks on Mirror Node {{.NODE}}:"
         echo "$BLOCKS" | jq '.blocks[] | {number, timestamp}' 2>/dev/null || echo "$BLOCKS"
+
+  verify:relay:
+    desc: "Verify Relay JSON-RPC endpoint (NODE=n for specific node, default: 1)"
+    vars:
+      NODE: '{{.NODE | default "1"}}'
+    cmds:
+      - |
+        PORT=$((7545 + {{.NODE}}))
+        echo "Verifying Relay {{.NODE}} on localhost:${PORT}..."
+        RESULT=$(curl -s -X POST -H 'Content-Type: application/json' \
+          -d '{"jsonrpc":"2.0","id":"1","method":"eth_chainId","params":[]}' \
+          "http://localhost:${PORT}" 2>&1) || {
+          echo "ERROR: Could not connect to Relay. Is port-forward running?"
+          exit 1
+        }
+        echo "Relay {{.NODE}} Response:"
+        echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
 
   # ============================================================================
   # Logs
   # ============================================================================
   logs:bn:
-    desc: View Block Node logs
+    desc: "View Block Node logs (NODE=n for specific node, default: 1)"
+    vars:
+      NODE: '{{.NODE | default "1"}}'
     cmds:
-      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/name=block-node-1" --all-containers -f
+      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/name=block-node-{{.NODE}}" --all-containers -f
 
   logs:cn:
-    desc: View Consensus Node logs
+    desc: "View Consensus Node logs (NODE=n for specific node, default: 1)"
+    vars:
+      NODE: '{{.NODE | default "1"}}'
     cmds:
-      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/name=network-node1" --all-containers -f
+      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/name=network-node{{.NODE}}" --all-containers -f
 
   logs:mn:
-    desc: View Mirror Node importer logs
+    desc: "View Mirror Node importer logs (NODE=n for specific node, default: 1)"
+    vars:
+      NODE: '{{.NODE | default "1"}}'
     cmds:
-      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" --all-containers -f
+      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/instance=mirror-{{.NODE}},app.kubernetes.io/component=importer" --all-containers -f
+
+  logs:relay:
+    desc: "View Relay logs (NODE=n for specific node, default: 1)"
+    vars:
+      NODE: '{{.NODE | default "1"}}'
+    cmds:
+      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/instance=relay-{{.NODE}}" --all-containers -f
 
   # ============================================================================
   # Convenience Tasks
@@ -302,16 +314,12 @@ tasks:
         echo ""
         echo "Topology: {{.TOPOLOGY}}"
         echo ""
-        echo "Endpoints:"
-        echo "  Block Node gRPC: localhost:40840"
-        echo "  Consensus Node: localhost:50211"
-        echo "  Mirror REST: http://localhost:5551"
         echo ""
         echo "Useful commands:"
-        echo "  task verify       - Check Block Node status"
-        echo "  task logs:bn      - View Block Node logs"
+        echo "  task verify         - Check Block Node status"
+        echo "  task logs:bn        - View Block Node logs"
         echo "  task cluster:status - View pod status"
-        echo "  task down         - Tear down everything"
+        echo "  task down           - Tear down everything"
 
   up:paired:
     desc: Full setup with paired-3 topology (3 CN, 3 BN)

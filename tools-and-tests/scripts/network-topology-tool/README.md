@@ -82,6 +82,97 @@ explorer_nodes:
 check-jsonschema --schemafile network-topology.schema.yaml topologies/single.yaml
 ```
 
+## Helm Overlay Generator
+
+Generate Helm values overlays from topology files for Solo CLI deployments.
+
+### Usage
+
+```bash
+./generate-chart-values-config-overlays.sh <topology-file> [options]
+```
+
+### Arguments
+
+|     Argument      |              Description              |
+|-------------------|---------------------------------------|
+| `<topology-file>` | Path to topology YAML file (required) |
+
+### Options
+
+|     Option     |         Default         |            Description             |
+|----------------|-------------------------|------------------------------------|
+| `--namespace`  | `solo-network`          | Kubernetes namespace for DNS names |
+| `--output-dir` | `./out/<topology-name>` | Directory for output files         |
+
+### Output Files
+
+|        File Pattern        |                      Description                       |
+|----------------------------|--------------------------------------------------------|
+| `bn-<node-id>-values.yaml` | Block Node overlay (only generated for BNs with peers) |
+| `mn-<node-id>-values.yaml` | Mirror Node overlay                                    |
+
+### Block Node Overlay
+
+Generated for block nodes that have `peers` configured. Enables backfill with greedy mode:
+
+```yaml
+blockNode:
+  config:
+    BACKFILL_BLOCK_NODE_SOURCES_PATH: "/opt/hiero/block-node/backfill/block-node-sources.json"
+    BACKFILL_GREEDY: "true"
+  backfill:
+    path: "/opt/hiero/block-node/backfill"
+    filename: "block-node-sources.json"
+    sources:
+      - address: "block-node-2.solo-network.svc.cluster.local"
+        port: 40840
+        priority: 1
+```
+
+### Mirror Node Overlay
+
+Generated for all mirror nodes with their configured block node connections:
+
+```yaml
+config:
+  hiero:
+    mirror:
+      importer:
+        block:
+          enabled: true
+          nodes:
+            - host: block-node-1.solo-network.svc.cluster.local
+              port: 40840
+          sourceType: BLOCK_NODE
+```
+
+### Examples
+
+```bash
+# Generate overlays from a topology file (outputs to ./out/fan-out-3cn-2bn/)
+./generate-chart-values-config-overlays.sh topologies/fan-out-3cn-2bn.yaml
+
+# Specify namespace and custom output directory
+./generate-chart-values-config-overlays.sh topologies/paired-3.yaml --namespace my-ns --output-dir ./overlays
+
+# Results for fan-out topology (default output):
+# ./out/fan-out-3cn-2bn/bn-block-node-1-values.yaml  (backfill from block-node-2)
+# ./out/fan-out-3cn-2bn/bn-block-node-2-values.yaml  (backfill from block-node-1)
+# ./out/fan-out-3cn-2bn/mn-mirror-1-values.yaml      (connects to both BNs)
+```
+
+### Integration with Solo CLI
+
+```bash
+# Generate overlays, then deploy
+./generate-chart-values-config-overlays.sh topologies/fan-out-3cn-2bn.yaml
+solo block node add -d my-deployment -f ./out/fan-out-3cn-2bn/bn-block-node-1-values.yaml
+solo mirror node add -d my-deployment -f ./out/fan-out-3cn-2bn/mn-mirror-1-values.yaml
+```
+
+The `solo-deploy-network.sh` script automatically uses this generator when deploying networks.
+
 ## Usage with Solo E2E Test
 
 The `solo-e2e-test` scripts use these topologies for network deployment:
