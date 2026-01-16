@@ -66,4 +66,4 @@ protobuf-sources/hiero-consensus-node/
 
 node_modules/
 k6-proto/
-k6-out.txt
+k6-out/
