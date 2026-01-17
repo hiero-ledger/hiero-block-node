@@ -291,6 +291,7 @@ jobs:
           FIRST_BLOCK=$(grpcurl \
             -plaintext \
             -emit-defaults \
+            -max-msg-sz 268435456 \
             -import-path protobuf-sources/proto \
             -proto block-node/api/block_access_service.proto \
             -d "{\"block_number\": $FIRST_AVAILABLE_BLOCK}" \
@@ -308,6 +309,7 @@ jobs:
           LAST_BLOCK=$(grpcurl \
             -plaintext \
             -emit-defaults \
+            -max-msg-sz 268435456 \
             -import-path protobuf-sources/proto \
             -proto block-node/api/block_access_service.proto \
             -d "{\"block_number\": $LAST_AVAILABLE_BLOCK}" \
