@@ -137,18 +137,13 @@ jobs:
 
       # Setup cluster using shared script
       - name: Cluster setup (Kind + Solo)
-        id: cluster
         run: |
-          OUTPUT=$(./.github/workflows/support/scripts/solo-setup-cluster.sh \
+          ./.github/workflows/support/scripts/solo-setup-cluster.sh \
             --cluster-name "${CLUSTER_NAME}" \
             --namespace "${NAMESPACE}" \
             --deployment "${DEPLOYMENT}" \
             --topology "${{ inputs.topology }}" \
-            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/network-topology-tool/topologies")
-          echo "$OUTPUT"
-          # Parse output and write to GITHUB_OUTPUT
-          echo "$OUTPUT" | grep "^node_count=" >> "${GITHUB_OUTPUT}"
-          echo "$OUTPUT" | grep "^node_aliases=" >> "${GITHUB_OUTPUT}"
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/network-topology-tool/topologies"
 
           # Add to step summary
           {
@@ -164,9 +159,8 @@ jobs:
 
       # Deploy network using shared script
       - name: Deploy network
-        id: network
         run: |
-          OUTPUT=$(./.github/workflows/support/scripts/solo-deploy-network.sh \
+          ./.github/workflows/support/scripts/solo-deploy-network.sh \
             --deployment "${DEPLOYMENT}" \
             --namespace "${NAMESPACE}" \
             --cluster-ref "${CLUSTER_REFERENCE}" \
@@ -174,12 +168,7 @@ jobs:
             --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/network-topology-tool/topologies" \
             --cn-version "${{ steps.versions.outputs.cn_version }}" \
             --mn-version "${{ steps.versions.outputs.mn_version }}" \
-            --bn-version "${{ steps.versions.outputs.bn_version }}")
-          echo "$OUTPUT"
-          # Parse output and write to GITHUB_OUTPUT
-          echo "$OUTPUT" | grep "^cn_count=" >> "${GITHUB_OUTPUT}"
-          echo "$OUTPUT" | grep "^bn_count=" >> "${GITHUB_OUTPUT}"
-          echo "$OUTPUT" | grep "^node_aliases=" >> "${GITHUB_OUTPUT}"
+            --bn-version "${{ steps.versions.outputs.bn_version }}"
 
           # Add to step summary - comprehensive version summary
           {
