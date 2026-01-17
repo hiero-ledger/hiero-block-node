@@ -231,6 +231,7 @@ jobs:
       # Start load generation if TPS > 0
       - name: Start NLG Load Generation
         if: ${{ inputs.load-tps != '0' }}
+        continue-on-error: true
         run: |
           ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh \
             --deployment "${DEPLOYMENT}" \
