@@ -259,9 +259,9 @@ function deploy_block_nodes {
   fi
 
   # Generate Helm overlays from topology
-  local overlay_dir
-  overlay_dir=$(mktemp -d)
-  local generator_script="${TOPOLOGIES_DIR}/../generate-chart-values-config-overlays.sh"
+  local overlay_dir="${SCRIPT_DIR}/../out"
+  mkdir -p "${overlay_dir}"
+  local generator_script="${TOPOLOGIES_DIR}/../../network-topology-tool/generate-chart-values-config-overlays.sh"
   local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
 
   [[ ! -x "${generator_script}" ]] && fail "ERROR: Generator script not found: ${generator_script}" 1
@@ -484,11 +484,6 @@ function main {
 
   wait_for_pods
   print_summary
-
-  # Clean up generated overlay directory
-  if [[ -n "${OVERLAY_DIR}" ]] && [[ -d "${OVERLAY_DIR}" ]]; then
-    rm -rf "${OVERLAY_DIR}"
-  fi
 
   log_line ""
   log_line "Network deployment complete!"

@@ -39,11 +39,14 @@ block_nodes:
 
 ## Topologies
 
+Production topologies are located in `../solo-e2e-test/topologies/`. Example topologies for trying out the tool are in `./examples/`.
+
 |       Name        | CN | BN |           Description            |
 |-------------------|----|----|----------------------------------|
 | `single`          | 1  | 1  | Minimal setup for basic testing  |
 | `paired-3`        | 3  | 3  | Each CN streams to its paired BN |
 | `fan-out-3cn-2bn` | 3  | 2  | All CNs can stream to all BNs    |
+| `minimal`         | 1  | 1  | No mirror/relay/explorer         |
 
 ## Example
 
@@ -80,7 +83,7 @@ explorer_nodes:
 
 ```bash
 # Install check-jsonschema (pip install check-jsonschema)
-check-jsonschema --schemafile network-topology.schema.yaml topologies/single.yaml
+check-jsonschema --schemafile network-topology.schema.yaml examples/single.yaml
 ```
 
 ## Helm Overlay Generator
@@ -151,11 +154,12 @@ config:
 ### Examples
 
 ```bash
-# Generate overlays from a topology file (outputs to ./out/fan-out-3cn-2bn/)
-./generate-chart-values-config-overlays.sh topologies/fan-out-3cn-2bn.yaml
+# Try the tool with included examples
+./generate-chart-values-config-overlays.sh examples/single.yaml
+./generate-chart-values-config-overlays.sh examples/fan-out-3cn-2bn.yaml
 
 # Specify namespace and custom output directory
-./generate-chart-values-config-overlays.sh topologies/paired-3.yaml --namespace my-ns --output-dir ./overlays
+./generate-chart-values-config-overlays.sh examples/fan-out-3cn-2bn.yaml --namespace my-ns --output-dir ./overlays
 
 # Results for fan-out topology (default output):
 # ./out/fan-out-3cn-2bn/bn-block-node-1-values.yaml  (backfill from block-node-2)
@@ -167,19 +171,21 @@ config:
 
 ```bash
 # Generate overlays, then deploy
-./generate-chart-values-config-overlays.sh topologies/fan-out-3cn-2bn.yaml
+./generate-chart-values-config-overlays.sh examples/fan-out-3cn-2bn.yaml
 solo block node add -d my-deployment -f ./out/fan-out-3cn-2bn/bn-block-node-1-values.yaml
 solo mirror node add -d my-deployment -f ./out/fan-out-3cn-2bn/mn-mirror-1-values.yaml
 ```
 
-The `solo-deploy-network.sh` script automatically uses this generator when deploying networks.
+The `solo-e2e-test/scripts/solo-deploy-network.sh` script automatically uses this generator when deploying networks.
 
 ## Usage with Solo E2E Test
 
-The `solo-e2e-test` scripts use these topologies for network deployment:
+The `solo-e2e-test` directory contains the topologies and scripts:
 
 ```bash
 cd ../solo-e2e-test
-task up TOPOLOGY=single
-task up TOPOLOGY=paired-3
+task up                     # Uses single topology
+task up TOPOLOGY=paired-3   # Uses paired-3 topology
 ```
+
+See `../solo-e2e-test/README.md` for more details.
