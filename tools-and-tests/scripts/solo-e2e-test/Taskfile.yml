@@ -10,29 +10,30 @@
 #   - grpcurl (optional, for verification)
 #
 # Quick start:
-#   1. Copy .env.example to .env and customize (optional)
+#   1. Copy .env.example to .env and set TOPOLOGY (optional)
 #   2. Run: task up
 #   3. When done: task down
 #
-# Available topologies:
-#   task up                       # Uses 'single' topology (1 CN, 1 BN)
-#   task up TOPOLOGY=paired-3     # Uses 'paired-3' topology (3 CN, 3 BN)
-#   task up TOPOLOGY=fan-out-3cn-2bn  # Uses 'fan-out' topology (3 CN, 2 BN)
-#
-# List all topologies:
-#   task topologies
+# Configuration (via .env or environment):
+#   TOPOLOGY      - Network topology (default: single)
+#   CLUSTER_NAME  - Kind cluster name (default: solo-cluster)
+#   CN_VERSION    - Consensus Node version (default: latest)
+#   MN_VERSION    - Mirror Node version (default: latest)
+#   BN_VERSION    - Block Node version (default: latest)
+#   TPS           - Load generation TPS (default: 1000)
+#   DURATION      - Load generation duration (default: 15m)
 
 version: '3'
 
 dotenv: ['.env']
 
 vars:
-  # Path to shared scripts (in CI-approved location)
-  SCRIPTS_DIR: "{{.ROOT_DIR}}/../../../.github/workflows/support/scripts"
-  # Path to topology files (in network-topology-tool)
-  TOPOLOGIES_DIR: "{{.ROOT_DIR}}/../network-topology-tool/topologies"
+  # Paths (now local to solo-e2e-test/)
+  SCRIPTS_DIR: "{{.ROOT_DIR}}/scripts"
+  TOPOLOGIES_DIR: "{{.ROOT_DIR}}/topologies"
+  TOPOLOGY_TOOL_DIR: "{{.ROOT_DIR}}/../network-topology-tool"
 
-  # Defaults (can be overridden by .env or command line)
+  # All config from env with defaults
   TOPOLOGY: '{{.TOPOLOGY | default "single"}}'
   CLUSTER_NAME: '{{.CLUSTER_NAME | default "solo-cluster"}}'
   NAMESPACE: '{{.NAMESPACE | default "solo-network"}}'
@@ -43,7 +44,6 @@ vars:
   CN_VERSION: '{{.CN_VERSION | default "latest"}}'
   MN_VERSION: '{{.MN_VERSION | default "latest"}}'
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
-  SOLO_VERSION: '{{.SOLO_VERSION | default "latest"}}'
 
   # Load generation defaults
   TPS: '{{.TPS | default "1000"}}'
@@ -52,7 +52,7 @@ vars:
 
 tasks:
   # ============================================================================
-  # Prerequisites & Info
+  # Prerequisites
   # ============================================================================
   check:
     desc: Check all prerequisites are installed
@@ -73,42 +73,6 @@ tasks:
         echo "  Kind: $(kind --version)"
         echo "  Solo: $(solo --version)"
     silent: true
-
-  solo:install:
-    desc: "Install or update Solo CLI to specified version (use SOLO_VERSION=x.y.z)"
-    cmds:
-      - |
-        echo "Installing Solo CLI version: {{.SOLO_VERSION}}"
-        npm i @hashgraph/solo@{{.SOLO_VERSION}} -g
-        echo ""
-        echo "Installed:"
-        solo --version
-
-  topologies:
-    desc: List available network topologies
-    cmds:
-      - |
-        echo "Available topologies:"
-        echo ""
-        for f in "{{.TOPOLOGIES_DIR}}"/*.yaml; do
-          if [[ -f "$f" ]]; then
-            name=$(grep "^name:" "$f" | sed 's/name:[[:space:]]*//')
-            desc=$(grep "^description:" "$f" | sed 's/description:[[:space:]]*//' | tr -d '"')
-            printf "  %-20s %s\n" "${name}" "${desc}"
-          fi
-        done
-        echo ""
-        echo "Usage: task up TOPOLOGY=<name>"
-    silent: true
-
-  # ============================================================================
-  # Version Resolution
-  # ============================================================================
-  resolve-versions:
-    desc: Resolve 'latest' versions to actual GA releases
-    cmds:
-      - '{{.SCRIPTS_DIR}}/resolve-versions.sh "{{.CN_VERSION}}" "{{.MN_VERSION}}" "{{.BN_VERSION}}"'
-    silent: false
 
   # ============================================================================
   # Cluster Lifecycle
@@ -144,30 +108,11 @@ tasks:
         kind delete cluster -n "{{.CLUSTER_NAME}}" || true
         echo "Cluster and Solo config cleaned up."
 
-  cluster:status:
-    desc: Show cluster status
-    cmds:
-      - |
-        echo "Cluster Status"
-        echo "=============="
-        echo ""
-        echo "Kind clusters:"
-        kind get clusters
-        echo ""
-        echo "Current kubectl context:"
-        kubectl config current-context
-        echo ""
-        echo "Pods in namespace {{.NAMESPACE}}:"
-        kubectl get pods -n "{{.NAMESPACE}}" 2>/dev/null || echo "  (namespace not found or no pods)"
-        echo ""
-        echo "Services in namespace {{.NAMESPACE}}:"
-        kubectl get svc -n "{{.NAMESPACE}}" 2>/dev/null || echo "  (namespace not found or no services)"
-
   # ============================================================================
   # Network Deployment
   # ============================================================================
   network:deploy:
-    desc: "Deploy network using topology (default: single)"
+    desc: Deploy network using configured topology
     silent: true
     cmds:
       - |
@@ -189,19 +134,11 @@ tasks:
           --mn-version "$MN_RESOLVED" \
           --bn-version "$BN_RESOLVED"
 
-  network:destroy:
-    desc: Destroy the deployed network (keeps cluster)
-    cmds:
-      - |
-        echo "Destroying network deployment..."
-        kubectl delete namespace "{{.NAMESPACE}}" --ignore-not-found
-        echo "Network destroyed. Cluster still running."
-
   # ============================================================================
   # Port Forwarding
   # ============================================================================
   port-forward:
-    desc: Set up port forwards for local access (supports multiple BNs/MNs/Relays/Explorers)
+    desc: Set up port forwards for local access
     cmds:
       - '"{{.SCRIPTS_DIR}}/solo-port-forward.sh" --namespace "{{.NAMESPACE}}"'
 
@@ -229,7 +166,7 @@ tasks:
           exit 1
         fi
 
-        STATUS=$(grpcurl -plaintext localhost:${PORT} org.hiero.block.api.BlockNodeService/serverStatus 2>&1) || {
+        STATUS=$(grpcurl -plaintext -max-msg-sz 104857600 localhost:${PORT} org.hiero.block.api.BlockNodeService/serverStatus 2>&1) || {
           echo "ERROR: Could not connect to Block Node. Is port-forward running?"
           echo "Run: task port-forward"
           exit 1
@@ -237,38 +174,6 @@ tasks:
 
         echo "Block Node {{.NODE}} Status:"
         echo "$STATUS" | grep -E "(firstAvailableBlock|lastAvailableBlock)" || echo "$STATUS"
-
-  verify:mirror:
-    desc: "Verify Mirror Node is receiving blocks (NODE=n for specific node, default: 1)"
-    vars:
-      NODE: '{{.NODE | default "1"}}'
-    cmds:
-      - |
-        PORT=$((5550 + {{.NODE}}))
-        echo "Verifying Mirror Node {{.NODE}} on localhost:${PORT}..."
-        BLOCKS=$(curl -s "http://localhost:${PORT}/api/v1/blocks?limit=5" 2>&1) || {
-          echo "ERROR: Could not connect to Mirror Node. Is port-forward running?"
-          exit 1
-        }
-        echo "Recent blocks on Mirror Node {{.NODE}}:"
-        echo "$BLOCKS" | jq '.blocks[] | {number, timestamp}' 2>/dev/null || echo "$BLOCKS"
-
-  verify:relay:
-    desc: "Verify Relay JSON-RPC endpoint (NODE=n for specific node, default: 1)"
-    vars:
-      NODE: '{{.NODE | default "1"}}'
-    cmds:
-      - |
-        PORT=$((7545 + {{.NODE}}))
-        echo "Verifying Relay {{.NODE}} on localhost:${PORT}..."
-        RESULT=$(curl -s -X POST -H 'Content-Type: application/json' \
-          -d '{"jsonrpc":"2.0","id":"1","method":"eth_chainId","params":[]}' \
-          "http://localhost:${PORT}" 2>&1) || {
-          echo "ERROR: Could not connect to Relay. Is port-forward running?"
-          exit 1
-        }
-        echo "Relay {{.NODE}} Response:"
-        echo "$RESULT" | jq . 2>/dev/null || echo "$RESULT"
 
   # ============================================================================
   # Logs
@@ -280,50 +185,27 @@ tasks:
     cmds:
       - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/name=block-node-{{.NODE}}" --all-containers -f
 
-  logs:cn:
-    desc: "View Consensus Node logs (NODE=n for specific node, default: 1)"
-    vars:
-      NODE: '{{.NODE | default "1"}}'
-    cmds:
-      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/name=network-node{{.NODE}}" --all-containers -f
-
-  logs:mn:
-    desc: "View Mirror Node importer logs (NODE=n for specific node, default: 1)"
-    vars:
-      NODE: '{{.NODE | default "1"}}'
-    cmds:
-      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/instance=mirror-{{.NODE}},app.kubernetes.io/component=importer" --all-containers -f
-
-  logs:relay:
-    desc: "View Relay logs (NODE=n for specific node, default: 1)"
-    vars:
-      NODE: '{{.NODE | default "1"}}'
-    cmds:
-      - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/instance=relay-{{.NODE}}" --all-containers -f
-
   # ============================================================================
   # Load Generation
   # ============================================================================
   load:start:
-    desc: "Start NLG load generation (TPS, DURATION, TEST_CLASS)"
+    desc: Start NLG load generation
     cmds:
       - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --namespace "{{.NAMESPACE}}" --action start --tps "{{.TPS}}" --duration "{{.DURATION}}" --test-class "{{.TEST_CLASS}}"'
 
   load:stop:
-    desc: "Stop NLG load generation"
+    desc: Stop NLG load generation
     cmds:
       - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --namespace "{{.NAMESPACE}}" --action stop'
 
   # ============================================================================
-  # Convenience Tasks
+  # Main Tasks
   # ============================================================================
   up:
-    desc: "Full setup - create cluster, deploy network, start port-forwards (use TOPOLOGY=<name>)"
+    desc: Full setup - create cluster, deploy network, start port-forwards
     cmds:
       - task: cluster:create
-        vars: { TOPOLOGY: "{{.TOPOLOGY}}" }
       - task: network:deploy
-        vars: { TOPOLOGY: "{{.TOPOLOGY}}" }
       - task: port-forward
       - |
         echo ""
@@ -334,29 +216,10 @@ tasks:
         echo "Topology: {{.TOPOLOGY}}"
         echo ""
         echo "Useful commands:"
-        echo "  task verify         - Check Block Node status"
-        echo "  task logs:bn        - View Block Node logs"
-        echo "  task cluster:status - View pod status"
-        echo "  task down           - Tear down everything"
-
-  up:paired:
-    desc: Full setup with paired-3 topology (3 CN, 3 BN)
-    cmds:
-      - task: up
-        vars: { TOPOLOGY: "paired-3" }
-
-  up:fan-out:
-    desc: Full setup with fan-out-3cn-2bn topology (3 CN, 2 BN)
-    cmds:
-      - task: up
-        vars: { TOPOLOGY: "fan-out-3cn-2bn" }
-
-  up:load:
-    desc: "Full setup with load generation (TPS, DURATION, TEST_CLASS)"
-    cmds:
-      - task: up
-        vars: { TOPOLOGY: "{{.TOPOLOGY}}" }
-      - task: load:start
+        echo "  task verify     - Check Block Node status"
+        echo "  task logs:bn    - View Block Node logs"
+        echo "  task load:start - Start load generation"
+        echo "  task down       - Tear down everything"
 
   down:
     desc: Tear down everything - stop port-forwards and destroy cluster
@@ -366,9 +229,3 @@ tasks:
       - |
         echo ""
         echo "All resources cleaned up."
-
-  restart:
-    desc: Restart the network (destroy and recreate)
-    cmds:
-      - task: down
-      - task: up

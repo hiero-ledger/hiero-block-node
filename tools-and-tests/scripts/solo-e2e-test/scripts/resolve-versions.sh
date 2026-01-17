@@ -145,10 +145,6 @@ function main {
 
   log_line ""
   log_line "Resolved versions:"
-  log_line "  cn_version = %s" "${cn_resolved}"
-  log_line "  mn_version = %s" "${mn_resolved}"
-  log_line "  bn_version = %s" "${bn_resolved}"
-
   # Output key=value pairs to stdout for capture by caller
   echo "cn_version=${cn_resolved}"
   echo "mn_version=${mn_resolved}"
