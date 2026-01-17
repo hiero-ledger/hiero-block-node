@@ -9,8 +9,8 @@
 #   --deployment NAME       Solo deployment name (required)
 #   --namespace NAMESPACE   Kubernetes namespace (default: solo-network)
 #   --action start|stop     Action to perform (default: start)
-#   --tps TPS               Approx target TPS (1-20000, default: 10)
-#                           Maps to concurrency/accounts (NLG has no direct TPS control)
+#   --tps TPS               Target TPS (1-20000, default: 10)
+#                           Used for RateLimitedQueue and maps to accounts/concurrency
 #   --duration DURATION     Duration (e.g., 5m, 1h, 30s, 300, default: 5m)
 #   --test-class CLASS      NLG test class (default: CryptoTransferLoadTest)
 #   --help                  Show help
@@ -177,19 +177,24 @@ else
     ACCOUNTS=$((TPS / 10))
 fi
 
-# Calculate concurrency based on TPS
-if [[ "$TPS" -lt 50 ]]; then
-    CONCURRENCY=5
-elif [[ "$TPS" -lt 500 ]]; then
-    CONCURRENCY=10
+# Calculate concurrency (capped at 16, scale with accounts instead)
+if [[ "$TPS" -lt 100 ]]; then
+    CONCURRENCY=8
 else
-    CONCURRENCY=32
+    CONCURRENCY=16
 fi
+
+# Create Helm values file for JVM properties (-D must be set before class, not via --args)
+VALUES_FILE=$(mktemp /tmp/nlg-values-XXXXXX.yaml)
+cat > "$VALUES_FILE" <<EOF
+networkLoadGenerator:
+  javaOpts: "-Dbenchmark.maxtps=${TPS}"
+EOF
 
 echo "Starting NLG load generation..."
 echo "  Deployment:  $DEPLOYMENT"
 echo "  Test class:  $TEST_CLASS"
-echo "  Target TPS:  $TPS (approx, mapped to concurrency/accounts)"
+echo "  Target TPS:  $TPS"
 echo "  Duration:    $DURATION ($DURATION_SECONDS seconds)"
 echo "  Accounts:    $ACCOUNTS"
 echo "  Concurrency: $CONCURRENCY"
@@ -198,12 +203,16 @@ echo "  Concurrency: $CONCURRENCY"
 # Note: NLG runs in the background inside the cluster
 # Args quoting: Solo requires single quotes outside, double quotes inside
 # See: https://github.com/hiero-ledger/solo/blob/main/examples/rapid-fire/Taskfile.yml
-# CryptoTransferLoadTest parameters: -c (concurrency), -a (accounts), -t (seconds), -R (randomize)
+# CryptoTransferLoadTest parameters: -c (concurrency), -a (accounts), -t (seconds)
 solo rapid-fire load start \
     --deployment "$DEPLOYMENT" \
     --test "$TEST_CLASS" \
     --args '"-c '"${CONCURRENCY}"' -a '"${ACCOUNTS}"' -t '"${DURATION_SECONDS}"'"' \
+    --values-file "$VALUES_FILE" \
     --quiet-mode
+
+# Clean up temp file
+rm -f "$VALUES_FILE"
 
 # Output structured data for callers
 echo ""
