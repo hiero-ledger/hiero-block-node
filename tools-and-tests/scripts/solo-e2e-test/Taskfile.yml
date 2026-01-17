@@ -28,12 +28,12 @@ version: '3'
 dotenv: ['.env']
 
 vars:
-  # Paths (now local to solo-e2e-test/)
+  # Paths (relative to this Taskfile)
   SCRIPTS_DIR: "{{.ROOT_DIR}}/scripts"
   TOPOLOGIES_DIR: "{{.ROOT_DIR}}/topologies"
-  TOPOLOGY_TOOL_DIR: "{{.ROOT_DIR}}/../network-topology-tool"
+  TOPOLOGY_TOOL: "{{.ROOT_DIR}}/../network-topology-tool"
 
-  # All config from env with defaults
+  # Config with defaults (override via .env or environment)
   TOPOLOGY: '{{.TOPOLOGY | default "single"}}'
   CLUSTER_NAME: '{{.CLUSTER_NAME | default "solo-cluster"}}'
   NAMESPACE: '{{.NAMESPACE | default "solo-network"}}'
@@ -47,7 +47,7 @@ vars:
 
   # Load generation defaults
   TPS: '{{.TPS | default "1000"}}'
-  DURATION: '{{.DURATION | default "15m"}}'
+  DURATION: '{{.DURATION | default "5m"}}'
   TEST_CLASS: '{{.TEST_CLASS | default "CryptoTransferLoadTest"}}'
 
 tasks:
@@ -188,12 +188,12 @@ tasks:
   # ============================================================================
   # Load Generation
   # ============================================================================
-  load:start:
+  load:up:
     desc: Start NLG load generation
     cmds:
       - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --namespace "{{.NAMESPACE}}" --action start --tps "{{.TPS}}" --duration "{{.DURATION}}" --test-class "{{.TEST_CLASS}}"'
 
-  load:stop:
+  load:down:
     desc: Stop NLG load generation
     cmds:
       - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --namespace "{{.NAMESPACE}}" --action stop'
@@ -218,7 +218,7 @@ tasks:
         echo "Useful commands:"
         echo "  task verify     - Check Block Node status"
         echo "  task logs:bn    - View Block Node logs"
-        echo "  task load:start - Start load generation"
+        echo "  task load:up    - Start load generation"
         echo "  task down       - Tear down everything"
 
   down:
