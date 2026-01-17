@@ -205,6 +205,38 @@ jobs:
           ${{ github.workspace }}/.github/workflows/support/scripts/solo-port-forward.sh \
             --namespace "${NAMESPACE}"
 
+      # ---- BN verification with grpcurl ----
+
+      # Produce protobuf source artifact
+      - name: Produce Protobuf proto artifact
+        run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
+
+      # Untar protobuf sources
+      - name: Untar Protobuf Sources
+        working-directory: protobuf-sources
+        run: |
+          mkdir -p proto
+          # Use the generated protobuf artifact (matches local project version)
+          PROTO_FILE=$(ls block-node-protobuf-*.tgz 2>/dev/null | head -1)
+          if [[ -z "$PROTO_FILE" ]]; then
+            echo "Error: No protobuf artifact found"
+            ls -la
+            exit 1
+          fi
+          echo "Using protobuf artifact: $PROTO_FILE"
+          tar -xzf "$PROTO_FILE" -C proto
+
+      - name: Install grpcurl
+        run: |
+          curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
+          sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
+          rm grpcurl.tar.gz
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
       # ---- Load Generation with NLG ----
 
       # Start load generation if TPS > 0
@@ -237,43 +269,6 @@ jobs:
             echo "| Concurrency | ${CONCURRENCY} |"
             echo ""
           } >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Skip load generation (using pinger only)
-        if: ${{ inputs.load-tps == '0' }}
-        run: |
-          echo "Load generation disabled (TPS=0), relying on Mirror Node pinger for minimal transaction generation"
-
-      # ---- BN verification with grpcurl ----
-
-      # Produce protobuf source artifact
-      - name: Produce Protobuf proto artifact
-        run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
-
-      # Untar protobuf sources
-      - name: Untar Protobuf Sources
-        working-directory: protobuf-sources
-        run: |
-          mkdir -p proto
-          # Use the generated protobuf artifact (matches local project version)
-          PROTO_FILE=$(ls block-node-protobuf-*.tgz 2>/dev/null | head -1)
-          if [[ -z "$PROTO_FILE" ]]; then
-            echo "Error: No protobuf artifact found"
-            ls -la
-            exit 1
-          fi
-          echo "Using protobuf artifact: $PROTO_FILE"
-          tar -xzf "$PROTO_FILE" -C proto
-
-      - name: Install grpcurl
-        run: |
-          curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
-          sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
-          rm grpcurl.tar.gz
-
-      - name: Install jq
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
 
       # Verify the BN is getting blocks
       - name: Get ServerStatus from Block Node
