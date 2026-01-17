@@ -228,7 +228,7 @@ jobs:
 
       # ---- Load Generation with NLG ----
 
-      # Start load generation if TPS > 0
+      # Start load generation
       - name: Start NLG Load Generation
         if: ${{ inputs.load-tps != '0' }}
         continue-on-error: true
