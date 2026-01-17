@@ -171,30 +171,25 @@ if [[ "$VALID" == "false" ]]; then
 fi
 
 # Calculate accounts based on TPS (minimum 10, scale with TPS)
+# todo, ask alex how this really works and affects the test.
 if [[ "$TPS" -lt 100 ]]; then
     ACCOUNTS=10
 else
     ACCOUNTS=$((TPS / 10))
 fi
 
-# Calculate concurrency (capped at 16, scale with accounts instead)
-if [[ "$TPS" -lt 100 ]]; then
-    CONCURRENCY=8
+# Calculate concurrency
+# todo, ask alex how this really works and affects the test.
+if [[ "$TPS" -lt 1000 ]]; then
+    CONCURRENCY=5
 else
-    CONCURRENCY=16
+    CONCURRENCY=8
 fi
-
-# Create Helm values file for JVM properties (-D must be set before class, not via --args)
-VALUES_FILE=$(mktemp /tmp/nlg-values-XXXXXX.yaml)
-cat > "$VALUES_FILE" <<EOF
-networkLoadGenerator:
-  javaOpts: "-Dbenchmark.maxtps=${TPS}"
-EOF
 
 echo "Starting NLG load generation..."
 echo "  Deployment:  $DEPLOYMENT"
 echo "  Test class:  $TEST_CLASS"
-echo "  Target TPS:  $TPS"
+echo "  Target TPS:  ~$TPS (via accounts/concurrency)"
 echo "  Duration:    $DURATION ($DURATION_SECONDS seconds)"
 echo "  Accounts:    $ACCOUNTS"
 echo "  Concurrency: $CONCURRENCY"
@@ -204,15 +199,12 @@ echo "  Concurrency: $CONCURRENCY"
 # Args quoting: Solo requires single quotes outside, double quotes inside
 # See: https://github.com/hiero-ledger/solo/blob/main/examples/rapid-fire/Taskfile.yml
 # CryptoTransferLoadTest parameters: -c (concurrency), -a (accounts), -t (seconds)
+# TODO: Add -Dbenchmark.maxtps support when NLG chart supports JAVA_OPTS env var
 solo rapid-fire load start \
     --deployment "$DEPLOYMENT" \
     --test "$TEST_CLASS" \
     --args '"-c '"${CONCURRENCY}"' -a '"${ACCOUNTS}"' -t '"${DURATION_SECONDS}"'"' \
-    --values-file "$VALUES_FILE" \
     --quiet-mode
-
-# Clean up temp file
-rm -f "$VALUES_FILE"
 
 # Output structured data for callers
 echo ""
