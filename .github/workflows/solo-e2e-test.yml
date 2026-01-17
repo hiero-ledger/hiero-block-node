@@ -115,7 +115,7 @@ jobs:
       - name: Resolve component versions
         id: versions
         run: |
-          OUTPUT=$(./.github/workflows/support/scripts/resolve-versions.sh \
+          OUTPUT=$(./tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh \
             "${{ inputs.consensus-node-version }}" \
             "${{ inputs.mirror-node-version }}" \
             "${{ inputs.block-node-version }}")
@@ -138,12 +138,12 @@ jobs:
       # Setup cluster using shared script
       - name: Cluster setup (Kind + Solo)
         run: |
-          ./.github/workflows/support/scripts/solo-setup-cluster.sh \
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-setup-cluster.sh \
             --cluster-name "${CLUSTER_NAME}" \
             --namespace "${NAMESPACE}" \
             --deployment "${DEPLOYMENT}" \
             --topology "${{ inputs.topology }}" \
-            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/network-topology-tool/topologies"
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies"
 
           # Add to step summary
           {
@@ -160,12 +160,12 @@ jobs:
       # Deploy network using shared script
       - name: Deploy network
         run: |
-          ./.github/workflows/support/scripts/solo-deploy-network.sh \
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-deploy-network.sh \
             --deployment "${DEPLOYMENT}" \
             --namespace "${NAMESPACE}" \
             --cluster-ref "${CLUSTER_REFERENCE}" \
             --topology "${{ inputs.topology }}" \
-            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/network-topology-tool/topologies" \
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
             --cn-version "${{ steps.versions.outputs.cn_version }}" \
             --mn-version "${{ steps.versions.outputs.mn_version }}" \
             --bn-version "${{ steps.versions.outputs.bn_version }}"
@@ -191,7 +191,7 @@ jobs:
       # Port forwards - dynamically discover and forward all nodes
       - name: Solo Port forwards
         run: |
-          ${{ github.workspace }}/.github/workflows/support/scripts/solo-port-forward.sh \
+          ${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/scripts/solo-port-forward.sh \
             --namespace "${NAMESPACE}"
 
       # ---- BN verification with grpcurl ----
@@ -232,7 +232,7 @@ jobs:
       - name: Start NLG Load Generation
         if: ${{ inputs.load-tps != '0' }}
         run: |
-          ./.github/workflows/support/scripts/solo-load-generate.sh \
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh \
             --deployment "${DEPLOYMENT}" \
             --namespace "${NAMESPACE}" \
             --action start \
@@ -468,7 +468,7 @@ jobs:
         if: ${{ always() && inputs.load-tps != '0' }}
         continue-on-error: true
         run: |
-          ./.github/workflows/support/scripts/solo-load-generate.sh \
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh \
             --deployment "${DEPLOYMENT}" \
             --namespace "${NAMESPACE}" \
             --action stop || true

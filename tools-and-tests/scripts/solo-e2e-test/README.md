@@ -4,15 +4,27 @@ Deploy Hiero networks locally for development and testing using [Solo CLI](https
 
 ## Why This Exists
 
-The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks for end-to-end testing. This Taskfile provides **the same deployment locally** by calling the same shared scripts that CI uses.
+The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks for end-to-end testing. This directory is **self-contained** with all scripts and topologies needed for both local development and CI.
 
 ```
 +---------------------------------------------------------------------+
-|                     Shared Scripts                                  |
-|  .github/workflows/support/scripts/                                 |
-|  +-- resolve-versions.sh    (resolve 'latest' -> actual tags)       |
-|  +-- solo-setup-cluster.sh  (create cluster, init Solo)             |
-|  +-- solo-deploy-network.sh (deploy BN, CN, MN, Relay)              |
+|                     solo-e2e-test/                                  |
+|  (Self-contained test environment)                                  |
+|                                                                     |
+|  +-- scripts/                                                       |
+|  |   +-- resolve-versions.sh    (resolve 'latest' -> actual tags)   |
+|  |   +-- solo-setup-cluster.sh  (create cluster, init Solo)         |
+|  |   +-- solo-deploy-network.sh (deploy BN, CN, MN, Relay)          |
+|  |   +-- solo-load-generate.sh  (NLG load generation)               |
+|  |   +-- solo-port-forward.sh   (kubectl port forwards)             |
+|  |                                                                  |
+|  +-- topologies/                                                    |
+|  |   +-- single.yaml          (1 CN, 1 BN)                          |
+|  |   +-- paired-3.yaml        (3 CN, 3 BN)                          |
+|  |   +-- fan-out-3cn-2bn.yaml (3 CN, 2 BN)                          |
+|  |   +-- minimal.yaml         (1 CN, 1 BN, no mirror/relay)         |
+|  |                                                                  |
+|  +-- Taskfile.yml  (local dev interface)                            |
 +---------------------------------------------------------------------+
            ^                                    ^
            |                                    |
@@ -22,14 +34,6 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks f
     |  task up    |                    |  workflow_      |
     |             |                    |  dispatch       |
     +-------------+                    +-----------------+
-
-+---------------------------------------------------------------------+
-|                     Topology Files                                  |
-|  tools-and-tests/scripts/network-topology-tool/topologies/          |
-|  +-- single.yaml          (1 CN, 1 BN)                              |
-|  +-- paired-3.yaml        (3 CN, 3 BN)                              |
-|  +-- fan-out-3cn-2bn.yaml (3 CN, 2 BN)                              |
-+---------------------------------------------------------------------+
 ```
 
 **Benefits:**
@@ -282,13 +286,14 @@ The load generator:
 
 ## Topologies
 
-Topologies define network configuration. Located in `../network-topology-tool/topologies/`.
+Topologies define network configuration. Located in `./topologies/`.
 
 |       Name        | CN | BN |               Use Case               |
 |-------------------|----|----|--------------------------------------|
 | `single`          | 1  | 1  | Basic testing, fastest startup       |
 | `paired-3`        | 3  | 3  | Multi-node testing, each CN->BN pair |
 | `fan-out-3cn-2bn` | 3  | 2  | Redundancy testing, all CNs->all BNs |
+| `minimal`         | 1  | 1  | CN+BN only, no mirror/relay/explorer |
 
 See `../network-topology-tool/README.md` for topology schema details.
 
@@ -300,7 +305,7 @@ See `../network-topology-tool/README.md` for topology schema details.
 task up
   |
   +-> task cluster:create
-  |     +-> solo-setup-cluster.sh
+  |     +-> scripts/solo-setup-cluster.sh
   |           +-- Create Kind cluster
   |           +-- solo init
   |           +-- solo cluster-ref config connect
@@ -308,9 +313,9 @@ task up
   |           +-- solo deployment cluster attach
   |
   +-> task network:deploy
-  |     +-> resolve-versions.sh (latest -> v0.x.y)
-  |     +-> solo-deploy-network.sh
-  |           +-- Load topology YAML
+  |     +-> scripts/resolve-versions.sh (latest -> v0.x.y)
+  |     +-> scripts/solo-deploy-network.sh
+  |           +-- Load topology from topologies/
   |           +-- solo block node add (xBN_COUNT)
   |           +-- solo keys consensus generate
   |           +-- solo consensus network deploy
@@ -321,7 +326,8 @@ task up
   |           +-- solo explorer node add
   |
   +-> task port-forward
-        +-- kubectl port-forward (multiple services)
+        +-> scripts/solo-port-forward.sh
+              +-- kubectl port-forward (multiple services)
 ```
 
 ### CI Workflow Equivalence
@@ -333,15 +339,15 @@ task up
 | `CN_VERSION=v0.68.6`      | `inputs.consensus-node-version`             |
 | `.env` file               | Workflow `env:` block                       |
 
-The CI workflow calls the same scripts:
+The CI workflow calls the same scripts from this directory:
 
 ```yaml
 # CI workflow excerpt
 - name: Setup cluster
-  run: .github/workflows/support/scripts/solo-setup-cluster.sh ...
+  run: ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-setup-cluster.sh ...
 
 - name: Deploy network
-  run: .github/workflows/support/scripts/solo-deploy-network.sh ...
+  run: ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-deploy-network.sh ...
 ```
 
 ## Endpoints
