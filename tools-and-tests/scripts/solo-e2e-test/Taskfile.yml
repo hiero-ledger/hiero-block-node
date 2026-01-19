@@ -20,8 +20,9 @@
 #   CN_VERSION    - Consensus Node version (default: latest)
 #   MN_VERSION    - Mirror Node version (default: latest)
 #   BN_VERSION    - Block Node version (default: latest)
-#   TPS           - Load generation TPS (default: 1000)
-#   DURATION      - Load generation duration (default: 15m)
+#   NLG_CONCURRENCY - NLG -c parameter (default: 5)
+#   NLG_ACCOUNTS    - NLG -a parameter (default: 10)
+#   NLG_DURATION    - NLG -t parameter in seconds (default: 300)
 
 version: '3'
 
@@ -45,10 +46,12 @@ vars:
   MN_VERSION: '{{.MN_VERSION | default "latest"}}'
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
 
-  # Load generation defaults
-  TPS: '{{.TPS | default "1000"}}'
-  DURATION: '{{.DURATION | default "5m"}}'
-  TEST_CLASS: '{{.TEST_CLASS | default "CryptoTransferLoadTest"}}'
+  # NLG load generation parameters (direct, no TPS abstraction)
+  NLG_TEST_CLASS: '{{.NLG_TEST_CLASS | default "CryptoTransferLoadTest"}}'
+  NLG_CONCURRENCY: '{{.NLG_CONCURRENCY | default "5"}}'
+  NLG_ACCOUNTS: '{{.NLG_ACCOUNTS | default "10"}}'
+  NLG_DURATION: '{{.NLG_DURATION | default "300"}}'
+  NLG_EXTRA_ARGS: '{{.NLG_EXTRA_ARGS | default ""}}'
 
 tasks:
   # ============================================================================
@@ -189,14 +192,26 @@ tasks:
   # Load Generation
   # ============================================================================
   load:up:
-    desc: Start NLG load generation
+    desc: "Start NLG (NLG_CONCURRENCY, NLG_ACCOUNTS, NLG_DURATION, NLG_EXTRA_ARGS)"
+    env:
+      DEPLOYMENT: "{{.DEPLOYMENT}}"
+      NAMESPACE: "{{.NAMESPACE}}"
+      NLG_TEST_CLASS: "{{.NLG_TEST_CLASS}}"
+      NLG_CONCURRENCY: "{{.NLG_CONCURRENCY}}"
+      NLG_ACCOUNTS: "{{.NLG_ACCOUNTS}}"
+      NLG_DURATION: "{{.NLG_DURATION}}"
+      NLG_EXTRA_ARGS: "{{.NLG_EXTRA_ARGS}}"
     cmds:
-      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --namespace "{{.NAMESPACE}}" --action start --tps "{{.TPS}}" --duration "{{.DURATION}}" --test-class "{{.TEST_CLASS}}"'
+      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" start'
 
   load:down:
     desc: Stop NLG load generation
+    env:
+      DEPLOYMENT: "{{.DEPLOYMENT}}"
+      NAMESPACE: "{{.NAMESPACE}}"
+      NLG_TEST_CLASS: "{{.NLG_TEST_CLASS}}"
     cmds:
-      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" --deployment "{{.DEPLOYMENT}}" --namespace "{{.NAMESPACE}}" --action stop'
+      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" stop'
 
   # ============================================================================
   # Main Tasks
