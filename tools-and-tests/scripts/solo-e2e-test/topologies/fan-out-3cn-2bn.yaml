@@ -6,12 +6,9 @@
 # Block Nodes can receive blocks from multiple sources.
 # Block Nodes are peers of each other for gossip.
 #
-# Network diagram:
-#   CN1 ----+----> BN1 <---> BN2 <---- Mirror Node
-#           |              ^
-#   CN2 ----+--------------+
-#           |              |
-#   CN3 ----+--------------+
+# CN1,2,3 → BN1 and BN2 (all CNs to both BNs)
+# BN1 ↔ BN2 (backfill)
+# MN ← BN1, BN2
 
 name: fan-out-3cn-2bn
 description: "3 Consensus Nodes, 2 Block Nodes (fan-out streaming)"

@@ -4,6 +4,8 @@
 # This is the simplest configuration for testing Block Node functionality.
 # The Consensus Node streams blocks directly to the Block Node.
 # Mirror Node receives blocks from the Block Node.
+#
+# CN1 → BN1 → MN → Relay, Explorer
 
 name: single
 description: "1 Consensus Node, 1 Block Node, 1 Mirror Node (default)"

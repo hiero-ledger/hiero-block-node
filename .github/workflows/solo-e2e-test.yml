@@ -14,6 +14,8 @@ on:
           - paired-3 # 3 CN, 3 BN
           - fan-out-3cn-2bn # 3 CN, 2 BN
           - 3cn-1bn # 3 CN, 1 BN
+          - 7cn-3bn-distributed # 7 CN, 3 BN distributed
+          - minimal
       block-node-version:
         description: "Block Node version ('latest' for GA, 'main' for snapshot, or specific tag like 'v0.21.2')"
         required: false

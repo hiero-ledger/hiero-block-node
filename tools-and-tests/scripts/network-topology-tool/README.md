@@ -41,12 +41,13 @@ block_nodes:
 
 Production topologies are located in `../solo-e2e-test/topologies/`. Example topologies for trying out the tool are in `./examples/`.
 
-|       Name        | CN | BN |           Description            |
-|-------------------|----|----|----------------------------------|
-| `single`          | 1  | 1  | Minimal setup for basic testing  |
-| `paired-3`        | 3  | 3  | Each CN streams to its paired BN |
-| `fan-out-3cn-2bn` | 3  | 2  | All CNs can stream to all BNs    |
-| `minimal`         | 1  | 1  | No mirror/relay/explorer         |
+|         Name          | CN | BN |             Description              |
+|-----------------------|----|----|--------------------------------------|
+| `single`              | 1  | 1  | Minimal setup for basic testing      |
+| `paired-3`            | 3  | 3  | Each CN streams to its paired BN     |
+| `fan-out-3cn-2bn`     | 3  | 2  | All CNs can stream to all BNs        |
+| `minimal`             | 1  | 1  | No mirror/relay/explorer             |
+| `7cn-3bn-distributed` | 7  | 3  | Grouped CNs stream to designated BNs |
 
 ## Example
 
