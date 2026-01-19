@@ -35,16 +35,8 @@ on:
         required: false
         default: false
         type: boolean
-      load-tps:
-        description: "Target TPS for load generation (1-20000, 0 to disable load gen and use pinger only)"
-        required: false
-        default: "100"
-      load-duration:
-        description: "Duration for load generation (e.g., '5m' for 5 minutes, '1h' for 1 hour)"
-        required: false
-        default: "5m"
-      load-test-class:
-        description: "NLG test class to run"
+      nlg-test-class:
+        description: "NLG test class"
         required: false
         default: "CryptoTransferLoadTest"
         type: choice
@@ -52,6 +44,22 @@ on:
           - CryptoTransferLoadTest
           - HCSLoadTest
           - TokenTransferLoadTest
+      nlg-concurrency:
+        description: "NLG -c (concurrency threads)"
+        required: false
+        default: "5"
+      nlg-accounts:
+        description: "NLG -a (number of accounts)"
+        required: false
+        default: "10"
+      nlg-duration:
+        description: "NLG -t (seconds, 0 to skip load gen)"
+        required: false
+        default: "300"
+      nlg-extra-args:
+        description: "NLG extra args (e.g., '-T 5 -K ED25519')"
+        required: false
+        default: ""
 
 defaults:
   run:
@@ -231,16 +239,16 @@ jobs:
 
       # Start load generation
       - name: Start NLG Load Generation
-        if: ${{ inputs.load-tps != '0' }}
+        if: ${{ inputs.nlg-duration != '0' }}
         continue-on-error: true
+        env:
+          NLG_TEST_CLASS: ${{ inputs.nlg-test-class }}
+          NLG_CONCURRENCY: ${{ inputs.nlg-concurrency }}
+          NLG_ACCOUNTS: ${{ inputs.nlg-accounts }}
+          NLG_DURATION: ${{ inputs.nlg-duration }}
+          NLG_EXTRA_ARGS: ${{ inputs.nlg-extra-args }}
         run: |
-          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh \
-            --deployment "${DEPLOYMENT}" \
-            --namespace "${NAMESPACE}" \
-            --action start \
-            --tps "${{ inputs.load-tps }}" \
-            --duration "${{ inputs.load-duration }}" \
-            --test-class "${{ inputs.load-test-class }}"
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh start
 
           # Add to step summary
           {
@@ -248,9 +256,11 @@ jobs:
             echo ""
             echo "| Setting | Value |"
             echo "|---------|-------|"
-            echo "| Test Class | \`${{ inputs.load-test-class }}\` |"
-            echo "| Target TPS | ${{ inputs.load-tps }} |"
-            echo "| Duration | ${{ inputs.load-duration }} |"
+            echo "| Test Class | \`${{ inputs.nlg-test-class }}\` |"
+            echo "| Concurrency | ${{ inputs.nlg-concurrency }} |"
+            echo "| Accounts | ${{ inputs.nlg-accounts }} |"
+            echo "| Duration | ${{ inputs.nlg-duration }}s |"
+            echo "| Extra Args | \`${{ inputs.nlg-extra-args }}\` |"
             echo ""
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -467,13 +477,12 @@ jobs:
 
       # Stop load generator if it was started
       - name: Stop NLG Load Generation
-        if: ${{ always() && inputs.load-tps != '0' }}
+        if: ${{ always() && inputs.nlg-duration != '0' }}
         continue-on-error: true
+        env:
+          NLG_TEST_CLASS: ${{ inputs.nlg-test-class }}
         run: |
-          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh \
-            --deployment "${DEPLOYMENT}" \
-            --namespace "${NAMESPACE}" \
-            --action stop || true
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh stop || true
 
       - name: Collect BN and MN Logs
         if: always()
