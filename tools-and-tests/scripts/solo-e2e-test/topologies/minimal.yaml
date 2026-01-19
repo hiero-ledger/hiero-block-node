@@ -3,6 +3,8 @@
 #
 # Fastest deployment for testing Block Node and NLG load generation.
 # No Mirror Node, Relay, or Explorer to save startup time.
+#
+# CN1 → BN1 (no MN/Relay/Explorer)
 
 name: minimal
 description: "1 CN, 1 BN only (fastest)"

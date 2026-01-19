@@ -288,12 +288,13 @@ The load generator:
 
 Topologies define network configuration. Located in `./topologies/`.
 
-|       Name        | CN | BN |               Use Case               |
-|-------------------|----|----|--------------------------------------|
-| `single`          | 1  | 1  | Basic testing, fastest startup       |
-| `paired-3`        | 3  | 3  | Multi-node testing, each CN->BN pair |
-| `fan-out-3cn-2bn` | 3  | 2  | Redundancy testing, all CNs->all BNs |
-| `minimal`         | 1  | 1  | CN+BN only, no mirror/relay/explorer |
+|         Name          | CN | BN |                      Use Case                       |
+|-----------------------|----|----|-----------------------------------------------------|
+| `single`              | 1  | 1  | Basic testing, fastest startup                      |
+| `paired-3`            | 3  | 3  | Multi-node testing, each CN->BN pair                |
+| `fan-out-3cn-2bn`     | 3  | 2  | Redundancy testing, all CNs->all BNs                |
+| `minimal`             | 1  | 1  | CN+BN only, no mirror/relay/explorer                |
+| `7cn-3bn-distributed` | 7  | 3  | Distributed streaming, grouped CN->BN with backfill |
 
 See `../network-topology-tool/README.md` for topology schema details.
 
