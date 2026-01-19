@@ -395,66 +395,13 @@ jobs:
       - name: Network Health Summary
         if: always()
         run: |
-          {
-            echo "### Network Status"
-            echo ""
-            echo "| Node | Type | Status | Details |"
-            echo "|------|------|--------|---------|"
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-          # Get topology file to discover block nodes
-          TOPOLOGY_FILE="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies/${{ inputs.topology }}.yaml"
-
-          # Extract block node names from topology (lines under block_nodes: until next section)
-          BLOCK_NODES=$(awk '/^block_nodes:/,/^[a-z_]+:/' "$TOPOLOGY_FILE" | grep -E '^\s+block-node-[0-9]+:' | sed 's/://g' | awk '{print $1}')
-
-          # Query each block node
-          BN_INDEX=0
-          for BN in $BLOCK_NODES; do
-            PORT=$((40840 + BN_INDEX))
-            BN_INDEX=$((BN_INDEX + 1))
-
-            STATUS_JSON=$(grpcurl -plaintext -emit-defaults \
-              -import-path protobuf-sources/proto \
-              -proto block-node/api/node_service.proto \
-              -d '{}' \
-              localhost:${PORT} \
-              org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null || echo '{}')
-
-            FIRST=$(echo "$STATUS_JSON" | jq -r '.firstAvailableBlock // "N/A"')
-            LAST=$(echo "$STATUS_JSON" | jq -r '.lastAvailableBlock // "N/A"')
-
-            if [[ "$FIRST" != "N/A" && "$LAST" != "N/A" ]]; then
-              echo "| $BN | Block Node | ✅ Running | Blocks: $FIRST - $LAST |" >> "${GITHUB_STEP_SUMMARY}"
-            else
-              echo "| $BN | Block Node | ❌ Unreachable | - |" >> "${GITHUB_STEP_SUMMARY}"
-            fi
-          done
-
-          # Check consensus nodes via kubectl
-          CN_PODS=$(kubectl --context "${CONTEXT}" get pods -n "${NAMESPACE}" -l 'app.kubernetes.io/component=network-node' -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
-          for POD in $CN_PODS; do
-            STATUS=$(kubectl --context "${CONTEXT}" get pod "$POD" -n "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
-            if [[ "$STATUS" == "Running" ]]; then
-              echo "| $POD | Consensus Node | ✅ Running | - |" >> "${GITHUB_STEP_SUMMARY}"
-            else
-              echo "| $POD | Consensus Node | ⚠️ $STATUS | - |" >> "${GITHUB_STEP_SUMMARY}"
-            fi
-          done
-
-          # Check mirror node
-          MN_STATUS=$(kubectl --context "${CONTEXT}" get pods -n "${NAMESPACE}" -l 'app.kubernetes.io/instance=mirror-1' -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "Not Found")
-          if [[ "$MN_STATUS" == "Running" ]]; then
-            # Check if mirror is synced by comparing block counts
-            MN_BLOCK=$(curl -s "http://127.0.0.1:5551/api/v1/blocks?limit=1&order=desc" | jq -r '.blocks[0].number // "N/A"' 2>/dev/null || echo "N/A")
-            echo "| mirror-1 | Mirror Node | ✅ Running | Last block: $MN_BLOCK |" >> "${GITHUB_STEP_SUMMARY}"
-          elif [[ "$MN_STATUS" == "Not Found" ]]; then
-            echo "| mirror-1 | Mirror Node | ⏭️ Not deployed | - |" >> "${GITHUB_STEP_SUMMARY}"
-          else
-            echo "| mirror-1 | Mirror Node | ⚠️ $MN_STATUS | - |" >> "${GITHUB_STEP_SUMMARY}"
-          fi
-
-          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-network-status.sh \
+            --namespace "${NAMESPACE}" \
+            --topology "${{ inputs.topology }}" \
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
+            --context "${CONTEXT}" \
+            --proto-path "protobuf-sources/proto" \
+            --output github-summary
 
       # TCK Regression Tests related steps
       - name: Setup PNPM

@@ -33,6 +33,7 @@ vars:
   SCRIPTS_DIR: "{{.ROOT_DIR}}/scripts"
   TOPOLOGIES_DIR: "{{.ROOT_DIR}}/topologies"
   TOPOLOGY_TOOL: "{{.ROOT_DIR}}/../network-topology-tool"
+  PROTO_PATH: "{{.ROOT_DIR}}/../../../protobuf-sources/src/main/proto"
 
   # Config with defaults (override via .env or environment)
   TOPOLOGY: '{{.TOPOLOGY | default "single"}}'
@@ -177,6 +178,11 @@ tasks:
 
         echo "Block Node {{.NODE}} Status:"
         echo "$STATUS" | grep -E "(firstAvailableBlock|lastAvailableBlock)" || echo "$STATUS"
+
+  status:
+    desc: Show network status for all nodes in the topology
+    cmds:
+      - '"{{.SCRIPTS_DIR}}/solo-network-status.sh" --namespace "{{.NAMESPACE}}" --topology "{{.TOPOLOGY}}" --topologies-dir "{{.TOPOLOGIES_DIR}}" --context "{{.CLUSTER_REF}}" --proto-path "{{.PROTO_PATH}}"'
 
   # ============================================================================
   # Logs
