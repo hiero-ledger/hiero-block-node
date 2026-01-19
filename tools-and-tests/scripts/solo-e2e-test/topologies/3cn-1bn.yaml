@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Minimal topology: 1 Consensus Node, 1 Block Node, 1 Mirror Node
+# Simple topology: 3 Consensus Nodes, 1 Block Node, 1 Mirror Node
 #
-# This is the simplest configuration for testing Block Node functionality.
-# The Consensus Node streams blocks directly to the Block Node.
+# All Consensus Nodes stream to the same Block Node.
+# This tests multiple CN sources feeding a single BN.
 # Mirror Node receives blocks from the Block Node.
+#
+# CN1,2,3 → BN1 → MN
 
 name: 3cn-1bn
 description: "3 CNs to the same BN"

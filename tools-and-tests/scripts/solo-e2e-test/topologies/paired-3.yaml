@@ -4,6 +4,10 @@
 # Each Consensus Node streams to its corresponding Block Node (CN1->BN1, CN2->BN2, CN3->BN3).
 # This configuration tests paired streaming mode where each BN has a dedicated CN source.
 # Mirror Node subscribes to all Block Nodes for redundancy.
+#
+# CN1 → BN1; CN2 → BN2; CN3 → BN3
+# BN1 ↔ BN2 ↔ BN3 (backfill mesh)
+# MN ← BN1, BN2, BN3
 
 name: paired-3
 description: "3 Consensus Nodes, 3 Block Nodes (paired streaming)"
