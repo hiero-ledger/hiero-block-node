@@ -46,7 +46,7 @@ import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.Gzip;
 import org.hiero.block.tools.utils.Md5Checker;
 import org.hiero.block.tools.utils.PrettyPrint;
-import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
+import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreadsV3;
 
 /**
  * Manages the download, validation, and archival of blockchain blocks in live (streaming) mode.
@@ -81,7 +81,7 @@ public class LiveDownloader {
     private final Path addressBookPath;
     private final Path runningHashStatusPath;
     private final AddressBookRegistry addressBookRegistry;
-    private final ConcurrentDownloadManagerVirtualThreads downloadManager;
+    private final ConcurrentDownloadManagerVirtualThreadsV3 downloadManager;
     // Running previous record-file hash used to validate the block hash chain across files.
     private byte[] previousRecordFileHash;
     // Single-threaded executor used for background compression of per-day tar files.
@@ -145,12 +145,10 @@ public class LiveDownloader {
             this.addressBookRegistry = new AddressBookRegistry();
         }
 
-        Storage storage = StorageOptions.grpc()
-                .setAttemptDirectPath(false)
-                .setProjectId(GCP_PROJECT_ID)
-                .build()
-                .getService();
-        this.downloadManager = ConcurrentDownloadManagerVirtualThreads.newBuilder(storage)
+        // Use HTTP transport + platform threads for stability (avoids gRPC/Netty deadlocks)
+        Storage storage =
+                StorageOptions.http().setProjectId(GCP_PROJECT_ID).build().getService();
+        this.downloadManager = ConcurrentDownloadManagerVirtualThreadsV3.newBuilder(storage)
                 .setMaxConcurrency(maxConcurrency)
                 .build();
         this.compressionExecutor = Executors.newSingleThreadExecutor(r -> {
