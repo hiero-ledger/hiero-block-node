@@ -15,7 +15,7 @@ This page is a troubleshooting runbook for [**Hiero Block Nodes**](https://githu
 
 ### 1. Observability & Diagnostics
 
-Block nodes are generally robust, but like any distributed system component, operators occasionally encounter issues related to networking, storage, synchronization, or configuration. The reference implementation includes comprehensive logging, CLI tools, and Prometheus / Grafana metrics to identify and resolve problems quickly.
+Block Nodes are generally robust, but like any distributed system component, operators occasionally encounter issues related to networking, storage, synchronization, or configuration. The reference implementation includes comprehensive logging, CLI tools, and Prometheus / Grafana metrics to identify and resolve problems quickly.
 
 #### 1.1 Logs & diagnostics
 
@@ -28,7 +28,7 @@ Block nodes are generally robust, but like any distributed system component, ope
 
 #### 1.2 Prometheus metrics & monitoring
 
-The block node exposes a rich set of Prometheus metrics on `/metrics` (default port 16007). Key Grafana dashboards are available in the official [Hiero Block Node `dashboards/` folder.](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/dashboards)
+The Block Node exposes a rich set of Prometheus metrics on `/metrics` (default port 16007). Key Grafana dashboards are available in the official [Hiero Block Node `dashboards/` folder.](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/dashboards)
 
 Block Node metric labels are configured by default to be prepended with `hiero_block_node_`
 
@@ -74,12 +74,12 @@ Use this runbook when `block_ingest_lag_seconds` is increasing and logs show lit
     - Check node health:
         - Verify process is running and not crashlooping.
         - Confirm CPU / memory are not obviously saturated.
-    - From a trusted host, test connectivity to the block node:
+    - From a trusted host, test connectivity to the Block Node:
         - `nc \<IP_OF_BLOCK_NODE\> 50211 -vz`
             - Success: TCP reachability is OK.
             - Failure: suspect firewall, security group, or local iptables.
     - If `nc` fails:
-        - Verify host firewall rules on both sides (block node and CN).
+        - Verify host firewall rules on both sides (Block Node and CN).
         - Check any intermediate firewalls / load balancers for drops.
         - Confirm the correct IP and port for the CN endpoint.
 2. **Logs**
@@ -94,8 +94,8 @@ Use this runbook when `block_ingest_lag_seconds` is increasing and logs show lit
     - Correlate with time of any infrastructure changes (deploys, config updates, firewall changes).
 4. **Resolution**
     - Fix firewall / security group rules on gossip / ingest port (default `50211`, or configured port).
-    - Correct TLS or mutual-auth configuration between CN and block node.
-    - Restart the block node if needed once connectivity and TLS are corrected.
+    - Correct TLS or mutual-auth configuration between CN and Block Node.
+    - Restart the Block Node if needed once connectivity and TLS are corrected.
 5. **Verification**
     - Confirm `block_ingest_lag_seconds` returns toward zero.
     - `block_ingest_total` increases steadily.
@@ -110,7 +110,7 @@ Use this runbook when `block_ingest_lag_seconds` is increasing and logs show lit
     - Confirm symptoms from client side:
         - gRPC connection failures, timeouts, or TLS errors when subscribing.
         - Clients repeatedly reconnecting or backing off.
-    - Confirm on the block node:
+    - Confirm on the Block Node:
         - Service is running and listening on the expected gRPC port.
         - No obvious CPU / memory starvation.
 2. **Network and endpoint checks**
@@ -119,14 +119,14 @@ Use this runbook when `block_ingest_lag_seconds` is increasing and logs show lit
             - Success: TCP reachability is OK.
             - Failure: suspect firewall, security group, or local iptables.
     - Verify:
-        - Correct advertised hostname / IP and port in block node config.
+        - Correct advertised hostname / IP and port in Block Node config.
         - DNS or load balancer is pointing to the active node.
 3. **TLS and auth**
     - Check client logs for:
         - `x509: certificate has expired or is not yet valid`.
         - Hostname mismatch between certificate and endpoint.
         - Unknown CA / trust failures.
-    - On the block node, confirm:
+    - On the Block Node, confirm:
         - TLS cert and key paths are correct and readable.
             - Certificates are not expired and chain is complete.
 4. **Service configuration**
@@ -134,7 +134,7 @@ Use this runbook when `block_ingest_lag_seconds` is increasing and logs show lit
     - Check any rate limits or `max-connections` settings that might be rejecting clients.
 5. **Resolution**
     - Fix endpoint configuration (advertise address / port), update DNS or load balancer if needed.
-    - Renew or reinstall TLS certificates and restart block node and / or clients.
+    - Renew or reinstall TLS certificates and restart Block Node and / or clients.
     - Update firewall / security groups to allow gRPC traffic from subscribers.
 6. **Verification**
     - Confirm clients successfully establish long-lived gRPC streams without continuous reconnects.
@@ -155,7 +155,7 @@ Use this runbook when `block_ingest_lag_seconds` is increasing and logs show lit
 2. **Identify what is consuming space**
     - Determine which volume(s) hold block data, snapshots, and logs.
     - Inspect directories for unexpected growth (logs, temp, or backup folders).
-    - *TODO: document the canonical data directory layout for block nodes (paths for blocks, snapshots, logs).*  ← GAP
+    - *TODO: document the canonical data directory layout for Block Nodes (paths for blocks, snapshots, logs).*  ← GAP
 3. **Short-term mitigation**
     - If safe, rotate / compress / prune logs.
     - If using partial-history nodes, enable or adjust pruning according to policy.
@@ -174,13 +174,13 @@ Use this runbook when `block_ingest_lag_seconds` is increasing and logs show lit
 <summary>📈 <strong>Metrics endpoint not accessible</strong></summary>
 
 1. **Triage**
-    - Confirm that Grafana / Prometheus cannot scrape `/metrics` for this block node.
+    - Confirm that Grafana / Prometheus cannot scrape `/metrics` for this Block Node.
     - Attempt to curl from a nearby host:
         - `curl -v http://\<IP_OF_BLOCK_NODE\>:16007/metrics`
             - Success: HTTP 200 with Prometheus text output.
             - Failure: connection refused / timeout.
 2. **Node-local checks**
-    - Ensure metrics are enabled in the block node configuration (no `--metrics.disabled` or equivalent flag).
+    - Ensure metrics are enabled in the Block Node configuration (no `--metrics.disabled` or equivalent flag).
     - From the node itself:
         - `curl -v` [`](http://localhost:16007/metrics)http://localhost:16007/metrics`
             - If this fails, suspect local config or process issues.
@@ -194,7 +194,7 @@ Use this runbook when `block_ingest_lag_seconds` is increasing and logs show lit
         - Correct job name, scheme (http / https), and port.
         - No incorrect path overrides.
 5. **Resolution**
-    - Enable metrics in config and restart the block node if required.
+    - Enable metrics in config and restart the Block Node if required.
     - Open or adjust firewall / security rules for the metrics port.
     - Fix Prometheus / Grafana scrape configuration.
 6. **Verification**
@@ -220,11 +220,11 @@ Use this runbook when `block_ingest_lag_seconds` is increasing and logs show lit
     - Verify `EARLIEST_BACKFILL_BLOCK` is set correctly relative to available upstream history.
     - Ensure backfill is enabled in the node configuration and not paused.
 4. **Network and permissions**
-    - Confirm this node can reach upstream block nodes over the required ports.
+    - Confirm this node can reach upstream Block Nodes over the required ports.
     - Check that any authentication / TLS between nodes is valid.
 5. **Resolution**
     - Correct misconfigured earliest-block values (`EARLIEST_MANAGED_BLOCK`, `EARLIEST_BACKFILL_BLOCK`) and apply changes.
-    - Restart the block node if configuration changes require it.
+    - Restart the Block Node if configuration changes require it.
     - If upstream history is incomplete, coordinate with operators of archival nodes to provide the missing range.
 6. **Verification**
     - Monitor backfill metrics until the node catches up to the desired block height.
@@ -248,6 +248,6 @@ The table below is a **summary-only quick reference**. Use the runbooks above fo
 
 ---
 
-With proper alerting on the Prometheus metrics above (especially lag, ingest errors, and storage latency), most issues can be detected and resolved before they impact downstream mirror nodes or applications. The combination of detailed logs, built-in CLI validation tools, and comprehensive telemetry makes block nodes significantly easier to operate at scale than the previous centralized bucket model.
+With proper alerting on the Prometheus metrics above (especially lag, ingest errors, and storage latency), most issues can be detected and resolved before they impact downstream mirror nodes or applications. The combination of detailed logs, built-in CLI validation tools, and comprehensive telemetry makes Block Nodes significantly easier to operate at scale than the previous centralized bucket model.
 
 Contact Hashgraph for help: [`devops@hashgraph.com`](mailto:devops@hashgraph.com)
