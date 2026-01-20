@@ -8,6 +8,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
+import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockPath;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -84,7 +85,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private Path stagingPath;
     /** root path for temporary hard links to zip files */
     private Path linksRootPath;
-
+    /** Path where we create zip files before moving them to the links root path */
+    private Path prestageRootPath;
     // Metrics
     /** Counter for blocks written to the historic tier */
     private Counter blocksWrittenCounter;
@@ -123,7 +125,9 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final Path dataRootPath = config.rootPath();
             linksRootPath = dataRootPath.resolve("links");
             stagingPath = dataRootPath.resolve("staging");
+            prestageRootPath = dataRootPath.resolve("prestage");
             Files.createDirectories(stagingPath);
+            Files.createDirectories(prestageRootPath);
             nestedDirectoriesAllBlockNumbers(stagingPath, config.compression()).forEach(blockNumber -> {
                 availableStagedBlocks.add(blockNumber);
             });
@@ -131,6 +135,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             if (Files.isDirectory(linksRootPath, LinkOption.NOFOLLOW_LINKS)) {
                 Files.walkFileTree(linksRootPath, new RecursiveFileDeleteVisitor());
             }
+            Files.walkFileTree(prestageRootPath, new RecursiveFileDeleteVisitor(false));
             Files.createDirectories(dataRootPath);
             Files.createDirectories(linksRootPath);
             // register to listen to block notifications
@@ -465,8 +470,27 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // move the batch of blocks to a zip file
                 final String startMessage = "Moving batch of blocks [{0} -> {1}] to zip file.";
                 LOGGER.log(TRACE, startMessage, batchFirstBlockNumber, batchLastBlockNumber);
-                // Write the zip file and get result with file size
-                final long zipFileSize = zipBlockArchive.writeNewZipFile(blockAccessors);
+
+                // compute the exact path where we need to move the created zip file
+                final BlockPath firstBlockPath = computeBlockPath(config, blockAccessors.getFirstBlockNumber());
+
+                // create zip file in a pre-staging directory so that if zipping fails, we don't leave
+                // traces in the actual staging area
+                final Path prestageFile =
+                        prestageRootPath.resolve(firstBlockPath.zipFilePath().getFileName());
+
+                // Write the zip file in the pre-staging area
+                zipBlockArchive.writeNewZipFile(blockAccessors, prestageFile);
+
+                // if we have reached here, this means that the zip file was created
+                // successfully in the pre-stage area
+                final long zipFileSize = Files.size(prestageFile);
+
+                // create staging area directories if they don't exist
+                Files.createDirectories(firstBlockPath.dirPath());
+                // move the file from the pre-staging area to the staging area
+                Files.move(prestageFile, firstBlockPath.zipFilePath());
+
                 // Metrics updates
                 // Update total bytes stored with the new zip file size
                 totalBytesStored.addAndGet(zipFileSize);
@@ -499,6 +523,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final String failMessage = "Failed to move batch of blocks [%d -> %d] to zip file"
                     .formatted(batchFirstBlockNumber, batchLastBlockNumber);
             LOGGER.log(WARNING, failMessage, e);
+            cleanupPrestageFiles();
         } finally {
             // always make sure to remove the batch of blocks from in progress ranges
             inProgressZipRanges.remove(batchRange);
@@ -538,10 +563,50 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     }
 
     /**
+     * This method deletes any remaining zip files in the pre-stage area.
+     */
+    private void cleanupPrestageFiles() {
+        try {
+            Files.walkFileTree(linksRootPath, new RecursiveFileDeleteVisitor(false));
+        } catch (IOException e) {
+            final String deleteFailMessage =
+                    "Failed to delete pre-stage file in %s".formatted(prestageRootPath.toString());
+            LOGGER.log(WARNING, deleteFailMessage, e);
+        }
+    }
+
+    /**
      * A basic file visitor to recursively delete files and directories up to
      * the provided root.
      */
     private static class RecursiveFileDeleteVisitor implements FileVisitor<Path> {
+
+        /**
+         * A flag indicating whether the root directory should be deleted at the end of the visit.
+         */
+        private final boolean deleteRoot;
+
+        /**
+         * Constructs a new RecursiveFileDeleteVisitor that will delete the root directory.
+         * <p>
+         * This constructor creates a visitor configured to delete all visited files and directories,
+         * including the root directory when the traversal completes. This is the default behavior
+         * for recursive file deletion operations.
+         */
+        public RecursiveFileDeleteVisitor() {
+            this.deleteRoot = true;
+        }
+
+        /**
+         * Constructs a new RecursiveFileDeleteVisitor with configurable root deletion behavior.
+         *
+         * @param deleteRoot if true, the root directory will be deleted after all its content has been removed;
+         *                   if false, only the contents of the root directory will be deleted, preserving the root itself
+         */
+        public RecursiveFileDeleteVisitor(boolean deleteRoot) {
+            this.deleteRoot = deleteRoot;
+        }
+
         @Override
         public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
             Objects.requireNonNull(dir);
@@ -566,7 +631,10 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         public FileVisitResult postVisitDirectory(@NonNull final Path dir, @Nullable final IOException e)
                 throws IOException {
             if (e == null) {
-                Files.delete(Objects.requireNonNull(dir));
+                // Only delete the root directory if configured
+                if (deleteRoot) {
+                    Files.delete(Objects.requireNonNull(dir));
+                }
                 return CONTINUE;
             } else {
                 throw e;
