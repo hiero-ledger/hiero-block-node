@@ -7,11 +7,9 @@ import {GetBlockRequest, ServerStatusRequest} from "../lib/grpc.js";
 export const options = {
     thresholds: { // todo make these good defaults, we need these to display tags in the result, but also to ping us if they go over
         'grpc_req_duration{name:block_node_server_status}': ['p(95)<300'],
-        'grpc_req_duration{name:get_first_block}': ['p(95)<300'],
-        'grpc_req_duration{name:get_last_block}': ['p(95)<300'],
+        'grpc_req_duration{name:get_block}': ['p(95)<300'],
     },
 };
-
 
 // load test configuration data
 const data = new SharedArray('BN Test Configs', function () {
@@ -26,7 +24,7 @@ client.load([data.protobufPath],
     'block-node/api/block_stream_subscribe_service.proto');
 
 // run test
-export default () => {
+export default async () => {
     client.connect(data.blockNodeUrl, {
         plaintext: true
     });
@@ -40,28 +38,27 @@ export default () => {
     const firstAvailableBlock = response.message.firstAvailableBlock;
     const lastAvailableBlock = response.message.lastAvailableBlock;
     console.log(`First Available Block: ${firstAvailableBlock}, Latest Block: ${lastAvailableBlock}`);
-    console.log(JSON.stringify(response.message));
     if (firstAvailableBlock === '18446744073709551615') {
         console.log(`No blocks to fetch, exiting test.`);
     } else {
-        const getFirstBlockRequestParams = {
-            tags: {name: 'get_first_block'},
-        };
-        const firstAvailableBlockResponse = new GetBlockRequest(client).invoke(firstAvailableBlock, getFirstBlockRequestParams);
-        check(firstAvailableBlockResponse, {
-            'block fetch status is OK': (r) => r && r.status === StatusOK,
-            'fetched block number is correct': (r) => r && r.message.block.items[0].blockHeader.number === firstAvailableBlock,
-        });
-        console.log(`Fetched Block '${firstAvailableBlock}' with size '${firstAvailableBlockResponse.message.block.items.length}' items`);
-        const getLastBlockRequestParams = {
-            tags: {name: 'get_last_block'},
+        for (let i = parseInt(firstAvailableBlock); i <= parseInt(lastAvailableBlock); i++) {
+            const getBlockRequestParams = {
+                tags: {name: 'get_block'},
+            }
+            const blockResponse = new GetBlockRequest(client).invoke(i, getBlockRequestParams);
+            try {
+                check(blockResponse, {
+                    'block fetch status is OK': (r) => r && r.status === StatusOK,
+                    'fetched block number is correct': (r) => r && parseInt(r.message.block.items[0].blockHeader.number) === i,
+                });
+            } catch (e) {
+                console.log(`error fetching block: ${i}\nresponse: ${JSON.stringify(blockResponse)}`)
+            }
+            // Sleep just for a tiny bit, it seems networking with k6 is not always fast enough and we do see
+            // some errors when fetching blocks, sometimes no data is received at all.
+            await new Promise(r => setTimeout(r, 50));
         }
-        const lastAvailableBlockResponse = new GetBlockRequest(client).invoke(lastAvailableBlock, getLastBlockRequestParams);
-        check(lastAvailableBlockResponse, {
-            'block fetch status is OK': (r) => r && r.status === StatusOK,
-            'fetched block number is correct': (r) => r && r.message.block.items[0].blockHeader.number === lastAvailableBlock,
-        });
-        console.log(`Fetched Block '${lastAvailableBlock}' with size '${lastAvailableBlockResponse.message.block.items.length}' items`);
+        sleep(1)
     }
     client.close();
     sleep(1);
