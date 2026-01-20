@@ -105,8 +105,8 @@ public class AddressBookRegistry {
                         : addressBooks.get(i - 1).addressBook();
             }
         }
-        // if no address book is found, return the genesis address book
-        return addressBooks.getFirst().addressBook();
+        // if no address book is found after the block time, return the most recent address book
+        return addressBooks.getLast().addressBook();
     }
 
     /**

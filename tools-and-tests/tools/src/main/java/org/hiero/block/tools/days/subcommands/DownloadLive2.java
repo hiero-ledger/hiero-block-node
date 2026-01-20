@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
+import static java.nio.file.StandardOpenOption.APPEND;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static org.hiero.block.tools.days.downloadlive.ValidateDownloadLive.fullBlockValidate;
 
 import com.google.cloud.storage.Storage;
@@ -19,40 +22,46 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
 import org.hiero.block.tools.days.listing.DayListingFileReader;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.mirrornode.BlockInfo;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
+import org.hiero.block.tools.mirrornode.FetchBlockQuery;
+import org.hiero.block.tools.mirrornode.MirrorNodeBlockQueryOrder;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
-import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreads;
+import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreadsV3;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 /**
- * Hash-driven live download command that validates blocks inline as they're downloaded.
+ * Live block download command that follows the chain in real-time.
  *
  * <p>Key features:
  * <ul>
- *   <li>Uses block number + BlockTimeReader to discover next blocks</li>
- *   <li>Validates hash chain and performs full block validation inline</li>
- *   <li>Retry with exponential backoff on validation failures</li>
- *   <li>Real-time tar append with day rollover</li>
- *   <li>Adaptive catch-up vs live mode</li>
+ *   <li>Auto-detects "today" from mirror node if no state file exists</li>
+ *   <li>Uses HTTP transport + platform threads for stability (no gRPC deadlocks)</li>
+ *   <li>Downloads, validates, and appends blocks to .tar.zstd_partial</li>
+ *   <li>Automatic day rollover: closes archive and starts new day at midnight</li>
+ *   <li>Signature statistics tracking with CSV output</li>
+ *   <li>Resumable via state file</li>
  * </ul>
  */
 @Command(
         name = "download-live2",
-        description = "Hash-driven live block download with inline validation",
+        description = "Live block download with inline validation and automatic day rollover",
         mixinStandardHelpOptions = true)
 public class DownloadLive2 implements Runnable {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Duration LIVE_POLL_INTERVAL = Duration.ofSeconds(1);
+    private static final Duration LIVE_POLL_INTERVAL = Duration.ofSeconds(2);
     private static final int MAX_VALIDATION_RETRIES = 3;
-    private static final int CATCH_UP_CHECK_INTERVAL = 10; // check mode every N blocks
+    private static final int PROGRESS_LOG_INTERVAL = 100;
 
     private static final File CACHE_DIR = new File("metadata/gcp-cache");
     private static final int MIN_NODE_ACCOUNT_ID = 3;
@@ -70,18 +79,8 @@ public class DownloadLive2 implements Runnable {
 
     @Option(
             names = {"--state-json"},
-            description = "Path to state JSON file for resume (default: state/download-live2.json)")
-    private Path stateJsonPath = Path.of("state/download-live2.json");
-
-    @Option(
-            names = {"--start-date"},
-            description = "Start from this date (YYYY-MM-DD), ignored if state file exists")
-    private String startDate;
-
-    @Option(
-            names = {"--start-block"},
-            description = "Start from this block number, ignored if state file exists or start-date is set")
-    private Long startBlock;
+            description = "Path to state JSON file for resume (default: outputDir/validateCmdStatus.json)")
+    private Path stateJsonPath; // Default set in run() after outputDir is known
 
     @Option(
             names = {"--address-book"},
@@ -90,101 +89,289 @@ public class DownloadLive2 implements Runnable {
 
     @Option(
             names = {"--max-concurrency"},
-            description = "Maximum concurrent downloads (default: 32)")
-    private int maxConcurrency = 32;
-
-    @Option(
-            names = {"--skip-validation-during-catchup"},
-            description = "Skip expensive signature validation during catch-up for faster processing (default: false)")
-    private boolean skipValidationDuringCatchup = false;
-
-    @Option(
-            names = {"--catchup-threshold-seconds"},
-            description = "Seconds behind current time to be considered 'caught up' (default: 60)")
-    private long catchupThresholdSeconds = 60;
+            description = "Maximum concurrent downloads (default: 64)")
+    private int maxConcurrency = 64;
 
     @Option(
             names = {"--tmp-dir"},
             description = "Temporary directory for downloads (default: tmp)")
     private File tmpDir = new File("tmp");
 
+    @Option(
+            names = {"--start-date"},
+            description = "Start date in YYYY-MM-DD format (default: auto-detect from mirror node)")
+    private String startDate;
+
+    @Option(
+            names = {"--stats-csv"},
+            description = "Path to signature statistics CSV file (default: outputDir/signature_statistics_live.csv)")
+    private Path statsCsvPath;
+
     /**
-     * State persisted to JSON for resumability
+     * State persisted to JSON for resumability.
+     * Compatible with validateCmdStatus.json format (dayDate, recordFileTime, endRunningHashHex)
+     * plus blockNumber for tracking position in live download.
      */
     private static class State {
-        long blockNumber;
-        String blockHash; // hex
-        String recordFileTime; // ISO-8601
         String dayDate; // YYYY-MM-DD
+        String recordFileTime; // ISO-8601
+        String endRunningHashHex; // running hash as hex (matches ValidationStatus format)
+        long blockNumber; // block number for resume tracking
 
         State() {}
 
-        State(long blockNumber, byte[] blockHash, Instant recordFileTime, LocalDate dayDate) {
+        State(long blockNumber, byte[] hash, Instant recordFileTime, LocalDate dayDate) {
             this.blockNumber = blockNumber;
-            this.blockHash = HexFormat.of().formatHex(blockHash);
-            this.recordFileTime = recordFileTime.toString();
-            this.dayDate = dayDate.toString();
+            this.dayDate = dayDate != null ? dayDate.toString() : null;
+            this.recordFileTime = recordFileTime != null ? recordFileTime.toString() : null;
+            this.endRunningHashHex = hash != null ? HexFormat.of().formatHex(hash) : null;
         }
 
         byte[] getHashBytes() {
-            return blockHash != null ? HexFormat.of().parseHex(blockHash) : null;
+            return endRunningHashHex != null ? HexFormat.of().parseHex(endRunningHashHex) : null;
         }
 
         LocalDate getDayDate() {
             return dayDate != null ? LocalDate.parse(dayDate) : null;
         }
+    }
 
-        Instant getRecordFileTime() {
-            return recordFileTime != null ? Instant.parse(recordFileTime) : null;
+    /**
+     * Per-day statistics for signature tracking
+     */
+    private static class DayStatistics {
+        final LocalDate date;
+        int totalBlocks = 0;
+        int totalSignatures = 0;
+        long totalNodeSlots = 0;
+        int minSignaturesInBlock = Integer.MAX_VALUE;
+        final Map<Integer, Integer> blocksBySignatureCount = new TreeMap<>();
+
+        DayStatistics(LocalDate date) {
+            this.date = date;
+        }
+
+        void recordBlock(int signatureCount, int addressBookNodeCount) {
+            totalBlocks++;
+            totalSignatures += signatureCount;
+            totalNodeSlots += addressBookNodeCount;
+            if (signatureCount < minSignaturesInBlock) {
+                minSignaturesInBlock = signatureCount;
+            }
+            blocksBySignatureCount.merge(signatureCount, 1, Integer::sum);
+        }
+
+        int getAverageAddressBookNodeCount() {
+            if (totalBlocks == 0) return 0;
+            return (int) (totalNodeSlots / totalBlocks);
+        }
+
+        double getAveragePercentage() {
+            if (totalBlocks == 0 || totalNodeSlots == 0) return 0.0;
+            return (100.0 * totalSignatures) / totalNodeSlots;
+        }
+
+        double getMinPercentage() {
+            int avgNodes = getAverageAddressBookNodeCount();
+            if (totalBlocks == 0 || avgNodes == 0 || minSignaturesInBlock == Integer.MAX_VALUE) return 0.0;
+            return (100.0 * minSignaturesInBlock) / avgNodes;
+        }
+    }
+
+    /**
+     * Statistics tracker for signature counts
+     */
+    private static class SignatureStats {
+        private final Path csvOutputFile;
+        private boolean csvHeaderWritten = false;
+        private DayStatistics currentDayStats = null;
+
+        SignatureStats(Path csvOutputFile) {
+            this.csvOutputFile = csvOutputFile;
+        }
+
+        void startDay(LocalDate day, int addressBookNodeCount) {
+            if (currentDayStats != null) {
+                writeDayToCsv(currentDayStats);
+            }
+            currentDayStats = new DayStatistics(day);
+            System.out.println("[STATS] Started tracking day: " + day + " (nodes=" + addressBookNodeCount + ")");
+        }
+
+        void recordBlock(List<InMemoryFile> files, int addressBookNodeCount) {
+            if (currentDayStats == null) return;
+
+            int signatureCount = 0;
+            for (InMemoryFile file : files) {
+                String fileName = file.path().getFileName().toString();
+                if (fileName.endsWith(".rcd_sig") || fileName.endsWith(".rcs_sig")) {
+                    signatureCount++;
+                }
+            }
+            currentDayStats.recordBlock(signatureCount, addressBookNodeCount);
+        }
+
+        void finalizeDayStats() {
+            if (currentDayStats != null) {
+                writeDayToCsv(currentDayStats);
+                printDaySummary(currentDayStats);
+            }
+        }
+
+        private void writeCsvHeader() {
+            if (csvHeaderWritten || csvOutputFile == null) return;
+            try {
+                // If file already exists (e.g., from validate-with-stats), just append
+                if (Files.exists(csvOutputFile)) {
+                    csvHeaderWritten = true;
+                    System.out.println("[STATS] CSV file already exists, will append: " + csvOutputFile);
+                    return;
+                }
+
+                int maxSigCount = 40;
+                StringBuilder header = new StringBuilder();
+                header.append(
+                        "date,avg_percentage,number_of_blocks,number_of_nodes,total_signatures,worst_block_coverage_pct");
+                for (int i = 1; i <= maxSigCount; i++) {
+                    header.append(",blocks_with_").append(i).append("_sig");
+                }
+                header.append("\n");
+
+                Files.writeString(csvOutputFile, header.toString(), StandardCharsets.UTF_8, CREATE, TRUNCATE_EXISTING);
+                csvHeaderWritten = true;
+                System.out.println("[STATS] Created CSV file: " + csvOutputFile);
+            } catch (IOException e) {
+                System.err.println("[STATS] Failed to write CSV header: " + e.getMessage());
+            }
+        }
+
+        private void writeDayToCsv(DayStatistics dayStats) {
+            if (csvOutputFile == null || dayStats.totalBlocks == 0) return;
+
+            try {
+                if (!csvHeaderWritten) {
+                    writeCsvHeader();
+                }
+
+                StringBuilder row = new StringBuilder();
+                row.append(dayStats.date).append(",");
+                row.append(String.format("%.4f", dayStats.getAveragePercentage()))
+                        .append(",");
+                row.append(dayStats.totalBlocks).append(",");
+                row.append(dayStats.getAverageAddressBookNodeCount()).append(",");
+                row.append(dayStats.totalSignatures).append(",");
+                row.append(String.format("%.4f", dayStats.getMinPercentage()));
+
+                int maxSigCount = 40;
+                for (int i = 1; i <= maxSigCount; i++) {
+                    int blockCount = dayStats.blocksBySignatureCount.getOrDefault(i, 0);
+                    row.append(",").append(blockCount);
+                }
+                row.append("\n");
+
+                Files.writeString(csvOutputFile, row.toString(), StandardCharsets.UTF_8, APPEND, CREATE);
+                System.out.println("[STATS] Written day " + dayStats.date + " to CSV");
+            } catch (IOException e) {
+                System.err.println("[STATS] Failed to write CSV for " + dayStats.date + ": " + e.getMessage());
+            }
+        }
+
+        void printDaySummary(DayStatistics dayStats) {
+            System.out.println("\n" + "=".repeat(70));
+            System.out.println("DAY STATISTICS: " + dayStats.date);
+            System.out.println("=".repeat(70));
+            System.out.printf("  Total Blocks:          %,d%n", dayStats.totalBlocks);
+            System.out.printf("  Total Signatures:      %,d%n", dayStats.totalSignatures);
+            System.out.printf("  Avg Nodes (addr book): %d%n", dayStats.getAverageAddressBookNodeCount());
+            System.out.printf("  Average Coverage:      %.2f%%%n", dayStats.getAveragePercentage());
+            System.out.printf("  Worst Block Coverage:  %.2f%%%n", dayStats.getMinPercentage());
+
+            if (!dayStats.blocksBySignatureCount.isEmpty()) {
+                System.out.println("\n  Signature Distribution (top 5):");
+                dayStats.blocksBySignatureCount.entrySet().stream()
+                        .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                        .limit(5)
+                        .forEach(entry -> {
+                            double pct = (100.0 * entry.getValue()) / dayStats.totalBlocks;
+                            System.out.printf(
+                                    "    %d sigs: %,d blocks (%.1f%%)%n", entry.getKey(), entry.getValue(), pct);
+                        });
+            }
+            System.out.println("=".repeat(70) + "\n");
         }
     }
 
     @Override
     public void run() {
-        System.out.println("[download-live2] Starting hash-driven live download");
+        System.out.println("[download-live2] Starting live block download");
         System.out.println("Configuration:");
         System.out.println("  listingDir=" + listingDir);
         System.out.println("  outputDir=" + outputDir);
         System.out.println("  stateJsonPath=" + stateJsonPath);
-        System.out.println("  startDate=" + startDate);
-        System.out.println("  startBlock=" + startBlock);
         System.out.println("  addressBookPath=" + addressBookPath);
         System.out.println("  maxConcurrency=" + maxConcurrency);
-        System.out.println("  skipValidationDuringCatchup=" + skipValidationDuringCatchup);
-        System.out.println("  catchupThresholdSeconds=" + catchupThresholdSeconds);
+        System.out.println("  startDate=" + (startDate != null ? startDate : "(auto-detect)"));
 
         try {
             // Create directories
             Files.createDirectories(outputDir.toPath());
             Files.createDirectories(tmpDir.toPath());
+
+            // Set default state file path in output directory (same as validate/validate-with-stats)
+            if (stateJsonPath == null) {
+                stateJsonPath = outputDir.toPath().resolve("validateCmdStatus.json");
+            }
             if (stateJsonPath.getParent() != null) {
                 Files.createDirectories(stateJsonPath.getParent());
             }
 
-            // Initialize components
+            // Initialize address book
             final AddressBookRegistry addressBookRegistry =
                     addressBookPath != null ? new AddressBookRegistry(addressBookPath) : new AddressBookRegistry();
 
-            final Storage storage = StorageOptions.grpc()
-                    .setAttemptDirectPath(false)
+            // Use HTTP transport + platform threads for stability (avoids gRPC/Netty deadlocks)
+            final Storage storage = StorageOptions.http()
                     .setProjectId(DownloadConstants.GCP_PROJECT_ID)
                     .build()
                     .getService();
 
-            final ConcurrentDownloadManagerVirtualThreads downloadManager =
-                    ConcurrentDownloadManagerVirtualThreads.newBuilder(storage)
+            final ConcurrentDownloadManagerVirtualThreadsV3 downloadManager =
+                    ConcurrentDownloadManagerVirtualThreadsV3.newBuilder(storage)
                             .setMaxConcurrency(maxConcurrency)
                             .build();
 
             final BlockTimeReader blockTimeReader = new BlockTimeReader();
 
+            // Initialize stats CSV path (same file as validate-with-stats for consistency)
+            if (statsCsvPath == null) {
+                statsCsvPath = outputDir.toPath().resolve("signature_statistics.csv");
+            }
+            final SignatureStats stats = new SignatureStats(statsCsvPath);
+            System.out.println("  statsCsvPath=" + statsCsvPath);
+
             // Determine starting point
             final State initialState = determineStartingPoint(blockTimeReader);
-            System.out.println("[download-live2] Starting from block " + initialState.blockNumber + " hash["
-                    + (initialState.blockHash != null ? initialState.blockHash.substring(0, 8) : "null") + "]");
+            System.out.println("[download-live2] Starting from block " + initialState.blockNumber
+                    + " hash["
+                    + (initialState.endRunningHashHex != null
+                            ? initialState.endRunningHashHex.substring(
+                                    0, Math.min(8, initialState.endRunningHashHex.length()))
+                            : "null")
+                    + "]"
+                    + " day=" + initialState.dayDate);
+
+            // Add shutdown hook for graceful termination
+            Runtime.getRuntime()
+                    .addShutdownHook(new Thread(
+                            () -> {
+                                System.out.println("[download-live2] Shutdown requested, finalizing stats...");
+                                stats.finalizeDayStats();
+                                downloadManager.close();
+                            },
+                            "download-live2-shutdown"));
 
             // Main processing loop
-            processBlocks(initialState, addressBookRegistry, downloadManager, blockTimeReader);
+            processBlocks(initialState, addressBookRegistry, downloadManager, blockTimeReader, stats);
 
         } catch (Exception e) {
             System.err.println("[download-live2] Fatal error: " + e.getMessage());
@@ -193,51 +380,89 @@ public class DownloadLive2 implements Runnable {
         }
     }
 
-    private State determineStartingPoint(BlockTimeReader blockTimeReader) throws IOException {
+    /**
+     * Determines the starting point for block processing.
+     * Priority: 1) Resume from state file, 2) Use --start-date if provided, 3) Auto-detect today from mirror node
+     */
+    private State determineStartingPoint(BlockTimeReader blockTimeReader) {
         // Priority 1: Resume from state file
         if (Files.exists(stateJsonPath)) {
             try {
                 String json = Files.readString(stateJsonPath, StandardCharsets.UTF_8);
                 State state = GSON.fromJson(json, State.class);
-                System.out.println("[download-live2] Resuming from state file: block " + state.blockNumber);
-                return state;
+                if (state != null && state.blockNumber > 0) {
+                    System.out.println("[download-live2] Resuming from state file: block " + state.blockNumber);
+                    return state;
+                }
             } catch (Exception e) {
                 System.err.println("[download-live2] Warning: Failed to read state file: " + e.getMessage());
             }
         }
 
-        // Priority 2: Start from date
-        if (startDate != null) {
-            try {
-                LocalDate date = LocalDate.parse(startDate);
-                LocalDateTime startTime = date.atStartOfDay();
-                long blockNumber = blockTimeReader.getNearestBlockAfterTime(startTime);
-                System.out.println("[download-live2] Starting from date " + startDate + " → block " + blockNumber);
-                State state = new State();
-                state.blockNumber = blockNumber;
-                state.dayDate = date.toString();
-                return state;
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to parse start date: " + startDate, e);
-            }
-        }
+        // Priority 2: Use --start-date if provided
+        if (startDate != null && !startDate.isBlank()) {
+            LocalDate targetDay = LocalDate.parse(startDate);
+            System.out.println("[download-live2] Using provided start date: " + targetDay);
 
-        // Priority 3: Start from block number
-        if (startBlock != null) {
-            System.out.println("[download-live2] Starting from explicit block number: " + startBlock);
+            LocalDateTime startOfDay = targetDay.atStartOfDay();
+            long firstBlockOfDay = blockTimeReader.getNearestBlockAfterTime(startOfDay);
+
+            System.out.println("[download-live2] First block of " + targetDay + " is " + firstBlockOfDay);
+
             State state = new State();
-            state.blockNumber = startBlock;
+            state.blockNumber = firstBlockOfDay - 1;
+            state.dayDate = targetDay.toString();
             return state;
         }
 
-        throw new RuntimeException("No starting point specified. Use --state-json, --start-date, or --start-block");
+        // Priority 3: Auto-detect today from mirror node
+        System.out.println("[download-live2] Querying mirror node for current day...");
+        List<BlockInfo> latestBlocks = FetchBlockQuery.getLatestBlocks(1, MirrorNodeBlockQueryOrder.DESC);
+
+        if (latestBlocks.isEmpty()) {
+            throw new RuntimeException("Failed to get latest block from mirror node");
+        }
+
+        BlockInfo latestBlock = latestBlocks.getFirst();
+        String timestamp = latestBlock.timestampFrom != null ? latestBlock.timestampFrom : latestBlock.timestampTo;
+
+        if (timestamp == null) {
+            throw new RuntimeException("Latest block has no timestamp");
+        }
+
+        // Parse timestamp (format: "seconds.nanoseconds")
+        String[] parts = timestamp.split("\\.");
+        long epochSeconds = Long.parseLong(parts[0]);
+        Instant blockInstant = Instant.ofEpochSecond(epochSeconds);
+        LocalDate today = blockInstant.atZone(ZoneOffset.UTC).toLocalDate();
+
+        System.out.println(
+                "[download-live2] Mirror node latest block: " + latestBlock.number + " timestamp: " + timestamp);
+        System.out.println("[download-live2] Detected current day: " + today);
+
+        // Find first block of today
+        LocalDateTime startOfDay = today.atStartOfDay();
+        long firstBlockOfDay = blockTimeReader.getNearestBlockAfterTime(startOfDay);
+
+        System.out.println("[download-live2] First block of " + today + " is " + firstBlockOfDay);
+
+        State state = new State();
+        state.blockNumber =
+                firstBlockOfDay - 1; // Start from the block before, so first iteration processes firstBlockOfDay
+        state.dayDate = today.toString();
+        // No hash yet - will be fetched from mirror node for first block
+        return state;
     }
 
+    /**
+     * Main block processing loop.
+     */
     private void processBlocks(
             State initialState,
             AddressBookRegistry addressBookRegistry,
-            ConcurrentDownloadManagerVirtualThreads downloadManager,
-            BlockTimeReader blockTimeReader)
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            BlockTimeReader blockTimeReader,
+            SignatureStats stats)
             throws Exception {
 
         long currentBlockNumber = initialState.blockNumber;
@@ -245,8 +470,9 @@ public class DownloadLive2 implements Runnable {
         LocalDate currentDay = initialState.getDayDate();
 
         ConcurrentTarZstdWriter currentDayWriter = null;
-        long blocksProcessedInCatchUp = 0;
-        long catchUpStartTime = System.currentTimeMillis();
+        long blocksProcessedTotal = 0;
+        long blocksProcessedToday = 0;
+        long dayStartTime = System.currentTimeMillis();
 
         // Cache for listing files - reload only when day changes
         List<ListingRecordFile> cachedListingFiles = null;
@@ -257,89 +483,157 @@ public class DownloadLive2 implements Runnable {
                 long nextBlockNumber = currentBlockNumber + 1;
 
                 // Get block timestamp
-                LocalDateTime blockTime = blockTimeReader.getBlockLocalDateTime(nextBlockNumber);
-                LocalDate blockDay = blockTime.toLocalDate();
-
-                // Handle day change: refresh listings, cache files, and initialize/rollover writer
-                if (!blockDay.equals(currentDay) || currentDayWriter == null) {
-                    // Refresh GCS listings and load cached files for new day
-                    if (!blockDay.equals(cachedListingDay)) {
-                        refreshListingsForDay(blockDay);
-                        int year = blockTime.getYear();
-                        int month = blockTime.getMonthValue();
-                        int day = blockTime.getDayOfMonth();
-                        cachedListingFiles =
-                                DayListingFileReader.loadRecordsFileForDay(listingDir.toPath(), year, month, day);
-                        cachedListingDay = blockDay;
-                        System.out.println("[download-live2] Loaded " + cachedListingFiles.size()
-                                + " listing entries for " + blockDay);
-                    }
-
-                    // Handle tar writer rollover
-                    if (!blockDay.equals(currentDay)) {
-                        if (currentDayWriter != null) {
-                            currentDayWriter.close();
-                            System.out.println("[download-live2] Day completed: " + currentDay);
-                        }
-                        currentDay = blockDay;
-                        Path dayArchive = outputDir.toPath().resolve(blockDay + ".tar.zstd");
-                        currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
-                        System.out.println("[download-live2] Started new day: " + currentDay);
-                    } else if (currentDayWriter == null) {
-                        // Initialize writer for first block
-                        currentDay = blockDay;
-                        Path dayArchive = outputDir.toPath().resolve(blockDay + ".tar.zstd");
-                        currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
-                        System.out.println("[download-live2] Started new day: " + currentDay);
-                    }
-                }
-
-                // Determine if we should skip validation (during catch-up mode)
-                boolean shouldSkipValidation = false;
-                if (skipValidationDuringCatchup) {
-                    LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-                    Duration timeLag = Duration.between(blockTime, now);
-                    long secondsBehind = timeLag.getSeconds();
-
-                    if (secondsBehind > catchupThresholdSeconds) {
-                        shouldSkipValidation = true;
-                        if (blocksProcessedInCatchUp % 100 == 0) {
-                            System.out.println("[CATCH-UP] Skipping validation for block " + nextBlockNumber + " ("
-                                    + (secondsBehind / 60) + "m behind)");
-                        }
-                    } else if (blocksProcessedInCatchUp > 0) {
-                        System.out.println("[CATCH-UP] Caught up! Re-enabling validation for block " + nextBlockNumber);
-                    }
-                }
-
-                // Try to download block with retry (passing skip flag)
-                DownloadDayLiveImpl.BlockDownloadResult result = downloadBlockWithRetry(
-                        nextBlockNumber,
-                        blockTime,
-                        currentHash,
-                        cachedListingFiles,
-                        downloadManager,
-                        blockTimeReader,
-                        shouldSkipValidation);
-
-                if (result == null) {
-                    // Block not available yet - we're caught up to live
-                    System.out.println("[LIVE] Waiting for block " + nextBlockNumber + "...");
+                LocalDateTime blockTime;
+                try {
+                    blockTime = blockTimeReader.getBlockLocalDateTime(nextBlockNumber);
+                } catch (Exception e) {
+                    // Block not in BlockTimeReader yet - we're at the live edge
+                    System.out.println("[LIVE] Block " + nextBlockNumber + " not in BlockTimeReader yet, waiting...");
                     Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
                     continue;
                 }
 
-                // Convert block time to Instant for state saving
-                Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
+                LocalDate blockDay = blockTime.toLocalDate();
 
-                // Perform full block validation inline (if not skipped)
-                if (!shouldSkipValidation) {
-                    boolean valid = fullBlockValidate(addressBookRegistry, currentHash, recordFileTime, result, null);
+                // Handle day change
+                if (!blockDay.equals(currentDay)) {
+                    // Finalize previous day stats
+                    if (blocksProcessedToday > 0) {
+                        stats.finalizeDayStats();
+                    }
 
-                    if (!valid) {
-                        throw new RuntimeException("Full block validation failed for block " + nextBlockNumber);
+                    // Finalize previous day archive
+                    if (currentDayWriter != null) {
+                        currentDayWriter.close();
+                        System.out.println("[download-live2] Day completed: " + currentDay
+                                + " (" + blocksProcessedToday + " blocks in "
+                                + formatDuration((System.currentTimeMillis() - dayStartTime) / 1000) + ")");
+                    }
+
+                    // Check if output file already exists for new day
+                    Path dayArchive = outputDir.toPath().resolve(blockDay + ".tar.zstd");
+                    if (Files.exists(dayArchive)) {
+                        System.out.println(
+                                "[download-live2] Archive already exists for " + blockDay + ", skipping day...");
+                        // Find first block of next day to skip past this completed day
+                        LocalDateTime startOfNextDay = blockDay.plusDays(1).atStartOfDay();
+                        try {
+                            long firstBlockOfNextDay = blockTimeReader.getNearestBlockAfterTime(startOfNextDay);
+                            currentBlockNumber = firstBlockOfNextDay - 1; // Will be incremented at start of loop
+                            currentDay = blockDay.plusDays(1);
+                            blocksProcessedToday = 0;
+                            dayStartTime = System.currentTimeMillis();
+                            continue;
+                        } catch (Exception e) {
+                            // Can't find next day's first block - we're at the live edge, wait and retry
+                            System.out.println(
+                                    "[LIVE] At live edge - waiting for blocks from " + blockDay.plusDays(1) + "...");
+                            Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
+                            continue;
+                        }
+                    }
+
+                    // Start new day
+                    currentDay = blockDay;
+                    currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
+                    blocksProcessedToday = 0;
+                    dayStartTime = System.currentTimeMillis();
+                    cachedListingFiles = null; // Force reload of listings
+                    cachedListingDay = null;
+
+                    // Start stats for new day
+                    int nodeCount = addressBookRegistry
+                            .getCurrentAddressBook()
+                            .nodeAddress()
+                            .size();
+                    stats.startDay(currentDay, nodeCount);
+
+                    System.out.println("[download-live2] Started new day: " + currentDay);
+                }
+
+                // Initialize writer if needed (first block)
+                if (currentDayWriter == null) {
+                    Path dayArchive = outputDir.toPath().resolve(currentDay + ".tar.zstd");
+                    if (Files.exists(dayArchive)) {
+                        System.out.println(
+                                "[download-live2] Archive already exists for " + currentDay + ", finding next day...");
+                        currentDay = currentDay.plusDays(1);
+                        continue;
+                    }
+                    currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
+                    dayStartTime = System.currentTimeMillis();
+
+                    // Start stats for this day
+                    int nodeCount = addressBookRegistry
+                            .getCurrentAddressBook()
+                            .nodeAddress()
+                            .size();
+                    stats.startDay(currentDay, nodeCount);
+
+                    System.out.println("[download-live2] Started day: " + currentDay);
+                }
+
+                // Refresh listings if day changed
+                if (!blockDay.equals(cachedListingDay)) {
+                    refreshListingsForDay(blockDay);
+                    int year = blockTime.getYear();
+                    int month = blockTime.getMonthValue();
+                    int day = blockTime.getDayOfMonth();
+                    cachedListingFiles =
+                            DayListingFileReader.loadRecordsFileForDay(listingDir.toPath(), year, month, day);
+                    cachedListingDay = blockDay;
+                    System.out.println("[download-live2] Loaded " + cachedListingFiles.size() + " listing entries for "
+                            + blockDay);
+                }
+
+                // If no hash yet, fetch previous hash from mirror node
+                if (currentHash == null && nextBlockNumber > 0) {
+                    System.out.println(
+                            "[download-live2] Fetching previous hash from mirror node for block " + nextBlockNumber);
+                    try {
+                        var prevHashBytes = FetchBlockQuery.getPreviousHashForBlock(nextBlockNumber);
+                        currentHash = prevHashBytes.toByteArray();
+                        System.out.println("[download-live2] Got previous hash: "
+                                + HexFormat.of().formatHex(currentHash).substring(0, 16) + "...");
+                    } catch (Exception e) {
+                        System.err.println(
+                                "[download-live2] Warning: Could not fetch previous hash: " + e.getMessage());
                     }
                 }
+
+                // Download and validate block
+                DownloadDayLiveImpl.BlockDownloadResult result = downloadBlockWithRetry(
+                        nextBlockNumber, blockTime, currentHash, cachedListingFiles, downloadManager, blockTimeReader);
+
+                if (result == null) {
+                    // Block not available yet in GCS - we're at the live edge
+                    System.out.println("[LIVE] Waiting for block " + nextBlockNumber + " in GCS...");
+                    Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
+                    // Refresh listings in case new files appeared
+                    refreshListingsForDay(blockDay);
+                    cachedListingFiles = DayListingFileReader.loadRecordsFileForDay(
+                            listingDir.toPath(),
+                            blockTime.getYear(),
+                            blockTime.getMonthValue(),
+                            blockTime.getDayOfMonth());
+                    continue;
+                }
+
+                // Full block validation
+                Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
+                boolean valid = fullBlockValidate(addressBookRegistry, currentHash, recordFileTime, result, null);
+
+                if (!valid) {
+                    System.err.println("[download-live2] WARNING: Full block validation failed for block "
+                            + nextBlockNumber + ", continuing anyway...");
+                }
+
+                // Record block statistics
+                int nodeCount = addressBookRegistry
+                        .getAddressBookForBlock(recordFileTime)
+                        .nodeAddress()
+                        .size();
+                stats.recordBlock(result.files, nodeCount);
 
                 // Write block to archive
                 for (InMemoryFile file : result.files) {
@@ -349,38 +643,38 @@ public class DownloadLive2 implements Runnable {
                 // Update state
                 currentBlockNumber = nextBlockNumber;
                 currentHash = result.newPreviousRecordFileHash;
-                blocksProcessedInCatchUp++;
+                blocksProcessedTotal++;
+                blocksProcessedToday++;
 
                 // Save state periodically
-                if (currentBlockNumber % 100 == 0) {
-                    saveState(new State(currentBlockNumber, currentHash, recordFileTime, blockDay));
+                if (blocksProcessedTotal % 100 == 0) {
+                    saveState(new State(currentBlockNumber, currentHash, recordFileTime, currentDay));
                 }
 
-                // Check if we're catching up or live
-                if (blocksProcessedInCatchUp % CATCH_UP_CHECK_INTERVAL == 0) {
-                    long elapsed = System.currentTimeMillis() - catchUpStartTime;
-                    double blocksPerSec = blocksProcessedInCatchUp / (elapsed / 1000.0);
-
-                    // Calculate ETA to catch up
-                    String etaString = calculateCatchUpEta(currentBlockNumber, blockTime, blocksPerSec);
-
+                // Log progress
+                if (blocksProcessedTotal % PROGRESS_LOG_INTERVAL == 0) {
+                    long elapsed = System.currentTimeMillis() - dayStartTime;
+                    double blocksPerSec = blocksProcessedToday / (elapsed / 1000.0);
                     System.out.printf(
-                            "[CATCH-UP] Block %d, %.1f blocks/sec%s%n", currentBlockNumber, blocksPerSec, etaString);
+                            "[download-live2] Block %d (%s) - %.1f blocks/sec - %d blocks today%n",
+                            currentBlockNumber, blockTime, blocksPerSec, blocksProcessedToday);
                 }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            System.err.println("[download-live2] Interrupted");
+            System.out.println("[download-live2] Interrupted, saving state...");
         } finally {
             // Save final state
             if (currentHash != null) {
                 LocalDateTime finalBlockTime = blockTimeReader.getBlockLocalDateTime(currentBlockNumber);
                 Instant finalRecordTime = finalBlockTime.atZone(ZoneOffset.UTC).toInstant();
                 saveState(new State(currentBlockNumber, currentHash, finalRecordTime, currentDay));
+                System.out.println("[download-live2] Saved state at block " + currentBlockNumber);
             }
             if (currentDayWriter != null) {
                 try {
                     currentDayWriter.close();
+                    System.out.println("[download-live2] Closed archive for " + currentDay);
                 } catch (Exception e) {
                     System.err.println("[download-live2] Error closing writer: " + e.getMessage());
                 }
@@ -388,21 +682,22 @@ public class DownloadLive2 implements Runnable {
         }
     }
 
+    /**
+     * Downloads a block with retry logic.
+     */
     private DownloadDayLiveImpl.BlockDownloadResult downloadBlockWithRetry(
             long blockNumber,
             LocalDateTime blockTime,
             byte[] previousHash,
             List<ListingRecordFile> cachedListingFiles,
-            ConcurrentDownloadManagerVirtualThreads downloadManager,
-            BlockTimeReader blockTimeReader,
-            boolean skipHashValidation)
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            BlockTimeReader blockTimeReader)
             throws IOException {
 
         Exception lastException = null;
 
         for (int attempt = 1; attempt <= MAX_VALIDATION_RETRIES; attempt++) {
             try {
-                // Try to download the block
                 int year = blockTime.getYear();
                 int month = blockTime.getMonthValue();
                 int day = blockTime.getDayOfMonth();
@@ -418,7 +713,7 @@ public class DownloadLive2 implements Runnable {
                 }
 
                 // Download the block
-                DownloadDayLiveImpl.BlockDownloadResult result = DownloadDayLiveImpl.downloadSingleBlockForLive(
+                return DownloadDayLiveImpl.downloadSingleBlockForLive(
                         downloadManager,
                         null, // dayBlockInfo not needed for live mode
                         blockTimeReader,
@@ -428,20 +723,7 @@ public class DownloadLive2 implements Runnable {
                         day,
                         blockNumber,
                         previousHash,
-                        skipHashValidation);
-
-                // Validate hash chain
-                byte[] blockHash = result.newPreviousRecordFileHash;
-                if (previousHash != null) {
-                    // Check that the block's previous hash matches what we expect
-                    byte[] blockPreviousHash = result.files
-                            .get(0)
-                            .data(); // This is simplified - actual validation happens in DownloadDayUtil
-                    // The actual validation is done in DownloadDayLiveImpl.downloadSingleBlockForLive via
-                    // validateBlockHashes
-                }
-
-                return result;
+                        false); // don't skip hash validation
 
             } catch (Exception e) {
                 lastException = e;
@@ -463,8 +745,10 @@ public class DownloadLive2 implements Runnable {
                 lastException);
     }
 
+    /**
+     * Refreshes GCS listings for a day.
+     */
     private void refreshListingsForDay(LocalDate day) {
-        System.out.println("[download-live2] Refreshing GCS listings for " + day);
         UpdateDayListingsCommand.updateDayListings(
                 listingDir.toPath(),
                 CACHE_DIR.toPath(),
@@ -474,14 +758,15 @@ public class DownloadLive2 implements Runnable {
                 DownloadConstants.GCP_PROJECT_ID);
     }
 
+    /**
+     * Saves state to JSON file.
+     */
     private void saveState(State state) {
         try {
-            // Create parent directory if it doesn't exist
             Path parentDir = stateJsonPath.getParent();
             if (parentDir != null && !Files.exists(parentDir)) {
                 Files.createDirectories(parentDir);
             }
-
             String json = GSON.toJson(state);
             Files.writeString(stateJsonPath, json, StandardCharsets.UTF_8);
         } catch (IOException e) {
@@ -490,83 +775,17 @@ public class DownloadLive2 implements Runnable {
     }
 
     /**
-     * Calculates ETA to catch up to current time based on block processing speed.
-     *
-     * @param currentBlockNumber the block number we're currently at
-     * @param currentBlockTime the timestamp of the current block
-     * @param blocksPerSec the current processing speed
-     * @return formatted ETA string, or empty if we're caught up
-     */
-    private String calculateCatchUpEta(long currentBlockNumber, LocalDateTime currentBlockTime, double blocksPerSec) {
-        try {
-            // Get current wall clock time
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-
-            // Calculate time lag
-            Duration timeLag = Duration.between(currentBlockTime, now);
-            long secondsBehind = timeLag.getSeconds();
-
-            // If we're less than 10 seconds behind, we're essentially caught up
-            if (secondsBehind < 10) {
-                return " - CAUGHT UP";
-            }
-
-            // Estimate blocks behind (assuming ~2 second block time on average)
-            // This is approximate but good enough for ETA
-            double avgBlockTime = 2.0; // seconds per block
-            long estimatedBlocksBehind = (long) (secondsBehind / avgBlockTime);
-
-            // Calculate ETA
-            if (blocksPerSec > 0) {
-                double secondsToCompletion = estimatedBlocksBehind / blocksPerSec;
-                String eta = formatDuration((long) secondsToCompletion);
-                return String.format(" - %s behind, ETA: %s", formatTimeLag(secondsBehind), eta);
-            } else {
-                return String.format(" - %s behind", formatTimeLag(secondsBehind));
-            }
-        } catch (Exception e) {
-            return ""; // Silently ignore errors in ETA calculation
-        }
-    }
-
-    /**
-     * Formats a duration in seconds into human-readable format.
+     * Formats a duration in seconds to human-readable format.
      */
     private String formatDuration(long seconds) {
         if (seconds < 60) {
             return seconds + "s";
         } else if (seconds < 3600) {
-            long minutes = seconds / 60;
-            long secs = seconds % 60;
-            return String.format("%dm %ds", minutes, secs);
+            return String.format("%dm %ds", seconds / 60, seconds % 60);
         } else if (seconds < 86400) {
-            long hours = seconds / 3600;
-            long minutes = (seconds % 3600) / 60;
-            return String.format("%dh %dm", hours, minutes);
+            return String.format("%dh %dm", seconds / 3600, (seconds % 3600) / 60);
         } else {
-            long days = seconds / 86400;
-            long hours = (seconds % 86400) / 3600;
-            return String.format("%dd %dh", days, hours);
-        }
-    }
-
-    /**
-     * Formats time lag in seconds into human-readable format.
-     */
-    private String formatTimeLag(long seconds) {
-        if (seconds < 60) {
-            return seconds + "s";
-        } else if (seconds < 3600) {
-            long minutes = seconds / 60;
-            return String.format("%dm", minutes);
-        } else if (seconds < 86400) {
-            long hours = seconds / 3600;
-            long minutes = (seconds % 3600) / 60;
-            return String.format("%dh %dm", hours, minutes);
-        } else {
-            long days = seconds / 86400;
-            long hours = (seconds % 86400) / 3600;
-            return String.format("%dd %dh", days, hours);
+            return String.format("%dd %dh", seconds / 86400, (seconds % 86400) / 3600);
         }
     }
 }

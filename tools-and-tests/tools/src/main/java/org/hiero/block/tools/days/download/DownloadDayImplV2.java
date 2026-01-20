@@ -452,7 +452,7 @@ public class DownloadDayImplV2 {
                 targetFileName = filename.replaceAll("\\.rcd$", "_node_" + nodeDir + ".rcd");
             }
         } else if (lr.type() == ListingRecordFile.Type.RECORD_SIG) {
-            targetFileName = "node_" + nodeDir + ".rcs_dig";
+            targetFileName = "node_" + nodeDir + ".rcd_sig";
         } else {
             throw new IOException("Unsupported file type: " + lr.type());
         }
