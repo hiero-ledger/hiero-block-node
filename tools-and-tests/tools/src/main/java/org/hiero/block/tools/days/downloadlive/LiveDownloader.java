@@ -268,8 +268,9 @@ public class LiveDownloader {
             final Process p = pb.start();
             final int exit = p.waitFor();
             if (exit != 0) {
-                System.err.printf("[download] tar command failed for day %s entries=%d with exit=%d%n",
-                    dayKey, entryNames.size(), exit);
+                System.err.printf(
+                        "[download] tar command failed for day %s entries=%d with exit=%d%n",
+                        dayKey, entryNames.size(), exit);
             } else {
                 for (String entryName : entryNames) {
                     System.out.printf("[download] appended %s to %s%n", entryName, tarPath);
