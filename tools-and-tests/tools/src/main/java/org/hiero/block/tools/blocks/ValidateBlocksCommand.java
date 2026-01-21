@@ -347,7 +347,7 @@ public class ValidateBlocksCommand implements Runnable {
             int requiredSignatures = (totalNodes / 3) + 1;
 
             // Get block signatures from proof
-            Bytes blockSig = blockProof.blockSignature();
+            Bytes blockSig = blockProof.signedBlockProofOrThrow().blockSignature();
             if (blockSig == null || blockSig.length() == 0) {
                 PrettyPrint.clearProgress();
                 System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ No signatures in block proof"));
