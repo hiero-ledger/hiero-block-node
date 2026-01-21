@@ -64,9 +64,9 @@ class ZipBlockArchiveTest {
         Files.createDirectories(blocksRoot);
         linksTempDir = blocksRoot.resolve("links");
         Files.createDirectories(linksTempDir);
-        /** The path to the pre-staging root directory, where zip archives are created, used for testing. */
-        final Path prestageTempDir = blocksRoot.resolve("prestage");
-        Files.createDirectories(prestageTempDir);
+        /** The path to the working zip root directory, where zip archives are created, used for testing. */
+        final Path zipWorkDir = blocksRoot.resolve("zipwork");
+        Files.createDirectories(zipWorkDir);
         testConfig = createTestConfiguration(blocksRoot, 1);
         // we need this test context because we need the health facility to be
         // available for the tests to run
@@ -343,7 +343,7 @@ class ZipBlockArchiveTest {
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#writeNewZipFile(BlockAccessorBatch, Path)}  will successfully
+         * {@link ZipBlockArchive#createZip(BlockAccessorBatch, Path)}  will successfully
          * create the target zip file
          */
         @Test
@@ -369,7 +369,7 @@ class ZipBlockArchiveTest {
             Files.createDirectories(expected.getParent());
 
             // call
-            toTest.writeNewZipFile(batch, expected);
+            toTest.createZip(batch, expected);
             // assert existing zip file
             assertThat(expected)
                     .exists()
@@ -382,7 +382,7 @@ class ZipBlockArchiveTest {
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#writeNewZipFile(BlockAccessorBatch, Path)} will produce the right
+         * {@link ZipBlockArchive#createZip(BlockAccessorBatch, Path)} will produce the right
          * contents for the created zip file
          */
         @Test
@@ -411,7 +411,7 @@ class ZipBlockArchiveTest {
             assertThat(expected).doesNotExist();
             Files.createDirectories(expected.getParent());
             // call
-            toTest.writeNewZipFile(batch, expected);
+            toTest.createZip(batch, expected);
             // assert that each entry's contents matches what we initially intended
             // to write
             try (final FileSystem zipFs = FileSystems.newFileSystem(expected);
