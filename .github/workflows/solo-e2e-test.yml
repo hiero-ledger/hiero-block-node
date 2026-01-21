@@ -62,6 +62,10 @@ on:
         description: "NLG extra args (e.g., '-T 5 -K ED25519')"
         required: false
         default: ""
+      mirror-node-pinger-tps:
+        description: "Mirror Node pinger TPS (0 to disable)"
+        required: false
+        default: "5"
 
 defaults:
   run:
@@ -83,6 +87,8 @@ env:
   CLUSTER_NAME: "solo-cluster"
   CONTEXT: "kind-solo-cluster"
   CLUSTER_REFERENCE: "kind-solo-cluster"
+  # Solo CLI environment variables
+  MIRROR_NODE_PINGER_TPS: ${{ inputs.mirror-node-pinger-tps }}
 
 jobs:
   solo-test-deploy:
@@ -402,6 +408,25 @@ jobs:
             --context "${CONTEXT}" \
             --proto-path "protobuf-sources/proto" \
             --output github-summary
+
+      # Block Node Metrics Summary - show metrics for each block node
+      - name: Block Node Metrics Summary
+        if: always()
+        run: |
+          TOPOLOGY_FILE="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies/${{ inputs.topology }}.yaml"
+          BLOCK_NODES=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "${TOPOLOGY_FILE}" | sed 's/://g' | awk '{print $1}' || echo "block-node-1")
+
+          PORT=16007
+          for bn in ${BLOCK_NODES}; do
+            echo "<details>" >> "${GITHUB_STEP_SUMMARY}"
+            echo "<summary>📊 ${bn} Metrics</summary>" >> "${GITHUB_STEP_SUMMARY}"
+            echo "" >> "${GITHUB_STEP_SUMMARY}"
+            ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-metrics-summary.sh \
+              ${PORT} github-summary >> "${GITHUB_STEP_SUMMARY}" || echo "Metrics unavailable for ${bn}" >> "${GITHUB_STEP_SUMMARY}"
+            echo "</details>" >> "${GITHUB_STEP_SUMMARY}"
+            echo "" >> "${GITHUB_STEP_SUMMARY}"
+            PORT=$((PORT + 1))
+          done
 
       # TCK Regression Tests related steps
       - name: Setup PNPM

@@ -1,3 +1,4 @@
+.tmp/
 out/
 overnight-test-results.log
 overnight-test-output.log
