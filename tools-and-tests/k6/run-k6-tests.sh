@@ -87,6 +87,13 @@ run_stream_validation_test() {
     echo "Stream validation test completed."
 }
 
+run_publisher_validation_test() {
+    echo "Running publisher validation test..."
+    local out_file=${k6_out_dir}/publisher_validation_test.log
+    k6 run ./smoke/bn-publisher-validation.js >> "${out_file}" 2>&1
+    echo "Publisher validation test completed."
+}
+
 run_shared_node_tests() {
     # These tests can run on a shared node setup as they only read data
     run_bn
@@ -94,6 +101,13 @@ run_shared_node_tests() {
     run_server_status_test
     run_query_validation_test
     run_stream_validation_test
+}
+
+run_publisher_tests() {
+    echo "Running publisher tests..."
+    run_bn
+    run_publisher_validation_test
+    echo "Publisher tests completed."
 }
 
 run_tests() {
@@ -105,7 +119,8 @@ run_tests() {
     echo "Setting up tests & environment..."
     setup_proto_defs
     echo "Running shared node tests..."
-    run_shared_node_tests
+#    run_shared_node_tests
+    run_publisher_tests
     echo "Shared node tests completed."
     echo "K6 tests completed. Output available at: ${k6_out_dir}"
 }

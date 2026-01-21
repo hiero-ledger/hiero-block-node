@@ -5,6 +5,9 @@
     "test": "./run-k6-tests.sh",
     "print-logs": "./print-logs.sh"
   },
+  "dependencies": {
+    "protobufjs": "^8.0.0"
+  },
   "devDependencies": {
     "@types/k6": "^1.4.0"
   }
