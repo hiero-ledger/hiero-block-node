@@ -30,13 +30,18 @@ Before you begin, ensure you have:
 4. Select a machine type appropriate for your Block Node profile:
    - **For a test or local profile**: Choose at least an **E2 standard** machine (for example, **`e2-standard-2`**) so that CPU and memory are sufficient.
    - **For production (**e.g.**, `mainnet` or `testnet`)**: Select at least ~16 CPUs (e.g., 8 physical cores / 16 vCPUs).
-5. Set the region and zone (defaults are fine unless you have a preference).
-6. Select the default boot disk and operating system unless your team has specific requirements.
-7. Leave other instance settings at defaults for a standard deployment.
-8. Click **Create** to launch the VM.
-9. Wait until the instance status is **Running** before proceeding.
 
-   ![Solo Weaver GCP VM configuration](../../assets/block-node-solo-weaver-vm-create.png)
+     ![Solo Weaver GCP VM configuration](../../assets/block-node-solo-weaver-vm-create.png)
+
+5. Set the region and zone (defaults are fine unless you have a preference).
+
+6. Select the default boot disk and operating system unless your team has specific requirements.
+
+7. Leave other instance settings at defaults for a standard deployment.
+
+8. Click **Create** to launch the VM.
+
+9. Wait until the instance status is **Running** before proceeding.
 
 ### Step 2: Upload Weaver to the VM
 
@@ -308,8 +313,11 @@ If the pods are running and healthy, your Block Node is successfully installed a
 3. **Call the `serverStatus` endpoint** to verify the node is accessible:
 
    ```bash
-   grpcurl -plaintext -emit-defaults -import-path block-node-protobuf-0.24.0 -proto block-node/api/node_service.proto -d '{}' 35.247.55.169:40840 org.hiero.block.api.BlockNodeService/serverStatus
+   grpcurl -plaintext -emit-defaults -import-path block-node-protobuf-0.24.0 -proto block-node/api/node_service.proto -d '{}' <BLOCK_NODE_IP>:<GRPC_PORT> org.hiero.block.api.BlockNodeService/serverStatus
    ```
+
+   - <BLOCK_NODE_IP> is the external IP of your Block Node VM. For GCP, you can find this on the VM’s Details page under External IP.
+   - <GRPC_PORT> is the gRPC service port exposed by your Block Node (e.g., 40840).
 4. **Review the output** for status information confirming the node is running and serving requests.
 
    Expected output:
