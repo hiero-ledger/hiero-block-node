@@ -31,7 +31,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "latest"
+        default: "0.52.0"
       run-tck-regression-tests:
         description: "Run TCK regression test"
         required: false
