@@ -16,6 +16,7 @@
 #   --cn-version VERSION       Consensus Node version
 #   --mn-version VERSION       Mirror Node version
 #   --bn-version VERSION       Block Node version (used for Helm chart version)
+#   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
 #   --help                     Show this help message
 
 set -o pipefail
@@ -74,6 +75,7 @@ Options:
   --cn-version VERSION       Consensus Node version
   --mn-version VERSION       Mirror Node version
   --bn-version VERSION       Block Node version (used for Helm chart version)
+  --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
   --help                     Show this help message
 
 Available Topologies:
@@ -104,6 +106,7 @@ TOPOLOGIES_DIR="${SCRIPT_DIR}/topologies"
 CN_VERSION=""
 MN_VERSION=""
 BN_VERSION=""
+ENABLE_METRICS="false"
 
 # Values loaded from topology
 CN_COUNT="1"
@@ -149,6 +152,10 @@ while [[ $# -gt 0 ]]; do
     --bn-version)
       BN_VERSION="$2"
       shift 2
+      ;;
+    --enable-metrics)
+      ENABLE_METRICS="true"
+      shift
       ;;
     --help|-h)
       show_help
@@ -273,6 +280,9 @@ function deploy_block_nodes {
     --output-dir "${overlay_dir}" || fail "ERROR: Failed to generate Helm overlays" 1
   end_task
 
+  # Path to observability overlay (relative to scripts dir)
+  local observability_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/enable-observability.yaml"
+
   for ((i = 1; i <= BN_COUNT; i++)); do
     local bn_overlay="${overlay_dir}/bn-block-node-${i}-values.yaml"
     local overlay_args=""
@@ -280,6 +290,16 @@ function deploy_block_nodes {
     if [[ -f "${bn_overlay}" ]]; then
       overlay_args="-f ${bn_overlay}"
       log_line "  Using backfill overlay for block-node-${i}"
+    fi
+
+    # Enable observability stack on the last block node
+    if [[ "${ENABLE_METRICS}" == "true" && "${i}" -eq "${BN_COUNT}" ]]; then
+      if [[ -f "${observability_overlay}" ]]; then
+        overlay_args="${overlay_args} -f ${observability_overlay}"
+        log_line "  Enabling observability stack on block-node-${i}"
+      else
+        log_line "  WARNING: Observability overlay not found: ${observability_overlay}"
+      fi
     fi
 
     start_task "Deploying Block Node ${i}"

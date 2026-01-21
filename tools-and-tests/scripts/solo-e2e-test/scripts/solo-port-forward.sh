@@ -13,11 +13,14 @@
 #
 # Port Mappings:
 #   Block Nodes:     40840, 40841, 40842, ...
+#   BN Metrics:      16007, 16008, 16009, ...
 #   Mirror REST:     5551, 5552, 5553, ...
 #   Relay JSON-RPC:  7546, 7547, ...
 #   Relay WebSocket: 8546, 8547, ...
 #   Explorer:        8080, 8081, ...
 #   Consensus:       50211 (single haproxy)
+#   Grafana:         3000 (if local metrics enabled)
+#   Prometheus:      9090 (if local metrics enabled)
 
 set -o pipefail
 
@@ -35,11 +38,14 @@ Options:
 
 Port Mappings:
   Block Nodes:     40840, 40841, 40842, ...
+  BN Metrics:      16007, 16008, 16009, ...
   Mirror REST:     5551, 5552, 5553, ...
   Relay JSON-RPC:  7546, 7547, ...
   Relay WebSocket: 8546, 8547, ...
   Explorer:        8080, 8081, ...
   Consensus:       50211 (single haproxy)
+  Grafana:         3000 (if local metrics enabled)
+  Prometheus:      9090 (if local metrics enabled)
 EOF
   exit 0
 }
@@ -71,9 +77,11 @@ pkill -f "kubectl port-forward" 2>/dev/null || true
 # Arrays to collect endpoints for summary
 declare -a CN_ENDPOINTS=()
 declare -a BN_ENDPOINTS=()
+declare -a BN_METRICS_ENDPOINTS=()
 declare -a MN_ENDPOINTS=()
 declare -a RELAY_ENDPOINTS=()
 declare -a EXPLORER_ENDPOINTS=()
+declare -a METRICS_ENDPOINTS=()
 
 echo "Setting up port forwards..."
 
@@ -83,13 +91,22 @@ if kubectl get svc haproxy-node1-svc -n "${NAMESPACE}" >/dev/null 2>&1; then
   CN_ENDPOINTS+=("localhost:50211")
 fi
 
-# Block nodes (40840, 40841, ...)
+# Block nodes (40840, 40841, ...) - match only "block-node-N" not monitoring services
 BN_PORT=40840
-for svc in $(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep "block-node-" | sort); do
+for svc in $(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep -E "block-node-[0-9]+$" | sort); do
   svc_name=$(basename "$svc")
   kubectl port-forward "svc/${svc_name}" -n "${NAMESPACE}" ${BN_PORT}:40840 >/dev/null 2>&1 &
   BN_ENDPOINTS+=("localhost:${BN_PORT} (${svc_name})")
   BN_PORT=$((BN_PORT + 1))
+done
+
+# Block node metrics (16007, 16008, ...) - match only "block-node-N" not monitoring services
+BN_METRICS_PORT=16007
+for svc in $(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep -E "block-node-[0-9]+$" | sort); do
+  svc_name=$(basename "$svc")
+  kubectl port-forward "svc/${svc_name}" -n "${NAMESPACE}" ${BN_METRICS_PORT}:16007 >/dev/null 2>&1 &
+  BN_METRICS_ENDPOINTS+=("http://localhost:${BN_METRICS_PORT}/metrics (${svc_name})")
+  BN_METRICS_PORT=$((BN_METRICS_PORT + 1))
 done
 
 # Mirror REST nodes (5551, 5552, ...)
@@ -126,6 +143,22 @@ for svc in $(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep "explo
   EXPLORER_PORT=$((EXPLORER_PORT + 1))
 done
 
+# Grafana (if local metrics enabled)
+GRAFANA_SVC=$(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep grafana | head -1)
+if [[ -n "$GRAFANA_SVC" ]]; then
+  svc_name=$(basename "$GRAFANA_SVC")
+  kubectl port-forward "svc/${svc_name}" -n "${NAMESPACE}" 3000:80 >/dev/null 2>&1 &
+  METRICS_ENDPOINTS+=("http://localhost:3000 Grafana (admin/admin)")
+fi
+
+# Prometheus (if local metrics enabled)
+PROM_SVC=$(kubectl get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep "kubepromstack-prometheus" | head -1)
+if [[ -n "$PROM_SVC" ]]; then
+  svc_name=$(basename "$PROM_SVC")
+  kubectl port-forward "svc/${svc_name}" -n "${NAMESPACE}" 9090:9090 >/dev/null 2>&1 &
+  METRICS_ENDPOINTS+=("http://localhost:9090 Prometheus")
+fi
+
 sleep 2
 
 # Print formatted summary
@@ -145,6 +178,12 @@ if [[ ${#BN_ENDPOINTS[@]} -gt 0 ]]; then
   for ep in "${BN_ENDPOINTS[@]}"; do echo "  $ep"; done
 fi
 
+if [[ ${#BN_METRICS_ENDPOINTS[@]} -gt 0 ]]; then
+  echo ""
+  echo "Block Node Metrics:"
+  for ep in "${BN_METRICS_ENDPOINTS[@]}"; do echo "  $ep"; done
+fi
+
 if [[ ${#MN_ENDPOINTS[@]} -gt 0 ]]; then
   echo ""
   echo "Mirror Nodes (REST):"
@@ -161,6 +200,12 @@ if [[ ${#EXPLORER_ENDPOINTS[@]} -gt 0 ]]; then
   echo ""
   echo "Explorer:"
   for ep in "${EXPLORER_ENDPOINTS[@]}"; do echo "  $ep"; done
+fi
+
+if [[ ${#METRICS_ENDPOINTS[@]} -gt 0 ]]; then
+  echo ""
+  echo "Metrics Dashboards:"
+  for ep in "${METRICS_ENDPOINTS[@]}"; do echo "  $ep"; done
 fi
 
 echo ""
