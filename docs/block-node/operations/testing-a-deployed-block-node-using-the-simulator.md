@@ -1,6 +1,9 @@
+# Testing a Deployed Block Node Using the Simulator
+
 ## Overview
 
-After deploying a Block Node using either manual Kubernetes configuration or Solo Weaver, you must verify that the node is functioning correctly by testing its ability to receive, process, and stream blocks.
+After deploying a Block Node using either manual Kubernetes configuration or Solo Weaver, you must verify that the node is functioning correctly by testing its ability to receive process streamed blocks.
+
 This guide walks you through testing your Block Node deployment using a simulator Docker container that publishes test blocks to the node.
 
 The testing process uses a Docker Compose file to create a simulator publisher container.
@@ -15,7 +18,7 @@ Before you begin, ensure you have:
   - [**Solo Weaver Single-Node Kubernetes Deployment**](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/solo-weaver-single-node-k8s-deployment.md)
 - **[Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose** installed and available on your machine where you will run the simulator.
 - The **gRPC** service address and port for your Block Node:
-  - For Local deployment: `localhost:50051`
+  - For Local deployment: `localhost:40840`
   - For cloud deployment server address:
 
     ```bash
@@ -25,7 +28,7 @@ Before you begin, ensure you have:
   - **Postman** (with gRPC support), or
   - **grpcurl** command-line tool
 
-## Step 1: **Create the Simulator Docker Compose File**
+## Step 1: Create the Simulator Docker Compose File
 
 1. Create a new file named **`docker-compose-publisher.yaml`** in the root of your project (or any location where you plan to run the test):
 
@@ -38,7 +41,7 @@ Before you begin, ensure you have:
    services:
      simulator-publisher:
        container_name: simulator-publisher
-       image:  ghcr.io/hiero-ledger/hiero-block-node/simulator-image:0.25.0-snapshot
+       image:  ghcr.io/hiero-ledger/hiero-block-node/simulator-image:<BLOCK_NODE_VERSION_TAG>
        environment:
          - BLOCK_STREAM_SIMULATOR_MODE=PUBLISHER_CLIENT
          - GRPC_SERVER_ADDRESS=host.docker.internal
@@ -48,28 +51,35 @@ Before you begin, ensure you have:
    ```
 
 > **Note:** Replace "host.docker.internal" and "40840" with the actual service IP/hostname and gRPC port for your Block Node.
+
 >
-> **Note:** Always use a simulator image version that matches your Block Node version. For example, if your Block Node is version 0.25.0, use the simulator image tagged as 0.25.0. Refer to the [package registry](https://github.com/hiero-ledger/hiero-block-node/pkgs/container/hiero-block-node%2Fsimulator-image).
+
+> **Note:** Replace `<BLOCK_NODE_VERSION_TAG>` with the version of the Block Node you are testing (for example, `0.25.0`). Always use a simulator image version that matches your Block Node version. Refer to the [package registry](https://github.com/hiero-ledger/hiero-block-node/pkgs/container/hiero-block-node%2Fsimulator-image) to find the available versions.
 
 ### **Choose the Correct Block Node Address:**
 
 Use the appropriate GRPC_SERVER_ADDRESS value based on where your Block Node is running:
 
-- **Local machine (Kubernetes on your VM)**: Use the Kubernetes service IP from the **`EXTERNAL-IP`** column (e.g., **`10.96.15.190`**)
+- **Local machine (Kubernetes on your VM)**: Use the Kubernetes service IP from the **`EXTERNAL-IP`** column (e.g., **`10.96.15.190`**).
 - **Docker container on the same machine**: Use the Kubernetes service IP since Docker containers can reach Kubernetes services on the host VM, but **`host.docker.internal`** may not work in all cloud environments.
 - **Different machine/network**: Use the public external IP from your cloud provider (if available).
 
 ### **Environment Variable Explanation:**
 
+The following variables are the minimum required to run the simulator publisher against your Block Node:
+
 - **BLOCK_STREAM_SIMULATOR_MODE**: Set to **`PUBLISHER_CLIENT`** so the simulator acts as a publisher and stream blocks to the Block Node.
 - **GRPC_SERVER_ADDRESS**: The Kubernetes service IP of your Block Node (e.g., **`10.96.0.15`**).
 - **GRPC_PORT**: The gRPC port exposed by the Block Node service (e.g., **`40840`**).
-- **GENERATOR_START_BLOCK_NUMBER**: First block number the simulator will generate (for example, **`0`**)
+- **GENERATOR_START_BLOCK_NUMBER**: First block number the simulator will generate (for example, **`0`**).
 - **GENERATOR_END_BLOCK_NUMBER**: Last block number the simulator will generate, the simulator stops after publishing up to this block number.
+  
+For the complete and official Block Node configuration reference, see the [Block Node configuration document](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/configuration.md).
+
 
 ## Step 2: Run the Docker Compose File
 
-1. From the directory containing **`docker-compose-publisher.yaml`**, run the Docker Compose command start the simulator:
+1. From the directory containing **`docker-compose-publisher.yaml`**, run the Docker Compose command to start the simulator:
 
    ```bash
    docker-compose -f docker-compose-publisher.yaml up
@@ -122,10 +132,10 @@ Once the Docker Compose container is running, verify that blocks are being strea
    ```bash
    simulator-publisher  | 2025-12-30 21:50:17.720+0000 INFO    PublisherClientModeHandler#millisPerBlockStreaming Block Stream Simulator has stopped
    simulator-publisher  | 2025-12-30 21:50:17.720+0000 INFO    PublisherClientModeHandler#millisPerBlockStreaming Number of BlockItems sent by the Block Stream Simulator: 1574
-   simulator-publisher  | 2025-12-30 21:50:17.721+0000 INFO    PublisherClientModeHandler#millisPerBlockStreaming Number of Blocks sent by the Block Stream Simulator: 31
+   simulator-publisher  | 2025-12-30 21:50:17.721+0000 INFO     PublisherClientModeHandler#millisPerBlockStreaming Number of Blocks sent by the Block Stream Simulator: 31
    ```
 
-## Step 3: Clean Up After Testing
+## Step 4: Clean Up After Testing
 
 After testing is complete:
 
@@ -134,8 +144,36 @@ After testing is complete:
    1. If the container is still running, stop it with **Ctrl+C** in the terminal where `docker-compose up` is running.
    2. Then remove the test blocks that were streamed and clean up resources, run:
 
-   ```bash
-   docker-compose -f docker-compose-publisher.yaml down
-   ```
+      ```bash
+      docker compose -f docker-compose-publisher.yaml down
+      ```
 
    This will stop and remove the simulator publisher container, allowing you to perform additional testing runs if needed.
+
+### **Resetting the Block Node after simulator testing**
+
+If you want to run a new simulator test from a clean state, or prepare the same deployment to receive real block streams, reset the Block Node data and restart the Block Node workload.
+
+> **Caution:** These commands permanently delete all current block data from the Block Node. Only run them in non‑production environments, or when you explicitly intend to clear test data.
+
+For **single-node Kubernetes deployments**, run:
+
+- Delete live and historic data directories inside the Block Node pod:
+
+   ```bash
+   kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
+   ````
+
+- Restart the Block Node pod so it starts with a clean data directory:
+
+   ```bash
+   kubectl -n ${NAMESPACE} delete pod ${POD}
+   ```
+
+For **Docker based Block Node deployments**, run the equivalent inside the Block Node container:
+
+   ```bash
+   docker exec <BLOCK_NODE_CONTAINER_NAME> sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
+   docker restart <BLOCK_NODE_CONTAINER_NAME>
+   ```
+After the pod or container restarts, the Block Node will come up with empty live and historic data directories, ready for a fresh simulator run or to begin consuming real block streams.
