@@ -147,8 +147,8 @@ jobs:
         id: solo
         run: |
           npm i @hashgraph/solo@${{ inputs.solo-version }} -g
-          # Extract version number only (strip decorative banners)
-          SOLO_INSTALLED=$(solo --version 2>/dev/null | grep -E "^Version" | awk '{print $3}')
+          # Extract version number from solo output (handles various output formats)
+          SOLO_INSTALLED=$(solo --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
           echo "Solo version: ${SOLO_INSTALLED}"
           echo "solo_version=${SOLO_INSTALLED}" >> "${GITHUB_OUTPUT}"
 
