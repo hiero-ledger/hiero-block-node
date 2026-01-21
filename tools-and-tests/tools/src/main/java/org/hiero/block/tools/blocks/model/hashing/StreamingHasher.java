@@ -17,7 +17,7 @@ import java.util.List;
 /**
  * A memory-efficient Merkle tree hasher that computes root hashes in a streaming fashion.
  *
- * <p>This implementation follows the Streaming Binary Merkle Tree algorithm from the Block & State
+ * <p>This implementation follows the Streaming Binary Merkle Tree algorithm from the Block &amp; State
  * Merkle Tree Design specification. It supports adding leaves one at a time and computes the root
  * hash without storing the entire tree in memory.
  *

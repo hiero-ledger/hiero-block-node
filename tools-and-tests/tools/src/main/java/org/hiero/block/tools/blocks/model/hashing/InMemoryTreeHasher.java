@@ -18,12 +18,12 @@ import java.util.List;
 /**
  * A full in-memory Merkle tree hasher that stores all nodes, enabling Merkle path generation.
  *
- * <p>This implementation follows the Streaming Binary Merkle Tree algorithm from the Block & State
+ * <p>This implementation follows the Streaming Binary Merkle Tree algorithm from the Block &amp; State
  * Merkle Tree Design specification, but additionally retains all leaf and internal node hashes.
  * This allows the generation of Merkle proofs (paths) for any leaf in the tree.
  *
- * <h2>Comparison with StreamingHasher</h2>
  * <table border="1">
+ *   <caption>Comparison of InMemoryTreeHasher and StreamingHasher</caption>
  *   <tr><th>Aspect</th><th>StreamingHasher</th><th>InMemoryTreeHasher</th></tr>
  *   <tr><td>Memory</td><td>O(log n)</td><td>O(n)</td></tr>
  *   <tr><td>Merkle paths</td><td>Not supported</td><td>Supported</td></tr>

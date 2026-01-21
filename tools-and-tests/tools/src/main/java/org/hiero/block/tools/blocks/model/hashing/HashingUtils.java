@@ -8,7 +8,7 @@ import java.security.MessageDigest;
 import java.util.Objects;
 
 /**
- * Utility methods for Merkle tree hashing following the Block & State Merkle Tree Design.
+ * Utility methods for Merkle tree hashing following the Block &amp; State Merkle Tree Design.
  *
  * <p>This class provides domain-separated hashing for Merkle tree nodes using SHA-384.
  * Domain separation is achieved through single-byte prefixes that ensure leaf hashes
