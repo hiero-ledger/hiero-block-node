@@ -127,8 +127,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                 unzipped ? BlockArchiveType.INDIVIDUAL_FILES : BlockArchiveType.UNCOMPRESSED_ZIP;
         // check we have a blockTimesFile
         if (!Files.exists(blockTimesFile) || !Files.exists(dayBlocksFile)) {
-            System.err.println(
-                    """
+            System.err.println("""
                 Missing the data/block_times.bin or day_blocks.json data from mirror node.
                 Please use these commands to download:
                    mirror fetchRecordsCsv

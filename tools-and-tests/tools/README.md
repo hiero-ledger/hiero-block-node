@@ -64,8 +64,6 @@ Additional documentation for specific techical topics can be found in the `docs/
 - [Address Book Updating](docs/address-book-updating.md)
 - [Record Files Format Spec](docs/record-file-format.md)
 
-
-
 ---
 
 ## Docker / Compose
@@ -141,16 +139,16 @@ services:
 * [Requirements](#requirements)
 * [Install & Build](#install--build)
 * [How to Run](#how-to-run)
-    * [Global help & version](#global-help--version)
-    * [Subcommands](#subcommands)
+  * [Global help & version](#global-help--version)
+  * [Subcommands](#subcommands)
 * [Common Workflows & Examples](#common-workflows--examples)
-    * [1) Convert blocks → JSON](#1-convert-blocks--json)
-    * [2) Inspect block files](#2-inspect-block-files)
-    * [3) Convert mirror **record** streams → **block** streams](#3-convert-mirror-record-streams--block-streams)
-    * [4) Mirror‑node CSV → block times](#4-mirror-node-csv--block-times)
-    * [5) Validate block times](#5-validate-block-times)
-    * [6) Add newer block times from GCP](#6-add-newer-block-times-from-gcp)
-    * [7) Network capacity tests (gRPC, HTTP/2)](#7-network-capacity-tests-grpc-http2)
+  * [1) Convert blocks → JSON](#1-convert-blocks--json)
+  * [2) Inspect block files](#2-inspect-block-files)
+  * [3) Convert mirror **record** streams → **block** streams](#3-convert-mirror-record-streams--block-streams)
+  * [4) Mirror‑node CSV → block times](#4-mirror-node-csv--block-times)
+  * [5) Validate block times](#5-validate-block-times)
+  * [6) Add newer block times from GCP](#6-add-newer-block-times-from-gcp)
+  * [7) Network capacity tests (gRPC, HTTP/2)](#7-network-capacity-tests-grpc-http2)
 * [Docker / Compose](#docker--compose)
 * [Troubleshooting](#troubleshooting)
 * [Development](#development)
@@ -181,9 +179,9 @@ services:
 
 * Java JDK 21
 * For some subcommands you may need access to
-    * local block/record files,
-    * a Google Cloud bucket (for `fetchRecordsCsv`/`addNewerBlockTimes`),
-    * or config JSON files (for `networkCapacity`).
+  * local block/record files,
+  * a Google Cloud bucket (for `fetchRecordsCsv`/`addNewerBlockTimes`),
+  * or config JSON files (for `networkCapacity`).
 
 ---
 
@@ -233,21 +231,21 @@ subcommands -V
 Below are quick synopses. Use `-h` on each for authoritative flags.
 
 * **json** – Convert binary block stream → JSON
-    * *Synopsis:* `json -i <input> -o <output>`
+  * *Synopsis:* `json -i <input> -o <output>`
 * **info** – Print block file info/metadata
-    * *Synopsis:* `info -i <block-file-or-dir>`
+  * *Synopsis:* `info -i <block-file-or-dir>`
 * **record2block** – Convert mirror record streams → block streams
-    * *Synopsis:* `record2block -i <records-dir> -o <blocks-dir> [options]`
+  * *Synopsis:* `record2block -i <records-dir> -o <blocks-dir> [options]`
 * **fetchRecordsCsv** – Download mirror‑node records CSV from GCP
-    * *Synopsis:* `fetchRecordsCsv --bucket <name> --prefix <path> -o <csv-dir> [options]`
+  * *Synopsis:* `fetchRecordsCsv --bucket <name> --prefix <path> -o <csv-dir> [options]`
 * **extractBlockTimes** – Extract block times from mirror CSV
-    * *Synopsis:* `extractBlockTimes -i <csv-file-or-dir> -o <block-times.csv>`
+  * *Synopsis:* `extractBlockTimes -i <csv-file-or-dir> -o <block-times.csv>`
 * **validateBlockTimes** – Validate a block‑times file
-    * *Synopsis:* `validateBlockTimes -i <block-times.csv>`
+  * *Synopsis:* `validateBlockTimes -i <block-times.csv>`
 * **addNewerBlockTimes** – Augment block‑times with newer data (GCP)
-    * *Synopsis:* `addNewerBlockTimes --bucket <name> --prefix <path> -i <existing.csv> -o <updated.csv>`
+  * *Synopsis:* `addNewerBlockTimes --bucket <name> --prefix <path> -i <existing.csv> -o <updated.csv>`
 * **networkCapacity** – Throughput testing (server/client)
-    * *Synopsis:* `networkCapacity -m <server|client> -c <config.json> [other options]`
+  * *Synopsis:* `networkCapacity -m <server|client> -c <config.json> [other options]`
 
 ---
 
@@ -395,17 +393,17 @@ services:
 ## Troubleshooting
 
 * **“Missing required subcommand”**
-    * You invoked the binary without a subcommand. Run `subcommands -h` to see options, or include one (e.g., `json`, `info`, `networkCapacity`).
+  * You invoked the binary without a subcommand. Run `subcommands -h` to see options, or include one (e.g., `json`, `info`, `networkCapacity`).
 * **`NoSuchFileException` for JSON configs or inputs**
-    * The path you passed to `-c`/`-i` does not exist inside the **process/container**. Double‑check the working directory or your Docker volume mounts.
+  * The path you passed to `-c`/`-i` does not exist inside the **process/container**. Double‑check the working directory or your Docker volume mounts.
 * **Recording folder does not exist**
-    * Ensure `-f` points to a real directory, and the mount path inside the container matches your host path.
+  * Ensure `-f` points to a real directory, and the mount path inside the container matches your host path.
 * **Compose volume error: “empty section between colons”**
-    * The `SRC:DEST[:MODE]` string has an empty part (e.g., `a::b`). Fix the mapping.
+  * The `SRC:DEST[:MODE]` string has an empty part (e.g., `a::b`). Fix the mapping.
 * **Passing args via Gradle**
-    * Use `--args="..."` and quote the entire argument string.
+  * Use `--args="..."` and quote the entire argument string.
 * **Flow control / HTTP2 resets** (for `networkCapacity`)
-    * Start with sane defaults, then adjust max message sizes, window sizes, and timeouts using the tool’s flags or config file. Use `-h` to discover the exact options.
+  * Start with sane defaults, then adjust max message sizes, window sizes, and timeouts using the tool’s flags or config file. Use `-h` to discover the exact options.
 
 ---
 
