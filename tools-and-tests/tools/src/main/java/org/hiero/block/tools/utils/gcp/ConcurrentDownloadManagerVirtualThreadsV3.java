@@ -27,7 +27,7 @@ import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
  * ----------------------------------------------------------------------------
  * High-throughput concurrent downloader for Google Cloud Storage (GCS) objects
  * from hosts OUTSIDE GCP, tuned for billions of small files (1 KB &ndash; 3 MB).
- *
+ * <br>
  * V3 uses platform threads (not virtual threads) to avoid compatibility issues
  * with gRPC/Netty. Virtual threads cause carrier thread pinning and classloader
  * race conditions with the GCS SDK's internal threading model.
@@ -197,7 +197,7 @@ public final class ConcurrentDownloadManagerVirtualThreadsV3 implements Concurre
     /**
      * Create a new {@link Builder}.
      * @param storage configured {@link Storage} client. Prefer setting {@code maxAttempts=1}
-     *                in {@link RetrySettings} so that this manager fully controls backoff.
+     *                in {@link com.google.api.gax.retrying.RetrySettings} so that this manager fully controls backoff.
      */
     public static Builder newBuilder(Storage storage) {
         return new Builder(storage);

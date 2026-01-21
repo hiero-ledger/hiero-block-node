@@ -68,17 +68,16 @@ import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreadsV3
  * </ul>
  *
  * <p><b>Thread Safety:</b> This class uses a background executor for compression tasks
- * and manages concurrent downloads via {@link ConcurrentDownloadManagerVirtualThreads}.
+ * and manages concurrent downloads via {@link ConcurrentDownloadManagerVirtualThreadsV3}.
  *
  * @see LivePoller for the polling mechanism that feeds blocks to this downloader
  * @see ValidateDownloadLive for the validation pipeline
  */
+@SuppressWarnings({"CallToPrintStackTrace", "unused"})
 public class LiveDownloader {
     private final File listingDir;
     private final File downloadedDaysDir;
     private final File tmpRoot;
-    private final int maxConcurrency;
-    private final Path addressBookPath;
     private final Path runningHashStatusPath;
     private final AddressBookRegistry addressBookRegistry;
     private final ConcurrentDownloadManagerVirtualThreadsV3 downloadManager;
@@ -132,8 +131,6 @@ public class LiveDownloader {
         this.listingDir = listingDir;
         this.downloadedDaysDir = downloadedDaysDir;
         this.tmpRoot = tmpRoot;
-        this.maxConcurrency = Math.max(1, maxConcurrency);
-        this.addressBookPath = addressBookPath;
         this.runningHashStatusPath = runningHashStatusPath;
         this.previousRecordFileHash = initialRunningHash;
 
@@ -271,15 +268,15 @@ public class LiveDownloader {
             final Process p = pb.start();
             final int exit = p.waitFor();
             if (exit != 0) {
-                System.err.println("[download] tar command failed for day %s entries=%d with exit=%d"
-                        .formatted(dayKey, entryNames.size(), exit));
+                System.err.printf("[download] tar command failed for day %s entries=%d with exit=%d%n",
+                    dayKey, entryNames.size(), exit);
             } else {
                 for (String entryName : entryNames) {
-                    System.out.println("[download] appended %s to %s".formatted(entryName, tarPath));
+                    System.out.printf("[download] appended %s to %s%n", entryName, tarPath);
                 }
             }
         } catch (Exception e) {
-            System.err.println("[download] Failed to append to tar for day %s: %s".formatted(dayKey, e.getMessage()));
+            System.err.printf("[download] Failed to append to tar for day %s: %s%n", dayKey, e.getMessage());
         }
     }
 
@@ -381,7 +378,7 @@ public class LiveDownloader {
         }
 
         // Ensure deterministic order
-        sortedBatch.sort(Comparator.comparingLong(b -> b.getBlockNumber()));
+        sortedBatch.sort(Comparator.comparingLong(BlockDescriptor::getBlockNumber));
 
         final LocalDate day = LocalDate.parse(dayKey);
         final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
@@ -889,7 +886,7 @@ public class LiveDownloader {
     /**
      * Processes downloaded files for a block: validates MD5, ungzips if needed, computes paths.
      */
-    private List<InMemoryFile> processDownloadedFiles(BlockWork blockWork) throws IOException {
+    private List<InMemoryFile> processDownloadedFiles(BlockWork blockWork) {
         final List<InMemoryFile> filesForWriting = new ArrayList<>();
 
         for (int i = 0; i < blockWork.orderedFiles.size(); i++) {
