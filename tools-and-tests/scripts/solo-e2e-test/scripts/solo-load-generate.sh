@@ -48,7 +48,8 @@ mkdir -p "$TMP_DIR"
 generate_nlg_values() {
     local values_file="$TMP_DIR/nlg-values.yaml"
 
-    echo "Discovering Consensus Node IPs..."
+    # Note: All diagnostic messages go to stderr so only the file path is returned via stdout
+    echo "Discovering Consensus Node IPs..." >&2
 
     # Get network-node services with their CLUSTER-IPs and account IDs
     # Label: solo.hedera.com/type=network-node-svc
@@ -58,8 +59,8 @@ generate_nlg_values() {
         -o jsonpath='{range .items[*]}{.spec.clusterIP}{" "}{.metadata.labels.solo\.hedera\.com/account-id}{"\n"}{end}' 2>/dev/null || true)
 
     if [[ -z "$services" ]]; then
-        echo "WARNING: No Consensus Node services found with label solo.hedera.com/type=network-node-svc"
-        echo "NLG will use default network discovery"
+        echo "WARNING: No Consensus Node services found with label solo.hedera.com/type=network-node-svc" >&2
+        echo "NLG will use default network discovery" >&2
         # Return empty string - no values file to use
         return
     fi
@@ -80,20 +81,21 @@ YAML_HEADER
             # Format: '10.96.1.2\:50211=0.0.3'
             # The backslash escapes the colon in YAML
             echo "      - '${ip}\\:50211=${account_id}'" >> "$values_file"
-            echo "  Found CN: ${ip}:50211 -> ${account_id}"
+            echo "  Found CN: ${ip}:50211 -> ${account_id}" >&2
             ((count++))
         fi
     done <<< "$services"
 
-    echo "  Total CNs discovered: $count"
+    echo "  Total CNs discovered: $count" >&2
 
     if [[ $count -eq 0 ]]; then
         # No valid entries, remove the file
         rm -f "$values_file"
-        echo ""
+        # Return empty string
         return
     fi
 
+    # Only output the file path to stdout (for capture by caller)
     echo "$values_file"
 }
 
@@ -180,6 +182,7 @@ fi
 # Note: NLG runs in the background inside the cluster
 # Args quoting: Solo requires single quotes outside, double quotes inside
 # See: https://github.com/hiero-ledger/solo/blob/main/examples/rapid-fire/Taskfile.yml
+echo "  Command: ${SOLO_CMD[*]}"
 "${SOLO_CMD[@]}"
 
 echo "load_started=true"
