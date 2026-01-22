@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Basic Load Test
+#
+# Validates that the Block Node correctly receives and stores blocks
+# under normal load conditions.
+#
+# Prerequisites:
+#   - Topology "single" deployed (task up)
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/basic-load.yaml
+
+name: basic-load-test
+description: "Basic load test with metrics validation"
+topology: single
+
+
+events:
+  - id: start-load
+    type: load-start
+    description: "Start CryptoTransfer load"
+    delay: 10
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 5
+      accounts: 10
+      duration: 420  # 7 minutes - ends at ~430s
+
+  - id: early-metrics
+    type: print-metrics
+    description: "Print early metrics"
+    delay: 120  # 2 minutes
+    args:
+      target: all
+
+  - id: mid-metrics
+    type: print-metrics
+    description: "Print mid-test metrics"
+    delay: 300  # 5 minutes
+    args:
+      target: all
+
+  - id: stop-load
+    type: load-stop
+    description: "Stop load generation (cleanup)"
+    delay: 510  # 8.5 minutes - 80s buffer after NLG should end naturally
+    args:
+      test_class: CryptoTransferLoadTest
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Print final metrics"
+    delay: 570  # 9.5 minutes
+    args:
+      target: all
+
+assertions:
+  - id: bn1-has-blocks
+    type: block-available
+    description: "Block Node 1 has blocks"
+    target: block-node-1
+    args:
+      min_block: 0
+      max_block_gte: 10
+
+  - id: bn1-healthy
+    type: node-healthy
+    description: "Block Node 1 is healthy"
+    target: block-node-1
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: block-node-1
+
+  - id: bn1-blocks-increasing
+    type: blocks-increasing
+    description: "Block Node is receiving new blocks"
+    target: block-node-1
+    args:
+      wait_seconds: 15

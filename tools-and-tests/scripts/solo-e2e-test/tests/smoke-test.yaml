@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Smoke Test
+#
+# Quick validation that the network is functioning correctly.
+# Runs with minimal load for a short duration.
+#
+# Prerequisites:
+#   - Any topology deployed (default: single)
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/smoke-test.yaml
+
+name: smoke-test
+description: "Quick smoke test for network validation"
+topology: single
+
+events:
+  - id: check-status
+    type: network-status
+    description: "Initial network status check"
+    delay: 10
+
+  - id: start-load
+    type: load-start
+    description: "Start light load"
+    delay: 30
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 2
+      accounts: 5
+      duration: 390  # 6.5 minutes - ends at ~420s
+
+  - id: mid-check
+    type: print-metrics
+    description: "Mid-test metrics check"
+    delay: 300  # 5 minutes
+    args:
+      target: all
+
+  - id: stop-load
+    type: load-stop
+    description: "Stop load (cleanup)"
+    delay: 510  # 8.5 minutes - 90s buffer after NLG should end
+    args:
+      test_class: CryptoTransferLoadTest
+
+  - id: final-check
+    type: network-status
+    description: "Final network status"
+    delay: 570  # 9.5 minutes
+
+assertions:
+  - id: bn1-healthy
+    type: node-healthy
+    description: "Block Node is healthy"
+    target: block-node-1
+
+  - id: bn1-has-blocks
+    type: block-available
+    description: "Block Node has received blocks"
+    target: block-node-1
+    args:
+      min_block: 0
+      max_block_gte: 1
+
+  - id: bn1-blocks-increasing
+    type: blocks-increasing
+    description: "Block Node is receiving new blocks"
+    target: block-node-1
+    args:
+      wait_seconds: 15

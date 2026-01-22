@@ -250,3 +250,39 @@ tasks:
       - |
         echo ""
         echo "All resources cleaned up."
+
+  # ============================================================================
+  # Test Framework
+  # ============================================================================
+  test:run:
+    desc: "Run a test definition (TEST_FILE=tests/basic-load.yaml)"
+    vars:
+      TEST_FILE: '{{.TEST_FILE | default "tests/smoke-test.yaml"}}'
+    cmds:
+      - |
+        "{{.SCRIPTS_DIR}}/solo-test-runner.sh" \
+          --test "{{.TEST_FILE}}" \
+          --namespace "{{.NAMESPACE}}" \
+          --context "{{.CLUSTER_REF}}" \
+          --topologies-dir "{{.TOPOLOGIES_DIR}}" \
+          --proto-path "{{.PROTO_PATH}}"
+
+  test:validate:
+    desc: "Validate a test definition file (TEST_FILE=tests/basic-load.yaml)"
+    vars:
+      TEST_FILE: '{{.TEST_FILE | default "tests/smoke-test.yaml"}}'
+    cmds:
+      - |
+        "{{.SCRIPTS_DIR}}/solo-test-runner.sh" \
+          --test "{{.TEST_FILE}}" \
+          --validate
+
+  test:list:
+    desc: List available test definitions
+    cmds:
+      - |
+        echo "Available test definitions:"
+        echo ""
+        ls -la "{{.ROOT_DIR}}/tests/"*.yaml 2>/dev/null || echo "No test files found in tests/"
+        echo ""
+        echo "Run a test with: task test:run TEST_FILE=tests/<name>.yaml"
