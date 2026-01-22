@@ -942,7 +942,7 @@ public class DownloadDayLiveImplTest {
                     lr, mostCommonFiles, "2025-12-01T00_00_04.319226458Z.rcd_sig");
 
             assertTrue(result.toString().contains("node_"));
-            assertTrue(result.toString().endsWith(".rcs_sig"));
+            assertTrue(result.toString().endsWith(".rcd_sig"));
         }
 
         @Test
@@ -984,9 +984,9 @@ public class DownloadDayLiveImplTest {
             Path result = DownloadDayLiveImpl.computeNewFilePath(
                     lr, mostCommonFiles, "2025-12-01T00_00_04.319226458Z.rcd_sig");
 
-            // For signature files, node directory is extracted from parent directory (2025-12-01)
+            // For signature files, node directory is extracted from the parent directory (2025-12-01)
             assertTrue(result.toString().contains("node_"));
-            assertTrue(result.toString().endsWith(".rcs_sig"));
+            assertTrue(result.toString().endsWith(".rcd_sig"));
         }
 
         @Test
@@ -1001,7 +1001,7 @@ public class DownloadDayLiveImplTest {
 
             // For signature files with date subdirectory, node directory becomes the date folder name
             assertTrue(result.toString().contains("node_"));
-            assertTrue(result.toString().endsWith(".rcs_sig"));
+            assertTrue(result.toString().endsWith(".rcd_sig"));
         }
 
         @Test
