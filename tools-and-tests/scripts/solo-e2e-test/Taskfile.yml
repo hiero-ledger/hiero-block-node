@@ -54,6 +54,9 @@ vars:
   NLG_DURATION: '{{.NLG_DURATION | default "300"}}'
   NLG_EXTRA_ARGS: '{{.NLG_EXTRA_ARGS | default ""}}'
 
+  # Metrics/Observability
+  ENABLE_LOCAL_METRICS: '{{.ENABLE_LOCAL_METRICS | default "false"}}'
+
 tasks:
   # ============================================================================
   # Prerequisites
@@ -136,7 +139,8 @@ tasks:
           --topologies-dir "{{.TOPOLOGIES_DIR}}" \
           --cn-version "$CN_RESOLVED" \
           --mn-version "$MN_RESOLVED" \
-          --bn-version "$BN_RESOLVED"
+          --bn-version "$BN_RESOLVED" \
+          {{if eq .ENABLE_LOCAL_METRICS "true"}}--enable-metrics{{end}}
 
   # ============================================================================
   # Port Forwarding

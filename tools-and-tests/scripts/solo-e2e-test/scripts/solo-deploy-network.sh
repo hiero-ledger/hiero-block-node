@@ -292,7 +292,7 @@ function deploy_block_nodes {
       log_line "  Using backfill overlay for block-node-${i}"
     fi
 
-    # Enable observability stack on the last block node
+    # Enable observability stack only on the last block node if enabled.
     if [[ "${ENABLE_METRICS}" == "true" && "${i}" -eq "${BN_COUNT}" ]]; then
       if [[ -f "${observability_overlay}" ]]; then
         overlay_args="${overlay_args} -f ${observability_overlay}"
