@@ -33,7 +33,7 @@ vars:
   SCRIPTS_DIR: "{{.ROOT_DIR}}/scripts"
   TOPOLOGIES_DIR: "{{.ROOT_DIR}}/topologies"
   TOPOLOGY_TOOL: "{{.ROOT_DIR}}/../network-topology-tool"
-  PROTO_PATH: "{{.ROOT_DIR}}/../../../protobuf-sources/src/main/proto"
+  PROTO_PATH: "{{.ROOT_DIR}}/../../../protobuf-sources/build/proto"
 
   # Config with defaults (override via .env or environment)
   TOPOLOGY: '{{.TOPOLOGY | default "single"}}'
@@ -159,6 +159,7 @@ tasks:
   # ============================================================================
   verify:
     desc: "Verify Block Node is receiving blocks (NODE=n for specific node, default: 1)"
+    deps: [proto:extract]
     vars:
       NODE: '{{.NODE | default "1"}}'
     cmds:
@@ -170,7 +171,10 @@ tasks:
           exit 1
         fi
 
-        STATUS=$(grpcurl -plaintext -max-msg-sz 104857600 localhost:${PORT} org.hiero.block.api.BlockNodeService/serverStatus 2>&1) || {
+        STATUS=$(grpcurl -plaintext -max-msg-sz 104857600 \
+          -import-path "{{.PROTO_PATH}}" \
+          -proto block-node/api/node_service.proto \
+          localhost:${PORT} org.hiero.block.api.BlockNodeService/serverStatus 2>&1) || {
           echo "ERROR: Could not connect to Block Node. Is port-forward running?"
           echo "Run: task port-forward"
           exit 1
@@ -181,8 +185,32 @@ tasks:
 
   status:
     desc: Show network status for all nodes in the topology
+    deps: [proto:extract]
     cmds:
       - '"{{.SCRIPTS_DIR}}/solo-network-status.sh" --namespace "{{.NAMESPACE}}" --topology "{{.TOPOLOGY}}" --topologies-dir "{{.TOPOLOGIES_DIR}}" --context "{{.CLUSTER_REF}}" --proto-path "{{.PROTO_PATH}}"'
+
+  metrics:
+    desc: "Show Block Node metrics summary (NODE=n for specific node, NODE=all for all nodes)"
+    vars:
+      NODE: '{{.NODE | default "1"}}'
+    cmds:
+      - |
+        if [[ "{{.NODE}}" == "all" ]]; then
+          # Get all block nodes from topology
+          TOPOLOGY_FILE="{{.TOPOLOGIES_DIR}}/{{.TOPOLOGY}}.yaml"
+          BLOCK_NODES=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "${TOPOLOGY_FILE}" 2>/dev/null | sed 's/://g' | awk '{print $1}' || echo "block-node-1")
+          PORT=16007
+          for bn in ${BLOCK_NODES}; do
+            echo "=== ${bn} Metrics ==="
+            "{{.SCRIPTS_DIR}}/solo-metrics-summary.sh" ${PORT} text || echo "Metrics unavailable for ${bn}"
+            echo ""
+            PORT=$((PORT + 1))
+          done
+        else
+          PORT=$((16006 + {{.NODE}}))
+          echo "=== block-node-{{.NODE}} Metrics ==="
+          "{{.SCRIPTS_DIR}}/solo-metrics-summary.sh" ${PORT} text
+        fi
 
   # ============================================================================
   # Logs
@@ -254,14 +282,37 @@ tasks:
   # ============================================================================
   # Test Framework
   # ============================================================================
+  proto:extract:
+    desc: Extract proto files for local testing (auto-runs before tests)
+    silent: true
+    cmds:
+      - |
+        PROTO_DIR="{{.PROTO_PATH}}"
+        if [[ ! -d "$PROTO_DIR/services" ]]; then
+          echo "Extracting proto files to $PROTO_DIR..."
+          mkdir -p "$PROTO_DIR"
+          TARBALL=$(ls "{{.ROOT_DIR}}/../../../protobuf-sources/block-node-protobuf-"*.tgz 2>/dev/null | head -1)
+          if [[ -z "$TARBALL" ]]; then
+            echo "ERROR: No proto tarball found in protobuf-sources/"
+            echo "Run: ./gradlew :protobuf-sources:assemble"
+            exit 1
+          fi
+          tar -xzf "$TARBALL" -C "$PROTO_DIR"
+          echo "Proto files extracted from $(basename "$TARBALL")"
+        else
+          echo "Proto files already extracted at $PROTO_DIR"
+        fi
+
   test:run:
     desc: "Run a test definition (TEST_FILE=tests/basic-load.yaml)"
+    deps: [proto:extract]
     vars:
       TEST_FILE: '{{.TEST_FILE | default "tests/smoke-test.yaml"}}'
     cmds:
       - |
         "{{.SCRIPTS_DIR}}/solo-test-runner.sh" \
           --test "{{.TEST_FILE}}" \
+          --topology "{{.TOPOLOGY}}" \
           --namespace "{{.NAMESPACE}}" \
           --context "{{.CLUSTER_REF}}" \
           --topologies-dir "{{.TOPOLOGIES_DIR}}" \
@@ -275,6 +326,8 @@ tasks:
       - |
         "{{.SCRIPTS_DIR}}/solo-test-runner.sh" \
           --test "{{.TEST_FILE}}" \
+          --topology "{{.TOPOLOGY}}" \
+          --topologies-dir "{{.TOPOLOGIES_DIR}}" \
           --validate
 
   test:list:

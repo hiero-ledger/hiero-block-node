@@ -36,19 +36,19 @@ block_nodes:
 
 consensus_nodes:
   node1:
-    block_nodes: [block-node-1]
+    block_nodes: [block-node-1, block-node-2, block-node-3]
   node2:
-    block_nodes: [block-node-1]
+    block_nodes: [block-node-1, block-node-2, block-node-3]
   node3:
-    block_nodes: [block-node-1]
+    block_nodes: [block-node-1, block-node-2, block-node-3]
   node4:
-    block_nodes: [block-node-2]
+    block_nodes: [block-node-2, block-node-1, block-node-3]
   node5:
-    block_nodes: [block-node-2]
+    block_nodes: [block-node-2, block-node-1, block-node-3]
   node6:
-    block_nodes: [block-node-3]
+    block_nodes: [block-node-3, block-node-1, block-node-2]
   node7:
-    block_nodes: [block-node-3]
+    block_nodes: [block-node-3, block-node-1, block-node-2]
 
 mirror_nodes:
   mirror-1:
@@ -58,6 +58,4 @@ relay_nodes:
   relay-1:
     mirror_nodes: [mirror-1]
 
-explorer_nodes:
-  explorer-1:
-    mirror_nodes: [mirror-1]
+explorer_nodes: {}

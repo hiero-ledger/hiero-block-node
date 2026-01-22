@@ -14,7 +14,6 @@
 
 name: node-restart-resilience
 description: "Test BN recovery after restart during load"
-topology: single
 
 events:
   - id: start-load
