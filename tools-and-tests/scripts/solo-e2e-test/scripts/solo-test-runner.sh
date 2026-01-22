@@ -11,6 +11,7 @@
 #
 # Options:
 #   --test FILE            Test definition file (required)
+#   --topology NAME        Topology to validate against (default: single)
 #   --namespace NS         Kubernetes namespace (default: solo-network)
 #   --context CTX          Kubernetes context (default: kind-solo-cluster)
 #   --topologies-dir DIR   Topologies directory (default: ../topologies)
@@ -26,6 +27,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Defaults
 TEST_FILE=""
+TOPOLOGY="${TOPOLOGY:-single}"
 NAMESPACE="${NAMESPACE:-solo-network}"
 CONTEXT="${CONTEXT:-kind-solo-cluster}"
 TOPOLOGIES_DIR="${TOPOLOGIES_DIR:-${ROOT_DIR}/topologies}"
@@ -44,7 +46,6 @@ NC='\033[0m'
 # Test metadata
 TEST_NAME=""
 TEST_DESC=""
-TEST_TOPOLOGY=""
 
 # Results
 EVENTS_COMPLETED=0
@@ -65,6 +66,7 @@ Usage:
 
 Options:
   --test FILE            Test definition file (required)
+  --topology NAME        Topology to validate against (default: single)
   --namespace NS         Kubernetes namespace (default: solo-network)
   --context CTX          Kubernetes context (default: kind-solo-cluster)
   --topologies-dir DIR   Topologies directory (default: ../topologies)
@@ -79,6 +81,7 @@ EOF
 while [[ $# -gt 0 ]]; do
     case $1 in
         --test)       TEST_FILE="$2"; shift 2 ;;
+        --topology)   TOPOLOGY="$2"; shift 2 ;;
         --namespace)  NAMESPACE="$2"; shift 2 ;;
         --context)    CONTEXT="$2"; shift 2 ;;
         --topologies-dir) TOPOLOGIES_DIR="$2"; shift 2 ;;
@@ -176,7 +179,7 @@ function execute_load_stop {
 
 function execute_print_metrics {
     local target="${1:-all}"
-    local topology_file="${TOPOLOGIES_DIR}/${TEST_TOPOLOGY:-single}.yaml"
+    local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
 
     if [[ "$target" == "all" ]]; then
         local block_nodes="block-node-1"
@@ -202,7 +205,7 @@ function execute_print_metrics {
 function execute_network_status {
     "${SCRIPT_DIR}/solo-network-status.sh" \
         --namespace "${NAMESPACE}" \
-        --topology "${TEST_TOPOLOGY:-single}" \
+        --topology "${TOPOLOGY}" \
         --topologies-dir "${TOPOLOGIES_DIR}" \
         --context "${CONTEXT}" \
         --proto-path "${PROTO_PATH:-}" \
@@ -516,24 +519,18 @@ function run_assertion {
 function load_test_definition {
     TEST_NAME=$(yq '.name' "$TEST_FILE")
     TEST_DESC=$(yq '.description // ""' "$TEST_FILE")
-    TEST_TOPOLOGY=$(yq '.topology' "$TEST_FILE")
 
     if [[ "$TEST_NAME" == "null" || -z "$TEST_NAME" ]]; then
         echo "ERROR: Missing 'name' field"; return 1
     fi
-    if [[ "$TEST_TOPOLOGY" == "null" || -z "$TEST_TOPOLOGY" ]]; then
-        echo "ERROR: Missing 'topology' field"; return 1
-    fi
 }
 
 function validate_topology {
-    local topology_file="${TOPOLOGIES_DIR}/${TEST_TOPOLOGY}.yaml"
+    local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+
+    # Validate topology file exists
     if [[ ! -f "$topology_file" ]]; then
         echo "ERROR: Topology file not found: $topology_file"; return 1
-    fi
-
-    if ! kctl get ns "${NAMESPACE}" >/dev/null 2>&1; then
-        echo "ERROR: Namespace '${NAMESPACE}' not found"; return 1
     fi
 
     # Extract all targets from test YAML (events and assertions)
@@ -561,9 +558,11 @@ function validate_topology {
     done
 
     if [[ -n "$missing" ]]; then
-        echo "ERROR: Test references nodes not in topology '$TEST_TOPOLOGY':$missing"
+        echo "ERROR: Test references nodes not in topology '${TOPOLOGY}':$missing"
         return 1
     fi
+
+    echo "Topology '${TOPOLOGY}' satisfies test requirements"
 }
 
 function run_events {
@@ -721,17 +720,23 @@ function main {
 
     echo "Test Name:    ${TEST_NAME}"
     echo "Description:  ${TEST_DESC}"
-    echo "Topology:     ${TEST_TOPOLOGY}"
+    echo "Topology:     ${TOPOLOGY}"
     echo "Events:       ${event_count}"
     echo "Assertions:   ${assert_count}"
     echo ""
+
+    if ! validate_topology; then
+        exit 1
+    fi
 
     if [[ "${VALIDATE_ONLY}" == "true" ]]; then
         echo -e "${GREEN}Test definition is valid${NC}"
         exit 0
     fi
 
-    if ! validate_topology; then
+    # Check namespace exists (only when running, not validating)
+    if ! kctl get ns "${NAMESPACE}" >/dev/null 2>&1; then
+        echo "ERROR: Namespace '${NAMESPACE}' not found"
         exit 1
     fi
 

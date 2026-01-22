@@ -14,7 +14,6 @@
 
 name: smoke-test
 description: "Quick smoke test for network validation"
-topology: single
 
 events:
   - id: check-status

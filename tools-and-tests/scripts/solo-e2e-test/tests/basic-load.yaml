@@ -14,8 +14,6 @@
 
 name: basic-load-test
 description: "Basic load test with metrics validation"
-topology: single
-
 
 events:
   - id: start-load
