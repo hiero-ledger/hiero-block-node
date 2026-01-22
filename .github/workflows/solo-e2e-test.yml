@@ -66,6 +66,16 @@ on:
         description: "Mirror Node pinger TPS (0 to disable)"
         required: false
         default: "5"
+      test-definition:
+        description: "Test definition to run"
+        required: false
+        default: "none"
+        type: choice
+        options:
+          - none # Skip test runner
+          - smoke-test
+          - basic-load
+          - node-restart-resilience
 
 defaults:
   run:
@@ -254,7 +264,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-      # ---- Load Generation with NLG ----
+      # ---- Load Generation with NLG (Optional) skip if duration = 0 ----
 
       # Start load generation
       - name: Start NLG Load Generation
@@ -282,6 +292,21 @@ jobs:
             echo "| Extra Args | \`${{ inputs.nlg-extra-args }}\` |"
             echo ""
           } >> "${GITHUB_STEP_SUMMARY}"
+
+      # ---- Test Definition Runner (optional) ----
+      # Run a test definition file if specified. This provides a structured
+      # way to define timed events and assertions for E2E testing.
+
+      - name: Run Test Definition
+        if: ${{ inputs.test-definition != 'none' }}
+        run: |
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-test-runner.sh \
+            --test "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests/${{ inputs.test-definition }}.yaml" \
+            --namespace "${NAMESPACE}" \
+            --context "${CONTEXT}" \
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
+            --proto-path "protobuf-sources/proto" \
+            --output github-summary
 
       # Verify the BN is getting blocks
       - name: Get ServerStatus from Block Node
