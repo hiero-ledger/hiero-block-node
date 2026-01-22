@@ -17,12 +17,22 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks f
 |  |   +-- solo-deploy-network.sh (deploy BN, CN, MN, Relay)          |
 |  |   +-- solo-load-generate.sh  (NLG load generation)               |
 |  |   +-- solo-port-forward.sh   (kubectl port forwards)             |
+|  |   +-- solo-network-status.sh (network health summary)            |
+|  |   +-- solo-metrics-summary.sh(block node metrics)                |
+|  |   +-- solo-test-runner.sh    (YAML test framework runner)        |
 |  |                                                                  |
 |  +-- topologies/                                                    |
 |  |   +-- single.yaml          (1 CN, 1 BN)                          |
 |  |   +-- paired-3.yaml        (3 CN, 3 BN)                          |
 |  |   +-- fan-out-3cn-2bn.yaml (3 CN, 2 BN)                          |
+|  |   +-- 3cn-1bn.yaml         (3 CN, 1 BN)                          |
 |  |   +-- minimal.yaml         (1 CN, 1 BN, no mirror/relay)         |
+|  |   +-- 7cn-3bn-distributed.yaml (7 CN, 3 BN)                      |
+|  |                                                                  |
+|  +-- tests/                   (test definitions)                    |
+|  |   +-- smoke-test.yaml      (quick validation)                    |
+|  |   +-- basic-load.yaml      (load test with metrics)              |
+|  |   +-- node-restart-resilience.yaml (restart recovery)            |
 |  |                                                                  |
 |  +-- Taskfile.yml  (local dev interface)                            |
 +---------------------------------------------------------------------+
@@ -80,53 +90,40 @@ task check  # Verify all installed
 ```bash
 task up                    # Full setup (cluster + network + port-forwards)
 task down                  # Tear down everything
-task restart               # down + up
 ```
 
 ### Topologies
 
 ```bash
 task up                    # single (1 CN, 1 BN) - default
-task up:paired             # paired-3 (3 CN, 3 BN)
-task up:fan-out            # fan-out-3cn-2bn (3 CN, 2 BN)
+task up TOPOLOGY=paired-3  # paired-3 (3 CN, 3 BN)
+task up TOPOLOGY=fan-out-3cn-2bn  # fan-out (3 CN, 2 BN)
 task up TOPOLOGY=<name>    # any topology by name
-task topologies            # list available topologies
 ```
 
 ### Verification
 
 ```bash
-task verify                # Check Block Node via gRPC
-task verify:mirror         # Check Mirror Node REST API
-task cluster:status        # Show all pods and services
-task logs:bn               # Stream Block Node logs
-task logs:cn               # Stream Consensus Node logs
-task logs:mn               # Stream Mirror Node logs
+task verify                # Check Block Node via gRPC (NODE=n for specific node)
+task status                # Show network status for all nodes
+task logs:bn               # Stream Block Node logs (NODE=n for specific node)
 ```
 
 ### Load Generation
 
 ```bash
-task load:start            # Start NLG with defaults (10 TPS, 5m)
-task load:start TPS=100 DURATION=10m  # Custom TPS and duration
-task load:start TEST_CLASS=HCSLoadTest  # Use different test class
-task load:status           # Check load generator logs, TODO, fix this, is not showing anything but it works :)
-task load:stop             # Stop load generation
-```
-
-Combined convenience task:
-
-```bash
-task up:load               # Deploy network AND start load generation
-task up:load TPS=100 DURATION=10m  # With custom settings
+task load:up               # Start NLG with defaults (5 concurrency, 10 accounts, 300s)
+task load:up NLG_CONCURRENCY=10 NLG_ACCOUNTS=20 NLG_DURATION=600  # Custom settings
+task load:up NLG_TEST_CLASS=HCSLoadTest  # Use different test class
+task load:down             # Stop load generation
 ```
 
 ### Utilities
 
 ```bash
-task solo:install          # Install/update Solo CLI
-task resolve-versions      # Show resolved GA versions
+task check                 # Check prerequisites are installed
 task port-forward          # Restart port forwards
+task port-forward:stop     # Stop all port forwards
 ```
 
 ## Manual Testing
@@ -189,15 +186,21 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-|    Variable    |    Default     |        Description         |
-|----------------|----------------|----------------------------|
-| `TOPOLOGY`     | `single`       | Network topology to deploy |
-| `CLUSTER_NAME` | `solo-cluster` | Kind cluster name          |
-| `NAMESPACE`    | `solo-network` | Kubernetes namespace       |
-| `CN_VERSION`   | `latest`       | Consensus Node version     |
-| `MN_VERSION`   | `latest`       | Mirror Node version        |
-| `BN_VERSION`   | `latest`       | Block Node version         |
-| `SOLO_VERSION` | `latest`       | Solo CLI version           |
+|     Variable      |         Default          |               Description                |
+|-------------------|--------------------------|------------------------------------------|
+| `TOPOLOGY`        | `single`                 | Network topology to deploy               |
+| `CLUSTER_NAME`    | `solo-cluster`           | Kind cluster name                        |
+| `NAMESPACE`       | `solo-network`           | Kubernetes namespace                     |
+| `DEPLOYMENT`      | `deployment-solo`        | Solo deployment name                     |
+| `CN_VERSION`      | `latest`                 | Consensus Node version                   |
+| `MN_VERSION`      | `latest`                 | Mirror Node version                      |
+| `BN_VERSION`      | `latest`                 | Block Node version                       |
+| `NLG_TEST_CLASS`  | `CryptoTransferLoadTest` | NLG test class                           |
+| `NLG_CONCURRENCY` | `5`                      | NLG -c: concurrent threads               |
+| `NLG_ACCOUNTS`    | `10`                     | NLG -a: number of accounts               |
+| `NLG_DURATION`    | `300`                    | NLG -t: duration in seconds              |
+| `NLG_EXTRA_ARGS`  | (empty)                  | Extra NLG arguments                      |
+| `TEST_FILE`       | `none`                   | Test definition file for `task test:run` |
 
 ### Version Keywords
 
@@ -209,40 +212,40 @@ cp .env.example .env
 
 ### Command-Line Overrides
 
+Variables can be overridden on the command line for one-off runs. Command-line values take precedence over `.env` file settings:
+
 ```bash
 task up TOPOLOGY=paired-3 BN_VERSION=v0.24.0
+task load:up NLG_CONCURRENCY=10 NLG_ACCOUNTS=20 NLG_DURATION=600
 ```
 
 ## Load Generation
 
-Both the CI workflow and local Taskfile support configurable transaction load generation using Solo's Network Load Generator (NLG). This allows testing at various TPS levels from 1 to 20,000.
+Both the CI workflow and local Taskfile support configurable transaction load generation using Solo's Network Load Generator (NLG).
 
 ### Local Load Generation
 
 ```bash
-# Deploy network AND start load in one command
-task up:load TPS=100 DURATION=10m
-
-# Or deploy first, then start load separately
+# Deploy first, then start load separately
 task up
-task load:start TPS=100 DURATION=10m
-
-# Check load generator status
-task load:status
+task load:up NLG_CONCURRENCY=10 NLG_ACCOUNTS=20 NLG_DURATION=600
 
 # Stop load generation
-task load:stop
+task load:down
 ```
 
 ### CI Workflow Inputs
 
-|       Input       |         Default          |                            Description                            |
-|-------------------|--------------------------|-------------------------------------------------------------------|
-| `load-tps`        | `10`                     | Approx TPS (1-20000, 0 to disable). Maps to concurrency/accounts. |
-| `load-duration`   | `5m`                     | Duration (e.g., `5m`, `1h`, `30s`, or plain seconds like `300`)   |
-| `load-test-class` | `CryptoTransferLoadTest` | NLG test class to run                                             |
+|       Input       |         Default          |                                   Description                                    |
+|-------------------|--------------------------|----------------------------------------------------------------------------------|
+| `nlg-test-class`  | `CryptoTransferLoadTest` | NLG test class to run                                                            |
+| `nlg-concurrency` | `5`                      | NLG -c: concurrent threads                                                       |
+| `nlg-accounts`    | `10`                     | NLG -a: number of test accounts                                                  |
+| `nlg-duration`    | `300`                    | NLG -t: duration in seconds (0 to skip load)                                     |
+| `nlg-extra-args`  | (empty)                  | Extra NLG arguments (e.g., `-T 5 -K ED25519`)                                    |
+| `test-definition` | `none`                   | Test definition dropdown (none, smoke-test, basic-load, node-restart-resilience) |
 
-> **Note:** NLG doesn't have direct TPS control. The TPS value is used to calculate appropriate concurrency and account counts. Actual throughput depends on network capacity and test class.
+> **Note:** NLG doesn't have direct TPS control. Concurrency and accounts determine actual throughput, which depends on network capacity and test class.
 
 ### Available Test Classes
 
@@ -252,37 +255,31 @@ task load:stop
 | `HCSLoadTest`            | Hedera Consensus Service message submissions |
 | `TokenTransferLoadTest`  | HTS token transfers                          |
 
-### Example: Running High TPS Test
+### Example: Running High Load Test
 
 Via GitHub Actions workflow dispatch:
 
 1. Go to Actions → "Solo E2E Test" → "Run workflow"
 2. Set parameters:
-   - `load-tps`: `1000`
-   - `load-duration`: `10m`
-   - `load-test-class`: `CryptoTransferLoadTest`
+   - `nlg-concurrency`: `32`
+   - `nlg-accounts`: `100`
+   - `nlg-duration`: `600`
+   - `nlg-test-class`: `CryptoTransferLoadTest`
 
 ### How It Works
 
 The load generator:
 
 1. Deploys the NLG pod into the cluster via `solo rapid-fire load start`
-2. Creates test accounts based on TPS (scales automatically)
-3. Generates transactions using calculated concurrency and accounts
-4. Runs for the specified duration (converted to seconds internally)
+2. Creates test accounts based on the specified account count
+3. Generates transactions using the specified concurrency and accounts
+4. Runs for the specified duration in seconds
 5. Cleans up via `solo rapid-fire load stop`
 
 **NLG Parameters** (passed via `--args`):
 - `-c` = concurrency (parallel clients)
 - `-a` = accounts (test accounts to create)
 - `-t` = time in seconds
-
-### NLG Parameters (Auto-Calculated)
-
-|  Parameter  |              Calculation               |
-|-------------|----------------------------------------|
-| Accounts    | `TPS < 100 ? 10 : TPS / 10`            |
-| Concurrency | `TPS < 50 ? 5 : (TPS < 500 ? 10 : 32)` |
 
 ## Topologies
 
@@ -293,6 +290,7 @@ Topologies define network configuration. Located in `./topologies/`.
 | `single`              | 1  | 1  | Basic testing, fastest startup                      |
 | `paired-3`            | 3  | 3  | Multi-node testing, each CN->BN pair                |
 | `fan-out-3cn-2bn`     | 3  | 2  | Redundancy testing, all CNs->all BNs                |
+| `3cn-1bn`             | 3  | 1  | Single BN receiving from multiple CNs               |
 | `minimal`             | 1  | 1  | CN+BN only, no mirror/relay/explorer                |
 | `7cn-3bn-distributed` | 7  | 3  | Distributed streaming, grouped CN->BN with backfill |
 
@@ -363,6 +361,104 @@ After deployment with port-forwards active:
 | Mirror Monitor      | `http://localhost:5600` |
 | Mirror REST Java    | `http://localhost:8084` |
 
+## Test Framework
+
+The test framework provides YAML-driven test definitions for structured E2E testing with sequential event execution. Test definitions specify:
+- Timed events (commands, node operations, load generation)
+- Assertions to validate test outcomes
+
+Events execute sequentially in delay order, with sleeps between them.
+
+### Quick Start
+
+```bash
+# List available tests
+task test:list
+
+# Run a test
+task test:run TEST_FILE=tests/smoke-test.yaml
+
+# Validate a test definition (syntax check only)
+task test:validate TEST_FILE=tests/basic-load.yaml
+```
+
+### Available Tests
+
+|              Test File               |                Description                |
+|--------------------------------------|-------------------------------------------|
+| `tests/smoke-test.yaml`              | Quick validation of network functionality |
+| `tests/basic-load.yaml`              | Basic load test with metrics validation   |
+| `tests/node-restart-resilience.yaml` | BN recovery after restart during load     |
+
+### Test Definition Schema
+
+Test files are YAML with the following structure:
+
+```yaml
+name: my-test                    # Test identifier
+description: "What this tests"   # Human-readable description
+topology: single                 # Required topology (must be deployed)
+
+events:                          # Events execute sequentially by delay
+  - id: start-load
+    type: load-start
+    description: "Start load generation"
+    delay: 5                     # Seconds from test start
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 5
+      accounts: 10
+      duration: 90
+
+assertions:                      # Validations to run after all events
+  - id: bn-has-blocks
+    type: block-available
+    target: block-node-1
+    args:
+      min_block: 0
+      max_block_gte: 10
+```
+
+### Event Types
+
+|       Type       |       Description        |                      Arguments                      |
+|------------------|--------------------------|-----------------------------------------------------|
+| `command`        | Run arbitrary script     | `script`                                            |
+| `node-down`      | Scale node to 0 replicas | `target`                                            |
+| `node-up`        | Scale node to 1 replica  | `target`                                            |
+| `restart`        | Rollout restart node     | `target`                                            |
+| `load-start`     | Start NLG load           | `test_class`, `concurrency`, `accounts`, `duration` |
+| `load-stop`      | Stop NLG load            | `test_class`                                        |
+| `print-metrics`  | Print metrics summary    | `target` (node name or "all")                       |
+| `network-status` | Print network status     | (none)                                              |
+| `sleep`          | Pause execution          | `seconds`                                           |
+
+### Assertion Types
+
+|       Type        |          Description          |          Arguments           |
+|-------------------|-------------------------------|------------------------------|
+| `block-available` | Verify BN has blocks          | `min_block`, `max_block_gte` |
+| `node-healthy`    | Verify pod is Running         | `target`                     |
+| `no-errors`       | Verify no verification errors | `target`                     |
+
+### CI Integration
+
+Run tests via GitHub Actions workflow dispatch:
+
+1. Go to Actions → "Solo E2E Test" → "Run workflow"
+2. Select a test from the `test-definition` dropdown (e.g., `basic-load`)
+3. The test results will appear in the workflow summary
+
+### Writing Custom Tests
+
+1. Create a new YAML file in `tests/`
+2. Define events with appropriate delays
+3. Add assertions to validate outcomes
+4. Validate with `task test:validate TEST_FILE=tests/my-test.yaml`
+5. Run with `task test:run TEST_FILE=tests/my-test.yaml`
+
+See `test-schema.yaml` for the complete schema documentation.
+
 ## Troubleshooting
 
 ### Full Reset
@@ -395,13 +491,13 @@ task network:deploy
 ### Solo Version Issues
 
 ```bash
-task solo:install SOLO_VERSION=0.52.0
+npm i @hashgraph/solo@0.52.0 -g
 ```
 
 ### Check What's Running
 
 ```bash
-task cluster:status
+kubectl get pods -n solo-network
 kubectl describe pod <pod-name> -n solo-network
 kubectl logs <pod-name> -n solo-network
 ```

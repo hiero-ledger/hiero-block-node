@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Node Restart Resilience Test
+#
+# Validates that the Block Node recovers correctly after a restart
+# during active load generation. Tests resilience and data integrity.
+#
+# Prerequisites:
+#   - Topology "single" deployed (task up)
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/node-restart-resilience.yaml
+
+name: node-restart-resilience
+description: "Test BN recovery after restart during load"
+topology: single
+
+events:
+  - id: start-load
+    type: load-start
+    description: "Start CryptoTransfer load"
+    delay: 10
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 3
+      accounts: 5
+      duration: 300  # 5 minutes
+
+  - id: early-metrics
+    type: print-metrics
+    description: "Print early metrics"
+    delay: 60  # 1 minute
+    args:
+      target: block-node-1
+
+  - id: pre-restart-metrics
+    type: print-metrics
+    description: "Print metrics before restart"
+    delay: 90  # 1.5 minutes
+    args:
+      target: block-node-1
+
+  - id: restart-bn
+    type: restart
+    description: "Restart Block Node during load"
+    delay: 120  # 2 minutes
+    target: block-node-1
+    timeout: 300
+
+  - id: refresh-ports
+    type: port-forward
+    description: "Refresh port forwards after restart"
+    delay: 150  # 2.5 minutes
+
+  - id: post-restart-status
+    type: network-status
+    description: "Check network status after restart"
+    delay: 180  # 3 minutes
+
+  - id: post-restart-metrics
+    type: print-metrics
+    description: "Print metrics after restart recovery"
+    delay: 240  # 4 minutes
+    args:
+      target: block-node-1
+
+  - id: stop-load
+    type: load-stop
+    description: "Stop load generation (cleanup)"
+    delay: 360  # 6 minutes - buffer after NLG ends
+    args:
+      test_class: CryptoTransferLoadTest
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Print final metrics"
+    delay: 390  # 6.5 minutes
+    args:
+      target: block-node-1
+
+assertions:
+  - id: bn1-recovered
+    type: node-healthy
+    description: "Block Node 1 recovered and is healthy"
+    target: block-node-1
+
+  - id: bn1-has-blocks
+    type: block-available
+    description: "Block Node 1 has blocks after recovery"
+    target: block-node-1
+    args:
+      min_block: 0
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors after restart"
+    target: block-node-1
+
+  - id: bn1-blocks-increasing
+    type: blocks-increasing
+    description: "Block Node is receiving new blocks after restart"
+    target: block-node-1
+    args:
+      wait_seconds: 15
