@@ -37,12 +37,8 @@ class LongRangeTest {
         assertEquals(10, range3.start());
         assertEquals(10, range3.end());
 
-        // Test special case for clean state initialization
-        final LongRange cleanStateRange = new LongRange(-1, -1);
-        assertEquals(-1, cleanStateRange.start());
-        assertEquals(-1, cleanStateRange.end());
-
         // Test validation failures
+        assertThrows(IllegalArgumentException.class, () -> new LongRange(-1, -1));
         assertThrows(IllegalArgumentException.class, () -> new LongRange(-1, 5));
         assertThrows(IllegalArgumentException.class, () -> new LongRange(5, -1));
         assertThrows(IllegalArgumentException.class, () -> new LongRange(6, 5));

@@ -5,11 +5,11 @@ dependencies {
 }
 
 dependencies.constraints {
-    val daggerVersion = "2.57.2"
+    val daggerVersion = "2.58"
     val grpcIoVersion = "1.78.0"
     val helidonVersion = "4.3.3"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
-    val protobufVersion = "4.33.2"
+    val protobufVersion = "4.33.4"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.21.0"
     val testContainersVersion = "1.21.4"
@@ -67,7 +67,7 @@ dependencies.constraints {
     // Testing only versions
     api("com.github.docker-java:docker-java-api:3.7.0") { because("com.github.dockerjava.api") }
     api("org.assertj:assertj-core:3.27.6") { because("org.assertj.core") }
-    api("org.junit.jupiter:junit-jupiter-api:6.0.1") { because("org.junit.jupiter.api") }
+    api("org.junit.jupiter:junit-jupiter-api:6.0.2") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
         because("org.mockito.junit.jupiter")

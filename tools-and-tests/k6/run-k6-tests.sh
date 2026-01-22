@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 
+GRADLEW="./gradlew -q"
+
 setup_proto_defs() {
     (
     cd ../../
     VERSION=$(cat version.txt)
-    ./gradlew clean # todo we should be able to skip this clean, but locally, too many caching errors...
-    ./gradlew :protobuf-sources:generateBlockNodeProtoArtifact
+    $GRADLEW clean &> /dev/null # todo we should be able to skip this clean, but locally, too many caching errors...
+    $GRADLEW :protobuf-sources:generateBlockNodeProtoArtifact &> /dev/null
     src_tar=./protobuf-sources/block-node-protobuf-${VERSION}.tgz
     dst_dir=./tools-and-tests/k6/k6-proto
     rm -rf "$dst_dir"
@@ -17,9 +19,9 @@ setup_proto_defs() {
 run_bn() {
     (
     cd ../../
-    ./gradlew clean # todo we should be able to skip this clean, but locally, too many caching errors...
-    ./gradlew :app:stopDockerContainer
-    ./gradlew :app:startDockerContainerCI
+    $GRADLEW clean &> /dev/null # todo we should be able to skip this clean, but locally, too many caching errors...
+    $GRADLEW :app:stopDockerContainer &> /dev/null
+    $GRADLEW :app:startDockerContainerCI &> /dev/null
     )
 }
 
@@ -43,10 +45,10 @@ run_simulator() {
     export GENERATOR_START_BLOCK_NUMBER=$a
     export GENERATOR_END_BLOCK_NUMBER=$b
     export BLOCK_STREAM_MILLISECONDS_PER_BLOCK=100 # stream the blocks fast, no need to stream them 1 per sec, adjust as needed
-    echo "Starting simulator to stream from block number ${GENERATOR_START_BLOCK_NUMBER} to ${GENERATOR_END_BLOCK_NUMBER}"
-    ./gradlew clean # todo we should be able to skip this clean, but locally, too many caching errors...
-    ./gradlew :simulator:stopDockerContainer
-    ./gradlew :simulator:startDockerContainerPublisher
+    echo "Starting simulator to stream from block number ${GENERATOR_START_BLOCK_NUMBER} to ${GENERATOR_END_BLOCK_NUMBER}..."
+    $GRADLEW clean &> /dev/null # todo we should be able to skip this clean, but locally, too many caching errors...
+    $GRADLEW :simulator:stopDockerContainer &> /dev/null
+    $GRADLEW :simulator:startDockerContainerPublisher &> /dev/null
     # sleep for the difference in blocks * milliseconds per block + buffer time of 10 seconds for simulator startup
     local sleep_time=$(( (GENERATOR_END_BLOCK_NUMBER - GENERATOR_START_BLOCK_NUMBER) * BLOCK_STREAM_MILLISECONDS_PER_BLOCK / 1000 + 10 ))
     echo "Sleeping for ${sleep_time} seconds to allow block streaming to complete..."
@@ -58,46 +60,54 @@ run_simulator() {
 cleanup() {
     (
     cd ../../
-    ./gradlew stopDockerContainer # stop all running containers
+    $GRADLEW stopDockerContainer &> /dev/null # stop all running containers
     )
 }
 
 # todo add more tests here and also make sure to reset BN
 
 run_server_status_test() {
-    run_bn
-    run_simulator 0 10
     echo "Running server status test..."
-    k6 run ./average-load/bn-server-status.js >> "${k6_out_file}" 2>&1
+    local out_file=${k6_out_dir}/server_status_test.log
+    k6 run ./average-load/bn-server-status.js >> "${out_file}" 2>&1
     echo "Server status test completed."
 }
 
 run_query_validation_test() {
-    run_bn
-    run_simulator 0 10
     echo "Running query validation test..."
-    k6 run ./smoke/bn-query-validation.js >> "${k6_out_file}" 2>&1
+    local out_file=${k6_out_dir}/query_validation_test.log
+    k6 run ./smoke/bn-query-validation.js >> "${out_file}" 2>&1
     echo "Query validation test completed."
 }
 
 run_stream_validation_test() {
-    run_bn
-    run_simulator 0 10
     echo "Running stream validation test..."
-    k6 run ./smoke/bn-stream-validation.js >> "${k6_out_file}" 2>&1
+    local out_file=${k6_out_dir}/stream_validation_test.log
+    k6 run ./smoke/bn-stream-validation.js >> "${out_file}" 2>&1
     echo "Stream validation test completed."
+}
+
+run_shared_node_tests() {
+    # These tests can run on a shared node setup as they only read data
+    run_bn
+    run_simulator 0 100
+    run_server_status_test
+    run_query_validation_test
+    run_stream_validation_test
 }
 
 run_tests() {
     trap cleanup EXIT
-    local k6_out_file="k6-out.txt"
-    rm -f "${k6_out_file}" # remove old output file if exists before running tests
+    echo "Starting K6 tests..."
+    local k6_out_dir="k6-out"
+    rm -rf "${k6_out_dir}" # remove old output dir if exists before running tests
+    mkdir -p "${k6_out_dir}"
+    echo "Setting up tests & environment..."
     setup_proto_defs
-    run_server_status_test
-    run_query_validation_test
-    run_stream_validation_test
-    echo "K6 tests completed. Output written to ${k6_out_file}"
-    cat "${k6_out_file}"
+    echo "Running shared node tests..."
+    run_shared_node_tests
+    echo "Shared node tests completed."
+    echo "K6 tests completed. Output available at: ${k6_out_dir}"
 }
 
 run_tests
