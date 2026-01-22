@@ -280,6 +280,18 @@ function deploy_block_nodes {
     --output-dir "${overlay_dir}" || fail "ERROR: Failed to generate Helm overlays" 1
   end_task
 
+  # Print all generated YAML files for troubleshooting
+  log_line ""
+  log_line "Generated overlay files:"
+  for overlay_file in "${overlay_dir}"/*.yaml; do
+    if [[ -f "${overlay_file}" ]]; then
+      log_line "--- %s ---" "$(basename "${overlay_file}")"
+      cat "${overlay_file}"
+      log_line "--- End %s ---" "$(basename "${overlay_file}")"
+      log_line ""
+    fi
+  done
+
   # Path to observability overlay (relative to scripts dir)
   local observability_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/enable-observability.yaml"
 
@@ -297,6 +309,9 @@ function deploy_block_nodes {
       if [[ -f "${observability_overlay}" ]]; then
         overlay_args="${overlay_args} -f ${observability_overlay}"
         log_line "  Enabling observability stack on block-node-${i}"
+        log_line "  --- Observability overlay contents ---"
+        cat "${observability_overlay}"
+        log_line "  --- End observability overlay ---"
       else
         log_line "  WARNING: Observability overlay not found: ${observability_overlay}"
       fi
@@ -372,6 +387,9 @@ function deploy_mirror_node {
   local mn_overlay="${OVERLAY_DIR}/mn-mirror-1-values.yaml"
   [[ ! -f "${mn_overlay}" ]] && fail "ERROR: Mirror Node overlay not found: ${mn_overlay}" 1
   log_line "  Using generated overlay: %s" "${mn_overlay}"
+  log_line "  --- Mirror Node overlay contents ---"
+  cat "${mn_overlay}"
+  log_line "  --- End Mirror Node overlay ---"
 
   local mn_args=""
   if [[ -n "${MN_VERSION}" ]]; then

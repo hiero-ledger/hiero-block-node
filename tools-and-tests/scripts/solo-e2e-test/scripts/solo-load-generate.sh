@@ -175,6 +175,9 @@ SOLO_CMD=(
 # Add values file if generated
 if [[ -n "$VALUES_FILE" && -f "$VALUES_FILE" ]]; then
     echo "  Values file: $VALUES_FILE"
+    echo "  --- Values file contents ---"
+    cat "$VALUES_FILE"
+    echo "  --- End values file ---"
     SOLO_CMD+=(--values-file "$VALUES_FILE")
 fi
 
