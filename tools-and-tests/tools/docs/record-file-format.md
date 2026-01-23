@@ -2,13 +2,13 @@
 
 ## Overview
 
-The Hedera network produces a blockchain of **record stream files** that capture chronological information about
+The Hedera network produces a blockchain of **Record Stream files** that capture chronological information about
 transactions that took place on the network.
 
-- A **record stream file** (`.rcd`) contains a series of transactions in chronological order that occurred within a
+- A **Record Stream file** (`.rcd`) contains a series of transactions in chronological order that occurred within a
   two-second interval, including a transaction record for each transaction in that file.
-- For each record stream file there is a corresponding **signature file** (`.rcd_sig`) that includes the node’s signature.
-- Record stream v6 files can also have sidecar files that contain additional information about the transactions.
+- For each Record Stream file there is a corresponding **signature file** (`.rcd_sig`) that includes the node’s signature.
+- Record Stream v6 files can also have sidecar files that contain additional information about the transactions.
 
 ---
 
@@ -19,7 +19,7 @@ transactions that took place on the network.
 | Record Stream File           | 2, 5                | 6               |
 | Record Stream Signature File | 4                   | 5               |
 
-**Note:** Record stream files start with a 4 byte integer version number in big endian format.
+**Note:** Record Stream files start with a 4 byte integer version number in big endian format.
 
 **Note:** Current record signature files (`.rcd_sig`). The first byte’s value is `4`, which denotes a marker. To
 maintain backwards compatibility, the first byte in the new version stream signature file is `5`, which denotes the
@@ -33,7 +33,7 @@ Record files are written and read with Java DataInputStream and DataOutputStream
 
 ### Record Stream File Names
 
-A record stream file name is a string representation of the **Instant** of the consensus timestamp of the first
+A Record Stream file name is a string representation of the **Instant** of the consensus timestamp of the first
 transaction in the file using **ISO-8601** representation, with colons converted to underscores for Windows
 compatibility. The nano-of-second outputs zero, three, six, or nine digits as necessary.
 
@@ -141,7 +141,7 @@ Signature: `2020-10-19T21_35_39.454265000Z.rcd_sig`
 
 ### Record Stream Signature File Format (`.rcd_sig`) – v5
 
-In v5, the record stream signature file format is the same as the event stream signature file format.
+In v5, the Record Stream signature file format is the same as the event stream signature file format.
 
 |                   Name                   | Type (Bytes) |                                    Description                                     |
 |------------------------------------------|--------------|------------------------------------------------------------------------------------|
@@ -172,7 +172,7 @@ There are **three** hashes calculated:
    - Saved in state so reconnecting nodes can continue generating identical stream files.
    - Formula:
      `hash(ObjectRunningHash || hash(OBJECT))`
-     (In record stream files, `OBJECT` is the **Record Stream Object**.)
+     (In Record Stream files, `OBJECT` is the **Record Stream Object**.)
 2. **Entire `.rcd` Hash**
    - Calculated across **all** bytes of a `.rcd` file.
    - With this hash, mirror nodes can download valid `.rcd` files whose entire hash is agreed upon by valid signatures of at least 1/3 of nodes.
@@ -230,7 +230,7 @@ Record files have a header version before the start of protobuf content. It is a
 
 - `SemanticVersion hapi_proto_version = 1;`  Version of HAPI that was used to serialize the file.
 - `HashObject start_object_running_hash = 2;` Running Hash of all RecordStreamItems before writing this file.
-- `repeated RecordStreamItem record_stream_items = 3;` List of all the record stream items from that period.
+- `repeated RecordStreamItem record_stream_items = 3;` List of all the Record Stream items from that period.
 - `HashObject end_object_running_hash = 4;` Running Hash of all RecordStreamItems before closing this file.
 - `int64 block_number = 5;` The block number associated with this period.
 - `repeated SidecarMetadata sidecars = 6;` List of the hashes of all the sidecar record files created for the same period. Allows multiple sidecar files to be linked to this RecordStreamFile.
@@ -250,12 +250,12 @@ Information about a single sidecar file.
 
 #### Signature File
 
-A record signature file is created for each record stream file. The record signature file that is created for each record stream file signs the hash of the bytes of the entire corresponding stream file as well signing the metadata bytes on their own. The list of sidecar file hashes is included in the record stream file.
+A record signature file is created for each Record Stream file. The record signature file that is created for each Record Stream file signs the hash of the bytes of the entire corresponding stream file as well signing the metadata bytes on their own. The list of sidecar file hashes is included in the Record Stream file.
 
-This way mirror nodes or any interested party can download the record stream file and all sidecar files and verify that:
+This way mirror nodes or any interested party can download the Record Stream file and all sidecar files and verify that:
 
 1. repeated SidecarMetadata sidecars is correct;
-2. the signature file signed the correct hash of the entire record stream file;
+2. the signature file signed the correct hash of the entire Record Stream file;
 
 **`message SignatureFile`**
 
@@ -299,7 +299,7 @@ We have 4 main types of hashes:
 
 #### (1) Running Hashes of Record Stream Items
 
-First each record stream item is hashed into a single SHA384 hash. That hash includes:
+First each Record Stream item is hashed into a single SHA384 hash. That hash includes:
 
 - RecordStreamObject Class ID `0xe370929ba5429d8b`as 64bit long little endian
 - RecordStreamObject Version Number `1` as 32bit int little endian
@@ -315,7 +315,7 @@ Then we take that computed hash and combine it in new SH384 to compute the new r
 - 48 bytes of SHA384 previous running hash
 - Hash Class ID `-854880720348154850` as 64bit long little endian
 - Hash Version Number `1` as  32bit int little endian
-- 48 bytes of SHA384 of record stream item from above
+- 48 bytes of SHA384 of Record Stream item from above
 
 #### (2) SignatureFile Whole File Hash
 

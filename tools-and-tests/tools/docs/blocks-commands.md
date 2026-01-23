@@ -1,21 +1,21 @@
-## Blocks Subcommands
+# Blocks Subcommands
 
-The `blocks` command contains utilities for working with block stream files (.blk, .blk.gz, .blk.zstd).
+The `blocks` command contains utilities for working with Block Stream files (.blk, .blk.gz, .blk.zstd).
 
 ### Available Subcommands
 
 |  Command   |                                    Description                                    |
 |------------|-----------------------------------------------------------------------------------|
-| `json`     | Converts a binary block stream to JSON                                            |
+| `json`     | Converts a binary Block Stream to JSON                                            |
 | `ls`       | Prints info for block files (supports .blk, .blk.gz, .blk.zstd, and zip archives) |
-| `validate` | Validates a wrapped block stream (hash chain and signatures)                      |
-| `wrap`     | Convert record file blocks in day files to wrapped block stream blocks            |
+| `validate` | Validates a wrapped Block Stream (hash chain and signatures)                      |
+| `wrap`     | Convert record file blocks in day files to wrapped Block Stream blocks            |
 
 ---
 
 ### The `json` Subcommand
 
-Converts binary block stream files (.blk or .blk.gz) to JSON files placed next to the input files.
+Converts binary Block Stream files (.blk or .blk.gz) to JSON files placed next to the input files.
 
 #### Usage
 
@@ -40,7 +40,7 @@ blocks json [-t] [-ms=<minSizeMb>] [<files>...]
 
 ### The `ls` Subcommand
 
-Prints info for block stream files. Supports standalone block files, compressed files, and zip archives.
+Prints info for Block Stream files. Supports standalone block files, compressed files, and zip archives.
 
 #### Supported Formats
 
@@ -69,7 +69,7 @@ blocks ls [-c] [-ms=<minSizeMb>] [-o=<outputFile>] [<files>...]
 
 ### The `validate` Subcommand
 
-Validates a wrapped block stream by checking:
+Validates a wrapped Block Stream by checking:
 
 - **Hash chain continuity** - each block's previousBlockRootHash matches computed hash of previous block
 - **Genesis block** - first block has 48 zero bytes for previous hash
@@ -117,7 +117,7 @@ blocks validate --skip-signatures /path/to/blocks/
 
 ### The `wrap` Subcommand
 
-Converts record file blocks organized in daily tar.zstd files into wrapped block stream `Block` protobufs. This is a key command in the record-to-block conversion pipeline.
+Converts record file blocks organized in daily tar.zstd files into wrapped Block Stream `Block` protobufs. This is a key command in the record-to-block conversion pipeline.
 
 #### Usage
 

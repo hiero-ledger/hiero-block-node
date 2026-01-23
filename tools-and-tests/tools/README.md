@@ -29,8 +29,8 @@ The main entry point class is `org.hiero.block.tools.BlockStreamTool`. The follo
 
 |                       Command                        |                            Description                             |
 |------------------------------------------------------|--------------------------------------------------------------------|
-| [blocks](docs/blocks-commands.md)                    | Works with block stream files (.blk, .blk.gz, .blk.zstd)           |
-| [records](docs/record-files-commands.md)             | Tools for working with raw record stream files (.rcd / .rcd.gz)    |
+| [blocks](docs/blocks-commands.md)                    | Works with Block Stream files (.blk, .blk.gz, .blk.zstd)           |
+| [records](docs/record-files-commands.md)             | Tools for working with raw Record Stream files (.rcd / .rcd.gz)    |
 | [days](docs/days-commands.md)                        | Works with compressed daily record file archives (.tar.zstd)       |
 | [mirror](docs/mirror-node-commands.md)               | Works with mirror nodes to fetch data and derive auxiliary files   |
 | [metadata](docs/metadata-commands.md)                | Works with metadata files (block_times.bin, day_blocks.json, etc.) |
@@ -55,13 +55,13 @@ Additional documentation for specific technical topics:
 
 ```
 subcommands
-├── blocks                    # Works with block stream files
-│   ├── json                  # Convert binary block stream to JSON
+├── blocks                    # Works with Block Stream files
+│   ├── json                  # Convert binary Block Stream to JSON
 │   ├── ls                    # List/inspect block files
 │   ├── validate              # Validate block hash chain and signatures
 │   └── wrap                  # Convert record files to wrapped blocks
 │
-├── records                   # Tools for record stream files
+├── records                   # Tools for Record Stream files
 │   └── ls                    # List record file info
 │
 ├── days                      # Works with compressed daily archives
@@ -209,7 +209,7 @@ services:
       - block-tool-server
     volumes:
       - ../resources/main/clientDefaultConfig.json:/app/conf/clientDefaultConfig.json:ro
-      # make sure to have a block stream recording folder to use the client with
+      # make sure to have a Block Stream recording folder to use the client with
       - /path/to/your/recordings:/app/recording:ro
     # this command starts the client mode of the networkCapacity tool
     command: ["networkCapacity",

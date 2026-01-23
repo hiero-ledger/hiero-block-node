@@ -1,4 +1,4 @@
-## Mirror Node Subcommands
+# Mirror Node Subcommands
 
 Top-level `mirror` command contains utilities for downloading Mirror Node CSV exports and producing the `block_times.bin` file used by the `record2block` pipeline.
 
@@ -152,7 +152,7 @@ Notes:
 
 ### `compareAddressBooks`
 
-Compare two address book history JSON files and report discrepancies. This is useful for validating address books generated from different sources (e.g., Mirror Node CSV vs. block stream processing).
+Compare two address book history JSON files and report discrepancies. This is useful for validating address books generated from different sources (e.g., Mirror Node CSV vs. Block Stream processing).
 
 Usage:
 
@@ -192,7 +192,7 @@ Exit Codes:
 - `1` — Address books differ or error occurred
 
 Use Cases:
-- Validate Mirror Node CSV export against block stream data
+- Validate Mirror Node CSV export against Block Stream data
 - Verify address book generation after code changes
 - Debug discrepancies between data sources
 - Track address book evolution over time

@@ -1,4 +1,4 @@
-## Days Subcommands
+# Days Subcommands
 
 The `days` top-level command works with compressed daily record file archives. Day files are `*.tar.zstd` archives containing directories of record files and related files in chronological order.
 

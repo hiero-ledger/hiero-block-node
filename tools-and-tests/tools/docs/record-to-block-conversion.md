@@ -1,7 +1,7 @@
 # Record Stream to Block Stream Conversion Overview
 
-This is a one time process that will be done to convert historical Hedera record stream files into
-block stream files. The end result will be a set of block stream files that will contain the complete blockchain history
+This is a one time process that will be done to convert historical Hedera Record Stream files into
+Block Stream files. The end result will be a set of Block Stream files that will contain the complete blockchain history
 of the Hedera network from genesis to the present day.
 
 > **!Important:**
@@ -9,7 +9,7 @@ of the Hedera network from genesis to the present day.
 > buckets. This can cost $10,000s of dollars in egress fees. Please be very careful before running any of these commands
 > and make sure you understand the costs involved.
 
-Before the switch over to block stream files, Hedera nodes produced record stream files that contained transactions and
+Before the switch over to Block Stream files, Hedera nodes produced Record Stream files that contained transactions and
 transaction records. Each record file is considered a "Block", they were produced every 2 seconds on average. Each node
 in the network produced its own copy of each record file along with a signature file for proof and later sidecar files
 with extra information. In normal operation, all nodes would produce identical record files for each block, sometimes a
@@ -18,9 +18,9 @@ files. To make a complete history of a block all we need is one good record file
 signature files and one copy of each numbered sidecar file. In the command line code these blocks are represented by
 [org/hiero/block/tools/records/RecordFileBlock.java](../src/main/java/org/hiero/block/tools/records/RecordFileBlock.java).
 
-The conversion process will convert each one of these record file blocks into a block stream block. The block stream
+The conversion process will convert each one of these record file blocks into a Block Stream block. The Block Stream
 block will contain the contents of the record file as well as all signature files and sidecar files. The format is
-converted but in a lossless way so all information is preserved. The new block stream files can be cryptographically
+converted but in a lossless way so all information is preserved. The new Block Stream files can be cryptographically
 verified. That verification process is two-step, first computing a block hash by converting the contents to the relevant
 version hashing format and then computing block hash. Each of the 3 versions of record files (v2,v5 and v6) have their
 own hashing format. Each now block file will have the following items:
@@ -77,13 +77,13 @@ Then run `tail -f nohup.out` to monitor progress.
 - This validation process is produces an address book history file `addressBookHistory.json` this will be useful later
   when validating converted wrapped block files and will get bundled into block node for use by verification code.
 
-## 5) Finally Convert downloaded day files into wrapped block stream files
+## 5) Finally Convert downloaded day files into wrapped Block Stream files
 
 > **!Important:**
 > Days wrap command is not finished yet and is still being worked on.
 
-- Use the `days wrap` command to convert all downloaded day files into wrapped block stream files. This command will
-  read each day file, convert each record file block into a wrapped block stream block and write out block stream files
+- Use the `days wrap` command to convert all downloaded day files into wrapped Block Stream files. This command will
+  read each day file, convert each record file block into a wrapped Block Stream block and write out Block Stream files
   in standard size chunks zip files like Block Node historic plugin does. The aim is the output files can be directly
   used by Block Node historic plugin without any further processing. It is estimated this process will take a few days
   to a week or more on a fast machine.

@@ -1,4 +1,4 @@
-## Network Capacity Command
+# Network Capacity Command
 
 The `networkCapacity` command runs a client/server tool to measure streaming throughput and behavior over gRPC/HTTP2.
 

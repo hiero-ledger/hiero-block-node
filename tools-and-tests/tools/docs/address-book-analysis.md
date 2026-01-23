@@ -3,7 +3,7 @@
 ## Overview
 
 This document explains the discrepancies found between two address book history sources and the fixes implemented to align them:
-- **OLD**: AddressBookRegistry generated from block stream processing
+- **OLD**: AddressBookRegistry generated from Block Stream processing
 - **NEW**: Generated from Mirror Node CSV export
 
 ## Executive Summary
@@ -168,7 +168,7 @@ Added infrastructure to filter by transaction result (SUCCESS=22), but the curre
 | 2025-10-09 | 31         | Identical to 2025-09-24            |
 | 2025-11-12 | 31         | Identical to 2025-10-09            |
 
-**Analysis:** These entries exist in the block stream (OLD) but Mirror Node CSV didn't record them. They appear to be:
+**Analysis:** These entries exist in the Block Stream (OLD) but Mirror Node CSV didn't record them. They appear to be:
 - **Metadata updates** - File 0.0.102 was modified but content was identical
 - **Block boundary markers** - Updates at specific consensus timestamps
 - **Duplicate events** - Multiple transactions that resulted in same final state
@@ -378,7 +378,7 @@ This provides:
 ### For Perfect Alignment
 
 **Not recommended**, but to match OLD file exactly:
-1. Regenerate OLD file from latest block stream
+1. Regenerate OLD file from latest Block Stream
 2. Use Mirror Node API to check transaction results
 3. Consider that some discrepancies are inherent to different data sources
 
@@ -403,7 +403,7 @@ This provides:
 
 If Mirror Node exports include `transaction_result`:
 - Enable automatic filtering of failed transactions
-- Further improve alignment with block stream
+- Further improve alignment with Block Stream
 
 ### 2. **Real-time Sync**
 
@@ -429,7 +429,7 @@ The address book discrepancy analysis successfully identified and resolved the m
 
 1. **Data source timing** - OLD may be outdated
 2. **Different deduplication strategies** - Mirror Node is more aggressive
-3. **Different collection methods** - Block stream vs database export
+3. **Different collection methods** - Block Stream vs database export
 
 The current implementation achieves **80.5% match rate** for NEW entries while removing all spurious duplicates, making it suitable for production use.
 
@@ -439,7 +439,7 @@ The current implementation achieves **80.5% match rate** for NEW entries while r
 
 ### Related Code
 
-- `AddressBookRegistry.java` - Block stream processing (lines 134-172)
+- `AddressBookRegistry.java` - Block Stream processing (lines 134-172)
 - `CompareAddressBooks.java` - Comparison logic
 - `GenerateAddressBookFromMirrorNode.java` - CSV import and filtering
 - `TimeUtils.java` - Genesis timestamp constant

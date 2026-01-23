@@ -1,6 +1,6 @@
-## Records Subcommands
+# Records Subcommands
 
-The `records` command contains subcommands for working with raw record stream files (.rcd / .rcd.gz).
+The `records` command contains subcommands for working with raw Record Stream files (.rcd / .rcd.gz).
 
 ### Available Subcommands
 
@@ -8,7 +8,7 @@ The `records` command contains subcommands for working with raw record stream fi
 |---------|-------------------------------------------------------------------------------------|
 | `ls`    | List record file info contained in provided `.rcd` / `.rcd.gz` files or directories |
 
-> **Note:** The legacy `record2block` command has been replaced by [`blocks wrap`](blocks-commands.md#the-wrap-subcommand), which converts record file blocks in day archives to wrapped block stream blocks.
+> **Note:** The legacy `record2block` command has been replaced by [`blocks wrap`](blocks-commands.md#the-wrap-subcommand), which converts record file blocks in day archives to wrapped Block Stream blocks.
 
 ---
 
@@ -64,7 +64,7 @@ records ls file1.rcd file2.rcd.gz
 
 ## Related Commands
 
-For converting record files to block stream format, see:
+For converting record files to Block Stream format, see:
 
-- [`blocks wrap`](blocks-commands.md#the-wrap-subcommand) - Convert record file blocks in day archives to wrapped block stream blocks
+- [`blocks wrap`](blocks-commands.md#the-wrap-subcommand) - Convert record file blocks in day archives to wrapped Block Stream blocks
 - [`days`](days-commands.md) - Commands for working with compressed daily record file archives (.tar.zstd)
