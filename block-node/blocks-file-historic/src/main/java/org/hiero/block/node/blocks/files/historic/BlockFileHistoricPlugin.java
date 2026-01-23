@@ -490,8 +490,10 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
 
                 // create staging area directories if they don't exist
                 Files.createDirectories(firstBlockPath.dirPath());
-                // move the file from the work zip area to the data area
-                Files.move(zipWorkPath, firstBlockPath.zipFilePath());
+                // move the file from the work zip area to the data area by creating a hard link
+                // and then deleting the source file
+                Files.createLink(firstBlockPath.zipFilePath(), zipWorkPath);
+                Files.deleteIfExists(zipWorkPath);
 
                 // Metrics updates
                 // Update total bytes stored with the new zip file size

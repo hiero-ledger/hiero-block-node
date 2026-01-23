@@ -71,9 +71,9 @@ class ZipBlockArchive {
      *
      * @throws IOException If an error occurs writing the block
      */
-    void createZip(BlockAccessorBatch batch, Path destinationDirectory) throws IOException {
+    void createZip(BlockAccessorBatch batch, Path destinationFile) throws IOException {
         try (final ZipOutputStream zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
-                Files.newOutputStream(destinationDirectory, StandardOpenOption.CREATE, StandardOpenOption.WRITE),
+                Files.newOutputStream(destinationFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE),
                 1024 * 1204))) {
             // don't compress the zip file as files are already compressed
             zipOutputStream.setMethod(ZipOutputStream.STORED);

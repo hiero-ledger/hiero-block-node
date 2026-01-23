@@ -24,6 +24,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -129,7 +130,15 @@ class BlockFileHistoricPluginTest {
             // Assert that the roots are created
             assertThat(dataRoot).exists().isDirectory().isNotEmptyDirectory();
             assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
-            // assertThat(Files.list(dataRoot).toList()).hasSize(1).containsExactly(linksRoot);
+            final Path linksRoot = dataRoot.resolve("links");
+            assertThat(linksRoot).exists().isDirectory().isEmptyDirectory();
+            final Path stagingRoot = dataRoot.resolve("staging");
+            assertThat(stagingRoot).exists().isDirectory().isEmptyDirectory();
+            try (final Stream<Path> subDirectoriesStream = Files.list(dataRoot)) {
+                assertThat(subDirectoriesStream.toList())
+                        .hasSize(3)
+                        .containsExactly(zipWorkRoot, linksRoot, stagingRoot);
+            }
         }
     }
 
