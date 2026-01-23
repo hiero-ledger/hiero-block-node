@@ -1,59 +1,70 @@
 ## Records Subcommands
 
-Top-level `records` command contains subcommands for working with raw record stream files (.rcd / .rcd.gz).
+The `records` command contains subcommands for working with raw record stream files (.rcd / .rcd.gz).
 
-- `ls` - List record file info contained in provided `.rcd` / `.rcd.gz` files or directories
-- `record2block` - Convert historical record stream files into block stream blocks
+### Available Subcommands
+
+| Command |                                     Description                                     |
+|---------|-------------------------------------------------------------------------------------|
+| `ls`    | List record file info contained in provided `.rcd` / `.rcd.gz` files or directories |
+
+> **Note:** The legacy `record2block` command has been replaced by [`blocks wrap`](blocks-commands.md#the-wrap-subcommand), which converts record file blocks in day archives to wrapped block stream blocks.
 
 ---
 
-### The `ls` (records) Subcommand
+### The `ls` Subcommand
 
-Lists parsed metadata for each record file, including record format version, HAPI version and short hashes.
+Lists parsed metadata for each record file, including record format version, HAPI version, and short hashes.
 
-Usage:
+#### Usage
 
 ```
 records ls <files-or-dirs>...
 ```
 
-Options:
-- `<files-or-dirs>...` — Files or directories to process. Directories are walked and files ending with `.rcd` or `.rcd.gz` are included.
+#### Options
 
-Output columns include file name, record format version, HAPI version, previous block hash, block hash and human readable size.
+|        Option        |                                                   Description                                                   |
+|----------------------|-----------------------------------------------------------------------------------------------------------------|
+| `<files-or-dirs>...` | Files or directories to process. Directories are walked and files ending with `.rcd` or `.rcd.gz` are included. |
+
+#### Output Columns
+
+|  Column   |                  Description                  |
+|-----------|-----------------------------------------------|
+| File Name | Name of the record file                       |
+| Ver       | Record format version (e.g., 5, 6)            |
+| HAPI      | HAPI protocol version (e.g., 0.11.0)          |
+| PrevHash  | First 8 hex characters of previous block hash |
+| BlockHash | First 8 hex characters of this block's hash   |
+| Size      | Human-readable file size                      |
+
+#### Example Output
+
+```
+File Name                                                              Ver   HAPI      PrevHash   BlockHash  Size
+------------------------------------------------------------------------------------------------------------------------
+recordstreams_record0.0.20_2022-02-01T17_30_00.008743294Z.rcd          5     0.11.0    f032213b   b9279d9b   58.9 KB
+recordstreams_record0.0.4_2022-02-01T17_30_02.050973000Z.rcd           5     0.11.0    b9279d9b   d4cd9a9b   56.6 KB
+recordstreams_record0.0.4_2022-02-01T17_30_04.006373067Z.rcd           5     0.11.0    d4cd9a9b   9d7591cc   71.7 KB
+recordstreams_record0.0.10_2022-02-01T17_30_06.019622000Z.rcd          5     0.11.0    9d7591cc   b1ce579a   55.1 KB
+```
+
+#### Example
+
+```bash
+# List info for record files in a directory
+records ls /path/to/recordfiles/
+
+# List info for specific files
+records ls file1.rcd file2.rcd.gz
+```
 
 ---
 
-### The `record2block` Subcommand
+## Related Commands
 
-> **Important:**
-> This is old command is in the process of being replaced by a new [days wrap](days-commands.md#wrap) command.
+For converting record files to block stream format, see:
 
-Converts historical record stream files into blocks. This command downloads supporting files (record files, signature files, sidecars)
-from the public GCP buckets and constructs Block protobufs for a range of block numbers.
-
-Usage:
-
-```
-records record2block [-s <start>] [-e <end>] [-j] [-c] [--min-node-account-id=<n>] [--max-node-account-id=<n>] [-d <dataDir>] [--block-times=<blockTimesFile>]
-```
-
-Options:
-- `-s`, `--start-block <blockNumber>`
-- The first block number to process (default: 0).
-- `-e`, `--end-block <blockNumber>`
-- The last block number to process (default: 3001).
-- `-j`, `--json`
-- Also output blocks as JSON (for debugging).
-- `-c`, `--cache-enabled`
-- Use a local GCP cache for downloads (saves bandwidth/costs).
-- `--min-node-account-id` / `--max-node-account-id`
-- Configure range of node account ids used when listing/downloading from GCP buckets (defaults: 3..34).
-- `-d`, `--data-dir <dataDir>`
-- Base directory for output and temporary files (default: `data`).
-- `--block-times <blockTimesFile>`
-- Path to the `block_times.bin` file used to map block number → record file time (default: `data/block_times.bin`).
-
-Notes & prerequisites:
-- The command expects a `block_times.bin` file that maps block numbers to record file times. See the mirror subcommands below to produce/validate that file.
-- This command downloads public data from Google Cloud Storage (requester pays). You must authenticate with Google Cloud SDK (for example `gcloud auth application-default login` or `gcloud auth login`) and have project billing set up for requester pays access.
+- [`blocks wrap`](blocks-commands.md#the-wrap-subcommand) - Convert record file blocks in day archives to wrapped block stream blocks
+- [`days`](days-commands.md) - Commands for working with compressed daily record file archives (.tar.zstd)

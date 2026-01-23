@@ -90,7 +90,7 @@ Removes consecutive entries where the entire address book content is identical t
 
 **Algorithm:**
 
-```java
+```pseudocode
 for each consecutive pair:
   if addressBooksEqual(previous, current):
     skip current

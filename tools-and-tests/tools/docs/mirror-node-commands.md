@@ -146,7 +146,7 @@ Notes:
 - Requires Google Cloud credentials (application default) for accessing the GCP bucket.
 - Downloads approximately 1.2 MB compressed CSV data.
 - By default, filters ~20 content-duplicate entries from typical datasets.
-- See [ADDRESS_BOOK_ANALYSIS.md](../ADDRESS_BOOK_ANALYSIS.md) for detailed technical documentation.
+- See [ADDRESS_BOOK_ANALYSIS.md](address-book-analysis.md) for detailed technical documentation.
 
 ---
 
@@ -197,4 +197,4 @@ Use Cases:
 - Debug discrepancies between data sources
 - Track address book evolution over time
 
-See [ADDRESS_BOOK_ANALYSIS.md](../ADDRESS_BOOK_ANALYSIS.md) for analysis of expected discrepancies between different data sources.
+See [ADDRESS_BOOK_ANALYSIS.md](address-book-analysis.md) for analysis of expected discrepancies between different data sources.
