@@ -175,7 +175,7 @@ There are **three** hashes calculated:
      (In Record Stream files, `OBJECT` is the **Record Stream Object**.)
 2. **Entire `.rcd` Hash**
    - Calculated across **all** bytes of a `.rcd` file.
-   - With this hash, mirror nodes can download valid `.rcd` files whose entire hash is agreed upon by valid signatures of at least 1/3 of nodes.
+   - With this hash, Mirror Nodes can download valid `.rcd` files whose entire hash is agreed upon by valid signatures of at least 1/3 of nodes.
    - If file contents are `f[i] = head[i] || startHash[i] || contents[i] || endHash[i]`, then:
      `entireHash[i] = hash(head[i] || startHash[i] || contents[i] || endHash[i])`
 3. **Metadata `.rcd` Hash**
@@ -252,7 +252,7 @@ Information about a single sidecar file.
 
 A record signature file is created for each Record Stream file. The record signature file that is created for each Record Stream file signs the hash of the bytes of the entire corresponding stream file as well signing the metadata bytes on their own. The list of sidecar file hashes is included in the Record Stream file.
 
-This way mirror nodes or any interested party can download the Record Stream file and all sidecar files and verify that:
+This way Mirror Nodes or any interested party can download the Record Stream file and all sidecar files and verify that:
 
 1. repeated SidecarMetadata sidecars is correct;
 2. the signature file signed the correct hash of the entire Record Stream file;
@@ -278,7 +278,7 @@ This way mirror nodes or any interested party can download the Record Stream fil
 
 #### Sidecar File
 
-Sidecar files contain extra data that can be chosen to be optionally read by mirror nodes. Sidecar files do not have a version header outside the protobuf, so they are a pure single protobuf message.
+Sidecar files contain extra data that can be chosen to be optionally read by Mirror Nodes. Sidecar files do not have a version header outside the protobuf, so they are a pure single protobuf message.
 
 **`message SidecarFile`**
 

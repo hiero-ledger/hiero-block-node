@@ -31,7 +31,7 @@ own hashing format. Each now block file will have the following items:
 
 # The conversion process is as follows:
 
-## 1) Gather mirror node data needed for conversion
+## 1) Gather Mirror Node data needed for conversion
 
 - Download Mirror Node database record file table CSV dumps using the `mirror fetchRecordsCsv` command
 - Generate the `data/block_times.bin` file using the `mirror extractBlockTimes` command
@@ -57,7 +57,7 @@ nohup rclone lsjson -R --hash --no-mimetype --no-modtime --gcs-user-project <PRO
 ## 3) Download all the record, signature and sidecar files needed for conversion
 
 - Use the `days download-days-v2` command to download all record files, signature files and sidecar files needed for
-  conversion. This command will use the mirror node data creates in step 1 and the per-day listing files created in step
+  conversion. This command will use the Mirror Node data creates in step 1 and the per-day listing files created in step
   2 to download all needed files into a local directory. It creates one about 1GB .tar.zstd file per day with all needed
   files. This process takes weeks, maybe even months to complete because of the huge amount of data (~30 TBs) and
   trillions of tiny files. because of this you can run download-days-v2 on day ranges at a time in the background, like:
@@ -71,7 +71,7 @@ Then run `tail -f nohup.out` to monitor progress.
 ## 4) Validate the downloaded day files
 
 - Use the `days validate` command to validate the downloaded day files. This command will read each day file,
-  recompute blockchain hashes and validate them against the expected values from mirror node. It will print any warnings
+  recompute blockchain hashes and validate them against the expected values from Mirror Node. It will print any warnings
   or errors it finds. The process will write a `validateCmdStatus.json` file into the days directory so it can resume if
   interrupted or an error is detected. It is estimated a fill validation will take a few days on a fast machine.
 - This validation process is produces an address book history file `addressBookHistory.json` this will be useful later

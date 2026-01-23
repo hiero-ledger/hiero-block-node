@@ -15,7 +15,7 @@ The `days` top-level command works with compressed daily record file archives. D
 | `download-days`          | Download many days (v1)                                               |
 | `download-days-v2`       | Download many days (v2 implementation)                                |
 | `download-days-v3`       | Download many days (v3 with Guava preload fix)                        |
-| `download-live`          | Continuously follow mirror node for new block files                   |
+| `download-live`          | Continuously follow Mirror Node for new block files                   |
 | `download-live2`         | Live block download with inline validation and automatic day rollover |
 | `print-listing`          | Print the listing for a given day                                     |
 | `ls-day-listing`         | Print all files in the listing for a day                              |
@@ -211,10 +211,10 @@ Same as `download-days-v2`.
 
 ### `download-live`
 
-Continuously follow mirror node for new block files; dedupe, validate, and organize into daily folders.
+Continuously follow Mirror Node for new block files; dedupe, validate, and organize into daily folders.
 
 This command:
-- Queries the mirror node for recent blocks using the `/api/v1/blocks` endpoint
+- Queries the Mirror Node for recent blocks using the `/api/v1/blocks` endpoint
 - Filters results to the current day window in the configured rollover timezone
 - Downloads, validates and organizes record files into per-day folders
 - Appends successfully validated files into a per-day `.tar` archive
@@ -261,7 +261,7 @@ days download-live2 [-l <listingDir>] [-o <outputDir>] [--start-date <YYYY-MM-DD
 |------------------------------------|----------------------------------------------------------------------------------------|
 | `-l`, `--listing-dir <listingDir>` | Directory where listing files are stored (default: `listingsByDay`).                   |
 | `-o`, `--output-dir <outputDir>`   | Directory where compressed day archives are written (default: `compressedDays`).       |
-| `--start-date <YYYY-MM-DD>`        | Start date (default: auto-detect from mirror node).                                    |
+| `--start-date <YYYY-MM-DD>`        | Start date (default: auto-detect from Mirror Node).                                    |
 | `--state-json <path>`              | Path to state JSON file for resume (default: `outputDir/validateCmdStatus.json`).      |
 | `--stats-csv <path>`               | Path to signature statistics CSV file (default: `outputDir/signature_statistics.csv`). |
 | `--address-book <path>`            | Path to address book file for signature validation.                                    |
@@ -269,7 +269,7 @@ days download-live2 [-l <listingDir>] [-o <outputDir>] [--start-date <YYYY-MM-DD
 
 #### Features
 
-- **Auto-detect start date**: Queries the mirror node to determine the current day if `--start-date` is not specified.
+- **Auto-detect start date**: Queries the Mirror Node to determine the current day if `--start-date` is not specified.
 - **HTTP transport**: Uses HTTP (not gRPC) for GCS downloads to avoid deadlock issues with virtual threads.
 - **Inline validation**: Validates each block's running hash as it's downloaded.
 - **Signature statistics**: Tracks per-day signature counts and writes to CSV.

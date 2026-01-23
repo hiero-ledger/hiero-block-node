@@ -32,7 +32,7 @@ The main entry point class is `org.hiero.block.tools.BlockStreamTool`. The follo
 | [blocks](docs/blocks-commands.md)                    | Works with Block Stream files (.blk, .blk.gz, .blk.zstd)           |
 | [records](docs/record-files-commands.md)             | Tools for working with raw Record Stream files (.rcd / .rcd.gz)    |
 | [days](docs/days-commands.md)                        | Works with compressed daily record file archives (.tar.zstd)       |
-| [mirror](docs/mirror-node-commands.md)               | Works with mirror nodes to fetch data and derive auxiliary files   |
+| [mirror](docs/mirror-node-commands.md)               | Works with Mirror Nodes to fetch data and derive auxiliary files   |
 | [metadata](docs/metadata-commands.md)                | Works with metadata files (block_times.bin, day_blocks.json, etc.) |
 | [networkCapacity](docs/network-capacity-commands.md) | Network capacity testing tool (gRPC/HTTP2 throughput)              |
 
@@ -74,7 +74,7 @@ subcommands
 │   ├── download-days         # Download record files for date range
 │   ├── download-days-v2      # Download days (v2 implementation)
 │   ├── download-days-v3      # Download days (v3 with Guava preload fix)
-│   ├── download-live         # Live download following mirror node
+│   ├── download-live         # Live download following Mirror Node
 │   ├── download-live2        # Live download with inline validation
 │   ├── print-listing         # Print listing for one day
 │   ├── ls-day-listing        # Print all files in day listing
@@ -84,14 +84,14 @@ subcommands
 │   ├── fix-missing-signatures # Fix missing signatures in downloaded days
 │   └── fix-sig-names         # Fix signature file naming (.rcs.sig → .rcd.sig)
 │
-├── mirror                    # Works with mirror nodes
+├── mirror                    # Works with Mirror Nodes
 │   ├── blocktime             # Display block time for block numbers
 │   ├── extractBlockTimes     # Extract block times from CSV
 │   ├── validateBlockTimes    # Validate block times file
 │   ├── addNewerBlockTimes    # Add newer block times from GCP
-│   ├── fetchRecordsCsv       # Download mirror node CSV dump
+│   ├── fetchRecordsCsv       # Download Mirror Node CSV dump
 │   ├── extractDayBlock       # Extract per-day block info to JSON
-│   ├── update                # Update block data from mirror node
+│   ├── update                # Update block data from Mirror Node
 │   ├── generateAddressBook   # Generate address book from CSV
 │   └── compareAddressBooks   # Compare two address book files
 │

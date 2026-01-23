@@ -1,11 +1,11 @@
 # Address Book Update Rules and Implementation Guide
 
 > [!NOTE]
-> This is AI generated from mirror node repository code and tests. It was helpful for AI to read when impementing address book update code. It has not been fully fact checked.
+> This is AI generated from Mirror Node repository code and tests. It was helpful for AI to read when impementing address book update code. It has not been fully fact checked.
 
-This document summarizes how Hedera node address books are managed in the mirror node today and distills those rules into a concrete, actionable spec for implementing an in-memory AddressBookRegistry.updateAddressBook(List<TransactionBody>) in another project.
+This document summarizes how Hedera node address books are managed in the Mirror Node today and distills those rules into a concrete, actionable spec for implementing an in-memory AddressBookRegistry.updateAddressBook(List<TransactionBody>) in another project.
 
-It draws from the mirror node importer code and tests:
+It draws from the Mirror Node importer code and tests:
 - Address book ingestion: hedera-mirror-importer AddressBookServiceImpl
 - Migration and parsing tests: AddressBookServiceImplTest, MissingAddressBooksMigrationTest
 - Node entity transactions: NodeCreateTransactionHandler, NodeUpdateTransactionHandler, NodeDeleteTransactionHandler
@@ -18,22 +18,22 @@ There are two historical files for the address book on Hedera:
 - File 0.0.102 (current/primary)
 - File 0.0.101 (legacy/service endpoints)
 
-Mirror node persists every complete address book parsed from either file but treats 0.0.102 as the authoritative “current” address book for serving clients. Updates to 0.0.101 do not change what getCurrent() returns; they’re stored as historical data.
+Mirror Node persists every complete address book parsed from either file but treats 0.0.102 as the authoritative “current” address book for serving clients. Updates to 0.0.101 do not change what getCurrent() returns; they’re stored as historical data.
 
-Address books are not (today) recomputed from NodeCreate/NodeUpdate/NodeDelete transaction types inside mirror node; those transactions are recorded in the nodes table for administrative data. However, for a standalone registry intended to track the effective address book as the network evolves, you likely want to incorporate those transactions to incrementally update the in-memory book between 0.0.102 file refreshes. This document includes a recommended approach.
+Address books are not (today) recomputed from NodeCreate/NodeUpdate/NodeDelete transaction types inside Mirror Node; those transactions are recorded in the nodes table for administrative data. However, for a standalone registry intended to track the effective address book as the network evolves, you likely want to incorporate those transactions to incrementally update the in-memory book between 0.0.102 file refreshes. This document includes a recommended approach.
 
 ## 2) Transactions that can affect the effective address book
 
 A) File transactions on 0.0.101 and 0.0.102
 - Types: FileCreate, FileUpdate, FileAppend
 - FileUpdate/FileCreate begin a new content stream; FileAppend continues it.
-- There is no explicit “final append” flag. The mirror node simply attempts to parse the concatenated bytes into a NodeAddressBook protobuf, and if successful, considers that a complete address book update.
+- There is no explicit “final append” flag. The Mirror Node simply attempts to parse the concatenated bytes into a NodeAddressBook protobuf, and if successful, considers that a complete address book update.
 - Multiple FileAppend transactions may occur after a FileUpdate; you must accumulate bytes across them.
 - Empty contents should be ignored.
 
 B) Node lifecycle transactions (recommended for a registry)
 - Types: NodeCreate, NodeUpdate, NodeDelete
-- In the mirror node, these do not currently modify the persisted address_book tables. For a real-time registry, it is useful to apply them to the in-memory book:
+- In the Mirror Node, these do not currently modify the persisted address_book tables. For a real-time registry, it is useful to apply them to the in-memory book:
 - NodeCreate: add the new node to the current address book
 - NodeUpdate: modify fields for an existing node
 - NodeDelete: remove the node from the current book
@@ -52,11 +52,11 @@ When a complete file payload is parsed as a NodeAddressBook:
 - All endpoints are deduplicated per node (by ip + port + domain) across multiple NodeAddress entries for the same node id.
 - Other fields
 - publicKey is taken from NodeAddress.RSAPubKey.
-- stake is taken from NodeAddress.stake (but mirror node may later override effective consensus weighting from NodeStake records; this is outside the scope of the registry).
+- stake is taken from NodeAddress.stake (but Mirror Node may later override effective consensus weighting from NodeStake records; this is outside the scope of the registry).
 - Failure behavior
 - If parsing the NodeAddressBook fails (e.g., invalid ipAddressV4), the address book update is discarded.
 
-Timestamps (mirror node persistence)
+Timestamps (Mirror Node persistence)
 - The persisted AddressBook startConsensusTimestamp is the transaction’s consensus timestamp + 1.
 - When a new book is successfully saved, the previous book’s endConsensusTimestamp is set to the new file’s consensus timestamp if not already set.
 
@@ -64,7 +64,7 @@ A standalone registry can adopt the same convention for internal versioning (e.g
 
 ## 4) Applying NodeCreate/NodeUpdate/NodeDelete (recommended registry behavior)
 
-Although mirror node doesn’t use these transactions to update its address books, a registry tracking the “effective” network state can:
+Although Mirror Node doesn’t use these transactions to update its address books, a registry tracking the “effective” network state can:
 
 - Identity matching for node changes
   - Prefer matching by nodeAccountId when present.
@@ -102,7 +102,7 @@ Every time you apply a NodeCreate/Update/Delete, treat it as producing a new ver
 - Duplicate NodeAddress entries (same node) within a single book
   - Deduplicate by node id; union endpoints as a set.
 - Invalid endpoint IP
-  - For file-based updates, invalid ipAddressV4 (not exactly 4 bytes) should cause the parse to be rejected and no version to be created (as mirror node does).
+  - For file-based updates, invalid ipAddressV4 (not exactly 4 bytes) should cause the parse to be rejected and no version to be created (as Mirror Node does).
   - For NodeUpdate transactions in a registry, consider either rejecting just the bad endpoint or the whole transaction depending on your correctness vs. resilience goals.
 - Deprecated memo-based identity
   - If nodeAccountId is missing, memo may contain the “0.0.x” string and should be parsed to infer node identity.
@@ -145,7 +145,7 @@ Notes
 
 ## 8) Field mappings (PBJ vs classic proto)
 
-Mirror node tests use classic proto classes (com.hederahashgraph.api.proto.java). In PBJ (com.hedera.hapi.node.*):
+Mirror Node tests use classic proto classes (com.hederahashgraph.api.proto.java). In PBJ (com.hedera.hapi.node.*):
 - NodeAddressBook: com.hedera.hapi.node.base.NodeAddressBook
 - NodeAddress: com.hedera.hapi.node.base.NodeAddress
 - ServiceEndpoint: com.hedera.hapi.node.base.ServiceEndpoint
@@ -154,7 +154,7 @@ Mirror node tests use classic proto classes (com.hederahashgraph.api.proto.java)
 
 ## 9) Practical tips and pitfalls
 
-- Parsing failures (especially malformed ipAddressV4) must reject the entire file-based update; otherwise you’ll diverge from mirror node behavior.
+- Parsing failures (especially malformed ipAddressV4) must reject the entire file-based update; otherwise you’ll diverge from Mirror Node behavior.
 - Keep 0.0.101 and 0.0.102 partial buffers separate; appends for one must not be combined with the other.
 - If you need to support legacy books where nodeId was 0, implement the (accountNum - 3) inference when accountNum < 20.
 - If an agent wants to ignore domainName until HIP-869 rollout aligns, it can set domainName to empty for now.
@@ -185,4 +185,4 @@ Pseudocode outline:
 - Node identity match: prefer nodeAccountId else nodeId; legacy inference if needed
 - Merge/replace semantics as noted above
 
-This approach keeps your registry aligned with how mirror node computes address books from files while also letting you react to node lifecycle transactions in between file-based refreshes.
+This approach keeps your registry aligned with how Mirror Node computes address books from files while also letting you react to node lifecycle transactions in between file-based refreshes.
