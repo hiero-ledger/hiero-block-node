@@ -510,7 +510,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                             Files.delete(path);
                             availableStagedBlocks.remove(blockNumber);
                         } catch (final IOException e) {
-                            final String message = "Failed to delete staging file for block %d".formatted(blockNumber);
+                            final String message = "Failed to delete staging file for block %d located at %s"
+                                    .formatted(blockNumber, path.toFile().getAbsolutePath());
                             LOGGER.log(INFO, message, e);
                         }
                     }
