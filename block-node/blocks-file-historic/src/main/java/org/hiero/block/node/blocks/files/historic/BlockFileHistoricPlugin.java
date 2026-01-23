@@ -510,8 +510,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                             Files.delete(path);
                             availableStagedBlocks.remove(blockNumber);
                         } catch (final IOException e) {
-                            final String message = "Failed to delete staging file for block %d".formatted(
-                                    blockNumber);
+                            final String message = "Failed to delete staging file for block %d".formatted(blockNumber);
                             LOGGER.log(INFO, message, e);
                         }
                     }
@@ -583,7 +582,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     Files.delete(file);
                 } catch (IOException e) {
                     final String msg = "Failed to delete work zip file: %s".formatted(file);
-                    LOGGER.log(INFO, msg, e);
+                    LOGGER.log(INFO, msg);
                 }
             });
         } catch (IOException e) {
