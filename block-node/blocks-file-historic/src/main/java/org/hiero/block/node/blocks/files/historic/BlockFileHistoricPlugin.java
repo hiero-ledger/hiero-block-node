@@ -583,11 +583,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     Files.delete(file);
                 } catch (IOException e) {
                     final String msg = "Failed to delete work zip file: %s".formatted(file);
-                    LOGGER.log(INFO, msg);
+                    LOGGER.log(INFO, msg, e);
                 }
             });
         } catch (IOException e) {
-            final String msg = "Failed to list work zip files in %s".formatted(zipWorkRootPath.toString());
+            final String msg = "Failed to list work zip files in %s".formatted(zipWorkRootPath);
             LOGGER.log(INFO, msg, e);
         }
     }
