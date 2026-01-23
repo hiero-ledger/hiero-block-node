@@ -57,6 +57,10 @@ vars:
   # Metrics/Observability
   ENABLE_LOCAL_METRICS: '{{.ENABLE_LOCAL_METRICS | default "false"}}'
 
+  # TCK-SDK test configuration
+  TCK_SDK_DIR: '{{.TCK_SDK_DIR | default "sdk-tck"}}'
+  TCK_TEST_FILE: '{{.TCK_TEST_FILE | default "src/tests/crypto-service/test-transfer-transaction.ts"}}'
+
 tasks:
   # ============================================================================
   # Prerequisites
@@ -343,3 +347,76 @@ tasks:
         ls -la "{{.ROOT_DIR}}/tests/"*.yaml 2>/dev/null || echo "No test files found in tests/"
         echo ""
         echo "Run a test with: task test:run TEST_FILE=tests/<name>.yaml"
+
+  # ============================================================================
+  # TCK-SDK Tests (matches consensus-node approach: uses latest tags)
+  # ============================================================================
+  tck:clone:
+    desc: Clone TCK and JS-SDK repositories and checkout latest tags
+    cmds:
+      - |
+        # Clone and checkout latest tag for TCK
+        if [[ ! -d "{{.TCK_SDK_DIR}}/regression" ]]; then
+          echo "Cloning TCK repository..."
+          git clone https://github.com/hiero-ledger/hiero-sdk-tck.git \
+            "{{.TCK_SDK_DIR}}/regression"
+        fi
+        cd "{{.TCK_SDK_DIR}}/regression"
+        git fetch --tags
+        LATEST_TAG=$(git describe --tags --abbrev=0)
+        echo "Checking out TCK latest tag: $LATEST_TAG"
+        git checkout "$LATEST_TAG"
+
+        # Clone and checkout latest tag for JS-SDK
+        cd - > /dev/null
+        if [[ ! -d "{{.TCK_SDK_DIR}}/sdk-server" ]]; then
+          echo "Cloning JS-SDK repository..."
+          git clone https://github.com/hiero-ledger/hiero-sdk-js.git \
+            "{{.TCK_SDK_DIR}}/sdk-server"
+        fi
+        cd "{{.TCK_SDK_DIR}}/sdk-server"
+        git fetch --tags
+        LATEST_TAG=$(git describe --tags --abbrev=0)
+        echo "Checking out JS-SDK latest tag: $LATEST_TAG"
+        git checkout "$LATEST_TAG"
+
+  tck:check:
+    desc: Check if TCK-SDK dependencies are installed
+    cmds:
+      - |
+        "{{.SCRIPTS_DIR}}/solo-tck-sdk-check.sh" \
+          --sdk-dir "{{.TCK_SDK_DIR}}/sdk-server"
+
+  tck:install:
+    desc: Install TCK-SDK dependencies (run after tck:clone)
+    deps: [tck:clone]
+    cmds:
+      - |
+        "{{.SCRIPTS_DIR}}/solo-tck-sdk-install.sh" \
+          --sdk-dir "{{.TCK_SDK_DIR}}/sdk-server" \
+          --tck-dir "{{.TCK_SDK_DIR}}/regression"
+
+  test:tck-sdk:
+    desc: Run TCK-SDK regression test (requires network up)
+    cmds:
+      - |
+        # Check if repos are cloned
+        if [[ ! -d "{{.TCK_SDK_DIR}}/regression" ]] || [[ ! -d "{{.TCK_SDK_DIR}}/sdk-server" ]]; then
+          echo "TCK repositories not cloned. Running tck:clone first..."
+          task tck:clone
+        fi
+
+        # Check if deps installed, install if needed
+        "{{.SCRIPTS_DIR}}/solo-tck-sdk-check.sh" \
+          --sdk-dir "{{.TCK_SDK_DIR}}/sdk-server" || \
+        "{{.SCRIPTS_DIR}}/solo-tck-sdk-install.sh" \
+          --sdk-dir "{{.TCK_SDK_DIR}}/sdk-server" \
+          --tck-dir "{{.TCK_SDK_DIR}}/regression"
+
+        # Run the test
+        "{{.SCRIPTS_DIR}}/solo-tck-sdk-run.sh" \
+          --sdk-dir "{{.TCK_SDK_DIR}}/sdk-server" \
+          --tck-dir "{{.TCK_SDK_DIR}}/regression" \
+          --test-file "{{.TCK_TEST_FILE}}" \
+          --deployment "{{.DEPLOYMENT}}" \
+          --namespace "{{.NAMESPACE}}"

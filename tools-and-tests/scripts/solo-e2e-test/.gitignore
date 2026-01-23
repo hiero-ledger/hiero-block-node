@@ -2,3 +2,6 @@
 out/
 overnight-test-results.log
 overnight-test-output.log
+
+# TCK-SDK test repositories (cloned by tck:clone task)
+sdk-tck/
