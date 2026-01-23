@@ -506,8 +506,14 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     Path path = BlockFile.nestedDirectoriesBlockFilePath(
                             stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
                     if (Files.exists(path)) {
-                        Files.delete(path);
-                        availableStagedBlocks.remove(blockNumber);
+                        try {
+                            Files.delete(path);
+                            availableStagedBlocks.remove(blockNumber);
+                        } catch (final IOException e) {
+                            final String message = "Failed to delete staging file for block %d".formatted(
+                                    blockNumber);
+                            LOGGER.log(INFO, message, e);
+                        }
                     }
                 }
                 // -----------------------------------------------
@@ -577,7 +583,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     Files.delete(file);
                 } catch (IOException e) {
                     final String msg = "Failed to delete work zip file: %s".formatted(file);
-                    LOGGER.log(INFO, msg);
+                    LOGGER.log(INFO, msg, e);
                 }
             });
         } catch (IOException e) {
