@@ -133,14 +133,9 @@ public class BlockStreamBlockHasher {
                 case STATE_CHANGES -> stateChangeItemsHasher.addLeaf(blockItemBytes);
                 case FILTERED_SINGLE_ITEM -> {
                     FilteredSingleItem filteredItem = blockItem.filteredSingleItemOrThrow();
-                    switch (filteredItem.tree()) {
-                        case CONSENSUS_HEADER_ITEMS -> consensusHeadersHasher.addLeaf(filteredItem.itemHash());
-                        case INPUT_ITEMS_TREE -> inputItemsHasher.addLeaf(filteredItem.itemHash());
-                        case OUTPUT_ITEMS_TREE -> outputItemsHasher.addLeaf(filteredItem.itemHash());
-                        case STATE_CHANGE_ITEMS_TREE -> stateChangeItemsHasher.addLeaf(filteredItem.itemHash());
-                        case TRACE_DATA_ITEMS_TREE -> traceItemsHasher.addLeaf(filteredItem.itemHash());
-                        default -> {}
-                    }
+                    Bytes hash = filteredItem.itemHash();
+                    // TODO work out which tree filtered item belongs to
+                    stateChangeItemsHasher.addLeaf(hash.toByteArray());
                 }
                 case TRACE_DATA -> traceItemsHasher.addLeaf(blockItemBytes);
                 case BLOCK_FOOTER -> {} // not part of any tree as it contains hashes that are elsewhere in the block

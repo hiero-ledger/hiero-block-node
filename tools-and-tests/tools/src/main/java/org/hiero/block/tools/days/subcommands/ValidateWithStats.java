@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
+import static java.nio.file.StandardOpenOption.*;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.time.ZoneOffset.UTC;
@@ -269,12 +270,7 @@ public class ValidateWithStats implements Runnable {
                 header.append("\n");
 
                 // Use CREATE_NEW to fail if file somehow exists (safety check)
-                Files.writeString(
-                        csvOutputFile,
-                        header.toString(),
-                        StandardCharsets.UTF_8,
-                        java.nio.file.StandardOpenOption.CREATE_NEW,
-                        java.nio.file.StandardOpenOption.WRITE);
+                Files.writeString(csvOutputFile, header.toString(), StandardCharsets.UTF_8, CREATE_NEW, WRITE);
                 csvHeaderWritten = true;
                 System.out.println("[CSV] Created new CSV file: " + csvOutputFile);
             } catch (IOException e) {
@@ -308,12 +304,7 @@ public class ValidateWithStats implements Runnable {
                 }
                 row.append("\n");
 
-                Files.writeString(
-                        csvOutputFile,
-                        row.toString(),
-                        StandardCharsets.UTF_8,
-                        java.nio.file.StandardOpenOption.APPEND,
-                        java.nio.file.StandardOpenOption.CREATE);
+                Files.writeString(csvOutputFile, row.toString(), StandardCharsets.UTF_8, APPEND, CREATE);
 
                 System.out.println("[CSV] Written statistics for " + dayStats.date + " to " + csvOutputFile);
             } catch (IOException e) {
