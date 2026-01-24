@@ -5,10 +5,10 @@ import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 
-import com.hedera.hapi.block.stream.experimental.Block;
-import com.hedera.hapi.block.stream.experimental.BlockFooter;
-import com.hedera.hapi.block.stream.experimental.BlockItem;
-import com.hedera.hapi.block.stream.experimental.FilteredItemHash;
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.FilteredSingleItem;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -131,11 +131,16 @@ public class BlockStreamBlockHasher {
                 case BLOCK_HEADER, RECORD_FILE, TRANSACTION_RESULT, TRANSACTION_OUTPUT ->
                     outputItemsHasher.addLeaf(blockItemBytes);
                 case STATE_CHANGES -> stateChangeItemsHasher.addLeaf(blockItemBytes);
-                case FILTERED_ITEM_HASH -> {
-                    FilteredItemHash filteredItemHash = blockItem.filteredItemHashOrThrow();
-                    Bytes hash = filteredItemHash.itemHash();
-                    // TODO work out which tree filtered item belongs to
-                    stateChangeItemsHasher.addLeaf(hash.toByteArray());
+                case FILTERED_SINGLE_ITEM -> {
+                    FilteredSingleItem filteredItem = blockItem.filteredSingleItemOrThrow();
+                    switch (filteredItem.tree()) {
+                        case CONSENSUS_HEADER_ITEMS -> consensusHeadersHasher.addLeaf(filteredItem.itemHash());
+                        case INPUT_ITEMS_TREE -> inputItemsHasher.addLeaf(filteredItem.itemHash());
+                        case OUTPUT_ITEMS_TREE -> outputItemsHasher.addLeaf(filteredItem.itemHash());
+                        case STATE_CHANGE_ITEMS_TREE -> stateChangeItemsHasher.addLeaf(filteredItem.itemHash());
+                        case TRACE_DATA_ITEMS_TREE -> traceItemsHasher.addLeaf(filteredItem.itemHash());
+                        default -> {}
+                    }
                 }
                 case TRACE_DATA -> traceItemsHasher.addLeaf(blockItemBytes);
                 case BLOCK_FOOTER -> {} // not part of any tree as it contains hashes that are elsewhere in the block

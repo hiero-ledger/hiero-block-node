@@ -7,6 +7,8 @@ open module org.hiero.block.protobuf.protoc {
     exports com.hedera.hapi.node.state.hooks.legacy;
     exports com.hedera.hapi.node.state.token.legacy;
     exports com.hedera.hapi.node.state.tss.legacy;
+    exports com.hedera.hapi.node.state.token.legacy;
+    exports com.hedera.hapi.node.tss.legacy;
     exports com.hedera.services.stream.proto;
     exports com.hederahashgraph.api.proto.java;
     exports com.hedera.hapi.block.stream.protoc;
