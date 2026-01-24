@@ -27,13 +27,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.hedera.hapi.block.stream.experimental.Block;
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
+import org.hiero.block.tools.blocks.NoOpAmendmentProvider;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
@@ -124,7 +127,8 @@ public class RecordBlockConverterTest {
                 V2_TEST_BLOCK_NUMBER,
                 DUMMY_PREVIOUS_BLOCK_HASH,
                 DUMMY_ROOT_HASH,
-                V2_TEST_BLOCK_ADDRESS_BOOK);
+                V2_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
         assertNotNull(block);
         assertEquals(4, block.items().size(), "Block should have 4 items (header, record file, footer, proof)");
 
@@ -174,7 +178,8 @@ public class RecordBlockConverterTest {
                 V5_TEST_BLOCK_NUMBER,
                 DUMMY_PREVIOUS_BLOCK_HASH,
                 DUMMY_ROOT_HASH,
-                V5_TEST_BLOCK_ADDRESS_BOOK);
+                V5_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
         assertNotNull(block);
         assertEquals(4, block.items().size(), "Block should have 4 items (header, record file, footer, proof)");
 
@@ -224,7 +229,8 @@ public class RecordBlockConverterTest {
                 V6_TEST_BLOCK_NUMBER,
                 DUMMY_PREVIOUS_BLOCK_HASH,
                 DUMMY_ROOT_HASH,
-                V6_TEST_BLOCK_ADDRESS_BOOK);
+                V6_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
         assertNotNull(block);
         assertEquals(4, block.items().size(), "Block should have 4 items (header, record file, footer, proof)");
 
@@ -291,7 +297,8 @@ public class RecordBlockConverterTest {
                 V2_TEST_BLOCK_NUMBER,
                 DUMMY_PREVIOUS_BLOCK_HASH,
                 DUMMY_ROOT_HASH,
-                V2_TEST_BLOCK_ADDRESS_BOOK);
+                V2_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
         ParsedRecordBlock roundTripBlock = RecordBlockConverter.toRecordFile(block, V2_TEST_BLOCK_ADDRESS_BOOK);
 
         // Validate the round-trip block with correct previous hash
@@ -318,7 +325,8 @@ public class RecordBlockConverterTest {
                 V5_TEST_BLOCK_NUMBER,
                 DUMMY_PREVIOUS_BLOCK_HASH,
                 DUMMY_ROOT_HASH,
-                V5_TEST_BLOCK_ADDRESS_BOOK);
+                V5_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
         ParsedRecordBlock roundTripBlock = RecordBlockConverter.toRecordFile(block, V5_TEST_BLOCK_ADDRESS_BOOK);
 
         // Validate the round-trip block with the correct previous hash
@@ -345,7 +353,8 @@ public class RecordBlockConverterTest {
                 V6_TEST_BLOCK_NUMBER,
                 DUMMY_PREVIOUS_BLOCK_HASH,
                 DUMMY_ROOT_HASH,
-                V6_TEST_BLOCK_ADDRESS_BOOK);
+                V6_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
         ParsedRecordBlock roundTripBlock = RecordBlockConverter.toRecordFile(block, V6_TEST_BLOCK_ADDRESS_BOOK);
 
         // Validate the round-trip block with the correct previous hash
@@ -371,7 +380,8 @@ public class RecordBlockConverterTest {
                 V2_TEST_BLOCK_NUMBER,
                 DUMMY_PREVIOUS_BLOCK_HASH,
                 DUMMY_ROOT_HASH,
-                V2_TEST_BLOCK_ADDRESS_BOOK);
+                V2_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
 
         // Verify block items
         assertTrue(block.items().get(0).hasBlockHeader(), "First item should be BlockHeader");
@@ -414,7 +424,8 @@ public class RecordBlockConverterTest {
                 V6_TEST_BLOCK_NUMBER,
                 DUMMY_PREVIOUS_BLOCK_HASH,
                 DUMMY_ROOT_HASH,
-                V6_TEST_BLOCK_ADDRESS_BOOK);
+                V6_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
 
         // Verify RecordFile contains sidecar files
         var recordFileItem = block.items().get(1);
@@ -449,7 +460,8 @@ public class RecordBlockConverterTest {
                 0, // block number 0
                 EMPTY_TREE_HASH, // previousBlockStreamBlockHash
                 EMPTY_TREE_HASH, // rootHashOfBlockHashesMerkleTree (empty streaming hasher returns this)
-                V6_TEST_BLOCK_ADDRESS_BOOK);
+                V6_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
 
         // Extract BlockFooter
         var blockFooter = block.items().stream()
@@ -492,7 +504,8 @@ public class RecordBlockConverterTest {
                 1, // block number 1
                 DUMMY_PREVIOUS_BLOCK_HASH,
                 DUMMY_ROOT_HASH,
-                V6_TEST_BLOCK_ADDRESS_BOOK);
+                V6_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
 
         // Extract BlockFooter
         var blockFooter = block.items().stream()
@@ -508,5 +521,51 @@ public class RecordBlockConverterTest {
                 EMPTY_TREE_HASH,
                 blockFooter.startOfBlockStateRootHash().toByteArray(),
                 "Block 1+ startOfBlockStateRootHash should be EMPTY_TREE_HASH");
+    }
+
+    @Test
+    @Order(12)
+    @DisplayName("Test block structure with genesis STATE_CHANGES inserted at correct position")
+    void testBlockStructureWithGenesisStateChangesInserted() {
+        assertNotNull(v2ParsedBlock);
+
+        // Convert to Block (without amendments)
+        Block block = RecordBlockConverter.toBlock(
+                v2ParsedBlock,
+                V2_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V2_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
+
+        // Verify initial structure: [HEADER, RECORD_FILE, FOOTER, PROOF]
+        assertEquals(4, block.items().size(), "Block should have 4 items before amendment");
+        assertTrue(block.items().get(0).hasBlockHeader(), "Index 0 should be BLOCK_HEADER");
+        assertTrue(block.items().get(1).hasRecordFile(), "Index 1 should be RECORD_FILE");
+        assertTrue(block.items().get(2).hasBlockFooter(), "Index 2 should be BLOCK_FOOTER");
+        assertTrue(block.items().get(3).hasBlockProof(), "Index 3 should be BLOCK_PROOF");
+
+        // Simulate inserting genesis STATE_CHANGES at index 1 (after BLOCK_HEADER, before RECORD_FILE)
+        // Create mock STATE_CHANGES items
+        var stateChanges = com.hedera.hapi.block.stream.output.StateChanges.newBuilder()
+                .consensusTimestamp(com.hedera.hapi.node.base.Timestamp.newBuilder()
+                        .seconds(1568411631L)
+                        .nanos(396440000)
+                        .build())
+                .build();
+        var stateChangesItem = BlockItem.newBuilder().stateChanges(stateChanges).build();
+
+        // Insert at index 1 (after BLOCK_HEADER, before RECORD_FILE)
+        List<BlockItem> items = new ArrayList<>(block.items());
+        items.add(1, stateChangesItem);
+        Block amendedBlock = new Block(items);
+
+        // Verify amended structure: [HEADER, STATE_CHANGES, RECORD_FILE, FOOTER, PROOF]
+        assertEquals(5, amendedBlock.items().size(), "Block should have 5 items after amendment");
+        assertTrue(amendedBlock.items().get(0).hasBlockHeader(), "Index 0 should be BLOCK_HEADER");
+        assertTrue(amendedBlock.items().get(1).hasStateChanges(), "Index 1 should be STATE_CHANGES");
+        assertTrue(amendedBlock.items().get(2).hasRecordFile(), "Index 2 should be RECORD_FILE");
+        assertTrue(amendedBlock.items().get(3).hasBlockFooter(), "Index 3 should be BLOCK_FOOTER");
+        assertTrue(amendedBlock.items().get(4).hasBlockProof(), "Index 4 should be BLOCK_PROOF");
     }
 }

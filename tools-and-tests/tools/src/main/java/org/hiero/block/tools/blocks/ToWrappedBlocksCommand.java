@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import static org.hiero.block.tools.blocks.AmendmentProvider.createAmendmentProvider;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
-import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
 
@@ -90,6 +90,11 @@ public class ToWrappedBlocksCommand implements Runnable {
     @SuppressWarnings("unused") // assigned reflectively by picocli
     private Path outputBlocksDir = Path.of("wrappedBlocks");
 
+    @Option(
+            names = {"-n", "--network"},
+            description = "Network name for applying amendments (mainnet, testnet, none). Default: mainnet")
+    private String network = "mainnet";
+
     /**
      * Run the ToWrappedBlocksCommand to convert record file blocks in day files to wrapped block stream blocks.
      */
@@ -139,6 +144,9 @@ public class ToWrappedBlocksCommand implements Runnable {
         }
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
+
+        // Create amendment provider based on network selection
+        final AmendmentProvider amendmentProvider = createAmendmentProvider(network);
 
         // load block times
         try (final BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile);
@@ -269,29 +277,16 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     }
                                     // get the block time
                                     final Instant blockTime = blockTimeReader.getBlockInstant(blockNum);
-                                    // Convert record file block to wrapped block.
-                                    // For block 0, use EMPTY_TREE_HASH for previous block hash since there's no
-                                    // previous block. The streamingHasher.computeRootHash() already returns
-                                    // EMPTY_TREE_HASH when empty, so allBlocksMerkleTreeRootHash is handled.
-                                    // TODO we need to get rid of experimental block, I added experimental to
-                                    //  change API locally, We need to push those changes up stream to HAPI lib then
-                                    //  pull latest.
-                                    final byte[] previousBlockHash =
-                                            blockNum == 0 ? EMPTY_TREE_HASH : blockRegistry.mostRecentBlockHash();
-                                    final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
-                                            RecordBlockConverter.toBlock(
-                                                    recordBlock,
-                                                    blockNum,
-                                                    previousBlockHash,
-                                                    streamingHasher.computeRootHash(),
-                                                    addressBookRegistry.getAddressBookForBlock(blockTime));
 
-                                    // Convert experimental Block to stable Block for storage APIs
-                                    // TODO this will slow things down and can be deleted once above is fixed
-                                    final com.hedera.pbj.runtime.io.buffer.Bytes protoBytes =
-                                            com.hedera.hapi.block.stream.experimental.Block.PROTOBUF.toBytes(
-                                                    wrappedExp);
-                                    final Block wrapped = Block.PROTOBUF.parse(protoBytes);
+                                    // Convert record file block to wrapped block
+                                    Block wrapped = RecordBlockConverter.toBlock(
+                                            recordBlock,
+                                            blockNum,
+                                            blockRegistry.mostRecentBlockHash(),
+                                            streamingHasher.computeRootHash(),
+                                            addressBookRegistry.getAddressBookForBlock(blockTime),
+                                            amendmentProvider);
+
                                     // write the wrapped block to the output directory using the selected archive type
                                     try {
                                         BlockWriter.writeBlock(outputBlocksDir, wrapped, archiveType);
@@ -303,7 +298,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     }
                                     // add block hash to merkle tree hashers
                                     final byte[] blockStreamBlockHash =
-                                            hashBlock(wrappedExp, streamingHasher.computeRootHash());
+                                            hashBlock(wrapped, streamingHasher.computeRootHash());
                                     streamingHasher.addNodeByHash(blockStreamBlockHash);
                                     inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
                                     // add the block hash to the registry

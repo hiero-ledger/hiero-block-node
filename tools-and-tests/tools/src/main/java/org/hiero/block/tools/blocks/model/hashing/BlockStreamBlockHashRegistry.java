@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
@@ -19,7 +21,11 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
     /** The highest block number stored in the file */
     private long highestBlockNumberStored = -1;
     /** The hash for the most recent block added, if none have been added it's the highest stored block number's hash */
-    private byte[] mostRecentBlockHash = null;
+    // Convert record file block to wrapped block.
+    // For block 0, use EMPTY_TREE_HASH for previous block hash since there's no
+    // previous block. The streamingHasher.computeRootHash() already returns
+    // EMPTY_TREE_HASH when empty, so allBlocksMerkleTreeRootHash is handled.
+    private byte[] mostRecentBlockHash = EMPTY_TREE_HASH;
 
     /**
      * Construct a new BlockStreamBlockHashRegistry which uses the given file path to store block hashes. If the file
