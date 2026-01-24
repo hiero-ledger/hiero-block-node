@@ -244,11 +244,12 @@ class BlockStreamBlockHasherTest {
          *
          * <p>From design doc and BlockStreamBlockHasher switch statement:
          * <ul>
-         *   <li>consensusHeadersHasher: BLOCK_HEADER, EVENT_HEADER, ROUND_HEADER</li>
-         *   <li>inputItemsHasher: SIGNED_TRANSACTION, RECORD_FILE</li>
-         *   <li>outputItemsHasher: TRANSACTION_RESULT, TRANSACTION_OUTPUT</li>
-         *   <li>stateChangeItemsHasher: STATE_CHANGES, FILTERED_ITEM_HASH</li>
+         *   <li>consensusHeadersHasher: EVENT_HEADER, ROUND_HEADER</li>
+         *   <li>inputItemsHasher: SIGNED_TRANSACTION</li>
+         *   <li>outputItemsHasher: BLOCK_HEADER, RECORD_FILE, TRANSACTION_RESULT, TRANSACTION_OUTPUT</li>
+         *   <li>stateChangeItemsHasher: STATE_CHANGES</li>
          *   <li>traceItemsHasher: TRACE_DATA</li>
+         *   <li>Routed by tree field: FILTERED_SINGLE_ITEM</li>
          *   <li>Not hashed: BLOCK_FOOTER, BLOCK_PROOF</li>
          * </ul>
          */
@@ -259,20 +260,20 @@ class BlockStreamBlockHasherTest {
             // Actual verification is done by integration tests with real blocks
 
             // Consensus Headers sub-tree items
-            String[] consensusItems = {"BLOCK_HEADER", "EVENT_HEADER", "ROUND_HEADER"};
-            assertEquals(3, consensusItems.length, "Consensus headers has 3 item types");
+            String[] consensusItems = {"EVENT_HEADER", "ROUND_HEADER"};
+            assertEquals(2, consensusItems.length, "Consensus headers has 2 item types");
 
             // Input Items sub-tree items
-            String[] inputItems = {"SIGNED_TRANSACTION", "RECORD_FILE"};
-            assertEquals(2, inputItems.length, "Input items has 2 item types");
+            String[] inputItems = {"SIGNED_TRANSACTION"};
+            assertEquals(1, inputItems.length, "Input items has 1 item type");
 
             // Output Items sub-tree items
-            String[] outputItems = {"TRANSACTION_RESULT", "TRANSACTION_OUTPUT"};
-            assertEquals(2, outputItems.length, "Output items has 2 item types");
+            String[] outputItems = {"BLOCK_HEADER", "RECORD_FILE", "TRANSACTION_RESULT", "TRANSACTION_OUTPUT"};
+            assertEquals(4, outputItems.length, "Output items has 4 item types");
 
             // State Changes sub-tree items
-            String[] stateItems = {"STATE_CHANGES", "FILTERED_ITEM_HASH"};
-            assertEquals(2, stateItems.length, "State changes has 2 item types");
+            String[] stateItems = {"STATE_CHANGES"};
+            assertEquals(1, stateItems.length, "State changes has 1 item type");
 
             // Trace Data sub-tree items
             String[] traceItems = {"TRACE_DATA"};
