@@ -62,6 +62,10 @@ on:
         description: "NLG extra args (e.g., '-T 5 -K ED25519')"
         required: false
         default: ""
+      nlg-max-tps:
+        description: "NLG --max-tps (max transactions per second, optional)"
+        required: false
+        default: ""
       mirror-node-pinger-tps:
         description: "Mirror Node pinger TPS (0 to disable)"
         required: false
@@ -170,27 +174,27 @@ jobs:
       - name: Untar Protobuf Sources
         working-directory: protobuf-sources
         run: |
-            mkdir -p proto
-            # Use the generated protobuf artifact (matches local project version)
-            PROTO_FILE=$(ls block-node-protobuf-*.tgz 2>/dev/null | head -1)
-            if [[ -z "$PROTO_FILE" ]]; then
-              echo "Error: No protobuf artifact found"
-              ls -la
-              exit 1
-            fi
-            echo "Using protobuf artifact: $PROTO_FILE"
-            tar -xzf "$PROTO_FILE" -C proto
+          mkdir -p proto
+          # Use the generated protobuf artifact (matches local project version)
+          PROTO_FILE=$(ls block-node-protobuf-*.tgz 2>/dev/null | head -1)
+          if [[ -z "$PROTO_FILE" ]]; then
+            echo "Error: No protobuf artifact found"
+            ls -la
+            exit 1
+          fi
+          echo "Using protobuf artifact: $PROTO_FILE"
+          tar -xzf "$PROTO_FILE" -C proto
 
       - name: Install grpcurl
         run: |
-            curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
-            sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
-            rm grpcurl.tar.gz
+          curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
+          sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
+          rm grpcurl.tar.gz
 
       - name: Install jq
         run: |
-            sudo apt-get update
-            sudo apt-get install -y jq
+          sudo apt-get update
+          sudo apt-get install -y jq
 
       # Setup cluster using shared script
       - name: Cluster setup (Kind + Solo)
@@ -262,7 +266,6 @@ jobs:
           ${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/scripts/solo-port-forward.sh \
             --namespace "${NAMESPACE}"
 
-
       # ---- Load Generation with NLG (Optional) skip if duration = 0 ----
 
       # Start load generation
@@ -275,6 +278,7 @@ jobs:
           NLG_ACCOUNTS: ${{ inputs.nlg-accounts }}
           NLG_DURATION: ${{ inputs.nlg-duration }}
           NLG_EXTRA_ARGS: ${{ inputs.nlg-extra-args }}
+          NLG_MAX_TPS: ${{ inputs.nlg-max-tps }}
         run: |
           ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh start
 
@@ -289,6 +293,7 @@ jobs:
             echo "| Accounts | ${{ inputs.nlg-accounts }} |"
             echo "| Duration | ${{ inputs.nlg-duration }}s |"
             echo "| Extra Args | \`${{ inputs.nlg-extra-args }}\` |"
+            echo "| Max TPS | ${{ inputs.nlg-max-tps || 'unlimited' }} |"
             echo ""
           } >> "${GITHUB_STEP_SUMMARY}"
 
