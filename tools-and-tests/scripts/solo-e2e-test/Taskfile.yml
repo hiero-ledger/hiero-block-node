@@ -23,6 +23,7 @@
 #   NLG_CONCURRENCY - NLG -c parameter (default: 5)
 #   NLG_ACCOUNTS    - NLG -a parameter (default: 10)
 #   NLG_DURATION    - NLG -t parameter in seconds (default: 300)
+#   NLG_MAX_TPS     - NLG --max-tps parameter (optional)
 
 version: '3'
 
@@ -53,6 +54,7 @@ vars:
   NLG_ACCOUNTS: '{{.NLG_ACCOUNTS | default "10"}}'
   NLG_DURATION: '{{.NLG_DURATION | default "300"}}'
   NLG_EXTRA_ARGS: '{{.NLG_EXTRA_ARGS | default ""}}'
+  NLG_MAX_TPS: '{{.NLG_MAX_TPS | default ""}}'
 
   # Metrics/Observability
   ENABLE_LOCAL_METRICS: '{{.ENABLE_LOCAL_METRICS | default "false"}}'
@@ -243,6 +245,7 @@ tasks:
       NLG_ACCOUNTS: "{{.NLG_ACCOUNTS}}"
       NLG_DURATION: "{{.NLG_DURATION}}"
       NLG_EXTRA_ARGS: "{{.NLG_EXTRA_ARGS}}"
+      NLG_MAX_TPS: "{{.NLG_MAX_TPS}}"
     cmds:
       - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" start'
 

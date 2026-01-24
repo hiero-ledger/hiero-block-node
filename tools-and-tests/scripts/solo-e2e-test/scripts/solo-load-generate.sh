@@ -11,7 +11,8 @@
 #   NLG_TEST_CLASS   NLG test class (default: CryptoTransferLoadTest)
 #   NLG_CONCURRENCY  -c parameter (default: 5)
 #   NLG_ACCOUNTS     -a parameter (default: 10)
-#   NLG_DURATION     -t parameter in seconds (default: 300)
+#   NLG_DURATION     -tt parameter in seconds (default: 300)
+#   NLG_MAX_TPS      --max-tps parameter (optional, no default)
 #   NLG_EXTRA_ARGS   Extra args for test class (e.g., "-T 5 -K ED25519")
 #
 # Examples:
@@ -36,6 +37,7 @@ CONCURRENCY="${NLG_CONCURRENCY:-5}"
 ACCOUNTS="${NLG_ACCOUNTS:-10}"
 DURATION="${NLG_DURATION:-300}"
 EXTRA_ARGS="${NLG_EXTRA_ARGS:-}"
+MAX_TPS="${NLG_MAX_TPS:-}"
 
 # Temporary directory for generated files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -148,7 +150,7 @@ if [[ "$ACTION" != "start" ]]; then
 fi
 
 # Build args string
-ARGS="-c $CONCURRENCY -a $ACCOUNTS -t $DURATION"
+ARGS="-c $CONCURRENCY -a $ACCOUNTS -tt $DURATION"
 [[ -n "$EXTRA_ARGS" ]] && ARGS="$ARGS $EXTRA_ARGS"
 
 echo "Starting NLG load generation..."
@@ -157,6 +159,7 @@ echo "  Test class:  $TEST_CLASS"
 echo "  Concurrency: $CONCURRENCY"
 echo "  Accounts:    $ACCOUNTS"
 echo "  Duration:    ${DURATION}s"
+[[ -n "$MAX_TPS" ]] && echo "  Max TPS:     $MAX_TPS"
 [[ -n "$EXTRA_ARGS" ]] && echo "  Extra args:  $EXTRA_ARGS"
 echo "  Full args:   $ARGS"
 
@@ -169,8 +172,14 @@ SOLO_CMD=(
     --deployment "$DEPLOYMENT"
     --test "$TEST_CLASS"
     --args "\"$ARGS\""
-    --quiet-mode
 )
+
+# Add --max-tps if specified
+if [[ -n "$MAX_TPS" ]]; then
+    SOLO_CMD+=(--max-tps "$MAX_TPS")
+fi
+
+SOLO_CMD+=(--quiet-mode)
 
 # Add values file if generated
 if [[ -n "$VALUES_FILE" && -f "$VALUES_FILE" ]]; then
