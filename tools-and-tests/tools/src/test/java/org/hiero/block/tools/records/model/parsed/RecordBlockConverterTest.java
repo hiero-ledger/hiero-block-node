@@ -26,13 +26,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.hedera.hapi.block.stream.experimental.Block;
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
+import org.hiero.block.tools.blocks.WrappedBlockIndex;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
@@ -428,5 +431,50 @@ public class RecordBlockConverterTest {
                 6,
                 blockProof.blockProofOrThrow().signedRecordFileProofOrThrow().version(),
                 "V6 should have record format version 6");
+    }
+
+    @Test
+    @Order(12)
+    @DisplayName("Test block structure with genesis STATE_CHANGES inserted at correct position")
+    void testBlockStructureWithGenesisStateChangesInserted() {
+        assertNotNull(v2ParsedBlock);
+
+        // Convert to Block (without amendments)
+        Block block = RecordBlockConverter.toBlock(
+                v2ParsedBlock,
+                V2_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V2_TEST_BLOCK_ADDRESS_BOOK);
+
+        // Verify initial structure: [HEADER, RECORD_FILE, FOOTER, PROOF]
+        assertEquals(4, block.items().size(), "Block should have 4 items before amendment");
+        assertTrue(block.items().get(0).hasBlockHeader(), "Index 0 should be BLOCK_HEADER");
+        assertTrue(block.items().get(1).hasRecordFile(), "Index 1 should be RECORD_FILE");
+        assertTrue(block.items().get(2).hasBlockFooter(), "Index 2 should be BLOCK_FOOTER");
+        assertTrue(block.items().get(3).hasBlockProof(), "Index 3 should be BLOCK_PROOF");
+
+        // Simulate inserting genesis STATE_CHANGES at WrappedBlockIndex.STATE_CHANGES (index 2)
+        // Create mock STATE_CHANGES items
+        var stateChanges = com.hedera.hapi.block.stream.output.StateChanges.newBuilder()
+                .consensusTimestamp(com.hedera.hapi.node.base.Timestamp.newBuilder()
+                        .seconds(1568411631L)
+                        .nanos(396440000)
+                        .build())
+                .build();
+        var stateChangesItem = BlockItem.newBuilder().stateChanges(stateChanges).build();
+
+        // Insert at index 2 (WrappedBlockIndex.STATE_CHANGES)
+        List<BlockItem> items = new ArrayList<>(block.items());
+        items.add(WrappedBlockIndex.STATE_CHANGES.index(), stateChangesItem);
+        Block amendedBlock = new Block(items);
+
+        // Verify amended structure: [HEADER, RECORD_FILE, STATE_CHANGES, FOOTER, PROOF]
+        assertEquals(5, amendedBlock.items().size(), "Block should have 5 items after amendment");
+        assertTrue(amendedBlock.items().get(0).hasBlockHeader(), "Index 0 should be BLOCK_HEADER");
+        assertTrue(amendedBlock.items().get(1).hasRecordFile(), "Index 1 should be RECORD_FILE");
+        assertTrue(amendedBlock.items().get(2).hasStateChanges(), "Index 2 should be STATE_CHANGES");
+        assertTrue(amendedBlock.items().get(3).hasBlockFooter(), "Index 3 should be BLOCK_FOOTER");
+        assertTrue(amendedBlock.items().get(4).hasBlockProof(), "Index 4 should be BLOCK_PROOF");
     }
 }

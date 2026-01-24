@@ -6,6 +6,7 @@ import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,6 +14,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -138,6 +140,9 @@ public class ToWrappedBlocksCommand implements Runnable {
         }
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
+
+        // load genesis state amendment for mainnet (STATE_CHANGES for block 0)
+        final GenesisStateAmendment genesisStateAmendment = new GenesisStateAmendment();
 
         // load block times
         try (final BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile);
@@ -268,24 +273,28 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     }
                                     // get the block time
                                     final Instant blockTime = blockTimeReader.getBlockInstant(blockNum);
-                                    // Convert record file block to wrapped block. We pass zero hashes for previous/root
-                                    // TODO we need to get rid of experimental block, I added experimental to
-                                    //  change API locally, We need to push those changes up stream to HAPI lib then
-                                    //  pull latest.
-                                    final com.hedera.hapi.block.stream.experimental.Block wrappedExp =
-                                            RecordBlockConverter.toBlock(
-                                                    recordBlock,
-                                                    blockNum,
-                                                    blockRegistry.mostRecentBlockHash(),
-                                                    streamingHasher.computeRootHash(),
-                                                    addressBookRegistry.getAddressBookForBlock(blockTime));
+                                    // Convert record file block to wrapped block
+                                    Block wrapped = RecordBlockConverter.toBlock(
+                                            recordBlock,
+                                            blockNum,
+                                            blockRegistry.mostRecentBlockHash(),
+                                            streamingHasher.computeRootHash(),
+                                            addressBookRegistry.getAddressBookForBlock(blockTime));
 
-                                    // Convert experimental Block to stable Block for storage APIs
-                                    // TODO this will slow things down and can be deleted once above is fixed
-                                    final com.hedera.pbj.runtime.io.buffer.Bytes protoBytes =
-                                            com.hedera.hapi.block.stream.experimental.Block.PROTOBUF.toBytes(
-                                                    wrappedExp);
-                                    final Block wrapped = Block.PROTOBUF.parse(protoBytes);
+                                    // Insert genesis STATE_CHANGES for block 0
+                                    if (genesisStateAmendment.isGenesisBlock(blockNum)) {
+                                        final List<BlockItem> genesisStateChanges =
+                                                genesisStateAmendment.getStateChanges();
+                                        // Insert STATE_CHANGES before BLOCK_FOOTER (which signals end of hashed
+                                        // content)
+                                        final List<BlockItem> items = new ArrayList<>(wrapped.items());
+                                        items.addAll(WrappedBlockIndex.STATE_CHANGES.index(), genesisStateChanges);
+                                        wrapped = new Block(items);
+                                        System.out.println(
+                                                Ansi.AUTO.string("@|green Applied genesis STATE_CHANGES for block |@"
+                                                        + blockNum + "@|green  with |@" + genesisStateChanges.size()
+                                                        + "@|green  items|@"));
+                                    }
                                     // write the wrapped block to the output directory using the selected archive type
                                     try {
                                         BlockWriter.writeBlock(outputBlocksDir, wrapped, archiveType);
@@ -297,7 +306,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     }
                                     // add block hash to merkle tree hashers
                                     final byte[] blockStreamBlockHash =
-                                            hashBlock(wrappedExp, streamingHasher.computeRootHash());
+                                            hashBlock(wrapped, streamingHasher.computeRootHash());
                                     streamingHasher.addLeaf(blockStreamBlockHash);
                                     inMemoryTreeHasher.addLeaf(blockStreamBlockHash);
                                     // add the block hash to the registry
