@@ -137,7 +137,7 @@ class BlockFileHistoricPluginTest {
             try (final Stream<Path> subDirectoriesStream = Files.list(dataRoot)) {
                 assertThat(subDirectoriesStream.toList())
                         .hasSize(3)
-                        .containsExactly(zipWorkRoot, linksRoot, stagingRoot);
+                        .containsExactlyInAnyOrder(zipWorkRoot, linksRoot, stagingRoot);
             }
         }
     }
