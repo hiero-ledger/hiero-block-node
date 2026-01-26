@@ -10,6 +10,8 @@ import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
+import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,7 +20,6 @@ import org.junit.jupiter.api.Test;
  * Unit tests for the {@link BlockNotificationRingEvent} class.
  */
 class BlockNotificationRingEventTest {
-
     /**
      * Tests that a new BlockNotificationRingEvent has null values for both notification types.
      */
@@ -26,9 +27,11 @@ class BlockNotificationRingEventTest {
     @DisplayName("New BlockNotificationRingEvent should have null values")
     void newEventShouldHaveNullValues() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
-
         assertNull(event.getVerificationNotification());
         assertNull(event.getPersistedNotification());
+        assertNull(event.getBackfilledBlockNotification());
+        assertNull(event.getNewestBlockKnownToNetworkNotification());
+        assertNull(event.getPublisherStatusUpdateNotification());
     }
 
     /**
@@ -40,12 +43,11 @@ class BlockNotificationRingEventTest {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final VerificationNotification notification =
                 new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER);
-
         event.set(notification);
-
         assertEquals(notification, event.getVerificationNotification());
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
         assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
+        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
                 "Newest block known to network notification should be null");
@@ -59,12 +61,11 @@ class BlockNotificationRingEventTest {
     void shouldSetAndGetPersistedNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final PersistedNotification notification = new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
-
         event.set(notification);
-
         assertEquals(notification, event.getPersistedNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
+        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
                 "Newest block known to network notification should be null");
@@ -79,12 +80,11 @@ class BlockNotificationRingEventTest {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final BackfilledBlockNotification notification =
                 new BackfilledBlockNotification(1, BlockUnparsed.newBuilder().build());
-
         event.set(notification);
-
         assertEquals(notification, event.getBackfilledBlockNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
+        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
         assertNull(
                 event.getNewestBlockKnownToNetworkNotification(),
                 "Newest block known to network notification should be null");
@@ -98,13 +98,31 @@ class BlockNotificationRingEventTest {
     void shouldSetAndGetNewestBlockKnownToNetworkNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final NewestBlockKnownToNetworkNotification notification = new NewestBlockKnownToNetworkNotification(10L);
-
         event.set(notification);
-
         assertEquals(notification, event.getNewestBlockKnownToNetworkNotification());
         assertNull(event.getVerificationNotification(), "Verification notification should be null");
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
         assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
+        assertNull(event.getPublisherStatusUpdateNotification(), "Publisher status update notification should be null");
+    }
+
+    /**
+     * Tests setting and getting a publisher status update notification.
+     */
+    @Test
+    @DisplayName("Should set and get publisher status update notification correctly")
+    void shouldSetAndGetPublisherStatusUpdateNotification() {
+        final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
+        final PublisherStatusUpdateNotification notification =
+                new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_CONNECTED, 1);
+        event.set(notification);
+        assertEquals(notification, event.getPublisherStatusUpdateNotification());
+        assertNull(event.getVerificationNotification(), "Verification notification should be null");
+        assertNull(event.getPersistedNotification(), "Persisted notification should be null");
+        assertNull(event.getBackfilledBlockNotification(), "Backfilled notification should be null");
+        assertNull(
+                event.getNewestBlockKnownToNetworkNotification(),
+                "Newest block known to network notification should be null");
     }
 
     /**

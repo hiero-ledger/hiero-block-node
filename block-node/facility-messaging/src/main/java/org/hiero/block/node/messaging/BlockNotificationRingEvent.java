@@ -4,70 +4,101 @@ package org.hiero.block.node.messaging;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
- * Simple mutable container for batch of block items. The ring buffer is made up of these events.
+ * Simple mutable container for notifications. The notifications ring buffer is
+ * made up of these events. Only one of the fields should be set at any time.
+ * These notifications are published to downstream subscribers through the LMAX
+ * Disruptor.
  */
-public class BlockNotificationRingEvent {
+public final class BlockNotificationRingEvent {
     /** The block verification notification to be published to downstream subscribers through the LMAX Disruptor. */
     private VerificationNotification verificationNotification;
     /** The block persistence notification to be published to downstream subscribers through the LMAX Disruptor. */
     private PersistedNotification persistedNotification;
     /** The Backfilled block notification to be published to downstream subscribers through the LMAX Disruptor. */
     private BackfilledBlockNotification backfilledBlockNotification;
-    /** The Newest block known to network notification to be published to downstream subscribers through the LMAX Disruptor. */
+    /** The newest block known to network notification to be published to downstream subscribers through the LMAX Disruptor. */
     private NewestBlockKnownToNetworkNotification newestBlockKnownToNetworkNotification;
-
-    /** Constructor for the BlockNotificationRingEvent class. */
-    public BlockNotificationRingEvent() {}
+    /** The publisher status update notification to be published to downstream subscribers through the LMAX Disruptor. */
+    private PublisherStatusUpdateNotification publisherStatusUpdateNotification;
 
     /**
-     * Sets the given value to be published to downstream subscribers through the LMAX Disruptor.
+     * Sets the given notification to be published to downstream subscribers
+     * through the LMAX Disruptor.
      *
-     * @param verificationNotification the value to set
+     * @param notification to set
      */
-    public void set(final VerificationNotification verificationNotification) {
-        this.verificationNotification = verificationNotification;
+    public void set(final VerificationNotification notification) {
+        this.verificationNotification = notification;
         this.persistedNotification = null;
         this.backfilledBlockNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
+        this.publisherStatusUpdateNotification = null;
     }
 
     /**
-     * Sets the given value to be published to downstream subscribers through the LMAX Disruptor.
+     * Sets the given notification to be published to downstream subscribers
+     * through the LMAX Disruptor.
      *
-     * @param persistedNotification the value to set
+     * @param notification to set
      */
-    public void set(final PersistedNotification persistedNotification) {
+    public void set(final PersistedNotification notification) {
+        this.persistedNotification = notification;
         this.verificationNotification = null;
-        this.persistedNotification = persistedNotification;
         this.backfilledBlockNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
+        this.publisherStatusUpdateNotification = null;
     }
 
     /**
-     * Sets the given value to be published to downstream subscribers through the LMAX Disruptor.
+     * Sets the given notification to be published to downstream subscribers
+     * through the LMAX Disruptor.
      *
-     * @param backfilledBlockNotification the value to set
+     * @param notification to set
      */
-    public void set(final BackfilledBlockNotification backfilledBlockNotification) {
-        this.backfilledBlockNotification = backfilledBlockNotification;
+    public void set(final BackfilledBlockNotification notification) {
+        this.backfilledBlockNotification = notification;
         this.verificationNotification = null;
         this.persistedNotification = null;
         this.newestBlockKnownToNetworkNotification = null;
+        this.publisherStatusUpdateNotification = null;
     }
 
-    public void set(final NewestBlockKnownToNetworkNotification newestBlockKnownToNetworkNotification) {
-        this.newestBlockKnownToNetworkNotification = newestBlockKnownToNetworkNotification;
+    /**
+     * Sets the given notification to be published to downstream subscribers
+     * through the LMAX Disruptor.
+     *
+     * @param notification to set
+     */
+    public void set(final NewestBlockKnownToNetworkNotification notification) {
+        this.newestBlockKnownToNetworkNotification = notification;
+        this.backfilledBlockNotification = null;
+        this.verificationNotification = null;
+        this.persistedNotification = null;
+        this.publisherStatusUpdateNotification = null;
+    }
+    /**
+     * Sets the given notification to be published to downstream subscribers
+     * through the LMAX Disruptor.
+     *
+     * @param notification to set
+     */
+    public void set(final PublisherStatusUpdateNotification notification) {
+        this.publisherStatusUpdateNotification = notification;
+        this.newestBlockKnownToNetworkNotification = null;
         this.backfilledBlockNotification = null;
         this.verificationNotification = null;
         this.persistedNotification = null;
     }
 
     /**
-     * Gets the verification notification of the event from the LMAX Disruptor on the consumer side. If the event is a
-     * persisted notification, this will return null.
+     * Gets the verification notification of the event from the LMAX Disruptor
+     * on the consumer side.
+     * If the event is not a {@link VerificationNotification}, this
+     * will return null.
      *
      * @return the value of the event
      */
@@ -76,8 +107,10 @@ public class BlockNotificationRingEvent {
     }
 
     /**
-     * Gets the persisted notification of the event from the LMAX Disruptor on the consumer side. If the event is a
-     * verification notification, this will return null.
+     * Gets the persisted notification of the event from the LMAX Disruptor on
+     * the consumer side.
+     * If the event is not a {@link PersistedNotification}, this
+     * will return null.
      *
      * @return the value of the event
      */
@@ -86,8 +119,10 @@ public class BlockNotificationRingEvent {
     }
 
     /**
-     * Gets the backfilled block notification of the event from the LMAX Disruptor on the consumer side. If the event is
-     * a verification or persisted notification, this will return null.
+     * Gets the backfilled block notification of the event from the LMAX
+     * Disruptor on the consumer side.
+     * If the event is not a {@link BackfilledBlockNotification}, this
+     * will return null.
      *
      * @return the value of the event
      */
@@ -96,12 +131,26 @@ public class BlockNotificationRingEvent {
     }
 
     /**
-     * Gets the newest block known to network notification of the event from the LMAX Disruptor on the consumer side. If
-     * the event is a verification, persisted or backfilled block notification, this will return null.
+     * Gets the newest block known to network notification of the event from the
+     * LMAX Disruptor on the consumer side.
+     * If the event is not a {@link NewestBlockKnownToNetworkNotification}, this
+     * will return null.
      *
      * @return the value of the event
      */
     public NewestBlockKnownToNetworkNotification getNewestBlockKnownToNetworkNotification() {
         return newestBlockKnownToNetworkNotification;
+    }
+
+    /**
+     * Gets the publisher status update notification of the event from the LMAX
+     * Disruptor on the consumer side.
+     * If the event is not a {@link PublisherStatusUpdateNotification}, this
+     * will return null.
+     *
+     * @return the value of the event
+     */
+    public PublisherStatusUpdateNotification getPublisherStatusUpdateNotification() {
+        return publisherStatusUpdateNotification;
     }
 }
