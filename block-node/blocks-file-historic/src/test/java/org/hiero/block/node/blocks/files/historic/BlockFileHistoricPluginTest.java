@@ -555,7 +555,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 0; i < 30; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
-            for (int i = 30; i < 50; i++) {
+            for (int i = 30; i < 60; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
             }
             for (int i = 60; i < 70; i++) {
@@ -615,6 +615,19 @@ class BlockFileHistoricPluginTest {
             for (int i = 60; i < 70; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
+
+            final long submittedTasks = pluginExecutor.getTaskCount();
+
+            // Send blocks 23-27 to assert that if we don't fill the whole gap, no zipping task is submitted
+            for (int i = 23; i < 27; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            // assert that no zipping task was submited since last check,
+            // because there is no complete batch 20-29 yet
+            assertThat(pluginExecutor.getTaskCount()).isEqualTo(submittedTasks);
         }
 
         /**
