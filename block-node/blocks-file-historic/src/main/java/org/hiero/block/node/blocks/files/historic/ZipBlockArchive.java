@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.blockNumberFromFile;
-import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockPath;
 import static org.hiero.block.node.blocks.files.historic.BlockPath.computeExistingBlockPath;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -70,18 +69,11 @@ class ZipBlockArchive {
     /**
      * Write a new zip file containing the input batch of blocks.
      *
-     * @return The size of the zip file created
      * @throws IOException If an error occurs writing the block
      */
-    long writeNewZipFile(BlockAccessorBatch batch) throws IOException {
-        // compute zip path
-        final BlockPath firstBlockPath = computeBlockPath(config, batch.getFirstBlockNumber());
-        // create directories
-        Files.createDirectories(firstBlockPath.dirPath());
-        // create zip file
-        final Path zipFilePath = firstBlockPath.zipFilePath();
+    void createZip(BlockAccessorBatch batch, Path destinationFile) throws IOException {
         try (final ZipOutputStream zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
-                Files.newOutputStream(zipFilePath, StandardOpenOption.CREATE, StandardOpenOption.WRITE),
+                Files.newOutputStream(destinationFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE),
                 1024 * 1204))) {
             // don't compress the zip file as files are already compressed
             zipOutputStream.setMethod(ZipOutputStream.STORED);
@@ -114,10 +106,6 @@ class ZipBlockArchive {
             // we have an issue that we should look at
             throw e.getCause();
         }
-        // if we have reached here, this means that the zip file was created
-        // successfully
-        // return the size of the zip file created
-        return Files.size(zipFilePath);
     }
 
     /**

@@ -24,6 +24,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -56,6 +57,8 @@ import org.junit.jupiter.api.io.TempDir;
 class BlockFileHistoricPluginTest {
     /** Data TempDir for the current test */
     private final Path dataRoot;
+    /** Working directory where the test will create zip file */
+    private final Path zipWorkRoot;
     /** The test block messaging facility to use for testing. */
     private final SimpleInMemoryHistoricalBlockFacility testHistoricalBlockFacility;
     /** The test config to use for the plugin, overridable. */
@@ -68,6 +71,7 @@ class BlockFileHistoricPluginTest {
      */
     BlockFileHistoricPluginTest(@TempDir final Path tmpDir) {
         dataRoot = Objects.requireNonNull(tmpDir).resolve("blocks");
+        zipWorkRoot = Objects.requireNonNull(dataRoot).resolve("zipwork");
         // generate test config, for the purposes of this test, we will always
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
@@ -120,11 +124,21 @@ class BlockFileHistoricPluginTest {
         void testStagingAndDataRootsCreated() throws IOException {
             // Assert that the roots do not exist
             assertThat(dataRoot).doesNotExist();
+            assertThat(zipWorkRoot).doesNotExist();
             // Now start the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // Assert that the roots are created
             assertThat(dataRoot).exists().isDirectory().isNotEmptyDirectory();
-            // assertThat(Files.list(dataRoot).toList()).hasSize(1).containsExactly(linksRoot);
+            assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
+            final Path linksRoot = dataRoot.resolve("links");
+            assertThat(linksRoot).exists().isDirectory().isEmptyDirectory();
+            final Path stagingRoot = dataRoot.resolve("staging");
+            assertThat(stagingRoot).exists().isDirectory().isEmptyDirectory();
+            try (final Stream<Path> subDirectoriesStream = Files.list(dataRoot)) {
+                assertThat(subDirectoriesStream.toList())
+                        .hasSize(3)
+                        .containsExactly(zipWorkRoot, linksRoot, stagingRoot);
+            }
         }
     }
 
@@ -253,6 +267,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
             }
+            assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
         }
 
         /**
@@ -286,6 +301,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 0; i < 20; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
             }
+            assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
         }
 
         /**
@@ -323,6 +339,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 10; i < 15; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
+            assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
         }
 
         @Test
@@ -354,6 +371,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 10; i < 20; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
             }
+            assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
         }
 
         /**
@@ -401,6 +419,7 @@ class BlockFileHistoricPluginTest {
                             .isTrue();
                 }
             }
+            assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
         }
 
         /**
@@ -457,6 +476,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 0; i < 10; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
             }
+            assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
         }
 
         /**
@@ -581,6 +601,7 @@ class BlockFileHistoricPluginTest {
                 assertThat(targetZipFilePath).isRegularFile().isEmptyFile();
                 assertThat(toTest.availableBlocks().contains(i)).isFalse();
             }
+            assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
         }
 
         /**

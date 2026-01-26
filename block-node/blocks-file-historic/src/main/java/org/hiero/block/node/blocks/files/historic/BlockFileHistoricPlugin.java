@@ -8,6 +8,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
+import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockPath;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -84,7 +85,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private Path stagingPath;
     /** root path for temporary hard links to zip files */
     private Path linksRootPath;
-
+    /** Path where we create zip files before moving them to the links root path */
+    private Path zipWorkRootPath;
     // Metrics
     /** Counter for blocks written to the historic tier */
     private Counter blocksWrittenCounter;
@@ -123,6 +125,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final Path dataRootPath = config.rootPath();
             linksRootPath = dataRootPath.resolve("links");
             stagingPath = dataRootPath.resolve("staging");
+            zipWorkRootPath = dataRootPath.resolve("zipwork");
             Files.createDirectories(stagingPath);
             nestedDirectoriesAllBlockNumbers(stagingPath, config.compression()).forEach(blockNumber -> {
                 availableStagedBlocks.add(blockNumber);
@@ -131,8 +134,12 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             if (Files.isDirectory(linksRootPath, LinkOption.NOFOLLOW_LINKS)) {
                 Files.walkFileTree(linksRootPath, new RecursiveFileDeleteVisitor());
             }
+            if (Files.isDirectory(zipWorkRootPath, LinkOption.NOFOLLOW_LINKS)) {
+                Files.walkFileTree(zipWorkRootPath, new RecursiveFileDeleteVisitor());
+            }
             Files.createDirectories(dataRootPath);
             Files.createDirectories(linksRootPath);
+            Files.createDirectories(zipWorkRootPath);
             // register to listen to block notifications
             context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
             numberOfBlocksPerZipFile = intPowerOfTen(config.powersOfTenPerZipFileContents());
@@ -465,8 +472,29 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // move the batch of blocks to a zip file
                 final String startMessage = "Moving batch of blocks [{0} -> {1}] to zip file.";
                 LOGGER.log(TRACE, startMessage, batchFirstBlockNumber, batchLastBlockNumber);
-                // Write the zip file and get result with file size
-                final long zipFileSize = zipBlockArchive.writeNewZipFile(blockAccessors);
+
+                // compute the exact path where we need to move the created zip file
+                final BlockPath firstBlockPath = computeBlockPath(config, blockAccessors.getFirstBlockNumber());
+
+                // Compute the file name of the work zip directory so that if zipping fails, we don't leave
+                // traces in the actual data area
+                final Path zipWorkPath =
+                        zipWorkRootPath.resolve(firstBlockPath.zipFilePath().getFileName());
+
+                // Write the zip file in the zip work area
+                zipBlockArchive.createZip(blockAccessors, zipWorkPath);
+
+                // if we have reached here, this means that the zip file was created
+                // successfully in the work zip area
+                final long zipFileSize = Files.size(zipWorkPath);
+
+                // create staging area directories if they don't exist
+                Files.createDirectories(firstBlockPath.dirPath());
+                // move the file from the work zip area to the data area by creating a hard link
+                // and then deleting the source file
+                Files.createLink(firstBlockPath.zipFilePath(), zipWorkPath);
+                Files.deleteIfExists(zipWorkPath);
+
                 // Metrics updates
                 // Update total bytes stored with the new zip file size
                 totalBytesStored.addAndGet(zipFileSize);
@@ -478,8 +506,14 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     Path path = BlockFile.nestedDirectoriesBlockFilePath(
                             stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
                     if (Files.exists(path)) {
-                        Files.delete(path);
-                        availableStagedBlocks.remove(blockNumber);
+                        try {
+                            Files.delete(path);
+                            availableStagedBlocks.remove(blockNumber);
+                        } catch (final IOException e) {
+                            final String message = "Failed to delete staging file for block %d located at %s"
+                                    .formatted(blockNumber, path.toFile().getAbsolutePath());
+                            LOGGER.log(INFO, message, e);
+                        }
                     }
                 }
                 // -----------------------------------------------
@@ -499,6 +533,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final String failMessage = "Failed to move batch of blocks [%d -> %d] to zip file"
                     .formatted(batchFirstBlockNumber, batchLastBlockNumber);
             LOGGER.log(WARNING, failMessage, e);
+            cleanupZipWorkFiles();
         } finally {
             // always make sure to remove the batch of blocks from in progress ranges
             inProgressZipRanges.remove(batchRange);
@@ -538,10 +573,31 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     }
 
     /**
+     * This method deletes any remaining zip files in the work area.
+     * We know that it doesn't contain any subdirectories, so Files.delete is safe to use.
+     */
+    private void cleanupZipWorkFiles() {
+        try (var files = Files.list(zipWorkRootPath)) {
+            files.forEach(file -> {
+                try {
+                    Files.delete(file);
+                } catch (IOException e) {
+                    final String msg = "Failed to delete work zip file: %s".formatted(file);
+                    LOGGER.log(INFO, msg, e);
+                }
+            });
+        } catch (IOException e) {
+            final String msg = "Failed to list work zip files in %s".formatted(zipWorkRootPath);
+            LOGGER.log(INFO, msg, e);
+        }
+    }
+
+    /**
      * A basic file visitor to recursively delete files and directories up to
      * the provided root.
      */
     private static class RecursiveFileDeleteVisitor implements FileVisitor<Path> {
+
         @Override
         public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
             Objects.requireNonNull(dir);
