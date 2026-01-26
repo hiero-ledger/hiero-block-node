@@ -343,12 +343,26 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     }
 
     private void attemptZipping() {
-        // compute the min and max block in next batch to zip
-        // since we ensure no gaps in the zip file are possible, and also we
-        // have a power of 10 number of blocks per zip file, it is safe to
-        // simply add +1 to the latest available block number and have that as
-        // the start of the next batch of blocks to zip
-        long minBlockNumber = availableBlocks.max() + 1;
+        // compute the min and max block in next batch to zip, starting from the available blocks in
+        // the staging area
+
+        // when the plugin is started, we attempt to zip whatever is there, but we need to handle the case
+        // where the staging area is empty. there we simply return
+        long minimumStaged = availableStagedBlocks.min();
+        if (minimumStaged == UNKNOWN_BLOCK_NUMBER) {
+            return;
+        }
+
+        // if there are blocks in the staging area (e.g. block was verified or staging is not empty
+        // upon plugin start), the minimum block we will try to zip is calculated by the formula:
+        // (minimalBlockInStaging integer division by numberOfBlocksInZip) multiplied by numberOfBlocksInZip.
+        // if for example the number of blocks per zip is 100 (always a power of ten) and the minimum
+        // block we found in staging is 154, then: 154 integer division by 100 = 1, then 1 * 100 = 100
+        // thus our minBlockNumber is 100.
+        // maxBlockNumber is calculated by adding the number of blocks per zip file to the minimum block number
+        // and then subtracting 1. e.g. if minBlockNumber is 100 and numberOfBlocksPerZipFile is 100,
+        // then maxBlockNumber is 100 + 100 - 1 = 199.
+        long minBlockNumber = (minimumStaged / numberOfBlocksPerZipFile) * numberOfBlocksPerZipFile;
         long maxBlockNumber = minBlockNumber + numberOfBlocksPerZipFile - 1;
         // while we can zip blocks, we must keep zipping
         // we loop here because the historical block facility can have
