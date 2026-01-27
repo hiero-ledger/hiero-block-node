@@ -78,9 +78,6 @@ dependencies.constraints {
     api("org.testcontainers:testcontainers:${testContainersVersion}") {
         because("org.testcontainers")
     }
-    api("com.google.auto.service:auto-service:1.1.1") {
-        because("com.google.auto.service.processor")
-    }
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
     api("com.squareup.okio:okio-jvm:3.16.4") { because("okio") } // required by minio
