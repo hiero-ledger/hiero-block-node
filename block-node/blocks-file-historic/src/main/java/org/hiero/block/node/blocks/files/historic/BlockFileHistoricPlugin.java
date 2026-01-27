@@ -355,14 +355,14 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
 
         // if there are blocks in the staging area (e.g. block was verified or staging is not empty
         // upon plugin start), the minimum block we will try to zip is calculated by the formula:
-        // (minimalBlockInStaging integer division by numberOfBlocksInZip) multiplied by numberOfBlocksInZip.
+        // minimalBlockInStaging subtracted by minimustBlockInStaging modulo numberOfBlocksPerZipFile.
         // if for example the number of blocks per zip is 100 (always a power of ten) and the minimum
-        // block we found in staging is 154, then: 154 integer division by 100 = 1, then 1 * 100 = 100
+        // block we found in staging is 154, then: 154 % 100 = 54, then 154 - 54 = 100
         // thus our minBlockNumber is 100.
         // maxBlockNumber is calculated by adding the number of blocks per zip file to the minimum block number
         // and then subtracting 1. e.g. if minBlockNumber is 100 and numberOfBlocksPerZipFile is 100,
         // then maxBlockNumber is 100 + 100 - 1 = 199.
-        long minBlockNumber = (minimumStaged / numberOfBlocksPerZipFile) * numberOfBlocksPerZipFile;
+        long minBlockNumber = minimumStaged - (minimumStaged % numberOfBlocksPerZipFile);
         long maxBlockNumber = minBlockNumber + numberOfBlocksPerZipFile - 1;
         // while we can zip blocks, we must keep zipping
         // we loop here because the historical block facility can have
