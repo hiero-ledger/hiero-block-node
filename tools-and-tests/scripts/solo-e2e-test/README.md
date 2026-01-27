@@ -204,11 +204,12 @@ cp .env.example .env
 
 ### Version Keywords
 
-| Keyword  |          Resolves To          |
-|----------|-------------------------------|
-| `latest` | Latest GA release from GitHub |
-| `main`   | Current development snapshot  |
-| `v0.x.y` | Specific version tag          |
+| Keyword  |                   Resolves To                   |
+|----------|-------------------------------------------------|
+| `latest` | Latest GA release from GitHub                   |
+| `main`   | Current development snapshot                    |
+| `rc`     | Latest Release Candidate (tag containing `-rc`) |
+| `v0.x.y` | Specific version tag                            |
 
 ### Command-Line Overrides
 
@@ -537,3 +538,29 @@ When using multi-node topologies, ports are assigned incrementally:
 task verify NODE=2        # Check Block Node 2 on port 40841
 task logs:bn NODE=2       # View Block Node 2 logs
 ```
+
+## Scheduled Runs
+
+The `solo-e2e-scheduler.yml` workflow runs tests automatically:
+
+|  Run Type   |      Trigger      | Deployments |         Versions          |
+|-------------|-------------------|-------------|---------------------------|
+| **Daily**   | Mon-Fri 6 AM UTC  | 1           | BN=`main`, CN/MN=`latest` |
+| **Weekend** | Saturday 2 AM UTC | 4           | BN=`main`, CN/MN=`latest` |
+| **RC**      | Sunday 2 AM UTC   | 4           | BN=`main`, CN/MN=`rc`     |
+| **TAG**     | Push `v*` tag     | 4           | BN=tag, CN/MN=`latest`    |
+
+### Test Matrix
+
+Tests are validated against topologies before execution. The matrix defines which tests run on each topology:
+
+|     Topology      |                         Tests                         |
+|-------------------|-------------------------------------------------------|
+| `single`          | `smoke-test`, `basic-load`, `node-restart-resilience` |
+| `paired-3`        | `smoke-test`, `basic-load`                            |
+| `3cn-1bn`         | `smoke-test`                                          |
+| `fan-out-3cn-2bn` | `smoke-test`                                          |
+
+Multiple tests run sequentially on the same deployment, reducing CI time.
+
+Manual trigger: Actions -> "Solo E2E Scheduler" -> "Run workflow"

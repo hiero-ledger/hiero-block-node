@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# Resolves 'latest' version keywords to actual GA release versions.
-# Supports: 'latest' (GA release), 'main' (snapshot), or specific version tags.
+# Resolves version keywords to actual release versions.
+# Supports: 'latest' (GA release), 'rc' (Release Candidate), 'main' (snapshot), or specific version tags.
 #
 # Usage:
 #   ./resolve-versions.sh [cn_version] [mn_version] [bn_version]
 #
 # Arguments:
-#   cn_version - Consensus Node version ('latest', 'main', or tag like 'v0.68.6')
-#   mn_version - Mirror Node version ('latest', 'main', or tag like 'v0.146.0')
-#   bn_version - Block Node version ('latest', 'main', or tag like 'v0.21.2')
+#   cn_version - Consensus Node version ('latest', 'rc', 'main', or tag like 'v0.68.6')
+#   mn_version - Mirror Node version ('latest', 'rc', 'main', or tag like 'v0.146.0')
+#   bn_version - Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')
 #
 # Output:
 #   Outputs key=value pairs to stdout that can be captured by the caller:
@@ -84,6 +84,33 @@ function get_latest_release {
   echo "${tag_name}"
 }
 
+# Fetches the latest RC (Release Candidate) tag from a GitHub repository
+# Looks for tags containing '-rc', '-alpha', or '-beta' (case-insensitive)
+# Arguments:
+#   $1 - Repository in format "owner/repo"
+# Returns:
+#   The tag_name of the latest RC release, or empty if none found
+function get_latest_rc_release {
+  local repo="${1}"
+  local url="https://api.github.com/repos/${repo}/releases?per_page=30"
+  local response
+  local rc_tag
+
+  response=$(curl -s -H "Accept: application/vnd.github+json" "${url}") || return 1
+
+  # Find the first (most recent) release with -rc, -alpha, or -beta in the tag name
+  # GitHub returns releases sorted by created_at descending
+  rc_tag=$(echo "${response}" | grep -o '"tag_name": *"[^"]*"' | sed 's/"tag_name": *"\([^"]*\)"/\1/' | grep -iE '(-rc|-alpha|-beta)' | head -1)
+
+  if [[ -z "${rc_tag}" ]]; then
+    log_line "WARNING: No RC release found for ${repo}, falling back to latest GA"
+    get_latest_release "${repo}"
+    return
+  fi
+
+  echo "${rc_tag}"
+}
+
 # Resolves a version string to an actual version
 # Arguments:
 #   $1 - Input version ('latest', 'main', or specific tag)
@@ -104,6 +131,13 @@ function resolve_version {
       end_task "${resolved}"
       echo "${resolved}"
       ;;
+    rc|RC)
+      start_task "Resolving 'rc' (Release Candidate) for ${component}"
+      local resolved
+      resolved=$(get_latest_rc_release "${repo}") || fail "ERROR: Failed to fetch RC release for ${component}" 1
+      end_task "${resolved}"
+      echo "${resolved}"
+      ;;
     main|MAIN)
       start_task "Using 'main' branch for ${component}"
       end_task "main (will use -SNAPSHOT)"
@@ -112,7 +146,7 @@ function resolve_version {
     *)
       # Validate it looks like a version tag
       if [[ ! "${input}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-        fail "ERROR: Invalid version '${input}' for ${component}. Use 'latest', 'main', or a version tag (e.g., v0.68.6)" 1
+        fail "ERROR: Invalid version '${input}' for ${component}. Use 'latest', 'main', 'rc', or a version tag (e.g., v0.68.6)" 1
       fi
       start_task "Using specified version for ${component}"
       end_task "${input}"
