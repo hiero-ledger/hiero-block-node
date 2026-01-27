@@ -8,11 +8,15 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
@@ -1454,6 +1458,194 @@ class LiveStreamPublisherManagerTest {
         }
 
         /**
+         * Tests for usage of {@link PublisherStatusUpdateNotification}.
+         */
+        @Nested
+        @Timeout(value = 10, unit = TimeUnit.SECONDS)
+        @DisplayName("PublisherStatusUpdateNotification Tests")
+        class PublisherStatusUpdateNotificationTests {
+            /**
+             * The block node context used for testing.
+             */
+            private BlockNodeContext context;
+            /**
+             * The publisher config with overrides to be used for testing.
+             */
+            private PublisherConfig testPublisherConfig;
+            /**
+             * The thread pool manager used for testing.
+             */
+            private TestThreadPoolManager<BlockingExecutor, ScheduledExecutorService> threadPoolManager;
+
+            /**
+             * Local setup for each test in this class. Here we override the original setup that is present and reused
+             * from {@link FunctionalityTests}. This is needed because we want a clean slate so we can assert. The
+             * original setup pre-registers handlers which would interfere with the assertions made here.
+             */
+            @BeforeEach
+            void localSetup() {
+                // Create a new manager with no pre-registered handlers.
+                messagingFacility = new TestBlockMessagingFacility();
+                final Map<String, String> configOverrides =
+                        Map.ofEntries(Map.entry("producer.publisherUnavailabilityTimeout", "2"));
+                final Configuration testConfiguration = createTestConfiguration(configOverrides);
+                testPublisherConfig = testConfiguration.getConfigData(PublisherConfig.class);
+                threadPoolManager = new TestThreadPoolManager<>(
+                        new BlockingExecutor(new LinkedBlockingQueue<>()),
+                        Executors.newSingleThreadScheduledExecutor());
+                context = generateContext(
+                        historicalBlockFacility, threadPoolManager, messagingFacility, testConfiguration);
+                managerMetrics = generateManagerMetrics();
+            }
+
+            /**
+             * This test aims to assert that the {@link LiveStreamPublisherManager} will send a
+             * {@link PublisherStatusUpdateNotification} with type {@link UpdateType#PUBLISHER_UNAVAILABILITY_TIMEOUT}
+             * when no publishers are active for the configured timeout period.
+             */
+            @Test
+            @DisplayName("LiveStreamPublisherManager sends a timeout notification when no publishers are active")
+            void testPublisherUnavailabilityTimeoutNotification() throws InterruptedException {
+                // As a precondition, assert that no notifications were sent yet.
+                final List<PublisherStatusUpdateNotification> notificationsPreCheck =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(notificationsPreCheck).isEmpty();
+                // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
+                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                // Sleep
+                final long configuredTimeoutMillis = testPublisherConfig.publisherUnavailabilityTimeout() * 1_000L;
+                // Give enough time for a notification to be sent, i.e. wait for timeout + 100ms buffer.
+                Thread.sleep(configuredTimeoutMillis + 100L);
+                // Shutdown the manager to stop the timeout future.
+                threadPoolManager.shutdownNow();
+                // Assert that a timeout notification was sent.
+                final List<PublisherStatusUpdateNotification> actual =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(actual)
+                        .isNotEmpty()
+                        .hasSize(1)
+                        .first()
+                        .returns(UpdateType.PUBLISHER_UNAVAILABILITY_TIMEOUT, PublisherStatusUpdateNotification::type)
+                        .returns(0, PublisherStatusUpdateNotification::activePublishers);
+            }
+
+            /**
+             * This test aims to assert that the {@link LiveStreamPublisherManager} will not send a
+             * {@link PublisherStatusUpdateNotification} with type {@link UpdateType#PUBLISHER_UNAVAILABILITY_TIMEOUT}
+             * when at least one publisher is active before the timeout period elapses.
+             */
+            @Test
+            @DisplayName("LiveStreamPublisherManager does not send a timeout notification when a publisher is active")
+            void testNoPublisherUnavailabilityTimeoutNotificationWhenPublisherIsActive() throws InterruptedException {
+                // As a precondition, assert that no notifications were sent yet.
+                final List<PublisherStatusUpdateNotification> notificationsPreCheck =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(notificationsPreCheck).isEmpty();
+                // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
+                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                // Add a new handler to simulate an active publisher.
+                toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics);
+                // Convert the configured timeout to milliseconds.
+                final long configuredTimeoutMillis = testPublisherConfig.publisherUnavailabilityTimeout() * 1_000L;
+                // Sleep for double the configured timeout to ensure that if a timeout notification
+                // were to be sent, it would have been sent by now.
+                Thread.sleep((configuredTimeoutMillis * 2) + 100L);
+                // Shutdown the manager to stop the timeout future.
+                threadPoolManager.shutdownNow();
+                // Assert that no timeout notification was sent, but we see the one for a connected publisher.
+                final List<PublisherStatusUpdateNotification> actual =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(actual)
+                        .isNotEmpty()
+                        .hasSize(1)
+                        .first()
+                        .returns(UpdateType.PUBLISHER_CONNECTED, PublisherStatusUpdateNotification::type)
+                        .returns(1, PublisherStatusUpdateNotification::activePublishers);
+            }
+
+            /**
+             * This test aims to assert that the {@link LiveStreamPublisherManager} will reset the
+             * publisher unavailability timeout when no publishers remain active.
+             */
+            @Test
+            @DisplayName("LiveStreamPublisherManager restarts timeout future when no publishers remain active")
+            void testPublisherUnavailabilityTimeoutResetOnNewPublisher() throws InterruptedException {
+                // As a precondition, assert that no notifications were sent yet.
+                final List<PublisherStatusUpdateNotification> notificationsPreCheck =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(notificationsPreCheck).isEmpty();
+                // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
+                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                // Add a new handler to simulate an active publisher.
+                final long activeHandlerId = toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics)
+                        .getId();
+                // Convert the configured timeout to milliseconds.
+                final long configuredTimeoutMillis = testPublisherConfig.publisherUnavailabilityTimeout() * 1_000L;
+                // Sleep for double the configured timeout to ensure that if a timeout notification
+                // were to be sent, it would have been sent by now.
+                Thread.sleep((configuredTimeoutMillis * 2) + 100L);
+                // Assert that no timeout notification was sent, but we see the one for a connected publisher.
+                final List<PublisherStatusUpdateNotification> actual =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(actual)
+                        .isNotEmpty()
+                        .hasSize(1)
+                        .first()
+                        .returns(UpdateType.PUBLISHER_CONNECTED, PublisherStatusUpdateNotification::type)
+                        .returns(1, PublisherStatusUpdateNotification::activePublishers);
+                // Clear the previously sent notifications in order not to clutter the assertions.
+                messagingFacility.getSentPublisherStatusUpdateNotifications().clear();
+                // Now, remove the active handler to simulate no active publishers.
+                toTest.removeHandler(activeHandlerId);
+                // Sleep for enough time to allow the timeout notification to be sent.
+                Thread.sleep(configuredTimeoutMillis + 100L);
+                // Shutdown the manager to stop the timeout future.
+                threadPoolManager.shutdownNow();
+                // Assert that a timeout notification was sent.
+                final List<PublisherStatusUpdateNotification> nextActual =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(nextActual)
+                        .hasSize(2)
+                        .first()
+                        .returns(UpdateType.PUBLISHER_DISCONNECTED, PublisherStatusUpdateNotification::type)
+                        .returns(0, PublisherStatusUpdateNotification::activePublishers);
+                assertThat(nextActual)
+                        .last()
+                        .returns(UpdateType.PUBLISHER_UNAVAILABILITY_TIMEOUT, PublisherStatusUpdateNotification::type)
+                        .returns(0, PublisherStatusUpdateNotification::activePublishers);
+            }
+
+            /**
+             * This test aims to assert that the {@link LiveStreamPublisherManager} will keep resetting the
+             * publisher unavailability timeout and publishing updates as long as there are no active publishers.
+             */
+            @Test
+            @DisplayName("LiveStreamPublisherManager continues to restart timeout future when no publishers are active")
+            void testPublisherUnavailabilityTimeoutContinuesWhenNoPublishersAreActive() throws InterruptedException {
+                // As a precondition, assert that no notifications were sent yet.
+                final List<PublisherStatusUpdateNotification> notificationsPreCheck =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(notificationsPreCheck).isEmpty();
+                // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
+                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                // Convert the configured timeout to milliseconds.
+                final long configuredTimeoutMillis = testPublisherConfig.publisherUnavailabilityTimeout() * 1_000L;
+                // Sleep for triple the configured timeout and some buffer to ensure that multiple timeout notifications
+                // would have been sent by now.
+                Thread.sleep((configuredTimeoutMillis * 3) + 200L);
+                // Shutdown the manager to stop the timeout future.
+                threadPoolManager.shutdownNow();
+                // Assert that multiple timeout notifications were sent.
+                final List<PublisherStatusUpdateNotification> actual =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(actual).isNotEmpty().hasSize(3).allSatisfy(notification -> {
+                    assertThat(notification.type()).isEqualTo(UpdateType.PUBLISHER_UNAVAILABILITY_TIMEOUT);
+                    assertThat(notification.activePublishers()).isZero();
+                });
+            }
+        }
+
+        /**
          * Tests for {@link LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)}.
          */
         @Nested
@@ -1469,13 +1661,12 @@ class LiveStreamPublisherManagerTest {
             @BeforeEach
             void localSetup() {
                 // Create a new manager with no pre-registered handlers.
+                messagingFacility = new TestBlockMessagingFacility();
                 final BlockNodeContext context =
                         generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
                 managerMetrics = generateManagerMetrics();
                 // Create the LiveStreamPublisherManager instance to test.
                 toTest = new LiveStreamPublisherManager(context, managerMetrics);
-                // Clear any previously sent notifications from original setup.
-                messagingFacility.getSentPublisherStatusUpdateNotifications().clear();
             }
 
             /**
@@ -1618,6 +1809,22 @@ class LiveStreamPublisherManagerTest {
         final Metrics metrics = TestUtils.createMetrics();
         final HealthFacility serverHealth = null;
         final ServiceLoaderFunction serviceLoader = null;
+        return generateContext(historicalBlockFacility, threadPoolManager, blockMessagingFacility, configuration);
+    }
+
+    /**
+     * This method generates a {@link BlockNodeContext} instance with default
+     * facilities that can be used in tests.
+     */
+    @SuppressWarnings("all")
+    private BlockNodeContext generateContext(
+            final HistoricalBlockFacility historicalBlockFacility,
+            final ThreadPoolManager threadPoolManager,
+            final BlockMessagingFacility blockMessagingFacility,
+            final Configuration configuration) {
+        final Metrics metrics = TestUtils.createMetrics();
+        final HealthFacility serverHealth = null;
+        final ServiceLoaderFunction serviceLoader = null;
         return new BlockNodeContext(
                 configuration,
                 metrics,
@@ -1629,9 +1836,14 @@ class LiveStreamPublisherManagerTest {
     }
 
     private static Configuration createTestConfiguration() {
-        return TestUtils.createTestConfiguration()
-                .withConfigDataType(PublisherConfig.class)
-                .build();
+        return createTestConfiguration(Map.of());
+    }
+
+    private static Configuration createTestConfiguration(final Map<String, String> overrides) {
+        final ConfigurationBuilder builder =
+                TestUtils.createTestConfiguration().withConfigDataType(PublisherConfig.class);
+        overrides.forEach(builder::withValue);
+        return builder.build();
     }
 
     /**
