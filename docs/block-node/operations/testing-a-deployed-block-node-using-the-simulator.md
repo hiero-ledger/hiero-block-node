@@ -37,7 +37,7 @@ Before you begin, ensure you have:
    ```
 2. Add the following Docker Compose configuration to the file:
 
-   ```bash
+   ```yaml
    services:
      simulator-publisher:
        container_name: simulator-publisher
