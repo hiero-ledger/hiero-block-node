@@ -69,8 +69,12 @@ public interface Hasher {
      * <p>The returned hash is a 48-byte SHA-384 hash following the domain-separated
      * prefixing scheme from the design specification.
      *
-     * @return the 48-byte SHA-384 Merkle tree root hash
-     * @throws java.util.NoSuchElementException if no leaves have been added
+     * <p>For an empty tree (no leaves added), this method returns the predefined
+     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha384Hash(new byte[]{0x00})}.
+     * This provides a consistent, well-defined hash for the empty tree case.
+     *
+     * @return the 48-byte SHA-384 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
+     *         if no leaves have been added
      */
     byte[] computeRootHash();
 

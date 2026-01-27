@@ -108,6 +108,22 @@ class HashingUtilsTest {
                     TWO_CHILDREN_NODE_PREFIX[0],
                     "SINGLE_CHILD_PREFIX and TWO_CHILDREN_NODE_PREFIX must be distinct for domain separation");
         }
+
+        /**
+         * Verifies the EMPTY_TREE_HASH constant is correctly computed as sha384(0x00).
+         *
+         * <p>The empty tree hash is defined as the SHA-384 hash of a single zero byte,
+         * which is the LEAF_PREFIX. This provides a well-defined hash for empty merkle trees.
+         */
+        @Test
+        @DisplayName("EMPTY_TREE_HASH should be sha384(0x00)")
+        void testEmptyTreeHashValue() {
+            // Manually compute sha384(0x00)
+            byte[] expectedHash = digest.digest(new byte[] {0x00});
+
+            assertArrayEquals(EMPTY_TREE_HASH, expectedHash, "EMPTY_TREE_HASH must be sha384(new byte[]{0x00})");
+            assertEquals(48, EMPTY_TREE_HASH.length, "EMPTY_TREE_HASH must be 48 bytes (SHA-384)");
+        }
     }
 
     // ========== Leaf Hashing Tests ==========

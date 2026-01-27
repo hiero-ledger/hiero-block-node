@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
@@ -180,12 +181,16 @@ public class InMemoryTreeHasher implements Hasher {
      *
      * <p>This does not modify the internal state, so more leaves can be added afterward.
      *
-     * @return the SHA-384 Merkle tree root hash
+     * <p>For an empty tree (no leaves added), this method returns the predefined
+     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha384Hash(new byte[]{0x00})}.
+     *
+     * @return the SHA-384 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
+     *         if no leaves have been added
      */
     @Override
     public byte[] computeRootHash() {
         if (leafCount == 0) {
-            throw new IllegalStateException("Cannot compute root hash of empty tree");
+            return EMPTY_TREE_HASH.clone();
         }
 
         if (pendingSubtreeRoots.size() == 1) {

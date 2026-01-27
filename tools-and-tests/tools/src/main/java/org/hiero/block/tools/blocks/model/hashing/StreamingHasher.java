@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
@@ -193,11 +194,17 @@ public class StreamingHasher implements Hasher {
      *
      * <p>Time complexity: O(log n) where n is the leaf count.
      *
-     * @return the 48-byte SHA-384 Merkle tree root hash
-     * @throws java.util.NoSuchElementException if no leaves have been added
+     * <p>For an empty tree (no leaves added), this method returns the predefined
+     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha384Hash(new byte[]{0x00})}.
+     *
+     * @return the 48-byte SHA-384 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
+     *         if no leaves have been added
      */
     @Override
     public byte[] computeRootHash() {
+        if (hashList.isEmpty()) {
+            return EMPTY_TREE_HASH.clone();
+        }
         byte[] merkleRootHash = hashList.getLast();
         // Fold remaining pending roots from right to left
         for (int i = hashList.size() - 2; i >= 0; i--) {
