@@ -524,6 +524,133 @@ class BlockFileHistoricPluginTest {
         }
 
         /**
+         * This test aims to verify that the plugin can successfully archive blocks
+         * that are received out of chronological order and can backfill earlier
+         * ranges after initially zipping later blocks. The test simulates a scenario
+         * where blocks arrive in non-sequential order (e.g., blocks 42-63 first,
+         * then 30-41, then 0-14, then 15-22) and ensures that each complete batch
+         * (per the configured 10 blocks per zip) is properly archived as it becomes
+         * available, regardless of the arrival order.
+         */
+        @Test
+        @DisplayName("Test successful archival of earlier block ranges received out of order")
+        void testZipHandlesOutOfOrderBlocks() throws IOException {
+            // Send blocks 42-63 first to simulate receiving a later range of blocks
+            // before earlier ones. This establishes the out-of-order scenario.
+            for (int i = 42; i < 64; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            // This should pass, as we have a whole batch in the queue
+            pluginExecutor.executeSerially();
+
+            // We expect only blocks 50-59 to be zipped (a complete batch of 10 blocks).
+            // Blocks 0-41 are not available yet, and blocks 42-49 and 60-63 don't form a
+            // complete batch.
+            for (int i = 0; i < 50; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            for (int i = 50; i < 60; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+            for (int i = 60; i < 70; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+
+            // Send blocks 30-41 to backfill an earlier range. This will combine with
+            // previously received blocks 42-49 to form additional complete batches.
+            for (int i = 30; i < 42; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            pluginExecutor.executeSerially();
+
+            // We expect blocks 30-49 to be zipped now (two complete batches: 30-39 and 40-49).
+            // The previously zipped batch 50-59 remains zipped.
+            // Blocks 0-29 are still not available, and blocks 60-63 remain incomplete.
+            for (int i = 0; i < 30; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            for (int i = 30; i < 60; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+            for (int i = 60; i < 70; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+
+            // Send blocks 0-14 to backfill the earliest range. This will form at least
+            // one complete batch (0-9) while 10-14 remain incomplete.
+            for (int i = 0; i < 15; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            pluginExecutor.executeSerially();
+
+            // We expect blocks 0-9 to be zipped now (complete batch).
+            // Blocks 10-29 are still not available or incomplete.
+            // Previously zipped batches (30-49 and 50-59) remain zipped.
+            // Blocks 60-69 remain incomplete.
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+            for (int i = 10; i < 30; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            for (int i = 30; i < 50; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+            for (int i = 60; i < 70; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+
+            // Send blocks 15-22 to fill another gap. Combined with previously received
+            // blocks 10-14, this will complete the batch 10-19.
+            for (int i = 15; i < 23; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            pluginExecutor.executeSerially();
+
+            // We expect blocks 0-19 to be zipped now (batches 0-9 and 10-19).
+            // Blocks 20-29 are still incomplete.
+            // Previously zipped batches (30-49 and 50-59) remain zipped.
+            // Blocks 60-69 remain incomplete.
+            for (int i = 0; i < 20; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+            for (int i = 20; i < 30; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+            for (int i = 30; i < 50; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+            for (int i = 60; i < 70; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+
+            final long submittedTasks = pluginExecutor.getTaskCount();
+
+            // Send blocks 23-27 to assert that if we don't fill the whole gap, no zipping task is submitted
+            for (int i = 23; i < 27; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            // assert that no zipping task was submited since last check,
+            // because there is no complete batch 20-29 yet
+            assertThat(pluginExecutor.getTaskCount()).isEqualTo(submittedTasks);
+        }
+
+        /**
          * This test aims to verify that the plugin will not zip anything when
          * a gap in the current batch is detected. We expect that the plugin
          * will submit a zipping task, because we here simulate that the
