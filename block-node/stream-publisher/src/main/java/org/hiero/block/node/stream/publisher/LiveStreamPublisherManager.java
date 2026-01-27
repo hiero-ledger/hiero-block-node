@@ -26,6 +26,8 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -53,6 +55,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
+    private final PublisherConfig publisherConfig;
     private final ThreadPoolManager threadManager;
     private final Map<Long, PublisherHandler> handlers;
     private final AtomicLong nextHandlerId;
@@ -61,6 +64,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final Condition dataReadyLatch;
     private final ReentrantLock dataReadyLock;
     private final long earliestManagedBlock;
+    private final ScheduledExecutorService scheduledExecutor;
+    private final AtomicReference<ScheduledFuture<?>> publisherUnavailabilityTimeoutFuture;
 
     /**
      * Future tracking the queue forwarder task.
@@ -98,7 +103,46 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         dataReadyLatch = dataReadyLock.newCondition();
         NodeConfig nodeConfiguration = serverContext.configuration().getConfigData(NodeConfig.class);
         earliestManagedBlock = nodeConfiguration.earliestManagedBlock();
+        scheduledExecutor = threadManager.createVirtualThreadScheduledExecutor(
+                1,
+                null,
+                (t, e) -> LOGGER.log(
+                        INFO, "Scheduled task thread exception occurred in Live Stream Publisher Manager", e));
+        publisherConfig = serverContext.configuration().getConfigData(PublisherConfig.class);
+        publisherUnavailabilityTimeoutFuture = new AtomicReference<>();
+        startOrResetPublisherUnavailabilityFuture();
         updateBlockNumbers(serverContext);
+    }
+
+    /**
+     * This method starts or resets the publisher unavailability timeout
+     * future. This method is thread-safe. This method cancels any currently
+     * running future before starting a new one. It does not interfere with a
+     * call to {@link #stopPublisherUnavailabilityFuture()}.
+     */
+    private void startOrResetPublisherUnavailabilityFuture() {
+        publisherUnavailabilityTimeoutFuture.updateAndGet(current -> {
+            if (current != null && !current.isDone() && !current.isCancelled()) {
+                current.cancel(true);
+            }
+            return scheduledExecutor.scheduleWithFixedDelay(
+                    new PublisherUnavailabilityTimeoutRunnable(serverContext.blockMessaging()),
+                    publisherConfig.publisherUnavailabilityTimeout(),
+                    publisherConfig.publisherUnavailabilityTimeout(),
+                    TimeUnit.SECONDS);
+        });
+    }
+
+    /**
+     * This method stops the publisher unavailability timeout future if it is
+     * running. This method is thread-safe and idempotent. It does not
+     * interfere with a call to {@link #startOrResetPublisherUnavailabilityFuture()}.
+     */
+    private void stopPublisherUnavailabilityFuture() {
+        final ScheduledFuture<?> current = publisherUnavailabilityTimeoutFuture.getAndSet(null);
+        if (current != null && !current.isDone() && !current.isCancelled()) {
+            current.cancel(true);
+        }
     }
 
     @Override
@@ -109,10 +153,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         final PublisherHandler newHandler =
                 new PublisherHandler(handlerId, replies, handlerMetrics, this, registerTransferQueue(handlerId));
         handlers.put(handlerId, newHandler);
-        metrics.currentPublisherCount().set(handlers.size());
-        // query the current publisher count again in case someone has just disconnected
+        final int currentPublishersActive = handlers.size();
+        stopPublisherUnavailabilityFuture();
+        metrics.currentPublisherCount().set(currentPublishersActive);
         final PublisherStatusUpdateNotification notification =
-                new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_CONNECTED, getCurrentPublisherCount());
+                new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_CONNECTED, currentPublishersActive);
         // send a publisher update
         serverContext.blockMessaging().sendPublisherStatusUpdate(notification);
         LOGGER.log(TRACE, "Added new handler {0}", handlerId);
@@ -122,6 +167,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void removeHandler(final long handlerId) {
         handlers.remove(handlerId);
+        final int currentPublishersActive = handlers.size();
         final String queueId = getQueueNameForHandlerId(handlerId);
         final BlockingDeque<BlockItemSetUnparsed> queueRemoved = transferQueueMap.remove(queueId);
         // Note: for queueByBlockMap, we need to remove an entry only if the
@@ -160,12 +206,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 break; // There will only be one entry with this queue.
             }
         }
-        metrics.currentPublisherCount().set(handlers.size());
-        // query the current publisher count again in case someone has just connected
+        metrics.currentPublisherCount().set(currentPublishersActive);
         final PublisherStatusUpdateNotification notification =
-                new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_DISCONNECTED, getCurrentPublisherCount());
+                new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_DISCONNECTED, currentPublishersActive);
         // send a publisher update
         serverContext.blockMessaging().sendPublisherStatusUpdate(notification);
+        // optionally start the unavailability timeout task
+        if (currentPublishersActive == 0) {
+            startOrResetPublisherUnavailabilityFuture();
+        }
         LOGGER.log(TRACE, "Removed handler {0} and its transfer queue {1}", handlerId, queueId);
     }
 
@@ -224,6 +273,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
         transferQueueMap.clear();
         queueByBlockMap.clear();
+        // We can safely shut down the scheduled executor abruptly. The timeout
+        // tasks can be ignored completely as we shut down the manager.
+        scheduledExecutor.shutdownNow();
     }
 
     /**
@@ -671,10 +723,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
-    private int getCurrentPublisherCount() {
-        return metrics.currentPublisherCount.get();
-    }
-
     /**
      * todo(1420) add documentation
      */
@@ -824,6 +872,37 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     highestBlockNumber,
                     latestBlockNumberAcknowledged,
                     blocksClosedComplete);
+        }
+    }
+
+    /**
+     * A simple runnable to send a timeout notification to the node's messaging
+     * in case of publisher timeout, meaning no publishers have connected within
+     * the configured timeout period. This runnable will keep running with
+     * a configurable delay until a publisher connects, at which point it
+     * should be canceled. In case all active publishers disconnect, a new
+     * instance of this runnable should be scheduled again, to run and be
+     * re-scheduled until a publisher connects.
+     */
+    private static final class PublisherUnavailabilityTimeoutRunnable implements Runnable {
+        private final BlockMessagingFacility messaging;
+
+        private PublisherUnavailabilityTimeoutRunnable(final BlockMessagingFacility messaging) {
+            this.messaging = Objects.requireNonNull(messaging);
+        }
+
+        /**
+         * Sends a {@link PublisherStatusUpdateNotification} indicating that no
+         * publishers are currently connected and active.
+         */
+        @Override
+        public void run() {
+            final PublisherStatusUpdateNotification notification =
+                    new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_UNAVAILABILITY_TIMEOUT, 0);
+            if (!Thread.currentThread().isInterrupted()) {
+                // last chance to send the notification if we are not interrupted
+                messaging.sendPublisherStatusUpdate(notification);
+            }
         }
     }
 }

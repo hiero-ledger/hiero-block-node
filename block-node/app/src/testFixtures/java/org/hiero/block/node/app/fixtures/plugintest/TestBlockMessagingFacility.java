@@ -220,10 +220,10 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void sendBlockVerification(VerificationNotification notification) {
-        LOGGER.log(Level.TRACE, "Sending block notification " + notification);
+    public void sendBlockVerification(final VerificationNotification notification) {
+        logNotification(notification);
         sentVerificationNotifications.add(notification);
-        for (BlockNotificationHandler handler : blockNotificationHandlers) {
+        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handleVerification(notification);
         }
     }
@@ -232,10 +232,10 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void sendBlockPersisted(PersistedNotification notification) {
-        LOGGER.log(Level.TRACE, "Sending block notification " + notification);
+    public void sendBlockPersisted(final PersistedNotification notification) {
+        logNotification(notification);
         sentPersistedNotifications.add(notification);
-        for (BlockNotificationHandler handler : blockNotificationHandlers) {
+        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handlePersisted(notification);
         }
     }
@@ -244,25 +244,25 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
-        LOGGER.log(Level.TRACE, "Sending backfilled block notification " + notification);
-        for (BlockNotificationHandler handler : blockNotificationHandlers) {
+    public void sendBackfilledBlockNotification(final BackfilledBlockNotification notification) {
+        logNotification(notification);
+        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handleBackfilled(notification);
         }
     }
 
     @Override
-    public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
-        LOGGER.log(Level.TRACE, "Sending NewestBlockKnownToNetworkNotification block notification " + notification);
+    public void sendNewestBlockKnownToNetwork(final NewestBlockKnownToNetworkNotification notification) {
+        logNotification(notification);
         sentNewestBlockKnownToNetworkNotifications.add(notification);
-        for (BlockNotificationHandler handler : blockNotificationHandlers) {
+        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handleNewestBlockKnownToNetwork(notification);
         }
     }
 
     @Override
     public void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {
-        LOGGER.log(Level.TRACE, "Sending PublisherStatusUpdateNotification block notification " + notification);
+        logNotification(notification);
         sentPublisherStatusUpdateNotifications.add(notification);
         for (final BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handlePublisherStatusUpdate(notification);
@@ -284,5 +284,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     @Override
     public void unregisterBlockNotificationHandler(final BlockNotificationHandler handler) {
         blockNotificationHandlers.remove(handler);
+    }
+
+    private void logNotification(final Record notification) {
+        LOGGER.log(Level.TRACE, "Sending block notification: {0}", notification);
     }
 }
