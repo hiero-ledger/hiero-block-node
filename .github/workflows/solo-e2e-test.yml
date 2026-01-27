@@ -2,6 +2,74 @@
 name: Solo E2E Test
 
 on:
+  # Reusable workflow trigger - called by solo-e2e-scheduler.yml
+  workflow_call:
+    inputs:
+      topology:
+        description: "Network topology"
+        type: string
+        default: "single"
+      block-node-version:
+        description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')"
+        type: string
+        default: "latest"
+      consensus-node-version:
+        description: "Consensus Node version ('latest', 'rc', 'main', or tag like 'v0.68.6')"
+        type: string
+        default: "latest"
+      mirror-node-version:
+        description: "Mirror Node version ('latest', 'rc', 'main', or tag like 'v0.146.0')"
+        type: string
+        default: "latest"
+      solo-version:
+        description: "Solo CLI Version"
+        type: string
+        default: "0.52.0"
+      run-tck-regression-tests:
+        description: "Run TCK regression test"
+        type: boolean
+        default: false
+      nlg-test-class:
+        description: "NLG test class"
+        type: string
+        default: "CryptoTransferLoadTest"
+      nlg-concurrency:
+        description: "NLG -c (concurrency threads)"
+        type: string
+        default: "5"
+      nlg-accounts:
+        description: "NLG -a (number of accounts)"
+        type: string
+        default: "10"
+      nlg-duration:
+        description: "NLG -t (seconds, 0 to skip load gen)"
+        type: string
+        default: "300"
+      nlg-extra-args:
+        description: "NLG extra args (e.g., '-T 5 -K ED25519')"
+        type: string
+        default: ""
+      nlg-max-tps:
+        description: "NLG --max-tps (max transactions per second, optional)"
+        type: string
+        default: ""
+      mirror-node-pinger-tps:
+        description: "Mirror Node pinger TPS (0 to disable)"
+        type: string
+        default: "5"
+      test-definition:
+        description: "Test definitions to run (comma-separated, e.g., 'smoke-test,basic-load')"
+        type: string
+        default: "none"
+    outputs:
+      result:
+        description: "Test result (success or failure)"
+        value: ${{ jobs.solo-test-deploy.outputs.result }}
+      resolved-versions:
+        description: "Resolved versions (CN,MN,BN)"
+        value: ${{ jobs.solo-test-deploy.outputs.resolved-versions }}
+
+  # Manual trigger - for direct invocation from GitHub UI
   workflow_dispatch:
     inputs:
       topology:
@@ -17,15 +85,15 @@ on:
           - 7cn-3bn-distributed # 7 CN, 3 BN distributed
           - minimal # like single but without MN, Relay and Explorer
       block-node-version:
-        description: "Block Node version ('latest' for GA, 'main' for snapshot, or specific tag like 'v0.21.2')"
+        description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')"
         required: false
         default: "latest"
       consensus-node-version:
-        description: "Consensus Node version ('latest' for GA or specific tag like 'v0.68.6')"
+        description: "Consensus Node version ('latest', 'rc', 'main', or tag like 'v0.68.6')"
         required: false
         default: "latest"
       mirror-node-version:
-        description: "Mirror Node version ('latest' for GA or specific tag like 'v0.146.0')"
+        description: "Mirror Node version ('latest', 'rc', 'main', or tag like 'v0.146.0')"
         required: false
         default: "latest"
       solo-version:
@@ -71,15 +139,9 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definition to run"
+        description: "Test definitions (comma-separated: smoke-test,basic-load,node-restart-resilience)"
         required: false
         default: "none"
-        type: choice
-        options:
-          - none # Skip test runner
-          - smoke-test
-          - basic-load
-          - node-restart-resilience
 
 defaults:
   run:
@@ -107,6 +169,9 @@ env:
 jobs:
   solo-test-deploy:
     runs-on: hiero-block-node-linux-medium
+    outputs:
+      result: ${{ steps.result.outputs.status }}
+      resolved-versions: ${{ steps.versions.outputs.cn_version }},${{ steps.versions.outputs.mn_version }},${{ steps.versions.outputs.bn_version }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
@@ -301,16 +366,65 @@ jobs:
       # Run a test definition file if specified. This provides a structured
       # way to define timed events and assertions for E2E testing.
 
-      - name: Run Test Definition
-        if: ${{ inputs.test-definition != 'none' }}
+      # Validate all test definitions against topology before running
+      - name: Validate Test Definitions
+        if: ${{ inputs.test-definition != 'none' && inputs.test-definition != '' }}
         run: |
-          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-test-runner.sh \
-            --test "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests/${{ inputs.test-definition }}.yaml" \
-            --namespace "${NAMESPACE}" \
-            --context "${CONTEXT}" \
-            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
-            --proto-path "protobuf-sources/proto" \
-            --output github-summary
+          TESTS_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests"
+          TOPOLOGIES_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies"
+          TEST_RUNNER="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/scripts/solo-test-runner.sh"
+
+          IFS=',' read -ra TESTS <<< "${{ inputs.test-definition }}"
+          echo "Validating ${#TESTS[@]} test(s) against topology '${{ inputs.topology }}'..."
+
+          for test in "${TESTS[@]}"; do
+            test=$(echo "$test" | xargs)  # trim whitespace
+            [[ -z "$test" || "$test" == "none" ]] && continue
+            echo "Validating: $test"
+            if ! "${TEST_RUNNER}" --test "${TESTS_DIR}/${test}.yaml" --topology "${{ inputs.topology }}" --topologies-dir "${TOPOLOGIES_DIR}" --validate; then
+              echo "::error::Test '$test' is not compatible with topology '${{ inputs.topology }}'"
+              exit 1
+            fi
+          done
+          echo "All tests validated successfully"
+
+      # Run each test definition sequentially on the same deployment
+      - name: Run Test Definitions
+        if: ${{ inputs.test-definition != 'none' && inputs.test-definition != '' }}
+        run: |
+          TESTS_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests"
+          TOPOLOGIES_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies"
+          TEST_RUNNER="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/scripts/solo-test-runner.sh"
+
+          IFS=',' read -ra TESTS <<< "${{ inputs.test-definition }}"
+          FAILED=0
+
+          for test in "${TESTS[@]}"; do
+            test=$(echo "$test" | xargs)  # trim whitespace
+            [[ -z "$test" || "$test" == "none" ]] && continue
+
+            echo ""
+            echo "=========================================="
+            echo "Running test: $test"
+            echo "=========================================="
+
+            if ! "${TEST_RUNNER}" \
+              --test "${TESTS_DIR}/${test}.yaml" \
+              --topology "${{ inputs.topology }}" \
+              --namespace "${NAMESPACE}" \
+              --context "${CONTEXT}" \
+              --topologies-dir "${TOPOLOGIES_DIR}" \
+              --proto-path "protobuf-sources/proto" \
+              --output github-summary; then
+              echo "::warning::Test '$test' failed"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          if [[ $FAILED -gt 0 ]]; then
+            echo "::error::$FAILED test(s) failed"
+            exit 1
+          fi
 
       # ---- BN verification with grpcurl ----
       # Verify the BN is getting blocks
@@ -611,6 +725,17 @@ jobs:
             echo "- [Download CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }})"
 
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Set result output for workflow_call consumers
+      - name: Set result output
+        id: result
+        if: always()
+        run: |
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+          fi
 
       # Stop the solo nodes
       - name: Stop solo
