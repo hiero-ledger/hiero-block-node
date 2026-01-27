@@ -16,6 +16,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -1114,6 +1115,61 @@ class BlockFileHistoricPluginTest {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
                 assertThat(plugin.availableBlocks().contains(i)).isTrue();
             }
+        }
+
+        /**
+         * This test aims to verify that the plugin enforces idempotency by
+         * ensuring that a batch of blocks is archived only once. When duplicate
+         * block verification notifications are received for blocks that have
+         * already been zipped, the plugin should detect that the batch is already archived,
+         * skip submitting a new archival task and leave the existing zip file unmodified
+         */
+        @Test
+        @DisplayName("Test batch is zipped only once and duplicate notifications are ignored")
+        void testBatchIsZippedOnlyOnce() throws IOException {
+            // Send the first set of block verification notifications (blocks 0-9).
+            // This represents the initial arrival of blocks that need to be archived.
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            // Execute all pending archival tasks. This should zip blocks 0-9 into a single archive.
+            pluginExecutor.executeSerially();
+
+            // Verify that the batch was successfully archived: all blocks should have zip paths
+            // and should be tracked in the plugin's available blocks range.
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+                assertThat(plugin.availableBlocks().contains(i)).isTrue();
+            }
+
+            // Capture the zip file's last modified timestamp. This will be used to verify
+            // that the file is not modified when duplicate notifications arrive.
+            final FileTime lastModifiedTime = Files.getLastModifiedTime(
+                    BlockPath.computeExistingBlockPath(testConfig, 0).zipFilePath());
+
+            // Send duplicate verification notifications for the same blocks (0-9).
+            // This simulates scenarios like plugin restart, retry logic, or receiving
+            // the same blocks from multiple sources.
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            // Verify that no new archival tasks were submitted to the executor.
+            // The plugin should detect that blocks 0-9 are already archived and skip
+            // creating duplicate work.
+            assertThat(pluginExecutor.getTaskCount()).isZero();
+
+            // Verify that the zip file was not modified by checking its timestamp.
+            // The last modified time should be identical to the original, confirming
+            // that the plugin preserved the immutability of the existing archive.
+            final FileTime lastModifiedTimeSecondPass = Files.getLastModifiedTime(
+                    BlockPath.computeExistingBlockPath(testConfig, 0).zipFilePath());
+            assertThat(lastModifiedTime).isEqualTo(lastModifiedTimeSecondPass);
         }
     }
 
