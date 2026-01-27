@@ -2,7 +2,7 @@
 
 ## Overview
 
-After deploying a Block Node using either manual Kubernetes configuration or Solo Weaver, you must verify that the node is functioning correctly by testing its ability to receive process streamed blocks.
+After deploying a Block Node using either manual Kubernetes configuration or Solo Weaver, you must verify that the node is functioning correctly by testing its ability to receive and process streamed blocks.
 
 This guide walks you through testing your Block Node deployment using a simulator Docker container that publishes test blocks to the node.
 
