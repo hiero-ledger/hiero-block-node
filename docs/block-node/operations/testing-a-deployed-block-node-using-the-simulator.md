@@ -82,7 +82,7 @@ For the complete and official Block Node configuration reference, see the [Block
 1. From the directory containing **`docker-compose-publisher.yaml`**, run the Docker Compose command to start the simulator:
 
    ```bash
-   docker-compose -f docker-compose-publisher.yaml up
+   docker compose -f docker-compose-publisher.yaml up
    ```
 2. The simulator will begin publishing test blocks to your Block Node. You will see logs indicating the blocks are being streamed.
 3. The simulator will continue to stream blocks until it reaches the specified block number in the configuration (for example, block 100), at which point it will automatically stop.
