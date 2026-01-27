@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.config;
 
-import com.google.auto.service.AutoService;
 import com.swirlds.common.metrics.config.MetricsConfig;
 import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.ConfigurationExtension;
@@ -15,7 +14,6 @@ import org.hiero.block.simulator.config.data.SimulatorStartupDataConfig;
 import org.hiero.block.simulator.config.data.UnorderedStreamConfig;
 
 /** Sets up configuration for services. */
-@AutoService(ConfigurationExtension.class)
 public class SimulatorConfigExtension implements ConfigurationExtension {
 
     /** Explicitly defined constructor. */
