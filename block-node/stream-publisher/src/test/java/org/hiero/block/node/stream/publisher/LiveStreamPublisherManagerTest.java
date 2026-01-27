@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
+import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.metrics.api.Metrics;
 import java.util.Arrays;
@@ -36,6 +37,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
+import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -1447,6 +1450,136 @@ class LiveStreamPublisherManagerTest {
                         .isNotEmpty()
                         .hasSize(block.length)
                         .containsExactly(block);
+            }
+        }
+
+        /**
+         * Tests for {@link LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)}.
+         */
+        @Nested
+        @DisplayName("addHandler() Tests")
+        class AddHandlerTests {
+            /**
+             * Local setup for each test in this class.
+             * Here we override the original setup that is present and reused
+             * from {@link FunctionalityTests}. This is needed because we want
+             * a clean slate so we can assert. The original setup pre-registers
+             * handlers which would interfere with the assertions made here.
+             */
+            @BeforeEach
+            void localSetup() {
+                // Create a new manager with no pre-registered handlers.
+                final BlockNodeContext context =
+                        generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
+                managerMetrics = generateManagerMetrics();
+                // Create the LiveStreamPublisherManager instance to test.
+                toTest = new LiveStreamPublisherManager(context, managerMetrics);
+                // Clear any previously sent notifications from original setup.
+                messagingFacility.getSentPublisherStatusUpdateNotifications().clear();
+            }
+
+            /**
+             * This test aims to assert that registering a new handler
+             * via {@link LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)}
+             * will fire a {@link PublisherStatusUpdateNotification}
+             * indicating that a new publisher has connected.
+             */
+            @Test
+            @DisplayName("addHandler() fires a publisher status update notification")
+            void testAddHandlerFiresStatusUpdateNotification() {
+                // Make a pre-check that no notifications were sent yet.
+                final List<PublisherStatusUpdateNotification> notificationsPreCheck =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(notificationsPreCheck).isEmpty();
+                // Add a new handler.
+                toTest.addHandler(responsePipeline, sharedHandlerMetrics);
+                // Assert that a status update notification was sent.
+                final List<PublisherStatusUpdateNotification> actual =
+                        messagingFacility.getSentPublisherStatusUpdateNotifications();
+                assertThat(actual)
+                        .isNotEmpty()
+                        .hasSize(1)
+                        .first()
+                        .returns(UpdateType.PUBLISHER_CONNECTED, PublisherStatusUpdateNotification::type)
+                        .returns(1, PublisherStatusUpdateNotification::activePublishers);
+            }
+
+            /**
+             * This test aims to assert that registering a new handler
+             * via {@link LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)}
+             * will update the current active publishers count metric.
+             */
+            @Test
+            @DisplayName("addHandler() updates the current active publishers count metric")
+            void testAddHandlerUpdatesActivePublishersMetric() {
+                // Make a pre-check that the active publishers metric is zero.
+                assertThat(managerMetrics.currentPublisherCount().get()).isZero();
+                // Add a new handler.
+                toTest.addHandler(responsePipeline, sharedHandlerMetrics);
+                // Assert that the active publishers metric is now 1.
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(1);
+            }
+        }
+
+        /**
+         * Tests for {@link LiveStreamPublisherManager#removeHandler(long)}.
+         */
+        @Nested
+        @DisplayName("removeHandler() Tests")
+        class RemoveHandlerTests {
+            /**
+             * This test aims to assert that removing a handler
+             * via {@link LiveStreamPublisherManager#removeHandler(long)}
+             * will fire a {@link PublisherStatusUpdateNotification}
+             * indicating that a publisher has disconnected.
+             */
+            @Test
+            @DisplayName("removeHandler() fires a publisher status update notification")
+            void testRemoveHandlerFiresStatusUpdateNotification() {
+                // Make a pre-check that 2 handlers are registered from original setup.
+                assertThat(messagingFacility.getSentPublisherStatusUpdateNotifications())
+                        .hasSize(2)
+                        .last()
+                        .returns(UpdateType.PUBLISHER_CONNECTED, PublisherStatusUpdateNotification::type)
+                        .returns(2, PublisherStatusUpdateNotification::activePublishers);
+                // Clear the previously sent notifications from original setup in order not to clutter the assertions.
+                messagingFacility.getSentPublisherStatusUpdateNotifications().clear();
+                // Remove one handler.
+                toTest.removeHandler(publisherHandlerId);
+                // Assert that a status update notification was sent.
+                assertThat(messagingFacility.getSentPublisherStatusUpdateNotifications())
+                        .hasSize(1)
+                        .last()
+                        .returns(UpdateType.PUBLISHER_DISCONNECTED, PublisherStatusUpdateNotification::type)
+                        .returns(1, PublisherStatusUpdateNotification::activePublishers);
+                // Remove the second handler.
+                toTest.removeHandler(publisherHandlerId2);
+                // Assert that a status update notification was sent.
+                assertThat(messagingFacility.getSentPublisherStatusUpdateNotifications())
+                        .hasSize(2)
+                        .last()
+                        .returns(UpdateType.PUBLISHER_DISCONNECTED, PublisherStatusUpdateNotification::type)
+                        .returns(0, PublisherStatusUpdateNotification::activePublishers);
+            }
+
+            /**
+             * This test aims to assert that removing a handler
+             * via {@link LiveStreamPublisherManager#removeHandler(long)}
+             * will update the current active publishers count metric.
+             */
+            @Test
+            @DisplayName("removeHandler() updates the current active publishers count metric")
+            void testRemoveHandlerUpdatesActivePublishersMetric() {
+                // Make a pre-check that the active publishers metric is 2 from original setup.
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(2);
+                // Remove one handler.
+                toTest.removeHandler(publisherHandlerId);
+                // Assert that the active publishers metric is now 1.
+                assertThat(managerMetrics.currentPublisherCount().get()).isEqualTo(1);
+                // Remove the second handler.
+                toTest.removeHandler(publisherHandlerId2);
+                // Assert that the active publishers metric is now 0.
+                assertThat(managerMetrics.currentPublisherCount().get()).isZero();
             }
         }
     }

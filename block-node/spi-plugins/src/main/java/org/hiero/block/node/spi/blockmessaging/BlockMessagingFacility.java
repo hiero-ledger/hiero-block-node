@@ -19,7 +19,7 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      *
      * @param blockItems the block items to send
      */
-    void sendBlockItems(BlockItems blockItems);
+    void sendBlockItems(final BlockItems blockItems);
 
     /**
      * Use this method to register a block item handler. The handler will be called every time new block items arrive.
@@ -33,7 +33,8 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      * @param handlerName         the name of the handler, used for thread name and logging
      * @throws IllegalStateException if the service is already started
      */
-    void registerBlockItemHandler(BlockItemHandler handler, boolean cpuIntensiveHandler, String handlerName);
+    void registerBlockItemHandler(
+            final BlockItemHandler handler, final boolean cpuIntensiveHandler, final String handlerName);
 
     /**
      * Use this method to dynamically register a block item handler. The handler will be called every time new block
@@ -47,7 +48,7 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      * @param handlerName         the name of the handler, used for thread name and logging
      */
     void registerNoBackpressureBlockItemHandler(
-            NoBackPressureBlockItemHandler handler, boolean cpuIntensiveHandler, String handlerName);
+            final NoBackPressureBlockItemHandler handler, final boolean cpuIntensiveHandler, final String handlerName);
 
     /**
      * Use this method to unregister any block item handler. The handler will no longer be called when new block
@@ -56,36 +57,44 @@ public interface BlockMessagingFacility extends BlockNodePlugin {
      *
      * @param handler the block item handler to unregister
      */
-    void unregisterBlockItemHandler(BlockItemHandler handler);
+    void unregisterBlockItemHandler(final BlockItemHandler handler);
 
     /**
      * Use this method to send block verification notifications to all registered handlers.
      *
      * @param notification the block verification notification to send
      */
-    void sendBlockVerification(VerificationNotification notification);
+    void sendBlockVerification(final VerificationNotification notification);
 
     /**
      * Use this method to send block persisted notifications to all registered handlers.
      *
      * @param notification the block persisted notification to send
      */
-    void sendBlockPersisted(PersistedNotification notification);
+    void sendBlockPersisted(final PersistedNotification notification);
 
     /**
      * Use this method to send backfilled block notifications to all registered handlers.
      *
      * @param notification the backfilled block notification to send
      */
-    void sendBackfilledBlockNotification(BackfilledBlockNotification notification);
+    void sendBackfilledBlockNotification(final BackfilledBlockNotification notification);
 
     /**
      * Use this method to notify the system about a new block known to the network.
      * This is used to inform the system that a new block header is known to the network,
      * and our node should attempt to get up to date with the latest block.
+     *
      * @param notification the notification containing the block number.
      */
-    void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification);
+    void sendNewestBlockKnownToNetwork(final NewestBlockKnownToNetworkNotification notification);
+
+    /**
+     * Use this method to send a publisher status update to all registered handlers.
+     *
+     * @param notification the publisher status update notification to send
+     */
+    void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification);
 
     /**
      * Use this method to register a block notification handler. The handler will be called every time new block

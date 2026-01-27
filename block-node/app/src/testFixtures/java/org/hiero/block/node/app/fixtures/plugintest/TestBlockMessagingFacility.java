@@ -16,6 +16,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
@@ -46,6 +47,9 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     private final List<PersistedNotification> sentPersistedNotifications = new CopyOnWriteArrayList<>();
     /** List of all sent backfilled block notifications */
     private final List<NewestBlockKnownToNetworkNotification> sentNewestBlockKnownToNetworkNotifications =
+            new CopyOnWriteArrayList<>();
+    /** List of all sent publisher status update notifications */
+    private final List<PublisherStatusUpdateNotification> sentPublisherStatusUpdateNotifications =
             new CopyOnWriteArrayList<>();
     /** Set of handlers for which we must simulate a handler that is behind and producing backpressure. */
     private final Set<BlockItemHandler> handlersWithBackpressure =
@@ -85,6 +89,15 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
      */
     public List<NewestBlockKnownToNetworkNotification> getSentNewestBlockKnownToNetworkNotifications() {
         return sentNewestBlockKnownToNetworkNotifications;
+    }
+
+    /**
+     * Get all publisher status update notifications sent to the block messaging facility.
+     *
+     * @return the list of sent publisher status update notifications
+     */
+    public List<PublisherStatusUpdateNotification> getSentPublisherStatusUpdateNotifications() {
+        return sentPublisherStatusUpdateNotifications;
     }
 
     /**
@@ -244,6 +257,15 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         sentNewestBlockKnownToNetworkNotifications.add(notification);
         for (BlockNotificationHandler handler : blockNotificationHandlers) {
             handler.handleNewestBlockKnownToNetwork(notification);
+        }
+    }
+
+    @Override
+    public void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {
+        LOGGER.log(Level.TRACE, "Sending PublisherStatusUpdateNotification block notification " + notification);
+        sentPublisherStatusUpdateNotifications.add(notification);
+        for (final BlockNotificationHandler handler : blockNotificationHandlers) {
+            handler.handlePublisherStatusUpdate(notification);
         }
     }
 

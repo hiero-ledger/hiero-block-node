@@ -10,6 +10,7 @@ import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.metrics.api.Counter;
+import com.swirlds.metrics.api.IntegerGauge;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -38,6 +39,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
+import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
@@ -107,6 +110,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 new PublisherHandler(handlerId, replies, handlerMetrics, this, registerTransferQueue(handlerId));
         handlers.put(handlerId, newHandler);
         metrics.currentPublisherCount().set(handlers.size());
+        // query the current publisher count again in case someone has just disconnected
+        final PublisherStatusUpdateNotification notification =
+                new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_CONNECTED, getCurrentPublisherCount());
+        // send a publisher update
+        serverContext.blockMessaging().sendPublisherStatusUpdate(notification);
         LOGGER.log(TRACE, "Added new handler {0}", handlerId);
         return newHandler;
     }
@@ -152,8 +160,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 break; // There will only be one entry with this queue.
             }
         }
-        LOGGER.log(TRACE, "Removed handler {0} and its transfer queue {1}", handlerId, queueId);
         metrics.currentPublisherCount().set(handlers.size());
+        // query the current publisher count again in case someone has just connected
+        final PublisherStatusUpdateNotification notification =
+                new PublisherStatusUpdateNotification(UpdateType.PUBLISHER_DISCONNECTED, getCurrentPublisherCount());
+        // send a publisher update
+        serverContext.blockMessaging().sendPublisherStatusUpdate(notification);
+        LOGGER.log(TRACE, "Removed handler {0} and its transfer queue {1}", handlerId, queueId);
     }
 
     /**
@@ -658,6 +671,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
+    private int getCurrentPublisherCount() {
+        return metrics.currentPublisherCount.get();
+    }
+
     /**
      * todo(1420) add documentation
      */
@@ -769,7 +786,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     public record MetricsHolder(
             Counter blockItemsMessaged,
             Counter blockBatchesMessaged,
-            LongGauge currentPublisherCount,
+            IntegerGauge currentPublisherCount,
             LongGauge lowestBlockNumber,
             LongGauge highestBlockNumber,
             LongGauge latestBlockNumberAcknowledged,
@@ -787,8 +804,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final Counter blocksClosedComplete =
                     metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_closed_complete")
                             .withDescription("Blocks received complete (with both header and proof) by any Handler"));
-            final LongGauge numberOfProducers =
-                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_open_connections")
+            final IntegerGauge numberOfProducers =
+                    metrics.getOrCreate(new IntegerGauge.Config(METRICS_CATEGORY, "publisher_open_connections")
                             .withDescription("Connected publishers"));
             final LongGauge lowestBlockNumber =
                     metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_lowest_block_number_inbound")
