@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.internal;
+
+option java_package = "org.hiero.block.internal.protoc";
+// <<<pbj.java_package = "org.hiero.block.internal">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+import "services/basic_types.proto";
+import "services/timestamp.proto";
+
+/**
+ * A registry of node address books. This allows storing of a ordered history
+ * of address books for a network.
+ */
+message AddressBookHistory {
+    /*
+     * An ordered list of address books, from oldest to newest.
+     */
+    repeated DatedNodeAddressBook address_books = 1;
+}
+
+/**
+ * A node address book at a specific block timestamp. The block is the block
+ * that updated this address book. So the address book is valid for all blocks
+ * with timestamps greater than or equal to the block timestamp, until the next
+ * address book update.
+ */
+message DatedNodeAddressBook {
+    /**
+     * The block timestamp at which this address book got set, it is valid for
+     * all blocks after, until the next update.
+     */
+    proto.Timestamp block_timestamp = 1;
+    /**
+     * The node address book valid after the given block.
+     */
+    proto.NodeAddressBook address_book = 2;
+}

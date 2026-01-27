@@ -1,0 +1,366 @@
+// SPDX-License-Identifier: Apache-2.0
+package org.hiero.block.tools.days.subcommands;
+
+import static org.hiero.block.tools.records.RecordFileDates.convertInstantToStringWithPadding;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.hiero.block.tools.days.download.DownloadConstants;
+import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
+import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
+import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
+import org.hiero.block.tools.utils.PrettyPrint;
+import org.hiero.block.tools.utils.gcp.MainNetBucket;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Help.Ansi;
+import picocli.CommandLine.Option;
+
+/**
+ * Command to fix missing signatures in downloaded days
+ */
+@SuppressWarnings({"FieldCanBeLocal", "UnusedAssignment"})
+@Command(
+        name = "fix-missing-signatures",
+        description = "Command to fix missing signatures in downloaded days",
+        mixinStandardHelpOptions = true)
+public class FixMissingSignatures implements Runnable {
+    /** Estimated number of blocks per day (used for progress reporting) */
+    private static final int ESTIMATE_BLOCKS_PER_DAY = 24 * 60 * 30; // 1 block every 2 seconds
+
+    @Option(
+            names = {"--min-node"},
+            description = "Minimum node account ID (default: 3)")
+    private int minNodeAccountId = 3;
+
+    @Option(
+            names = {"--max-node"},
+            description = "Maximum node account ID (default: 37)")
+    private int maxNodeAccountId = 37;
+
+    @Option(
+            names = {"-d", "--downloaded-days-dir"},
+            description = "Directory where downloaded days are stored")
+    private File compressedDaysDir = new File("compressedDays");
+
+    @Option(
+            names = {"-f", "--fixed-days-dir"},
+            description = "Directory where fixed downloaded days are stored")
+    private File fixedCompressedDaysDir = new File("compressedDays-FIXED");
+
+    @Option(
+            names = {"-p", "--user-project"},
+            description = "GCP project to bill for requester-pays bucket access (default: from GCP_PROJECT_ID env var)")
+    private String userProject = DownloadConstants.GCP_PROJECT_ID;
+
+    @Option(
+            names = {"--single-day"},
+            description = "Process only a single day (format: YYYY-MM-DD, e.g., 2025-10-09)")
+    private String singleDay = null;
+
+    @SuppressWarnings("BusyWait")
+    @Override
+    public void run() {
+        // Check compressedDaysDir
+        if (!compressedDaysDir.exists() || !compressedDaysDir.isDirectory()) {
+            System.out.println(Ansi.AUTO.string(
+                    "@|red Error: compressedDays directory not found at: " + compressedDaysDir + "|@"));
+            return;
+        }
+        // find first and last days in compressedDaysDir
+        List<LocalDate> days;
+        try (var stream = Files.list(compressedDaysDir.toPath())) {
+            days = stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".tar.zstd"))
+                    .map(path -> {
+                        final String fileName = path.getFileName().toString();
+                        return LocalDate.parse(fileName.substring(0, fileName.indexOf(".")));
+                    })
+                    .sorted()
+                    .collect(Collectors.toList()); // need modifiable list
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        if (days.isEmpty()) {
+            System.out.println(Ansi.AUTO.string(
+                    "@|red Error: no days found in compressedDays directory at: " + compressedDaysDir + "|@"));
+            return;
+        }
+        // Handle --single-day option: override the days list to process only the specified day
+        if (singleDay != null) {
+            LocalDate targetDay;
+            try {
+                targetDay = LocalDate.parse(singleDay);
+            } catch (Exception e) {
+                System.out.println(Ansi.AUTO.string("@|red Error: Invalid date format for --single-day: " + singleDay
+                        + ". Expected format: YYYY-MM-DD (e.g., 2025-10-09)|@"));
+                return;
+            }
+            if (!days.contains(targetDay)) {
+                System.out.println(Ansi.AUTO.string("@|red Error: Specified day " + singleDay
+                        + " not found in compressedDays directory. Available range: " + days.getFirst() + " to "
+                        + days.getLast() + "|@"));
+                return;
+            }
+            days.clear();
+            days.add(targetDay);
+            System.out.println(Ansi.AUTO.string("@|cyan Processing single day: " + targetDay + "|@"));
+        }
+        // Check fixedCompressedDaysDir
+        if (!fixedCompressedDaysDir.exists()) {
+            if (fixedCompressedDaysDir.mkdirs()) {
+                System.out.println(Ansi.AUTO.string("@|white created fixedCompressedDaysDir directory |@"));
+            } else {
+                System.out.println(
+                        Ansi.AUTO.string("@|red Error: could not create fixedCompressedDaysDir directory at: "
+                                + fixedCompressedDaysDir + "|@"));
+                return;
+            }
+        } else if (!fixedCompressedDaysDir.isDirectory()) {
+            System.out.println(Ansi.AUTO.string(
+                    "@|red Error: fixedCompressedDaysDir is not a directory at: " + fixedCompressedDaysDir + "|@"));
+            return;
+        } else {
+            // check for already existing fixed day files and skip those days
+            try (var stream = Files.list(fixedCompressedDaysDir.toPath())) {
+                stream.filter(Files::isRegularFile)
+                        .filter(path -> path.getFileName().toString().endsWith(".tar.zstd"))
+                        .sorted()
+                        .forEach(fixedDayPath -> {
+                            final String fileName = fixedDayPath.getFileName().toString();
+                            final LocalDate day = LocalDate.parse(fileName.substring(0, fileName.indexOf(".")));
+                            final Path originalDayPath =
+                                    compressedDaysDir.toPath().resolve(fileName);
+                            // check the fixed files is same size or larger than original
+                            try {
+                                if (Files.size(fixedDayPath) >= Files.size(originalDayPath)) {
+                                    System.out.println(
+                                            Ansi.AUTO.string("@|yellow Skipping already fixed day: " + day + "|@"));
+                                    days.remove(day);
+                                } else {
+                                    Files.delete(fixedDayPath);
+                                    System.out.println(Ansi.AUTO.string(
+                                            "@|yellow Deleting partial fixed day (fixed file smaller than original): "
+                                                    + day + "|@"));
+                                }
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        });
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+        // collect range of days
+        final int numOfDays = days.size();
+        System.out.println(Ansi.AUTO.string(
+                "@|green ✓ Found source date range: " + days.getFirst() + " to " + days.getLast() + "|@\n"));
+        // Set up GCP bucket access
+        final MainNetBucket bucket = new MainNetBucket(
+                false, Path.of("metadata/gcp-cache"), minNodeAccountId, maxNodeAccountId, userProject);
+
+        // Producer-consumer queue with bounded capacity for backpressure
+        final BlockingQueue<DayWork> dayListingsQueue = new LinkedBlockingQueue<>(10);
+        // start a background thread to fetch day bucket signatures
+        Thread fetcherThread = new Thread(() -> {
+            try {
+                for (LocalDate day : days) {
+                    dayListingsQueue.put(new DayWork(day, bucket.listSignatureFilesForDay(day.toString())));
+                }
+            } catch (Exception e) {
+                //noinspection CallToPrintStackTrace
+                e.printStackTrace();
+                throw new RuntimeException(e);
+            }
+        });
+        fetcherThread.start();
+
+        // ETA/speed tracking state
+        final long startNanos = System.nanoTime();
+        final AtomicLong totalProgress = new AtomicLong((long) numOfDays * ESTIMATE_BLOCKS_PER_DAY);
+        final AtomicLong progress = new AtomicLong(0);
+        // Track speed calculation over last 10 seconds of wall clock time
+        final AtomicReference<Instant> lastSpeedCalcBlockTime = new AtomicReference<>();
+        final AtomicLong lastSpeedCalcRealTimeNanos = new AtomicLong(0);
+
+        // process each day
+        int dayCount = 0;
+        long progressAtStartOfDay = 0L;
+        while (!dayListingsQueue.isEmpty() || fetcherThread.isAlive()) {
+            DayWork dayWork = dayListingsQueue.poll();
+            if (dayWork == null) {
+                // wait a bit and retry
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                continue;
+            }
+            progressAtStartOfDay = progress.get();
+            fixDaySignatures(
+                    numOfDays,
+                    dayCount,
+                    dayWork.day,
+                    bucket,
+                    dayWork.bucketSignatures,
+                    startNanos,
+                    totalProgress,
+                    progress,
+                    lastSpeedCalcBlockTime,
+                    lastSpeedCalcRealTimeNanos);
+            dayCount++;
+            // After finishing the day, update aggregates
+            final long progressAtEndOfDay = progress.get();
+            final long blocksInDay = progressAtEndOfDay - progressAtStartOfDay;
+            final long remainingDays = numOfDays - dayCount;
+            // update total estimate based on actual blocks processed in this day
+            totalProgress.set(progressAtEndOfDay + (remainingDays * blocksInDay));
+        }
+        // clear the progress line once done and print a summary
+        PrettyPrint.clearProgress();
+        System.out.println(
+                "Fix signatures complete. Days processed: " + dayCount + ", Blocks processed: " + progress.get());
+    }
+
+    private record DayWork(LocalDate day, Map<Instant, Set<String>> bucketSignatures) {}
+
+    private void fixDaySignatures(
+            int numOfDays,
+            int dayIndex,
+            LocalDate day,
+            MainNetBucket bucket,
+            final Map<Instant, Set<String>> bucketSignatures,
+            long startNanos,
+            AtomicLong totalProgress,
+            AtomicLong progress,
+            AtomicReference<Instant> lastSpeedCalcBlockTime,
+            AtomicLong lastSpeedCalcRealTimeNanos) {
+        final String progressPrefix = String.format("Day %d of %d (%s)", dayIndex + 1, numOfDays, day);
+        // Compute the path to the day file
+        final String dayFileName = day.toString() + ".tar.zstd";
+        final Path srcDayPath = compressedDaysDir.toPath().resolve(dayFileName);
+        final Path dstDayPath = fixedCompressedDaysDir.toPath().resolve(dayFileName);
+
+        try (Stream<UnparsedRecordBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(srcDayPath);
+                ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(dstDayPath)) {
+            // we have a stream of files and need to collect all files for a block
+            // Track the last consensus-minute (epoch minute) we reported progress for so we only print
+            // once per minute of consensus time.
+            final AtomicLong lastReportedMinute = new AtomicLong(Long.MIN_VALUE);
+            stream.forEach((UnparsedRecordBlock block) -> {
+                final Instant blockTime = block.recordFileTime();
+                final String blockTimeFileStr = convertInstantToStringWithPadding(blockTime);
+                // get expected signatures from bucket
+                Set<String> expectedSignatures = bucketSignatures.get(block.recordFileTime());
+                if (expectedSignatures == null) {
+                    PrettyPrint.clearProgress();
+                    System.out.println(Ansi.AUTO.string(
+                            "@|red Error: No signatures found in bucket for block time: " + blockTime + "|@"));
+                    // print top 10 available block times in bucket for this day
+                    List<String> availableBlockTimes = bucketSignatures.keySet().stream()
+                            .sorted()
+                            .limit(10)
+                            .map(Instant::toString)
+                            .toList();
+                    System.out.println(Ansi.AUTO.string("@|yellow Available block times in bucket for day " + day + ": "
+                            + String.join(", ", availableBlockTimes) + "|@"));
+                    throw new RuntimeException("No signatures found in bucket for block time: " + blockTime);
+                }
+                // remove all signatures present in the block
+                for (InMemoryFile sigFile : block.signatureFiles()) {
+                    final String sigFileName = sigFile.path().getFileName().toString(); // eg. node_0.0.10.rcd_sig
+                    final String sigNodeId =
+                            sigFileName.substring(sigFileName.indexOf("_") + 1, sigFileName.indexOf(".rc"));
+                    expectedSignatures.remove(sigNodeId);
+                }
+                // whatever remains in expectedSignatures is missing from the downloaded block, so download from bucket
+                // gs://hedera-mainnet-streams/recordstreams/record0.0.3/2019-10-09T21_32_20.601587003Z.rcd_sig
+                List<InMemoryFile> newSigFiles = expectedSignatures.stream()
+                        .parallel()
+                        .map((String sigNodeId) -> {
+                            String sigBucketPath =
+                                    "recordstreams/record" + sigNodeId + "/" + blockTimeFileStr + ".rcd_sig";
+                            // example path 2024-06-18T00_00_00.001886911Z/node_0.0.10.rcd_sig
+                            return new InMemoryFile(
+                                    Path.of(blockTimeFileStr + "/node_" + sigNodeId + ".rcd_sig"),
+                                    bucket.download(sigBucketPath));
+                        })
+                        .toList();
+                // add the new signature files to the block
+                block.signatureFiles().addAll(newSigFiles);
+                // write the updated block to the new day file
+                writer.putEntry(block.primaryRecordFile());
+                block.signatureFiles().forEach(writer::putEntry);
+                block.otherRecordFiles().forEach(writer::putEntry);
+                block.primarySidecarFiles().forEach(writer::putEntry);
+                block.otherSidecarFiles().forEach(writer::putEntry);
+
+                // update progress counter
+                progress.incrementAndGet();
+
+                // Calculate processing speed over last 10 seconds of wall clock time
+                final long currentRealTimeNanos = System.nanoTime();
+                final long tenSecondsInNanos = 10_000_000_000L;
+                String speedString = "";
+
+                // Initialize tracking on the first block
+                if (lastSpeedCalcBlockTime.get() == null) {
+                    lastSpeedCalcBlockTime.set(blockTime);
+                    lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+                }
+
+                // Update the tracking window if more than 10 seconds of real time has elapsed
+                long realTimeSinceLastCalc = currentRealTimeNanos - lastSpeedCalcRealTimeNanos.get();
+                if (realTimeSinceLastCalc >= tenSecondsInNanos) {
+                    lastSpeedCalcBlockTime.set(blockTime);
+                    lastSpeedCalcRealTimeNanos.set(currentRealTimeNanos);
+                }
+
+                // Calculate speed if we have at least 1 second of real time elapsed since tracking point
+                if (realTimeSinceLastCalc >= 1_000_000_000L) { // At least 1 second
+                    long dataTimeElapsedMillis = blockTime.toEpochMilli()
+                            - lastSpeedCalcBlockTime.get().toEpochMilli();
+                    long realTimeElapsedMillis = realTimeSinceLastCalc / 1_000_000L;
+                    double speedMultiplier = (double) dataTimeElapsedMillis / (double) realTimeElapsedMillis;
+                    speedString = String.format(" speed %.1fx", speedMultiplier);
+                }
+
+                // Build progress string showing time
+                final String progressString = String.format("%s %s%s", progressPrefix, blockTime, speedString);
+
+                // Estimate totals and ETA
+                final long elapsedMillis = (currentRealTimeNanos - startNanos) / 1_000_000L;
+                // Progress percent and remaining
+                final long processedSoFarAcrossAll = progress.get();
+                final long totalProgressFinal = totalProgress.get();
+                double percent = ((double) processedSoFarAcrossAll / (double) totalProgressFinal) * 100.0;
+                long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
+                        processedSoFarAcrossAll, totalProgressFinal, elapsedMillis);
+
+                // Only print progress once per consensus-minute of blocks processed. Use epoch-second / 60
+                // to compute the minute bucket for the block's consensus time.
+                long blockMinute = blockTime.getEpochSecond() / 60L;
+                if (blockMinute != lastReportedMinute.get()) {
+                    PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
+                    lastReportedMinute.set(blockMinute);
+                }
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
