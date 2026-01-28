@@ -38,7 +38,7 @@ function log_line {
   else
     local formatted
     # shellcheck disable=SC2059
-    formatted=$(printf "${message}" "${@}")
+    formatted=$(printf -- "${message}" "${@}")
     printf '%s\n' "${formatted}"
   fi
 }
@@ -58,59 +58,6 @@ function start_task {
 
 function end_task {
   printf "%s\n" "${1:-DONE}"
-}
-
-# Extract numeric ID from block node name (block-node-X -> X)
-function extract_bn_id {
-  local bn_name="${1}"
-  echo "${bn_name}" | sed 's/^block-node-//'
-}
-
-# Generate --block-node-cfg JSON from topology
-# Output: {"node1":["1=1","2=2"],"node2":["2=1","1=2"]}
-function generate_block_node_cfg {
-  local topology_file="${1}"
-
-  # Check if consensus_nodes section exists
-  local has_cn_section
-  has_cn_section=$(yq '.consensus_nodes | keys | length // 0' "${topology_file}" 2>/dev/null)
-
-  if [[ "${has_cn_section}" -eq 0 ]]; then
-    echo ""  # No CN section, return empty (Solo will use defaults)
-    return
-  fi
-
-  local cn_names
-  cn_names=$(yq -r '.consensus_nodes | keys[]' "${topology_file}")
-
-  local json_entries=""
-  while IFS= read -r cn_name; do
-    [[ -z "${cn_name}" ]] && continue
-
-    local bn_entries=""
-    local priority=1
-
-    # Read block_nodes array for this CN
-    local bn_list
-    bn_list=$(yq -r ".consensus_nodes[\"${cn_name}\"].block_nodes[]" "${topology_file}" 2>/dev/null)
-
-    while IFS= read -r bn_ref; do
-      [[ -z "${bn_ref}" ]] && continue
-
-      local bn_id
-      bn_id=$(extract_bn_id "${bn_ref}")
-
-      [[ -n "${bn_entries}" ]] && bn_entries="${bn_entries},"
-      bn_entries="${bn_entries}\"${bn_id}=${priority}\""
-
-      priority=$((priority + 1))
-    done <<< "${bn_list}"
-
-    [[ -n "${json_entries}" ]] && json_entries="${json_entries},"
-    json_entries="${json_entries}\"${cn_name}\":[${bn_entries}]"
-  done <<< "${cn_names}"
-
-  echo "{${json_entries}}"
 }
 
 function show_help {
@@ -333,10 +280,10 @@ function deploy_block_nodes {
     --output-dir "${overlay_dir}" || fail "ERROR: Failed to generate Helm overlays" 1
   end_task
 
-  # Print all generated YAML files for troubleshooting
+  # Print all generated overlay files for troubleshooting
   log_line ""
   log_line "Generated overlay files:"
-  for overlay_file in "${overlay_dir}"/*.yaml; do
+  for overlay_file in "${overlay_dir}"/*.yaml "${overlay_dir}"/*.json "${overlay_dir}"/*.txt; do
     if [[ -f "${overlay_file}" ]]; then
       log_line "--- %s ---" "$(basename "${overlay_file}")"
       cat "${overlay_file}"
@@ -355,6 +302,18 @@ function deploy_block_nodes {
     if [[ -f "${bn_overlay}" ]]; then
       overlay_args="-f ${bn_overlay}"
       log_line "  Using backfill overlay for block-node-${i}"
+    fi
+
+    # Read priority mapping for this BN (BN-centric CN routing config)
+    local priority_mapping_file="${overlay_dir}/bn-block-node-${i}-priority-mapping.txt"
+    local priority_mapping_args=""
+    if [[ -f "${priority_mapping_file}" ]]; then
+      local priority_mapping
+      priority_mapping=$(cat "${priority_mapping_file}")
+      if [[ -n "${priority_mapping}" ]]; then
+        priority_mapping_args="--priority-mapping ${priority_mapping}"
+        log_line "  Priority mapping for block-node-${i}: %s" "${priority_mapping}"
+      fi
     fi
 
     # Enable observability stack only on the last block node if enabled.
@@ -376,7 +335,8 @@ function deploy_block_nodes {
       --deployment "${DEPLOYMENT}" \
       --cluster-ref "${CLUSTER_REF}" \
       ${bn_args} \
-      ${overlay_args} || fail "ERROR: Failed to deploy Block Node ${i}" 1
+      ${overlay_args} \
+      ${priority_mapping_args} || fail "ERROR: Failed to deploy Block Node ${i}" 1
     end_task
   done
 
@@ -394,14 +354,16 @@ function deploy_consensus_nodes {
     cn_args="--release-tag ${CN_VERSION}"
   fi
 
-  # Generate block-node-cfg JSON from topology for CN→BN priority routing
-  local block_node_cfg
-  block_node_cfg=$(generate_block_node_cfg "${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml")
-
+  # Read block-node-cfg JSON from generated overlay file for CN→BN priority routing
+  local block_node_cfg_file="${OVERLAY_DIR}/cn-block-node-cfg.json"
   local block_node_cfg_args=""
-  if [[ -n "${block_node_cfg}" ]]; then
-    block_node_cfg_args="--block-node-cfg '${block_node_cfg}'"
-    log_line "  Block Node Configuration: %s" "${block_node_cfg}"
+  if [[ -f "${block_node_cfg_file}" ]]; then
+    local block_node_cfg
+    block_node_cfg=$(cat "${block_node_cfg_file}")
+    if [[ -n "${block_node_cfg}" ]]; then
+      block_node_cfg_args="--block-node-cfg '${block_node_cfg}'"
+      log_line "  Block Node Configuration: %s" "${block_node_cfg}"
+    fi
   fi
 
   start_task "Generating consensus keys for ${NODE_ALIASES}"

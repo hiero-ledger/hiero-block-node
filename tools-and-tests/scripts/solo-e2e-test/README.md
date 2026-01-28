@@ -289,17 +289,29 @@ The topology file's `consensus_nodes` section controls which Block Nodes each Co
 ```yaml
 consensus_nodes:
   node1:
-    block_nodes: [block-node-1, block-node-2]  # BN-1 is primary (priority 1)
-  node4:
-    block_nodes: [block-node-2, block-node-1]  # BN-2 is primary for node4
+    block_nodes: [block-node-1]               # Only streams to BN-1
+  node2:
+    block_nodes: [block-node-2, block-node-1] # BN-2 primary, BN-1 fallback
+  node3:
+    block_nodes: [block-node-1, block-node-2] # BN-1 primary, BN-2 fallback
 ```
 
 **Priority**: The position in the `block_nodes` array determines priority (1-indexed).
 First = highest priority (primary), subsequent entries are fallbacks.
+CNs not listing a BN will not stream to that BN.
 
-This is passed to Solo v0.54+ via `--block-node-cfg` during consensus network deployment.
-The generated JSON format is: `{"node1":["1=1","2=2"],"node4":["2=1","1=2"]}` where each
-entry is `"blockNodeId=priority"`.
+### How It Works
+
+The deploy script generates two configurations from the topology:
+
+1. **BN-centric** (`--priority-mapping` on `block node add`): Inverts the topology to specify
+   which CNs should route to each BN. Example for BN-1: `node1=1,node2=2,node3=1`
+
+2. **CN-centric** (`--block-node-cfg` on `consensus network deploy`): Direct mapping of CNs to BNs.
+   Example: `{"node1":["1=1"],"node2":["2=1","1=2"]}`
+
+> **Note**: Currently only `--priority-mapping` correctly applies priorities. The `--block-node-cfg`
+> parameter has a Solo bug where priorities are ignored. Both are passed for forward compatibility.
 
 ## Topologies
 

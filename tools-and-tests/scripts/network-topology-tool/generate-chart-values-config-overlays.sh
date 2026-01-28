@@ -19,6 +19,7 @@
 # Output Files:
 #   bn-<node-id>-values.yaml   Block Node overlay (only for BNs with peers)
 #   mn-<node-id>-values.yaml   Mirror Node overlay
+#   cn-block-node-cfg.json     CN→BN routing config for Solo --block-node-cfg
 #
 # Examples:
 #   # Generate overlays from a topology file (outputs to ./out/fan-out-3cn-2bn/)
@@ -283,6 +284,128 @@ EOF
   log_line "Generated MN overlay: %s" "${output_file}"
 }
 
+# Extract numeric ID from block node name (block-node-X -> X)
+function extract_bn_id {
+  local bn_name="${1}"
+  echo "${bn_name}" | sed 's/^block-node-//'
+}
+
+# Generate CN→BN routing config JSON for Solo --block-node-cfg parameter
+# Output format: {"node1":["1=1","2=2"],"node2":["2=1","1=2"]}
+# Each entry is "blockNodeId=priority" where priority comes from position in array
+function generate_cn_block_node_cfg {
+  local output_file="${1}"
+
+  # Check if consensus_nodes section exists
+  local has_cn_section
+  has_cn_section=$(yq '.consensus_nodes | keys | length // 0' "${TOPOLOGY_FILE}" 2>/dev/null)
+
+  if [[ "${has_cn_section}" -eq 0 ]]; then
+    return 0  # No consensus_nodes section, nothing to generate
+  fi
+
+  local cn_names
+  cn_names=$(yq -r '.consensus_nodes | keys[]' "${TOPOLOGY_FILE}")
+
+  local json_entries=""
+  while IFS= read -r cn_name; do
+    [[ -z "${cn_name}" ]] && continue
+
+    local bn_entries=""
+    local priority=1
+
+    # Read block_nodes array for this CN
+    local bn_list
+    bn_list=$(yq -r ".consensus_nodes[\"${cn_name}\"].block_nodes[]" "${TOPOLOGY_FILE}" 2>/dev/null)
+
+    while IFS= read -r bn_ref; do
+      [[ -z "${bn_ref}" ]] && continue
+
+      local bn_id
+      bn_id=$(extract_bn_id "${bn_ref}")
+
+      [[ -n "${bn_entries}" ]] && bn_entries="${bn_entries},"
+      bn_entries="${bn_entries}\"${bn_id}=${priority}\""
+
+      priority=$((priority + 1))
+    done <<< "${bn_list}"
+
+    [[ -n "${json_entries}" ]] && json_entries="${json_entries},"
+    json_entries="${json_entries}\"${cn_name}\":[${bn_entries}]"
+  done <<< "${cn_names}"
+
+  local json_config="{${json_entries}}"
+
+  # Write to file
+  echo "${json_config}" > "${output_file}"
+
+  log_line "Generated CN block-node-cfg: %s" "${output_file}"
+}
+
+# Generate BN-centric priority mappings for Solo --priority-mapping parameter
+# Inverts the CN-centric topology to BN-centric view
+# Output: One file per BN with format "node1=1,node2=2,node3=1"
+function generate_bn_priority_mappings {
+  local output_dir="${1}"
+
+  # Check if consensus_nodes section exists
+  local has_cn_section
+  has_cn_section=$(yq '.consensus_nodes | keys | length // 0' "${TOPOLOGY_FILE}" 2>/dev/null)
+
+  if [[ "${has_cn_section}" -eq 0 ]]; then
+    return 0  # No consensus_nodes section
+  fi
+
+  # Get all block node names
+  local bn_names
+  bn_names=$(yq -r '.block_nodes | keys[]' "${TOPOLOGY_FILE}" 2>/dev/null)
+
+  if [[ -z "${bn_names}" ]]; then
+    return 0
+  fi
+
+  # For each block node, find which CNs route to it and with what priority
+  while IFS= read -r bn_name; do
+    [[ -z "${bn_name}" ]] && continue
+
+    local mapping_entries=""
+
+    # Check each CN's block_nodes array
+    local cn_names
+    cn_names=$(yq -r '.consensus_nodes | keys[]' "${TOPOLOGY_FILE}")
+
+    while IFS= read -r cn_name; do
+      [[ -z "${cn_name}" ]] && continue
+
+      # Get this CN's block_nodes array and find position of current BN
+      local bn_list
+      bn_list=$(yq -r ".consensus_nodes[\"${cn_name}\"].block_nodes[]" "${TOPOLOGY_FILE}" 2>/dev/null)
+
+      local priority=1
+      local found=false
+      while IFS= read -r bn_ref; do
+        [[ -z "${bn_ref}" ]] && continue
+
+        if [[ "${bn_ref}" == "${bn_name}" ]]; then
+          # This CN routes to this BN with this priority
+          [[ -n "${mapping_entries}" ]] && mapping_entries="${mapping_entries},"
+          mapping_entries="${mapping_entries}${cn_name}=${priority}"
+          found=true
+          break
+        fi
+        priority=$((priority + 1))
+      done <<< "${bn_list}"
+    done <<< "${cn_names}"
+
+    # Write mapping file for this BN
+    if [[ -n "${mapping_entries}" ]]; then
+      local output_file="${output_dir}/bn-${bn_name}-priority-mapping.txt"
+      echo "${mapping_entries}" > "${output_file}"
+      log_line "Generated BN priority mapping: %s" "${output_file}"
+    fi
+  done <<< "${bn_names}"
+}
+
 function main {
   log_line "Generating Helm overlays from: %s" "${TOPOLOGY_FILE}"
   log_line "  Namespace: %s" "${NAMESPACE}"
@@ -310,6 +433,12 @@ function main {
       generate_mn_overlay "${mn_name}" "${OUTPUT_DIR}/mn-${mn_name}-values.yaml"
     done <<< "${mn_names}"
   fi
+
+  # Generate CN→BN routing config for Solo --block-node-cfg
+  generate_cn_block_node_cfg "${OUTPUT_DIR}/cn-block-node-cfg.json"
+
+  # Generate BN priority mappings for Solo --priority-mapping (inverted view)
+  generate_bn_priority_mappings "${OUTPUT_DIR}"
 
   log_line ""
   log_line "Overlay generation complete."
