@@ -44,9 +44,6 @@ import org.junit.jupiter.api.Test;
 @DisplayName("BlockStreamBlockHasher Tests - Design Doc Compliance")
 class BlockStreamBlockHasherTest {
 
-    /** SHA-384 zero hash (48 bytes of zeros) for empty/missing state. */
-    private static final byte[] ZERO_HASH = Sha384.ZERO_HASH;
-
     private MessageDigest digest;
 
     @BeforeEach
@@ -153,36 +150,6 @@ class BlockStreamBlockHasherTest {
 
             assertNotNull(hash, "Single-child internal node hash should not be null");
             assertEquals(48, hash.length, "Single-child internal node hash should be 48 bytes");
-        }
-    }
-
-    // ========== Zero Hash Tests ==========
-
-    @Nested
-    @DisplayName("Zero Hash Handling")
-    class ZeroHashTests {
-
-        /**
-         * Verifies that ZERO_HASH is 48 bytes of zeros.
-         */
-        @Test
-        @DisplayName("ZERO_HASH should be 48 bytes of zeros")
-        void testZeroHashLength() {
-            assertEquals(48, ZERO_HASH.length, "ZERO_HASH should be 48 bytes for SHA-384");
-
-            for (byte b : ZERO_HASH) {
-                assertEquals(0, b, "ZERO_HASH should contain only zero bytes");
-            }
-        }
-
-        /**
-         * Verifies that Sha384 class provides the zero hash constant.
-         */
-        @Test
-        @DisplayName("Sha384.ZERO_HASH should be available for missing state root")
-        void testSha384ZeroHashAvailable() {
-            assertNotNull(Sha384.ZERO_HASH, "Sha384.ZERO_HASH should be available");
-            assertEquals(48, Sha384.ZERO_HASH.length, "Sha384.ZERO_HASH should be 48 bytes");
         }
     }
 

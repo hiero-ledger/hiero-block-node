@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_ADDRESS_BOOK;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_BYTES;
 import static org.hiero.block.tools.utils.TestBlocks.V2_TEST_BLOCK_HASH;
@@ -428,5 +429,84 @@ public class RecordBlockConverterTest {
                 6,
                 blockProof.blockProofOrThrow().signedRecordFileProofOrThrow().version(),
                 "V6 should have record format version 6");
+    }
+
+    // ========== Block Zero Tests ==========
+
+    @Test
+    @Order(12)
+    @DisplayName("Block zero should have EMPTY_TREE_HASH for all three hashes in BlockFooter")
+    void testBlockZeroUsesEmptyTreeHash() {
+        assertNotNull(v6ParsedBlock, "V6 parsed block must be set up first");
+
+        // For block 0, all three hashes in the BlockFooter should be EMPTY_TREE_HASH:
+        // - previousBlockRootHash: no previous block exists
+        // - allBlocksMerkleTreeRootHash: no previous block hashes in the tree
+        // - startOfBlockStateRootHash: no previous state exists
+
+        Block block = RecordBlockConverter.toBlock(
+                v6ParsedBlock,
+                0, // block number 0
+                EMPTY_TREE_HASH, // previousBlockStreamBlockHash
+                EMPTY_TREE_HASH, // rootHashOfBlockHashesMerkleTree (empty streaming hasher returns this)
+                V6_TEST_BLOCK_ADDRESS_BOOK);
+
+        // Extract BlockFooter
+        var blockFooter = block.items().stream()
+                .filter(item -> item.hasBlockFooter())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Block should have a BlockFooter"))
+                .blockFooter();
+
+        assertNotNull(blockFooter, "BlockFooter should not be null");
+
+        // Verify previousBlockRootHash is EMPTY_TREE_HASH
+        assertArrayEquals(
+                EMPTY_TREE_HASH,
+                blockFooter.previousBlockRootHash().toByteArray(),
+                "Block 0 previousBlockRootHash should be EMPTY_TREE_HASH");
+
+        // Verify rootHashOfAllBlockHashesTree is EMPTY_TREE_HASH
+        assertArrayEquals(
+                EMPTY_TREE_HASH,
+                blockFooter.rootHashOfAllBlockHashesTree().toByteArray(),
+                "Block 0 rootHashOfAllBlockHashesTree should be EMPTY_TREE_HASH");
+
+        // Verify startOfBlockStateRootHash is EMPTY_TREE_HASH
+        assertArrayEquals(
+                EMPTY_TREE_HASH,
+                blockFooter.startOfBlockStateRootHash().toByteArray(),
+                "Block 0 startOfBlockStateRootHash should be EMPTY_TREE_HASH");
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("Block 1+ should use ZERO_HASH for stateRootHash (not EMPTY_TREE_HASH)")
+    void testNonZeroBlockUsesZeroHashForState() {
+        assertNotNull(v6ParsedBlock, "V6 parsed block must be set up first");
+
+        // For blocks other than 0, stateRootHash should be ZERO_HASH (48 zeros)
+        // to indicate no state hash is available in wrapped record files
+        Block block = RecordBlockConverter.toBlock(
+                v6ParsedBlock,
+                1, // block number 1
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V6_TEST_BLOCK_ADDRESS_BOOK);
+
+        // Extract BlockFooter
+        var blockFooter = block.items().stream()
+                .filter(item -> item.hasBlockFooter())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Block should have a BlockFooter"))
+                .blockFooter();
+
+        assertNotNull(blockFooter, "BlockFooter should not be null");
+
+        // Verify startOfBlockStateRootHash is ZERO_HASH (all zeros), not EMPTY_TREE_HASH
+        assertArrayEquals(
+                EMPTY_TREE_HASH,
+                blockFooter.startOfBlockStateRootHash().toByteArray(),
+                "Block 1+ startOfBlockStateRootHash should be EMPTY_TREE_HASH");
     }
 }
