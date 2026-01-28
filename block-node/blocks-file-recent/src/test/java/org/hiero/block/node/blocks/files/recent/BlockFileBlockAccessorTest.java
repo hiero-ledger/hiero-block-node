@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -384,6 +385,62 @@ class BlockFileBlockAccessorTest {
 
             assertThatNoException().isThrownBy(toTest::blockUnparsed);
             assertThat(toTest.blockUnparsed()).isNull();
+        }
+
+        /**
+         * This test verifies that blockUnparsed() can handle blocks with unknown protobuf fields,
+         * simulating the scenario where a Consensus Node creates blocks with a newer proto version
+         * than the Block Node. In such cases, fully parsing the block would fail, but blockUnparsed()
+         * should succeed because it only parses the top-level structure without deeply parsing
+         * nested messages like BlockProof.
+         *
+         * <p>This is a regression test for the proto version mismatch issue where CN 0.70.0-rc.2
+         * blocks failed to parse on BN with proto 0.69.0 due to MerkleSiblingHash changes.
+         */
+        @Test
+        @DisplayName("Test blockUnparsed() handles blocks with unknown fields from newer proto versions")
+        void testBlockUnparsedHandlesUnknownFields() throws IOException {
+            // create block file path
+            final Path blockFilePath = config.liveRootPath().resolve("0.blk");
+
+            // Build a valid block first
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final BlockUnparsed validBlock = new BlockUnparsed(List.of(blockItems));
+            final byte[] validBytes = BlockUnparsed.PROTOBUF.toBytes(validBlock).toByteArray();
+
+            // Append unknown protobuf fields to simulate a block from a newer proto version.
+            // In protobuf, unknown fields are encoded as: tag (field_number << 3 | wire_type) + value
+            // We add a field with a high field number (100) and wire type 2 (length-delimited)
+            // to simulate additional fields that don't exist in the current proto schema.
+            final ByteArrayOutputStream modifiedBytes = new ByteArrayOutputStream();
+            modifiedBytes.write(validBytes);
+            // Field 100, wire type 2 (length-delimited): tag = (100 << 3) | 2 = 802 = 0xA2 0x06 (varint)
+            modifiedBytes.write(0xA2); // first byte of varint tag
+            modifiedBytes.write(0x06); // second byte of varint tag
+            modifiedBytes.write(0x05); // length = 5 bytes
+            modifiedBytes.write(new byte[] {0x01, 0x02, 0x03, 0x04, 0x05}); // dummy payload
+
+            final Bytes protoBytes = Bytes.wrap(modifiedBytes.toByteArray());
+
+            // Create accessor with the modified bytes
+            final BlockFileBlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(0, blockFilePath, CompressionType.NONE, protoBytes);
+
+            // blockUnparsed() should succeed - it only parses top-level structure
+            final BlockUnparsed result = toTest.blockUnparsed();
+            assertThat(result).isNotNull();
+            assertThat(result.blockItems()).hasSize(blockItems.length);
+
+            // Verify the block items are still accessible
+            assertThat(result.blockItems().getFirst().hasBlockHeader()).isTrue();
+
+            // For comparison: fully parsing with Block.PROTOBUF would typically fail or
+            // behave unexpectedly when encountering deeply nested unknown fields.
+            // This demonstrates why we use blockUnparsed() for cross-version compatibility.
+            final Bytes rawBytes = toTest.blockBytes(Format.PROTOBUF);
+            assertThat(rawBytes).isNotNull();
+            // The raw bytes include the unknown field, but blockUnparsed handles it gracefully
+            assertThat(rawBytes.length()).isGreaterThan(validBytes.length);
         }
 
         /**
