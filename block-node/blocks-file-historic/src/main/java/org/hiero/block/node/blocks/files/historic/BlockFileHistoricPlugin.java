@@ -388,15 +388,64 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // this pre-check asserts the min and max are contained however,
             // not the whole range, this will be asserted when we gather the batch
             final boolean blocksAvailablePreCheck = availableStagedBlocks.contains(minBlockNumber, maxBlockNumber);
+            // avoid zipping same batch twice
+            final boolean alreadyZipped = isRangeAlreadyZipped(minBlockNumber, maxBlockNumber);
             if (isValidStart && blocksAvailablePreCheck) {
-                final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
-                // move the batch of blocks to a zip file
-                startMovingBatchOfBlocksToZipFile(batchRange);
+                if (alreadyZipped) {
+                    LOGGER.log(
+                            INFO,
+                            "Batch [{0}, {1}] already zipped, skipping archiving it",
+                            minBlockNumber,
+                            maxBlockNumber);
+                } else {
+                    final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
+                    // move the batch of blocks to a zip file
+                    startMovingBatchOfBlocksToZipFile(batchRange);
+                }
             }
             // try the next batch just in case there is more than one that became available
             minBlockNumber += numberOfBlocksPerZipFile;
             maxBlockNumber += numberOfBlocksPerZipFile;
         }
+    }
+
+    /**
+     * Checks if a range of blocks has already been archived to a zip file.
+     * This method performs a two-tier check to ensure data consistency:
+     * <ol>
+     *   <li>Fast path: Checks the in-memory {@link #availableBlocks} cache</li>
+     *   <li>Fallback: Verifies the zip file exists on disk for data integrity</li>
+     * </ol>
+     *
+     * <p>If a zip file exists on disk but is not tracked in {@code availableBlocks},
+     * the in-memory cache is automatically reconciled to reflect the actual state.
+     * This handles scenarios such as:
+     * <ul>
+     *   <li>Plugin restart where disk state was not fully loaded</li>
+     *   <li>Manual file operations that bypassed the plugin</li>
+     *   <li>Recovery from partial failures during initialization</li>
+     * </ul>
+     *
+     * @param minBlockNumber The first block number in the range to check (inclusive)
+     * @param maxBlockNumber The last block number in the range to check (inclusive)
+     * @return {@code true} if the range is already archived in a zip file,
+     *         {@code false} if the range needs to be zipped
+     */
+    private boolean isRangeAlreadyZipped(final long minBlockNumber, final long maxBlockNumber) {
+        // Check in-memory tracking first (fast)
+        if (availableBlocks.contains(minBlockNumber, maxBlockNumber)) {
+            return true;
+        }
+
+        // Additional check: verify zip file exists on disk (slower but more reliable)
+        final Path zipPath = BlockPath.computeBlockPath(config, minBlockNumber).zipFilePath();
+        if (Files.exists(zipPath)) {
+            // Update availableBlocks in-memory cache to reflect reality
+            availableBlocks.add(minBlockNumber, maxBlockNumber);
+            return true;
+        }
+
+        return false;
     }
 
     private void cleanup() {
