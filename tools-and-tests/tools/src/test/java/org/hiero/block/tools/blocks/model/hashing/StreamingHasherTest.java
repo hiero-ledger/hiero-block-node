@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.LEAF_PREFIX;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.TWO_CHILDREN_NODE_PREFIX;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -92,6 +93,67 @@ class StreamingHasherTest {
                 rootHashHex,
                 "StreamingHasher root hash should match manually computed hash for 7-leaf tree");
     }
+
+    // ========== Empty Tree Tests ==========
+
+    /**
+     * Verifies that computing root hash on an empty tree returns EMPTY_TREE_HASH.
+     */
+    @Test
+    @DisplayName("Empty tree should return EMPTY_TREE_HASH when computing root hash")
+    void testEmptyTreeReturnsEmptyTreeHash() {
+        StreamingHasher hasher = new StreamingHasher();
+        byte[] rootHash = hasher.computeRootHash();
+
+        assertArrayEquals(
+                EMPTY_TREE_HASH,
+                rootHash,
+                "Empty tree root hash should equal EMPTY_TREE_HASH (sha384Hash(new byte[]{0x00}))");
+        assertEquals(48, rootHash.length, "Empty tree hash should be 48 bytes (SHA-384)");
+    }
+
+    /**
+     * Verifies that empty tree hash computation does not modify state and leaves can still be added.
+     */
+    @Test
+    @DisplayName("Empty tree hash computation should not prevent adding leaves afterward")
+    void testEmptyTreeHashThenAddLeaves() {
+        StreamingHasher hasher = new StreamingHasher();
+
+        // Compute empty tree hash first
+        byte[] emptyHash = hasher.computeRootHash();
+        assertArrayEquals(EMPTY_TREE_HASH, emptyHash, "Initial empty tree hash should be EMPTY_TREE_HASH");
+        assertEquals(0, hasher.leafCount(), "Leaf count should still be 0 after computing empty hash");
+
+        // Add a leaf afterward
+        hasher.addLeaf("Leaf 1".getBytes(StandardCharsets.UTF_8));
+        assertEquals(1, hasher.leafCount(), "Leaf count should be 1 after adding leaf");
+
+        // Root hash should now differ from empty tree hash
+        byte[] rootAfterLeaf = hasher.computeRootHash();
+        assertFalse(
+                Arrays.equals(EMPTY_TREE_HASH, rootAfterLeaf),
+                "After adding leaf, root hash should differ from EMPTY_TREE_HASH");
+    }
+
+    /**
+     * Verifies that calling computeRootHash() multiple times on empty tree returns the same result.
+     */
+    @Test
+    @DisplayName("computeRootHash() on empty tree should be idempotent")
+    void testEmptyTreeComputeRootHashIdempotent() {
+        StreamingHasher hasher = new StreamingHasher();
+
+        byte[] hash1 = hasher.computeRootHash();
+        byte[] hash2 = hasher.computeRootHash();
+        byte[] hash3 = hasher.computeRootHash();
+
+        assertArrayEquals(hash1, hash2, "Multiple calls to computeRootHash() on empty tree should return same result");
+        assertArrayEquals(hash2, hash3, "Multiple calls to computeRootHash() on empty tree should return same result");
+        assertArrayEquals(EMPTY_TREE_HASH, hash1, "Empty tree hash should equal EMPTY_TREE_HASH");
+    }
+
+    // ========== Single Leaf Tests ==========
 
     /**
      * Verifies that a single leaf produces a valid SHA-384 hash (48 bytes) as the root.

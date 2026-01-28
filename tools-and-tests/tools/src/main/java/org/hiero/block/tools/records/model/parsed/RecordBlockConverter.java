@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.records.model.parsed;
 
-import static org.hiero.block.tools.utils.Sha384.ZERO_HASH;
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 
 import com.hedera.hapi.block.stream.experimental.Block;
 import com.hedera.hapi.block.stream.experimental.BlockFooter;
@@ -40,6 +40,7 @@ public class RecordBlockConverter {
      *                                        outside this code
      * @return the block stream block
      */
+    @SuppressWarnings("UnnecessaryLocalVariable")
     public static Block toBlock(
             final ParsedRecordBlock recordBlock,
             final long blockNumber,
@@ -83,13 +84,16 @@ public class RecordBlockConverter {
         // create RecordFileItem
         final RecordFileItem recordFileItem = new RecordFileItem(
                 recordFileTimestamp, universalRecordFile.recordStreamFile(), recordBlock.sidecarFiles());
+        // For block 0, use EMPTY_TREE_HASH for stateRootHash since there's no previous state.
+        // For subsequent blocks, use also use EMPTY_TREE_HASH to indicate there is no state hash available
+        // in the wrapped record files (state hashes were not included in the original format).
+        final byte[] stateRootHash = EMPTY_TREE_HASH;
         // create footer
         final BlockFooter blockFooter = new BlockFooter(
                 // the hash chain between block stream blocks has to use block stream hashes
                 Bytes.wrap(previousBlockStreamBlockHash),
                 Bytes.wrap(rootHashOfBlockHashesMerkleTree),
-                // the state root hash for wrapped blocks is 48 zeros to indicate there is NO HASH
-                Bytes.wrap(ZERO_HASH));
+                Bytes.wrap(stateRootHash));
         // create and return the Block
         return new Block(List.of(
                 new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, blockHeader)),

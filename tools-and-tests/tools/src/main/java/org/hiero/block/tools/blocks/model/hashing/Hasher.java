@@ -60,6 +60,14 @@ public interface Hasher {
     void addLeaf(Bytes data);
 
     /**
+     * Add a pre-hashed node to the Merkle tree. This is needed for a tree of other trees. Where each node at the
+     * bottom of this tree is the root hash of another tree.
+     *
+     * @param hash the 48-byte SHA-384 hash of the node to add (must already include the prefixing)
+     */
+    void addNodeByHash(byte[] hash);
+
+    /**
      * Compute the Merkle tree root hash from the current state.
      *
      * <p>This method does not modify the internal state, so it can be called at any time
@@ -69,8 +77,12 @@ public interface Hasher {
      * <p>The returned hash is a 48-byte SHA-384 hash following the domain-separated
      * prefixing scheme from the design specification.
      *
-     * @return the 48-byte SHA-384 Merkle tree root hash
-     * @throws java.util.NoSuchElementException if no leaves have been added
+     * <p>For an empty tree (no leaves added), this method returns the predefined
+     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha384Hash(new byte[]{0x00})}.
+     * This provides a consistent, well-defined hash for the empty tree case.
+     *
+     * @return the 48-byte SHA-384 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
+     *         if no leaves have been added
      */
     byte[] computeRootHash();
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.security.MessageDigest;
@@ -43,9 +44,6 @@ import org.junit.jupiter.api.Test;
 @DisplayName("BlockStreamBlockHasher Tests - Design Doc Compliance")
 class BlockStreamBlockHasherTest {
 
-    /** SHA-384 zero hash (48 bytes of zeros) for empty/missing state. */
-    private static final byte[] ZERO_HASH = Sha384.ZERO_HASH;
-
     private MessageDigest digest;
 
     @BeforeEach
@@ -60,12 +58,12 @@ class BlockStreamBlockHasherTest {
     class TreeStructureTests {
 
         /**
-         * Verifies that the StreamingHasher used for sub-trees produces consistent hashes.
+         * Verifies that the StreamingHasher used for subtrees produces consistent hashes.
          *
-         * <p>BlockStreamBlockHasher uses StreamingHasher for each item category sub-tree.
+         * <p>BlockStreamBlockHasher uses StreamingHasher for each item category subtree.
          */
         @Test
-        @DisplayName("StreamingHasher should be used for sub-tree computation")
+        @DisplayName("StreamingHasher should be used for subtree computation")
         void testStreamingHasherUsedForSubTrees() {
             StreamingHasher hasher = new StreamingHasher();
             hasher.addLeaf("test item".getBytes());
@@ -76,21 +74,22 @@ class BlockStreamBlockHasherTest {
         }
 
         /**
-         * Verifies that empty sub-trees still produce valid hashes via StreamingHasher.
+         * Verifies that empty subtrees still produce valid hashes via StreamingHasher.
          *
-         * <p>When no items are added to a category, the sub-tree has an empty leaf list
-         * which must still be handled correctly.
+         * <p>When no items are added to a category, the subtree has an empty leaf list
+         * which returns the predefined EMPTY_TREE_HASH constant.
          */
         @Test
-        @DisplayName("Empty StreamingHasher should handle empty tree gracefully")
-        void testEmptyStreamingHasherThrows() {
+        @DisplayName("Empty StreamingHasher should return EMPTY_TREE_HASH")
+        void testEmptyStreamingHasherReturnsEmptyTreeHash() {
             StreamingHasher hasher = new StreamingHasher();
 
-            // An empty hasher should throw when trying to compute root (no leaves)
-            assertThrows(
-                    java.util.NoSuchElementException.class,
-                    hasher::computeRootHash,
-                    "Empty StreamingHasher should throw NoSuchElementException");
+            // An empty hasher should return EMPTY_TREE_HASH
+            byte[] rootHash = hasher.computeRootHash();
+            assertArrayEquals(
+                    EMPTY_TREE_HASH,
+                    rootHash,
+                    "Empty StreamingHasher should return EMPTY_TREE_HASH (sha384Hash(new byte[]{0x00}))");
         }
     }
 
@@ -154,36 +153,6 @@ class BlockStreamBlockHasherTest {
         }
     }
 
-    // ========== Zero Hash Tests ==========
-
-    @Nested
-    @DisplayName("Zero Hash Handling")
-    class ZeroHashTests {
-
-        /**
-         * Verifies that ZERO_HASH is 48 bytes of zeros.
-         */
-        @Test
-        @DisplayName("ZERO_HASH should be 48 bytes of zeros")
-        void testZeroHashLength() {
-            assertEquals(48, ZERO_HASH.length, "ZERO_HASH should be 48 bytes for SHA-384");
-
-            for (byte b : ZERO_HASH) {
-                assertEquals(0, b, "ZERO_HASH should contain only zero bytes");
-            }
-        }
-
-        /**
-         * Verifies that Sha384 class provides the zero hash constant.
-         */
-        @Test
-        @DisplayName("Sha384.ZERO_HASH should be available for missing state root")
-        void testSha384ZeroHashAvailable() {
-            assertNotNull(Sha384.ZERO_HASH, "Sha384.ZERO_HASH should be available");
-            assertEquals(48, Sha384.ZERO_HASH.length, "Sha384.ZERO_HASH should be 48 bytes");
-        }
-    }
-
     // ========== Block Root Structure Tests ==========
 
     @Nested
@@ -203,7 +172,7 @@ class BlockStreamBlockHasherTest {
         void testBlockRootStructure() {
             // Simulate block root computation structure
             byte[] consensusTimeHash = HashingUtils.hashLeaf(digest, "consensus timestamp bytes".getBytes());
-            byte[] fixedRootTreeHash = new byte[48]; // Placeholder for sub-tree hash
+            byte[] fixedRootTreeHash = new byte[48]; // Placeholder for subtree hash
 
             byte[] blockRoot = HashingUtils.hashInternalNode(digest, consensusTimeHash, fixedRootTreeHash);
 
@@ -240,7 +209,7 @@ class BlockStreamBlockHasherTest {
     class ItemCategoryDocumentationTests {
 
         /**
-         * Documents which block item types go to which sub-tree.
+         * Documents which block item types go to which subtree.
          *
          * <p>From design doc and BlockStreamBlockHasher switch statement:
          * <ul>
@@ -252,33 +221,34 @@ class BlockStreamBlockHasherTest {
          *   <li>Not hashed: BLOCK_FOOTER, BLOCK_PROOF</li>
          * </ul>
          */
+        @SuppressWarnings("MismatchedReadAndWriteOfArray")
         @Test
         @DisplayName("Item categorization should match design doc specification")
         void testItemCategorizationDocumented() {
             // This test documents the expected categorization from the design doc
             // Actual verification is done by integration tests with real blocks
 
-            // Consensus Headers sub-tree items
+            // Consensus Headers subtree items
             String[] consensusItems = {"BLOCK_HEADER", "EVENT_HEADER", "ROUND_HEADER"};
             assertEquals(3, consensusItems.length, "Consensus headers has 3 item types");
 
-            // Input Items sub-tree items
+            // Input Items subtree items
             String[] inputItems = {"SIGNED_TRANSACTION", "RECORD_FILE"};
             assertEquals(2, inputItems.length, "Input items has 2 item types");
 
-            // Output Items sub-tree items
+            // Output Items subtree items
             String[] outputItems = {"TRANSACTION_RESULT", "TRANSACTION_OUTPUT"};
             assertEquals(2, outputItems.length, "Output items has 2 item types");
 
-            // State Changes sub-tree items
+            // State Changes subtree items
             String[] stateItems = {"STATE_CHANGES", "FILTERED_ITEM_HASH"};
             assertEquals(2, stateItems.length, "State changes has 2 item types");
 
-            // Trace Data sub-tree items
+            // Trace Data subtree items
             String[] traceItems = {"TRACE_DATA"};
             assertEquals(1, traceItems.length, "Trace data has 1 item type");
 
-            // Not hashed items (excluded from all sub-trees)
+            // Not hashed items (excluded from all subtrees)
             String[] excludedItems = {"BLOCK_FOOTER", "BLOCK_PROOF"};
             assertEquals(2, excludedItems.length, "2 item types are excluded from hashing");
         }

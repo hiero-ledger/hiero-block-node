@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Path;
@@ -181,19 +182,65 @@ class InMemoryTreeHasherTest {
                 original.levelCount(), loaded.levelCount(), "Loaded tree should have same level count as original");
     }
 
-    // ========== Error Handling Tests ==========
+    // ========== Empty Tree Tests ==========
 
     /**
-     * Verifies that computing root hash on an empty tree throws IllegalStateException.
+     * Verifies that computing root hash on an empty tree returns EMPTY_TREE_HASH.
      */
     @Test
-    @DisplayName("Empty tree should throw IllegalStateException when computing root hash")
-    void testEmptyTreeThrows() {
+    @DisplayName("Empty tree should return EMPTY_TREE_HASH when computing root hash")
+    void testEmptyTreeReturnsEmptyTreeHash() {
         InMemoryTreeHasher hasher = new InMemoryTreeHasher();
-        assertThrows(
-                IllegalStateException.class,
-                hasher::computeRootHash,
-                "Computing root hash of empty tree should throw IllegalStateException");
+        byte[] rootHash = hasher.computeRootHash();
+
+        assertArrayEquals(
+                EMPTY_TREE_HASH,
+                rootHash,
+                "Empty tree root hash should equal EMPTY_TREE_HASH (sha384Hash(new byte[]{0x00}))");
+        assertEquals(48, rootHash.length, "Empty tree hash should be 48 bytes (SHA-384)");
+    }
+
+    /**
+     * Verifies that the empty tree hash matches between InMemoryTreeHasher and StreamingHasher.
+     */
+    @Test
+    @DisplayName("Empty tree hash should match between InMemoryTreeHasher and StreamingHasher")
+    void testEmptyTreeHashMatchesStreamingHasher() {
+        InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
+        StreamingHasher streaming = new StreamingHasher();
+
+        assertArrayEquals(
+                streaming.computeRootHash(),
+                inMemory.computeRootHash(),
+                "Empty tree root hash should match between implementations");
+    }
+
+    /**
+     * Verifies that empty tree hash does not modify internal state and can continue adding leaves.
+     */
+    @Test
+    @DisplayName("Empty tree hash computation should not prevent adding leaves afterward")
+    void testEmptyTreeHashThenAddLeaves() {
+        InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
+        StreamingHasher streaming = new StreamingHasher();
+
+        // Compute empty tree hash first
+        byte[] emptyHash = inMemory.computeRootHash();
+        assertArrayEquals(EMPTY_TREE_HASH, emptyHash, "Initial empty tree hash should be EMPTY_TREE_HASH");
+
+        // Add leaves afterward
+        inMemory.addLeaf("Leaf 1".getBytes());
+        streaming.addLeaf("Leaf 1".getBytes());
+
+        assertArrayEquals(
+                streaming.computeRootHash(),
+                inMemory.computeRootHash(),
+                "After adding leaf, root hash should match StreamingHasher");
+
+        // Verify no longer returns empty tree hash
+        assertFalse(
+                java.util.Arrays.equals(EMPTY_TREE_HASH, inMemory.computeRootHash()),
+                "After adding leaf, root hash should differ from EMPTY_TREE_HASH");
     }
 
     // ========== Tree Structure Tests ==========

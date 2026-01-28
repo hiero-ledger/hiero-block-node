@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
@@ -103,7 +104,7 @@ public class InMemoryTreeHasher implements Hasher {
     @Override
     public void addLeaf(byte[] data) {
         // Hash the leaf data
-        addLeafImpl(hashLeaf(digest, data));
+        addNodeByHash(hashLeaf(digest, data));
     }
 
     /**
@@ -117,18 +118,17 @@ public class InMemoryTreeHasher implements Hasher {
     @Override
     public void addLeaf(Bytes data) {
         // Hash the leaf data
-        addLeafImpl(hashLeaf(digest, data));
+        addNodeByHash(hashLeaf(digest, data));
     }
 
     /**
-     * Internal implementation to add a leaf hash and update the tree structure.
-     *
-     * @param leafHash the precomputed hash of the leaf
+     * {@inheritDoc}
      */
-    private void addLeafImpl(byte[] leafHash) {
+    @Override
+    public void addNodeByHash(byte[] hash) {
         // Add to level 0 (leaves)
         int leafIndex = levels.getFirst().size();
-        levels.getFirst().add(leafHash);
+        levels.getFirst().add(hash);
 
         // Track this as a pending subtree root (at level 0)
         pendingSubtreeRoots.add(new int[] {0, leafIndex});
@@ -180,12 +180,16 @@ public class InMemoryTreeHasher implements Hasher {
      *
      * <p>This does not modify the internal state, so more leaves can be added afterward.
      *
-     * @return the SHA-384 Merkle tree root hash
+     * <p>For an empty tree (no leaves added), this method returns the predefined
+     * {@link HashingUtils#EMPTY_TREE_HASH} which is {@code sha384Hash(new byte[]{0x00})}.
+     *
+     * @return the SHA-384 Merkle tree root hash, or {@link HashingUtils#EMPTY_TREE_HASH}
+     *         if no leaves have been added
      */
     @Override
     public byte[] computeRootHash() {
         if (leafCount == 0) {
-            throw new IllegalStateException("Cannot compute root hash of empty tree");
+            return EMPTY_TREE_HASH.clone();
         }
 
         if (pendingSubtreeRoots.size() == 1) {

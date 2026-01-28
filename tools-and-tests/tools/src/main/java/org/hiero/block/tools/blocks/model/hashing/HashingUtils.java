@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
+import static org.hiero.block.tools.utils.Sha384.hashSha384;
+
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
@@ -28,6 +30,7 @@ import java.util.Objects;
  * @see <a href="https://en.wikipedia.org/wiki/Preimage_attack">Preimage Attack</a>
  */
 public class HashingUtils {
+
     /** Prefix byte for leaf node hashes: {@code hash(0x00 || leafData)}. */
     public static final byte[] LEAF_PREFIX = new byte[] {0x00};
 
@@ -42,6 +45,11 @@ public class HashingUtils {
      * Used when an internal node has both children present.
      */
     public static final byte[] TWO_CHILDREN_NODE_PREFIX = new byte[] {0x02};
+
+    /**
+     * Precomputed hash of an empty tree (no branches or leaves).
+     */
+    public static final byte[] EMPTY_TREE_HASH = hashSha384(LEAF_PREFIX);
 
     /**
      * Hash a leaf node with the appropriate prefix.

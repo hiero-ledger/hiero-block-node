@@ -111,7 +111,7 @@ public class BlockStreamBlockHasher {
         final byte[] previousBlockHash = blockFooter.previousBlockRootHash().toByteArray();
         // get state root hash, treating missing state root as zero hash
         final byte[] stateRootHash = blockFooter.startOfBlockStateRootHash().length() == 0
-                ? Sha384.ZERO_HASH
+                ? EMPTY_TREE_HASH
                 : blockFooter.startOfBlockStateRootHash().toByteArray();
         // build streaming merkle trees of items in the block
         final StreamingHasher consensusHeadersHasher = new StreamingHasher();
