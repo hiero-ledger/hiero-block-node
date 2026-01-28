@@ -85,25 +85,35 @@ function get_latest_release {
 }
 
 # Fetches the latest RC (Release Candidate) tag from a GitHub repository
+# First checks releases, then falls back to tags if no RC releases found
 # Looks for tags containing '-rc', '-alpha', or '-beta' (case-insensitive)
 # Arguments:
 #   $1 - Repository in format "owner/repo"
 # Returns:
-#   The tag_name of the latest RC release, or empty if none found
+#   The tag_name of the latest RC release/tag, or falls back to latest GA
 function get_latest_rc_release {
   local repo="${1}"
-  local url="https://api.github.com/repos/${repo}/releases?per_page=30"
-  local response
-  local rc_tag
+  local rc_tag=""
 
-  response=$(curl -s -H "Accept: application/vnd.github+json" "${url}") || return 1
+  # First, try to find RC in releases
+  local releases_url="https://api.github.com/repos/${repo}/releases?per_page=30"
+  local response
+  response=$(curl -s -H "Accept: application/vnd.github+json" "${releases_url}") || return 1
 
   # Find the first (most recent) release with -rc, -alpha, or -beta in the tag name
-  # GitHub returns releases sorted by created_at descending
   rc_tag=$(echo "${response}" | grep -o '"tag_name": *"[^"]*"' | sed 's/"tag_name": *"\([^"]*\)"/\1/' | grep -iE '(-rc|-alpha|-beta)' | head -1)
 
+  # If no RC releases found, check tags (some repos use tags without releases for RCs)
   if [[ -z "${rc_tag}" ]]; then
-    log_line "WARNING: No RC release found for ${repo}, falling back to latest GA"
+    local tags_url="https://api.github.com/repos/${repo}/tags?per_page=50"
+    response=$(curl -s -H "Accept: application/vnd.github+json" "${tags_url}") || return 1
+
+    # Find the first (most recent) tag with -rc, -alpha, or -beta
+    rc_tag=$(echo "${response}" | grep -o '"name": *"[^"]*"' | sed 's/"name": *"\([^"]*\)"/\1/' | grep -iE '(-rc|-alpha|-beta)' | head -1)
+  fi
+
+  if [[ -z "${rc_tag}" ]]; then
+    log_line "WARNING: No RC release/tag found for ${repo}, falling back to latest GA"
     get_latest_release "${repo}"
     return
   fi
