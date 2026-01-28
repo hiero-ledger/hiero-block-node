@@ -137,6 +137,7 @@ public class TaredBlockIteratorTest {
             throws IOException, ParseException {
         byte[] bytes = Files.readAllBytes(blockFile);
         Block block = Block.PROTOBUF.parse(Bytes.wrap(Zstd.decompress(bytes, (int) Zstd.getFrameContentSize(bytes))));
-        assertEquals(blockAccessor.block(), block, "Block file contents do not match expected block");
+        Block expected = Block.PROTOBUF.parse(blockAccessor.blockBytes(BlockAccessor.Format.PROTOBUF));
+        assertEquals(expected, block, "Block file contents do not match expected block");
     }
 }
