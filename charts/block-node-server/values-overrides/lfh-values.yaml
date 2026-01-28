@@ -20,7 +20,9 @@ blockNode:
                       chown 2000:2000 /archive-pvc && \
                       chmod 700 /archive-pvc && \
                       chown 2000:2000 /logging-pvc && \
-                      chmod 700 /logging-pvc
+                      chmod 700 /logging-pvc && \
+                      chown 2000:2000 /verification-pvc && \
+                      chmod 700 /verification-pvc
               volumeMounts:
                   - name: live-storage
                     mountPath: /live-pvc
@@ -28,6 +30,8 @@ blockNode:
                     mountPath: /archive-pvc
                   - name: logging-storage
                     mountPath: /logging-pvc
+                  - name: verification-storage
+                    mountPath: /verification-pvc
         persistence:
             live:
                 create: false
@@ -41,6 +45,9 @@ blockNode:
                 create: false
                 existingClaim: logging-storage-pvc
                 subPath: ""
+            verification:
+                create: false
+                existingClaim: verification-storage-pvc
 
 service:
     type: LoadBalancer

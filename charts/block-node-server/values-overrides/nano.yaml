@@ -31,6 +31,10 @@ blockNode:
       size: 1Gi
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "nano-logging-pvc"
+    verification:
+      size: 100Mi
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "nano-verification-pvc"
 
 kubepromstack:
   enabled: false

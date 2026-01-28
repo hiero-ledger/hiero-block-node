@@ -16,3 +16,5 @@ blockNode:
       size: 4Gi
     logging:
       size: 2Gi
+    verification:
+      size: 500Mi
