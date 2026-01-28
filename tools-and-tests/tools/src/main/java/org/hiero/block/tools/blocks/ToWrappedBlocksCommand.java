@@ -305,7 +305,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     final byte[] blockStreamBlockHash =
                                             hashBlock(wrappedExp, streamingHasher.computeRootHash());
                                     streamingHasher.addNodeByHash(blockStreamBlockHash);
-                                    inMemoryTreeHasher.addLeaf(blockStreamBlockHash);
+                                    inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
                                     // add the block hash to the registry
                                     blockRegistry.addBlock(blockNum, blockStreamBlockHash);
 
