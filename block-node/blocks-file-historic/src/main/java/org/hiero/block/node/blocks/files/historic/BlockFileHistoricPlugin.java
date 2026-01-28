@@ -390,10 +390,18 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final boolean blocksAvailablePreCheck = availableStagedBlocks.contains(minBlockNumber, maxBlockNumber);
             // avoid zipping same batch twice
             final boolean alreadyZipped = isRangeAlreadyZipped(minBlockNumber, maxBlockNumber);
-            if (isValidStart && blocksAvailablePreCheck && !alreadyZipped) {
-                final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
-                // move the batch of blocks to a zip file
-                startMovingBatchOfBlocksToZipFile(batchRange);
+            if (isValidStart && blocksAvailablePreCheck) {
+                if (alreadyZipped) {
+                    LOGGER.log(
+                            INFO,
+                            "Batch [{0}, {1}] already zipped, skipping archiving it",
+                            minBlockNumber,
+                            maxBlockNumber);
+                } else {
+                    final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
+                    // move the batch of blocks to a zip file
+                    startMovingBatchOfBlocksToZipFile(batchRange);
+                }
             }
             // try the next batch just in case there is more than one that became available
             minBlockNumber += numberOfBlocksPerZipFile;
