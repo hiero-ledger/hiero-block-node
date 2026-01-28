@@ -24,7 +24,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         type: string
-        default: "0.52.0"
+        default: "0.54.0"
       run-tck-regression-tests:
         description: "Run TCK regression test"
         type: boolean
@@ -99,7 +99,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "0.52.0"
+        default: "0.54.0"
       run-tck-regression-tests:
         description: "Run TCK regression test"
         required: false

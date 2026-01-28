@@ -282,6 +282,25 @@ The load generator:
 - `-a` = accounts (test accounts to create)
 - `-t` = time in seconds
 
+## CN-BN Priority Routing
+
+The topology file's `consensus_nodes` section controls which Block Nodes each Consensus Node streams to:
+
+```yaml
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1, block-node-2]  # BN-1 is primary (priority 1)
+  node4:
+    block_nodes: [block-node-2, block-node-1]  # BN-2 is primary for node4
+```
+
+**Priority**: The position in the `block_nodes` array determines priority (1-indexed).
+First = highest priority (primary), subsequent entries are fallbacks.
+
+This is passed to Solo v0.54+ via `--block-node-cfg` during consensus network deployment.
+The generated JSON format is: `{"node1":["1=1","2=2"],"node4":["2=1","1=2"]}` where each
+entry is `"blockNodeId=priority"`.
+
 ## Topologies
 
 Topologies define network configuration. Located in `./topologies/`.
@@ -492,7 +511,7 @@ task network:deploy
 ### Solo Version Issues
 
 ```bash
-npm i @hashgraph/solo@0.52.0 -g
+npm i @hashgraph/solo@0.54.0 -g
 ```
 
 ### Check What's Running

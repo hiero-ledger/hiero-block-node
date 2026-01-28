@@ -60,6 +60,59 @@ function end_task {
   printf "%s\n" "${1:-DONE}"
 }
 
+# Extract numeric ID from block node name (block-node-X -> X)
+function extract_bn_id {
+  local bn_name="${1}"
+  echo "${bn_name}" | sed 's/^block-node-//'
+}
+
+# Generate --block-node-cfg JSON from topology
+# Output: {"node1":["1=1","2=2"],"node2":["2=1","1=2"]}
+function generate_block_node_cfg {
+  local topology_file="${1}"
+
+  # Check if consensus_nodes section exists
+  local has_cn_section
+  has_cn_section=$(yq '.consensus_nodes | keys | length // 0' "${topology_file}" 2>/dev/null)
+
+  if [[ "${has_cn_section}" -eq 0 ]]; then
+    echo ""  # No CN section, return empty (Solo will use defaults)
+    return
+  fi
+
+  local cn_names
+  cn_names=$(yq -r '.consensus_nodes | keys[]' "${topology_file}")
+
+  local json_entries=""
+  while IFS= read -r cn_name; do
+    [[ -z "${cn_name}" ]] && continue
+
+    local bn_entries=""
+    local priority=1
+
+    # Read block_nodes array for this CN
+    local bn_list
+    bn_list=$(yq -r ".consensus_nodes[\"${cn_name}\"].block_nodes[]" "${topology_file}" 2>/dev/null)
+
+    while IFS= read -r bn_ref; do
+      [[ -z "${bn_ref}" ]] && continue
+
+      local bn_id
+      bn_id=$(extract_bn_id "${bn_ref}")
+
+      [[ -n "${bn_entries}" ]] && bn_entries="${bn_entries},"
+      bn_entries="${bn_entries}\"${bn_id}=${priority}\""
+
+      priority=$((priority + 1))
+    done <<< "${bn_list}"
+
+    [[ -n "${json_entries}" ]] && json_entries="${json_entries},"
+    json_entries="${json_entries}\"${cn_name}\":[${bn_entries}]"
+  done <<< "${cn_names}"
+
+  echo "{${json_entries}}"
+}
+
 function show_help {
   cat << EOF
 Usage: $(basename "$0") [options]
@@ -341,6 +394,16 @@ function deploy_consensus_nodes {
     cn_args="--release-tag ${CN_VERSION}"
   fi
 
+  # Generate block-node-cfg JSON from topology for CN→BN priority routing
+  local block_node_cfg
+  block_node_cfg=$(generate_block_node_cfg "${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml")
+
+  local block_node_cfg_args=""
+  if [[ -n "${block_node_cfg}" ]]; then
+    block_node_cfg_args="--block-node-cfg '${block_node_cfg}'"
+    log_line "  Block Node Configuration: %s" "${block_node_cfg}"
+  fi
+
   start_task "Generating consensus keys for ${NODE_ALIASES}"
   solo keys consensus generate \
     --gossip-keys \
@@ -351,10 +414,11 @@ function deploy_consensus_nodes {
 
   start_task "Deploying consensus network"
   # shellcheck disable=SC2086
-  solo consensus network deploy \
+  eval solo consensus network deploy \
     --deployment "${DEPLOYMENT}" \
     --pvcs true \
     --node-aliases "${NODE_ALIASES}" \
+    ${block_node_cfg_args} \
     ${cn_args} || fail "ERROR: Failed to deploy consensus network" 1
   end_task
 
