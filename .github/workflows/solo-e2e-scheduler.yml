@@ -68,6 +68,7 @@ jobs:
       bn-version: ${{ steps.config.outputs.bn_version }}
       cn-version: ${{ steps.config.outputs.cn_version }}
       mn-version: ${{ steps.config.outputs.mn_version }}
+      solo-version: ${{ steps.config.outputs.solo_version }}
       notify-slack: ${{ steps.config.outputs.notify_slack }}
       matrix-count: ${{ steps.config.outputs.matrix_count }}
     steps:
@@ -166,9 +167,17 @@ jobs:
             MN_VERSION="latest"
           fi
 
+          # Solo CLI version: use latest for RC runs to test with newest Solo features
+          if [[ "${RUN_TYPE}" == "rc" ]]; then
+            SOLO_VERSION="latest"
+          else
+            SOLO_VERSION="0.54.0"
+          fi
+
           echo "bn_version=${BN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "cn_version=${CN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "mn_version=${MN_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "solo_version=${SOLO_VERSION}" >> "$GITHUB_OUTPUT"
 
           # Summary
           {
@@ -181,6 +190,7 @@ jobs:
             echo "| BN Version | ${BN_VERSION} |"
             echo "| CN Version | ${CN_VERSION} |"
             echo "| MN Version | ${MN_VERSION} |"
+            echo "| Solo Version | ${SOLO_VERSION} |"
             echo "| Slack Notify | ${NOTIFY_SLACK} |"
             echo ""
             echo "### Test Matrix"
@@ -207,6 +217,7 @@ jobs:
       block-node-version: ${{ needs.configure.outputs.bn-version }}
       consensus-node-version: ${{ needs.configure.outputs.cn-version }}
       mirror-node-version: ${{ needs.configure.outputs.mn-version }}
+      solo-version: ${{ needs.configure.outputs.solo-version }}
     secrets: inherit
 
   # ============================================================================
@@ -256,7 +267,7 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`"
+                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
                   }
                 },
                 {
@@ -330,7 +341,7 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`"
+                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
                   }
                 },
                 {
