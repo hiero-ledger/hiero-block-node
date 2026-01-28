@@ -165,13 +165,17 @@ class AddNodeByHashTest {
         // StreamingHasher: root should be exactly the leaf hash, no 0x01 internal node
         StreamingHasher streaming = new StreamingHasher();
         streaming.addLeaf(data);
-        assertArrayEquals(expectedLeafHash, streaming.computeRootHash(),
+        assertArrayEquals(
+                expectedLeafHash,
+                streaming.computeRootHash(),
                 "StreamingHasher single-leaf root should be hash(0x00 || data) with no internal node wrapping");
 
         // InMemoryTreeHasher: same expectation
         InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
         inMemory.addLeaf(data);
-        assertArrayEquals(expectedLeafHash, inMemory.computeRootHash(),
+        assertArrayEquals(
+                expectedLeafHash,
+                inMemory.computeRootHash(),
                 "InMemoryTreeHasher single-leaf root should be hash(0x00 || data) with no internal node wrapping");
     }
 
