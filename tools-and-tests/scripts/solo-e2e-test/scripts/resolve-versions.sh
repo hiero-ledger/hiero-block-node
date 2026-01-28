@@ -25,6 +25,12 @@ readonly CN_REPO="hiero-ledger/hiero-consensus-node"
 readonly MN_REPO="hiero-ledger/hiero-mirror-node"
 readonly BN_REPO="hiero-ledger/hiero-block-node"
 
+# WORKAROUND: CN v0.68.x and v0.69.x have compatibility issues with Block Node.
+# When these versions are resolved, we override with the latest v0.70.x RC.
+# TODO: Remove this workaround once v0.70.0 GA or higher is available.
+readonly CN_BROKEN_VERSION_PATTERN="^v?0\.(68|69)\."
+readonly CN_FALLBACK_VERSION_PATTERN="v0\.70\."
+
 function fail {
     printf '%s\n' "$1" >&2
     exit "${2-1}"
@@ -59,6 +65,31 @@ function start_task {
 
 function end_task {
   printf "%s\n" "${1:-DONE}" >&2
+}
+
+# Checks if a version matches the broken CN version pattern (v0.68.x or v0.69.x)
+# Arguments:
+#   $1 - Version string to check
+# Returns:
+#   0 if version is broken, 1 otherwise
+function is_broken_cn_version {
+  local version="${1}"
+  [[ "${version}" =~ ${CN_BROKEN_VERSION_PATTERN} ]]
+}
+
+# Fetches the latest v0.70.x RC tag from consensus node repository
+# Returns:
+#   The latest v0.70.x RC tag, or empty string if not found
+function get_cn_fallback_version {
+  local tags_url="https://api.github.com/repos/${CN_REPO}/tags?per_page=100"
+  local response
+  response=$(curl -s -H "Accept: application/vnd.github+json" "${tags_url}") || return 1
+
+  # Find the first (most recent) v0.70.x tag (RC or GA)
+  local fallback_tag
+  fallback_tag=$(echo "${response}" | grep -o '"name": *"[^"]*"' | sed 's/"name": *"\([^"]*\)"/\1/' | grep -E "${CN_FALLBACK_VERSION_PATTERN}" | head -1)
+
+  echo "${fallback_tag}"
 }
 
 # Fetches the latest GA release tag from a GitHub repository
@@ -184,6 +215,21 @@ function main {
   local cn_resolved mn_resolved bn_resolved
 
   cn_resolved=$(resolve_version "${cn_input}" "${CN_REPO}" "Consensus Node")
+
+  # WORKAROUND: CN v0.69.x is broken, override with v0.70.x RC if needed
+  if is_broken_cn_version "${cn_resolved}"; then
+    log_line ""
+    log_line "WARNING: CN %s is broken (incompatible with Block Node)" "${cn_resolved}"
+    local fallback_version
+    fallback_version=$(get_cn_fallback_version)
+    if [[ -n "${fallback_version}" ]]; then
+      log_line "WARNING: Overriding CN version to %s" "${fallback_version}"
+      cn_resolved="${fallback_version}"
+    else
+      fail "ERROR: Could not find fallback CN version (v0.70.x)" 1
+    fi
+  fi
+
   mn_resolved=$(resolve_version "${mn_input}" "${MN_REPO}" "Mirror Node")
   bn_resolved=$(resolve_version "${bn_input}" "${BN_REPO}" "Block Node")
 
