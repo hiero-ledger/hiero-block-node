@@ -304,7 +304,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     // add block hash to merkle tree hashers
                                     final byte[] blockStreamBlockHash =
                                             hashBlock(wrappedExp, streamingHasher.computeRootHash());
-                                    streamingHasher.addLeaf(blockStreamBlockHash);
+                                    streamingHasher.addNodeByHash(blockStreamBlockHash);
                                     inMemoryTreeHasher.addLeaf(blockStreamBlockHash);
                                     // add the block hash to the registry
                                     blockRegistry.addBlock(blockNum, blockStreamBlockHash);

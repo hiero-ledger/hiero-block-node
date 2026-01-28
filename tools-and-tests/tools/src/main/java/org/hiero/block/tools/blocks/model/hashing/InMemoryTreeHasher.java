@@ -104,7 +104,7 @@ public class InMemoryTreeHasher implements Hasher {
     @Override
     public void addLeaf(byte[] data) {
         // Hash the leaf data
-        addLeafImpl(hashLeaf(digest, data));
+        addNodeByHash(hashLeaf(digest, data));
     }
 
     /**
@@ -118,18 +118,17 @@ public class InMemoryTreeHasher implements Hasher {
     @Override
     public void addLeaf(Bytes data) {
         // Hash the leaf data
-        addLeafImpl(hashLeaf(digest, data));
+        addNodeByHash(hashLeaf(digest, data));
     }
 
     /**
-     * Internal implementation to add a leaf hash and update the tree structure.
-     *
-     * @param leafHash the precomputed hash of the leaf
+     * {@inheritDoc}
      */
-    private void addLeafImpl(byte[] leafHash) {
+    @Override
+    public void addNodeByHash(byte[] hash) {
         // Add to level 0 (leaves)
         int leafIndex = levels.getFirst().size();
-        levels.getFirst().add(leafHash);
+        levels.getFirst().add(hash);
 
         // Track this as a pending subtree root (at level 0)
         pendingSubtreeRoots.add(new int[] {0, leafIndex});

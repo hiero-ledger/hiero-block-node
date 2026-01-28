@@ -149,16 +149,7 @@ public class StreamingHasher implements Hasher {
      */
     @Override
     public void addLeaf(byte[] data) {
-        final long i = leafCount;
-        final byte[] e = hashLeaf(digest, data);
-        hashList.add(e);
-        // Fold up: combine sibling pairs while the current position is odd
-        for (long n = i; (n & 1L) == 1; n >>= 1) {
-            final byte[] y = hashList.removeLast();
-            final byte[] x = hashList.removeLast();
-            hashList.add(hashInternalNode(digest, x, y));
-        }
-        leafCount++;
+        addNodeByHash(hashLeaf(digest, data));
     }
 
     /**
@@ -173,11 +164,17 @@ public class StreamingHasher implements Hasher {
      */
     @Override
     public void addLeaf(Bytes data) {
-        final long i = leafCount;
-        final byte[] e = hashLeaf(digest, data);
-        hashList.add(e);
+        addNodeByHash(hashLeaf(digest, data));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void addNodeByHash(byte[] hash) {
+        hashList.add(hash);
         // Fold up: combine sibling pairs while the current position is odd
-        for (long n = i; (n & 1L) == 1; n >>= 1) {
+        for (long n = leafCount; (n & 1L) == 1; n >>= 1) {
             final byte[] y = hashList.removeLast();
             final byte[] x = hashList.removeLast();
             hashList.add(hashInternalNode(digest, x, y));
