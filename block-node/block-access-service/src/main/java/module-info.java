@@ -4,9 +4,9 @@ import org.hiero.block.node.access.service.BlockAccessServicePlugin;
 module org.hiero.block.node.access.service {
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
+    requires transitive com.hedera.pbj.runtime;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
-    requires transitive com.hedera.pbj.runtime;
     requires com.swirlds.metrics.api;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
