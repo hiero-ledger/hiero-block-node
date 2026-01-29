@@ -50,6 +50,9 @@ public class DownloadDayImplV2 {
     /** Maximum number of retries for MD5 mismatch errors. */
     private static final int MAX_MD5_RETRIES = 3;
 
+    /** Maximum number of retries for parsing/validation failures (e.g., corrupted downloads). */
+    private static final int MAX_PARSE_RETRIES = 3;
+
     /** small helper container for pending block downloads */
     private static final class BlockWork {
         /** The block number for this block. */
@@ -328,43 +331,164 @@ public class DownloadDayImplV2 {
                 }
                 // convert the downloaded files into InMemoryFiles with destination paths, unzipped if needed and
                 //  validate md5 hashes with retry logic
-                final List<InMemoryFile> inMemoryFilesForWriting = new ArrayList<>();
-                for (int i = 0; i < ready.orderedFiles.size(); i++) {
-                    final ListingRecordFile lr = ready.orderedFiles.get(i);
-                    String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
-                    try {
-                        InMemoryFile downloadedFile = ready.futures.get(i).join();
+                List<InMemoryFile> inMemoryFilesForWriting = null;
+                Exception lastParseException = null;
 
-                        // Check MD5 and retry if mismatch
-                        boolean md5Valid = Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data());
-                        if (!md5Valid) {
-                            clearProgress();
-                            System.err.println(
-                                    "MD5 mismatch for " + (BUCKET_PATH_PREFIX + lr.path()) + ", retrying download...");
-                            // Retry download with built-in retry logic
-                            downloadedFile = downloadFileWithRetry(downloadManager, lr);
-                            // If still null after retries (signature file with persistent MD5 mismatch), skip this file
-                            if (downloadedFile == null) {
-                                continue; // Skip this file and move to next
+                for (int parseAttempt = 1; parseAttempt <= MAX_PARSE_RETRIES; parseAttempt++) {
+                    try {
+                        inMemoryFilesForWriting = new ArrayList<>();
+                        for (int i = 0; i < ready.orderedFiles.size(); i++) {
+                            final ListingRecordFile lr = ready.orderedFiles.get(i);
+                            String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
+                            try {
+                                InMemoryFile downloadedFile =
+                                        ready.futures.get(i).join();
+
+                                // Check MD5 and retry if mismatch
+                                boolean md5Valid = Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data());
+                                if (!md5Valid) {
+                                    clearProgress();
+                                    System.err.println("MD5 mismatch for " + (BUCKET_PATH_PREFIX + lr.path())
+                                            + ", retrying download...");
+                                    // Retry download with built-in retry logic
+                                    downloadedFile = downloadFileWithRetry(downloadManager, lr);
+                                    // If still null after retries (signature file with persistent MD5 mismatch), skip
+                                    // this file
+                                    if (downloadedFile == null) {
+                                        continue; // Skip this file and move to next
+                                    }
+                                }
+
+                                byte[] contentBytes = downloadedFile.data();
+                                if (filename.endsWith(".gz")) {
+                                    // Log compressed data info for debugging
+                                    if (lr.type() == ListingRecordFile.Type.RECORD && parseAttempt > 1) {
+                                        System.err.println("[DEBUG] Compressed data size: " + contentBytes.length
+                                                + ", first 8 bytes: " + bytesToHex(contentBytes, 8));
+                                    }
+                                    contentBytes = Gzip.ungzipInMemory(contentBytes);
+                                    // Log decompressed data info for debugging
+                                    if (lr.type() == ListingRecordFile.Type.RECORD && parseAttempt > 1) {
+                                        System.err.println("[DEBUG] Decompressed data size: " + contentBytes.length
+                                                + ", first 8 bytes: " + bytesToHex(contentBytes, 8));
+                                    }
+                                    filename = filename.replaceAll("\\.gz$", "");
+                                }
+                                final Path newFilePath = computeNewFilePath(lr, mostCommonFiles, filename);
+                                inMemoryFilesForWriting.add(new InMemoryFile(newFilePath, contentBytes));
+                            } catch (EOFException eofe) {
+                                // ignore corrupted gzip files
+                                System.err.println("Warning: Skipping corrupted gzip file [" + filename + "] for block "
+                                        + ready.blockNumber + " time " + ready.blockTime + ": " + eofe.getMessage());
                             }
                         }
+                        // validate block hashes (this will throw if parsing fails due to corruption)
+                        prevRecordFileHash = validateBlockHashes(
+                                ready.blockNumber,
+                                inMemoryFilesForWriting,
+                                prevRecordFileHash,
+                                ready.blockHashFromMirrorNode);
+                        // Success - break out of retry loop
+                        break;
+                    } catch (Exception e) {
+                        lastParseException = e;
+                        String errorMsg = e.getMessage() != null ? e.getMessage() : "";
+                        Throwable cause = e.getCause();
+                        String causeMsg = (cause != null && cause.getMessage() != null) ? cause.getMessage() : "";
 
-                        byte[] contentBytes = downloadedFile.data();
-                        if (filename.endsWith(".gz")) {
-                            contentBytes = Gzip.ungzipInMemory(contentBytes);
-                            filename = filename.replaceAll("\\.gz$", "");
+                        // Check if this is a parsing/corruption error that's worth retrying
+                        boolean isParseError = errorMsg.contains("Unsupported record format version")
+                                || causeMsg.contains("Unsupported record format version")
+                                || errorMsg.contains("Invalid")
+                                || causeMsg.contains("Invalid");
+
+                        if (isParseError && parseAttempt < MAX_PARSE_RETRIES) {
+                            clearProgress();
+                            System.err.println("Parse error for block " + ready.blockNumber + " (attempt "
+                                    + parseAttempt + "/" + MAX_PARSE_RETRIES + "): " + errorMsg);
+
+                            // Log the corrupted data info on first failure
+                            if (parseAttempt == 1 && !inMemoryFilesForWriting.isEmpty()) {
+                                InMemoryFile firstFile = inMemoryFilesForWriting.get(0);
+                                System.err.println("[DEBUG] Failed file path: " + firstFile.path());
+                                System.err.println("[DEBUG] Failed file size: " + firstFile.data().length
+                                        + ", first 8 bytes: " + bytesToHex(firstFile.data(), 8));
+                            }
+
+                            // On first retry, re-download the same file (transient error)
+                            // On subsequent retries, try an alternate record file from a different node
+                            if (parseAttempt == 1) {
+                                System.err.println("Re-downloading most common record file and retrying...");
+                                if (!ready.orderedFiles.isEmpty()) {
+                                    ListingRecordFile mostCommon = ready.orderedFiles.get(0);
+                                    String blobName = BUCKET_PATH_PREFIX + mostCommon.path();
+                                    try {
+                                        CompletableFuture<InMemoryFile> newFuture =
+                                                downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                                        ready.futures.set(0, newFuture);
+                                        newFuture.join();
+                                    } catch (Exception redownloadEx) {
+                                        System.err.println("Failed to re-download: " + redownloadEx.getMessage());
+                                    }
+                                }
+                            } else {
+                                // Find an alternate RECORD file from a different node
+                                int alternateIndex = findAlternateRecordFile(ready.orderedFiles, parseAttempt - 1);
+                                if (alternateIndex > 0) {
+                                    ListingRecordFile alternate = ready.orderedFiles.get(alternateIndex);
+                                    System.err.println(
+                                            "Trying alternate record file from different node: " + alternate.path());
+                                    String blobName = BUCKET_PATH_PREFIX + alternate.path();
+                                    try {
+                                        CompletableFuture<InMemoryFile> newFuture =
+                                                downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                                        // Swap the alternate with position 0 so it becomes the "most common"
+                                        // for this block's processing
+                                        ready.futures.set(0, newFuture);
+                                        ready.orderedFiles.set(0, alternate);
+                                        newFuture.join();
+                                    } catch (Exception redownloadEx) {
+                                        System.err.println(
+                                                "Failed to download alternate: " + redownloadEx.getMessage());
+                                    }
+                                } else {
+                                    System.err.println("No alternate record files available, retrying same file...");
+                                    if (!ready.orderedFiles.isEmpty()) {
+                                        ListingRecordFile mostCommon = ready.orderedFiles.get(0);
+                                        String blobName = BUCKET_PATH_PREFIX + mostCommon.path();
+                                        try {
+                                            CompletableFuture<InMemoryFile> newFuture =
+                                                    downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                                            ready.futures.set(0, newFuture);
+                                            newFuture.join();
+                                        } catch (Exception redownloadEx) {
+                                            System.err.println("Failed to re-download: " + redownloadEx.getMessage());
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Small delay before retry
+                            try {
+                                Thread.sleep(100 * parseAttempt);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                throw new IllegalStateException("Interrupted during retry delay", ie);
+                            }
+                        } else {
+                            // Not a parse error or exhausted retries - rethrow
+                            throw e;
                         }
-                        final Path newFilePath = computeNewFilePath(lr, mostCommonFiles, filename);
-                        inMemoryFilesForWriting.add(new InMemoryFile(newFilePath, contentBytes));
-                    } catch (EOFException eofe) {
-                        // ignore corrupted gzip files
-                        System.err.println("Warning: Skipping corrupted gzip file [" + filename + "] for block "
-                                + ready.blockNumber + " time " + ready.blockTime + ": " + eofe.getMessage());
                     }
                 }
-                // validate block hashes
-                prevRecordFileHash = validateBlockHashes(
-                        ready.blockNumber, inMemoryFilesForWriting, prevRecordFileHash, ready.blockHashFromMirrorNode);
+
+                // If we exhausted all retries without success, throw the last exception
+                if (inMemoryFilesForWriting == null && lastParseException != null) {
+                    throw new IllegalStateException(
+                            "Failed to process block " + ready.blockNumber + " after " + MAX_PARSE_RETRIES
+                                    + " attempts",
+                            lastParseException);
+                }
                 // write files to output tar.zstd
                 for (InMemoryFile imf : inMemoryFilesForWriting) writer.putEntry(imf);
                 // invoke block callback for signature statistics if provided
@@ -526,6 +650,47 @@ public class DownloadDayImplV2 {
                     + HexFormat.of().formatHex(computedBlockHash).substring(0, 8));
         }
         return computedBlockHash;
+    }
+
+    /**
+     * Convert first N bytes to hex string for debugging.
+     */
+    private static String bytesToHex(byte[] bytes, int maxBytes) {
+        if (bytes == null || bytes.length == 0) return "(empty)";
+        int len = Math.min(bytes.length, maxBytes);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < len; i++) {
+            sb.append(String.format("%02x", bytes[i]));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Find an alternate RECORD file from a different node for retry purposes.
+     * The orderedFiles list contains the most common record file first, followed by
+     * sidecars, then alternate record files, then signature files.
+     *
+     * @param orderedFiles the ordered list of files for the block
+     * @param alternateIndex which alternate to pick (1-based, e.g., 1 for first alternate)
+     * @return the index of an alternate RECORD file, or -1 if none found
+     */
+    private static int findAlternateRecordFile(List<ListingRecordFile> orderedFiles, int alternateIndex) {
+        int foundCount = 0;
+        for (int i = 1; i < orderedFiles.size(); i++) { // Start from 1 to skip the most common
+            if (orderedFiles.get(i).type() == ListingRecordFile.Type.RECORD) {
+                foundCount++;
+                if (foundCount == alternateIndex) {
+                    return i;
+                }
+            }
+        }
+        // If we didn't find the requested alternate index, return the first alternate if any
+        for (int i = 1; i < orderedFiles.size(); i++) {
+            if (orderedFiles.get(i).type() == ListingRecordFile.Type.RECORD) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**

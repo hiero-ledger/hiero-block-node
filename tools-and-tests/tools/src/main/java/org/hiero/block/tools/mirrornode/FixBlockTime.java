@@ -58,114 +58,21 @@ public class FixBlockTime implements Runnable {
                 toBlock = fromBlock;
             }
 
-            if (toBlock < fromBlock) {
-                System.out.println(Ansi.AUTO.string(
-                        "@|red Error: toBlock (" + toBlock + ") must be >= fromBlock (" + fromBlock + ")|@"));
+            if (!validateInputs()) {
                 return;
             }
 
-            System.out.println(Ansi.AUTO.string("@|bold,green FixBlockTime - fixing block times from mirror node|@"));
-            System.out.println(Ansi.AUTO.string("@|yellow blockTimesFile =|@ " + blockTimesFile));
-            System.out.println(Ansi.AUTO.string("@|yellow fromBlock =|@ " + fromBlock));
-            System.out.println(Ansi.AUTO.string("@|yellow toBlock =|@ " + toBlock));
-            if (dryRun) {
-                System.out.println(Ansi.AUTO.string("@|cyan DRY RUN - no changes will be made|@"));
-            }
-            System.out.println();
+            printHeader();
 
-            // Check file exists
-            if (!Files.exists(blockTimesFile)) {
-                System.out.println(
-                        Ansi.AUTO.string("@|red Error: block_times.bin does not exist at " + blockTimesFile + "|@"));
-                return;
-            }
-
-            // Check file size to see max block
-            long fileSize = Files.size(blockTimesFile);
-            long maxBlockInFile = (fileSize / Long.BYTES) - 1;
-            System.out.println(Ansi.AUTO.string("@|yellow Max block in file =|@ " + maxBlockInFile));
-
-            if (toBlock > maxBlockInFile) {
+            long maxBlockInFile = getMaxBlockInFile();
+            if (maxBlockInFile < 0 || toBlock > maxBlockInFile) {
                 System.out.println(Ansi.AUTO.string(
                         "@|red Error: toBlock (" + toBlock + ") exceeds max block in file (" + maxBlockInFile + ")|@"));
                 return;
             }
 
-            // Open file for reading current values and writing fixes
-            try (RandomAccessFile raf = new RandomAccessFile(blockTimesFile.toFile(), dryRun ? "r" : "rw");
-                    BlockTimeReader reader = new BlockTimeReader(blockTimesFile)) {
-
-                int fixedCount = 0;
-                int unchangedCount = 0;
-
-                for (long blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
-                    // Get current value from file
-                    Instant currentTime = reader.getBlockInstant(blockNumber);
-                    String currentTimeStr = DATE_TIME_FORMAT.format(currentTime);
-
-                    // Query mirror node for correct value
-                    String url = MAINNET_MIRROR_NODE_API_URL + "blocks/" + blockNumber;
-                    JsonObject blockData = MirrorNodeUtils.readUrl(url);
-
-                    if (blockData == null || !blockData.has("name")) {
-                        System.out.println(Ansi.AUTO.string(
-                                "@|red Block " + blockNumber + ": Could not fetch data from mirror node|@"));
-                        continue;
-                    }
-
-                    String recordFileName = blockData.get("name").getAsString();
-                    Instant correctTime = extractRecordFileTime(recordFileName);
-                    String correctTimeStr = DATE_TIME_FORMAT.format(correctTime);
-
-                    // Compare times
-                    if (currentTime.equals(correctTime)) {
-                        unchangedCount++;
-                        if (fromBlock == toBlock || (blockNumber - fromBlock) % 100 == 0) {
-                            System.out.println(Ansi.AUTO.string(
-                                    "@|green Block " + blockNumber + ": OK - " + correctTimeStr + " UTC|@"));
-                        }
-                    } else {
-                        fixedCount++;
-                        System.out.println(Ansi.AUTO.string("@|yellow Block " + blockNumber + ":|@"));
-                        System.out.println(Ansi.AUTO.string("  @|red Current:|@  " + currentTimeStr + " UTC (epoch: "
-                                + currentTime.getEpochSecond() + ")"));
-                        System.out.println(Ansi.AUTO.string("  @|green Correct:|@  " + correctTimeStr + " UTC (epoch: "
-                                + correctTime.getEpochSecond() + ")"));
-                        System.out.println(Ansi.AUTO.string("  @|cyan Record file:|@ " + recordFileName));
-
-                        if (!dryRun) {
-                            // Write the correct value
-                            long blockTimeLong = instantToBlockTimeLong(correctTime);
-                            long position = blockNumber * Long.BYTES;
-                            raf.seek(position);
-                            raf.writeLong(blockTimeLong);
-
-                            // Verify the write
-                            raf.seek(position);
-                            long writtenValue = raf.readLong();
-                            Instant verifyTime = RecordFileDates.blockTimeLongToInstant(writtenValue);
-                            if (verifyTime.equals(correctTime)) {
-                                System.out.println(Ansi.AUTO.string("  @|bold,green ✓ Fixed successfully|@"));
-                            } else {
-                                System.out.println(Ansi.AUTO.string("  @|bold,red ✗ Verification failed!|@"));
-                            }
-                        } else {
-                            System.out.println(Ansi.AUTO.string("  @|cyan (dry run - would fix)|@"));
-                        }
-                        System.out.println();
-                    }
-                }
-
-                // Summary
-                System.out.println();
-                System.out.println(Ansi.AUTO.string("@|bold,cyan ═══════════════════════════════════════════════|@"));
-                System.out.println(Ansi.AUTO.string("@|bold,cyan Summary|@"));
-                System.out.println(Ansi.AUTO.string("@|bold,cyan ═══════════════════════════════════════════════|@"));
-                System.out.println(Ansi.AUTO.string("@|yellow Blocks checked:|@ " + (toBlock - fromBlock + 1)));
-                System.out.println(Ansi.AUTO.string("@|yellow Blocks unchanged:|@ " + unchangedCount));
-                System.out.println(
-                        Ansi.AUTO.string("@|yellow Blocks " + (dryRun ? "to fix" : "fixed") + ":|@ " + fixedCount));
-            }
+            int[] counts = processBlocks();
+            printSummary(counts[0], counts[1]);
 
         } catch (IOException e) {
             System.out.println(Ansi.AUTO.string("@|red Error: " + e.getMessage() + "|@"));
@@ -173,9 +80,135 @@ public class FixBlockTime implements Runnable {
         }
     }
 
+    private boolean validateInputs() {
+        if (toBlock < fromBlock) {
+            System.out.println(Ansi.AUTO.string(
+                    "@|red Error: toBlock (" + toBlock + ") must be >= fromBlock (" + fromBlock + ")|@"));
+            return false;
+        }
+        if (!Files.exists(blockTimesFile)) {
+            System.out.println(
+                    Ansi.AUTO.string("@|red Error: block_times.bin does not exist at " + blockTimesFile + "|@"));
+            return false;
+        }
+        return true;
+    }
+
+    private void printHeader() {
+        System.out.println(Ansi.AUTO.string("@|bold,green FixBlockTime - fixing block times from mirror node|@"));
+        System.out.println(Ansi.AUTO.string("@|yellow blockTimesFile =|@ " + blockTimesFile));
+        System.out.println(Ansi.AUTO.string("@|yellow fromBlock =|@ " + fromBlock));
+        System.out.println(Ansi.AUTO.string("@|yellow toBlock =|@ " + toBlock));
+        if (dryRun) {
+            System.out.println(Ansi.AUTO.string("@|cyan DRY RUN - no changes will be made|@"));
+        }
+        System.out.println();
+    }
+
+    private long getMaxBlockInFile() throws IOException {
+        long fileSize = Files.size(blockTimesFile);
+        long maxBlockInFile = (fileSize / Long.BYTES) - 1;
+        System.out.println(Ansi.AUTO.string("@|yellow Max block in file =|@ " + maxBlockInFile));
+        return maxBlockInFile;
+    }
+
+    private int[] processBlocks() throws IOException {
+        int fixedCount = 0;
+        int unchangedCount = 0;
+
+        try (RandomAccessFile raf = new RandomAccessFile(blockTimesFile.toFile(), dryRun ? "r" : "rw");
+                BlockTimeReader reader = new BlockTimeReader(blockTimesFile)) {
+
+            for (long blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
+                int result = processBlock(blockNumber, raf, reader);
+                if (result > 0) {
+                    fixedCount++;
+                } else if (result == 0) {
+                    unchangedCount++;
+                }
+                // result < 0 means error, don't count
+            }
+        }
+        return new int[] {fixedCount, unchangedCount};
+    }
+
+    private int processBlock(long blockNumber, RandomAccessFile raf, BlockTimeReader reader) throws IOException {
+        Instant currentTime = reader.getBlockInstant(blockNumber);
+
+        String url = MAINNET_MIRROR_NODE_API_URL + "blocks/" + blockNumber;
+        JsonObject blockData = MirrorNodeUtils.readUrl(url);
+
+        if (blockData == null || !blockData.has("name")) {
+            System.out.println(
+                    Ansi.AUTO.string("@|red Block " + blockNumber + ": Could not fetch data from mirror node|@"));
+            return -1;
+        }
+
+        String recordFileName = blockData.get("name").getAsString();
+        Instant correctTime = extractRecordFileTime(recordFileName);
+
+        if (currentTime.equals(correctTime)) {
+            if (fromBlock == toBlock || (blockNumber - fromBlock) % 100 == 0) {
+                String correctTimeStr = DATE_TIME_FORMAT.format(correctTime);
+                System.out.println(
+                        Ansi.AUTO.string("@|green Block " + blockNumber + ": OK - " + correctTimeStr + " UTC|@"));
+            }
+            return 0;
+        }
+
+        printMismatch(blockNumber, currentTime, correctTime, recordFileName);
+        if (!dryRun) {
+            writeAndVerify(blockNumber, correctTime, raf);
+        } else {
+            System.out.println(Ansi.AUTO.string("  @|cyan (dry run - would fix)|@"));
+        }
+        System.out.println();
+        return 1;
+    }
+
+    private void printMismatch(long blockNumber, Instant currentTime, Instant correctTime, String recordFileName) {
+        String currentTimeStr = DATE_TIME_FORMAT.format(currentTime);
+        String correctTimeStr = DATE_TIME_FORMAT.format(correctTime);
+        System.out.println(Ansi.AUTO.string("@|yellow Block " + blockNumber + ":|@"));
+        System.out.println(Ansi.AUTO.string(
+                "  @|red Current:|@  " + currentTimeStr + " UTC (epoch: " + currentTime.getEpochSecond() + ")"));
+        System.out.println(Ansi.AUTO.string(
+                "  @|green Correct:|@  " + correctTimeStr + " UTC (epoch: " + correctTime.getEpochSecond() + ")"));
+        System.out.println(Ansi.AUTO.string("  @|cyan Record file:|@ " + recordFileName));
+    }
+
+    private void writeAndVerify(long blockNumber, Instant correctTime, RandomAccessFile raf) throws IOException {
+        long blockTimeLong = instantToBlockTimeLong(correctTime);
+        long position = blockNumber * Long.BYTES;
+        raf.seek(position);
+        raf.writeLong(blockTimeLong);
+
+        raf.seek(position);
+        long writtenValue = raf.readLong();
+        Instant verifyTime = RecordFileDates.blockTimeLongToInstant(writtenValue);
+        if (verifyTime.equals(correctTime)) {
+            System.out.println(Ansi.AUTO.string("  @|bold,green ✓ Fixed successfully|@"));
+        } else {
+            System.out.println(Ansi.AUTO.string("  @|bold,red ✗ Verification failed!|@"));
+        }
+    }
+
+    private void printSummary(int fixedCount, int unchangedCount) {
+        System.out.println();
+        System.out.println(Ansi.AUTO.string("@|bold,cyan ═══════════════════════════════════════════════|@"));
+        System.out.println(Ansi.AUTO.string("@|bold,cyan Summary|@"));
+        System.out.println(Ansi.AUTO.string("@|bold,cyan ═══════════════════════════════════════════════|@"));
+        System.out.println(Ansi.AUTO.string("@|yellow Blocks checked:|@ " + (toBlock - fromBlock + 1)));
+        System.out.println(Ansi.AUTO.string("@|yellow Blocks unchanged:|@ " + unchangedCount));
+        System.out.println(Ansi.AUTO.string("@|yellow Blocks " + (dryRun ? "to fix" : "fixed") + ":|@ " + fixedCount));
+    }
+
     /**
-     * Programmatically fix block times for a range of blocks.
+     * Programmatically fix block times for a range of blocks using batch queries.
      * This is called by download-live2 before batch downloads to ensure data correctness.
+     *
+     * <p>Uses batch queries to the mirror node API to fetch multiple blocks at once,
+     * making it ~100x faster than querying individual blocks.
      *
      * @param blockTimesFile the path to block_times.bin
      * @param fromBlock starting block number
@@ -201,43 +234,74 @@ public class FixBlockTime implements Runnable {
                 return 0;
             }
 
+            long totalBlocks = toBlock - fromBlock + 1;
+            System.out.println("[fixBlockTime] Fixing block times for " + totalBlocks + " blocks (" + fromBlock + " to "
+                    + toBlock + ") using batch queries...");
+
             try (RandomAccessFile raf = new RandomAccessFile(blockTimesFile.toFile(), "rw");
                     BlockTimeReader reader = new BlockTimeReader(blockTimesFile)) {
 
                 int fixedCount = 0;
+                int checkedCount = 0;
+                long currentFrom = fromBlock;
 
-                for (long blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
-                    try {
-                        Instant currentTime = reader.getBlockInstant(blockNumber);
+                // Process in batches of 100 (mirror node limit)
+                while (currentFrom <= toBlock) {
+                    long currentTo = Math.min(currentFrom + 99, toBlock);
 
-                        // Query mirror node for correct value
-                        String url = MAINNET_MIRROR_NODE_API_URL + "blocks/" + blockNumber;
-                        JsonObject blockData = MirrorNodeUtils.readUrl(url);
+                    // Build batch query URL
+                    String url = MAINNET_MIRROR_NODE_API_URL + "blocks"
+                            + "?block.number=gte:" + currentFrom
+                            + "&block.number=lte:" + currentTo
+                            + "&limit=100&order=asc";
 
-                        if (blockData == null || !blockData.has("name")) {
-                            continue;
+                    com.google.gson.JsonObject response = MirrorNodeUtils.readUrl(url);
+
+                    if (response != null && response.has("blocks")) {
+                        com.google.gson.JsonArray blocks = response.getAsJsonArray("blocks");
+
+                        for (int i = 0; i < blocks.size(); i++) {
+                            com.google.gson.JsonObject blockData = blocks.get(i).getAsJsonObject();
+
+                            if (!blockData.has("number") || !blockData.has("name")) {
+                                continue;
+                            }
+
+                            long blockNumber = blockData.get("number").getAsLong();
+                            String recordFileName = blockData.get("name").getAsString();
+
+                            try {
+                                Instant currentTime = reader.getBlockInstant(blockNumber);
+                                Instant correctTime = extractRecordFileTime(recordFileName);
+
+                                if (!currentTime.equals(correctTime)) {
+                                    // Write the correct value
+                                    long blockTimeLong = instantToBlockTimeLong(correctTime);
+                                    long position = blockNumber * Long.BYTES;
+                                    raf.seek(position);
+                                    raf.writeLong(blockTimeLong);
+                                    fixedCount++;
+                                }
+                                checkedCount++;
+                            } catch (Exception e) {
+                                // Skip this block on error
+                            }
                         }
+                    }
 
-                        String recordFileName = blockData.get("name").getAsString();
-                        Instant correctTime = extractRecordFileTime(recordFileName);
+                    currentFrom = currentTo + 1;
 
-                        if (!currentTime.equals(correctTime)) {
-                            // Write the correct value
-                            long blockTimeLong = instantToBlockTimeLong(correctTime);
-                            long position = blockNumber * Long.BYTES;
-                            raf.seek(position);
-                            raf.writeLong(blockTimeLong);
-                            fixedCount++;
-                        }
-                    } catch (Exception e) {
-                        // Skip this block on error
+                    // Progress update every 10 batches (1000 blocks)
+                    if (checkedCount % 1000 == 0 && checkedCount > 0) {
+                        double percent = (100.0 * checkedCount) / totalBlocks;
+                        System.out.printf(
+                                "[fixBlockTime] Progress: %d/%d blocks (%.1f%%), %d fixed%n",
+                                checkedCount, totalBlocks, percent, fixedCount);
                     }
                 }
 
-                if (fixedCount > 0) {
-                    System.out.println(
-                            "[fixBlockTime] Fixed " + fixedCount + " blocks in range " + fromBlock + "-" + toBlock);
-                }
+                System.out.println(
+                        "[fixBlockTime] Completed: checked " + checkedCount + " blocks, fixed " + fixedCount);
                 return fixedCount;
             }
         } catch (IOException e) {
