@@ -1,9 +1,9 @@
 package org.hiero.block.tools.states;
 
 
-import static org.hiero.block.tools.states.blockstream.BlockStreamWriter.writeBlockStream;
+import static org.hiero.block.tools.states.BlockStreamWriter.writeBlockStream;
 
-import org.hiero.block.tools.states.io.FCDataInputStream;
+import org.hiero.block.tools.states.FCDataInputStream;
 import org.hiero.block.tools.states.model.SignedState;
 import org.hiero.block.tools.states.postgres.BinaryObjectCsvRow;
 import java.io.BufferedInputStream;

@@ -199,7 +199,7 @@ public class BlockStreamWriter {
 
                             // create a state change for the contract storage
                             StateChange stateChange = StateChange.newBuilder()
-                                    .stateId(StateIdentifier.STATE_ID_CONTRACT_STORAGE.protoOrdinal())
+                                    .stateId(StateIdentifier.STATE_ID_STORAGE.protoOrdinal())
                                     .mapUpdate(MapUpdateChange.newBuilder()
                                             .key(MapChangeKey.newBuilder().slotKeyKey(slotKey))
                                             .value(MapChangeValue.newBuilder().slotValueValue(slotValue)))

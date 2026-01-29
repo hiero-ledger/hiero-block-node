@@ -30,7 +30,7 @@ public record StorageValue(BinaryObject data) {
             final boolean hasData = inStream.readBoolean();
             if (hasData) {
                 data = new BinaryObject();
-                data.copyFrom((FCDataInputStream) inStream);
+                data.copyFrom(inStream);
             }
         }
 

@@ -1,5 +1,7 @@
 package org.hiero.block.tools.states;
 
+import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -8,8 +10,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 /**
  * This class represents a transaction on the Hedera mirror node.
@@ -74,27 +74,25 @@ public class MirrorNodeTransaction {
     private List<long[]> downloadTransactionDetails(String transactionId) {
         List<long[]> transfers = new ArrayList<>();
         String url = "https://mainnet-public.mirrornode.hedera.com/api/v1/transactions/" + transactionId;
-        JSONObject json = null;
+        String responseBody = null;
         try {
             HttpClient client = HttpClient.newHttpClient();
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            json = new JSONObject(response.body());
-            JSONArray transactions = json.getJSONArray("transactions");
-            if (transactions.length() == 0) return transfers;
-            JSONObject tx = transactions.getJSONObject(0);
-            JSONArray jsonTransfers = tx.getJSONArray("transfers");
+            responseBody = response.body();
+            Gson gson = new Gson();
+            TransactionsResponse parsed = gson.fromJson(responseBody, TransactionsResponse.class);
+            if (parsed == null || parsed.transactions == null || parsed.transactions.isEmpty()) return transfers;
+            TransactionJson tx = parsed.transactions.getFirst();
+            if (tx.transfers == null) return transfers;
 
             // Sum amounts per account
             Map<Long, Long> accountSums = new HashMap<>();
-            for (int i = 0; i < jsonTransfers.length(); i++) {
-                JSONObject t = jsonTransfers.getJSONObject(i);
-                String accountStr = t.getString("account");
-                long accountId = Long.parseLong(accountStr.substring(accountStr.lastIndexOf('.') + 1));
-                long amount = t.getLong("amount");
-                accountSums.put(accountId, accountSums.getOrDefault(accountId, 0L) + amount);
+            for (TransferJson t : tx.transfers) {
+                long accountId = Long.parseLong(t.account.substring(t.account.lastIndexOf('.') + 1));
+                accountSums.put(accountId, accountSums.getOrDefault(accountId, 0L) + t.amount);
             }
             for (Map.Entry<Long, Long> entry : accountSums.entrySet()) {
                 transfers.add(new long[]{entry.getKey(), entry.getValue()});
@@ -102,15 +100,29 @@ public class MirrorNodeTransaction {
             return transfers;
         } catch (Exception e) {
             System.err.println("Failed to download transaction details for " + transactionId + ": " + e.getMessage());
-            // print url
             System.err.println("URL: " + url);
-            // print json
-            if (json != null) {
-                System.err.println("JSON response: " + json.toString(2));
+            if (responseBody != null) {
+                System.err.println("JSON response: " + responseBody);
             }
             e.printStackTrace();
             return null;
         }
+    }
+
+    /** JSON mapping for the transactions API response. */
+    private static final class TransactionsResponse {
+        List<TransactionJson> transactions;
+    }
+
+    /** JSON mapping for a single transaction. */
+    private static final class TransactionJson {
+        List<TransferJson> transfers;
+    }
+
+    /** JSON mapping for a single transfer entry. */
+    private static final class TransferJson {
+        String account;
+        long amount;
     }
     // https://mainnet-public.mirrornode.hedera.com/api/v1/transactions/0.0.11337-1568411747-660028000
 

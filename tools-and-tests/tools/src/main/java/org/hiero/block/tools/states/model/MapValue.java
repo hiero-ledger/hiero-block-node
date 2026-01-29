@@ -89,7 +89,7 @@ public record MapValue(
             if(accountKeys !=null && accountKeys.hasContractID()) {
                 isSmartContract =true;
             }
-            recordLinkedList.copyFrom(inStream, JTransactionRecord::copyFrom);
+            FCLinkedList.copyFrom(inStream, JTransactionRecord::copyFrom);
         } else if (version == CURRENT_VERSION) {
             balance = inStream.readLong();
             senderThreshold = inStream.readLong();
@@ -104,7 +104,7 @@ public record MapValue(
             expirationTime = inStream.readLong();
             memo = inStream.readUTF();
             isSmartContract = inStream.readByte() == 1;
-            recordLinkedList.copyFrom(inStream, JTransactionRecord::copyFrom);
+            FCLinkedList.copyFrom(inStream, JTransactionRecord::copyFrom);
         }
         return new MapValue(
                 balance,

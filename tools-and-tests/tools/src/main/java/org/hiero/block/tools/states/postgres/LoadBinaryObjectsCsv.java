@@ -2,6 +2,9 @@ package org.hiero.block.tools.states.postgres;
 
 import static org.hiero.block.tools.states.Main.loadSignedState;
 
+import com.hedera.hapi.node.base.CurrentAndNextFeeSchedule;
+import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.transaction.ExchangeRateSet;
 import org.hiero.block.tools.states.model.FCMap;
 import org.hiero.block.tools.states.model.HGCAppState;
 import org.hiero.block.tools.states.model.MapKey;
@@ -11,9 +14,6 @@ import org.hiero.block.tools.states.model.StorageKey;
 import org.hiero.block.tools.states.model.StorageValue;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.hederahashgraph.api.proto.javapbj.CurrentAndNextFeeSchedule;
-import com.hederahashgraph.api.proto.javapbj.ExchangeRateSet;
-import com.hederahashgraph.api.proto.javapbj.NodeAddressBook;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.HashMap;
