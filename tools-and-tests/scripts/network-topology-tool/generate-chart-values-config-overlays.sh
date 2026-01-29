@@ -17,9 +17,9 @@
 #   --help                     Show this help message
 #
 # Output Files:
-#   bn-<node-id>-values.yaml   Block Node overlay (only for BNs with peers)
-#   mn-<node-id>-values.yaml   Mirror Node overlay
-#   cn-block-node-cfg.json     CN→BN routing config for Solo --block-node-cfg
+#   bn-<node-id>-values.yaml           Block Node overlay (only for BNs with peers)
+#   mn-<node-id>-values.yaml           Mirror Node overlay
+#   bn-<node-id>-priority-mapping.txt  BN priority mapping for Solo --priority-mapping
 #
 # Examples:
 #   # Generate overlays from a topology file (outputs to ./out/fan-out-3cn-2bn/)
@@ -284,64 +284,6 @@ EOF
   log_line "Generated MN overlay: %s" "${output_file}"
 }
 
-# Extract numeric ID from block node name (block-node-X -> X)
-function extract_bn_id {
-  local bn_name="${1}"
-  echo "${bn_name}" | sed 's/^block-node-//'
-}
-
-# Generate CN→BN routing config JSON for Solo --block-node-cfg parameter
-# Output format: {"node1":["1=1","2=2"],"node2":["2=1","1=2"]}
-# Each entry is "blockNodeId=priority" where priority comes from position in array
-function generate_cn_block_node_cfg {
-  local output_file="${1}"
-
-  # Check if consensus_nodes section exists
-  local has_cn_section
-  has_cn_section=$(yq '.consensus_nodes | keys | length // 0' "${TOPOLOGY_FILE}" 2>/dev/null)
-
-  if [[ "${has_cn_section}" -eq 0 ]]; then
-    return 0  # No consensus_nodes section, nothing to generate
-  fi
-
-  local cn_names
-  cn_names=$(yq -r '.consensus_nodes | keys[]' "${TOPOLOGY_FILE}")
-
-  local json_entries=""
-  while IFS= read -r cn_name; do
-    [[ -z "${cn_name}" ]] && continue
-
-    local bn_entries=""
-    local priority=1
-
-    # Read block_nodes array for this CN
-    local bn_list
-    bn_list=$(yq -r ".consensus_nodes[\"${cn_name}\"].block_nodes[]" "${TOPOLOGY_FILE}" 2>/dev/null)
-
-    while IFS= read -r bn_ref; do
-      [[ -z "${bn_ref}" ]] && continue
-
-      local bn_id
-      bn_id=$(extract_bn_id "${bn_ref}")
-
-      [[ -n "${bn_entries}" ]] && bn_entries="${bn_entries},"
-      bn_entries="${bn_entries}\"${bn_id}=${priority}\""
-
-      priority=$((priority + 1))
-    done <<< "${bn_list}"
-
-    [[ -n "${json_entries}" ]] && json_entries="${json_entries},"
-    json_entries="${json_entries}\"${cn_name}\":[${bn_entries}]"
-  done <<< "${cn_names}"
-
-  local json_config="{${json_entries}}"
-
-  # Write to file
-  echo "${json_config}" > "${output_file}"
-
-  log_line "Generated CN block-node-cfg: %s" "${output_file}"
-}
-
 # Generate BN-centric priority mappings for Solo --priority-mapping parameter
 # Inverts the CN-centric topology to BN-centric view
 # Output: One file per BN with format "node1=1,node2=2,node3=1"
@@ -434,10 +376,7 @@ function main {
     done <<< "${mn_names}"
   fi
 
-  # Generate CN→BN routing config for Solo --block-node-cfg
-  generate_cn_block_node_cfg "${OUTPUT_DIR}/cn-block-node-cfg.json"
-
-  # Generate BN priority mappings for Solo --priority-mapping (inverted view)
+  # Generate BN priority mappings for Solo --priority-mapping
   generate_bn_priority_mappings "${OUTPUT_DIR}"
 
   log_line ""

@@ -354,18 +354,6 @@ function deploy_consensus_nodes {
     cn_args="--release-tag ${CN_VERSION}"
   fi
 
-  # Read block-node-cfg JSON from generated overlay file for CN→BN priority routing
-  local block_node_cfg_file="${OVERLAY_DIR}/cn-block-node-cfg.json"
-  local block_node_cfg_args=""
-  if [[ -f "${block_node_cfg_file}" ]]; then
-    local block_node_cfg
-    block_node_cfg=$(cat "${block_node_cfg_file}")
-    if [[ -n "${block_node_cfg}" ]]; then
-      block_node_cfg_args="--block-node-cfg '${block_node_cfg}'"
-      log_line "  Block Node Configuration: %s" "${block_node_cfg}"
-    fi
-  fi
-
   start_task "Generating consensus keys for ${NODE_ALIASES}"
   solo keys consensus generate \
     --gossip-keys \
@@ -380,7 +368,6 @@ function deploy_consensus_nodes {
     --deployment "${DEPLOYMENT}" \
     --pvcs true \
     --node-aliases "${NODE_ALIASES}" \
-    ${block_node_cfg_args} \
     ${cn_args} || fail "ERROR: Failed to deploy consensus network" 1
   end_task
 

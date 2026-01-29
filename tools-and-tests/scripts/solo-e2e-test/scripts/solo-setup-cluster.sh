@@ -13,6 +13,8 @@
 #   --topology TOPOLOGY      Topology name from topologies/*.yaml (default: single)
 #   --topologies-dir DIR     Directory containing topology files (default: SCRIPT_DIR/topologies)
 #   --skip-kind              Skip Kind cluster creation (use existing cluster)
+#   --context CONTEXT        Kubernetes context (default: kind-${CLUSTER_NAME}, or required with --skip-kind)
+#   --cluster-ref REF        Solo cluster reference name (default: same as context)
 #   --help                   Show this help message
 #
 # Environment Variables:
@@ -21,6 +23,8 @@
 #   DEPLOYMENT      - Alternative to --deployment
 #   TOPOLOGY        - Alternative to --topology
 #   TOPOLOGIES_DIR  - Alternative to --topologies-dir
+#   CONTEXT         - Alternative to --context
+#   CLUSTER_REF     - Alternative to --cluster-ref
 
 set -o pipefail
 set +e
@@ -76,6 +80,8 @@ Options:
   --topology TOPOLOGY      Topology name from topologies/*.yaml (default: single)
   --topologies-dir DIR     Directory containing topology files (default: SCRIPT_DIR/topologies)
   --skip-kind              Skip Kind cluster creation (use existing cluster)
+  --context CONTEXT        Kubernetes context (default: kind-\${CLUSTER_NAME}, required with --skip-kind)
+  --cluster-ref REF        Solo cluster reference name (default: same as context)
   --help                   Show this help message
 
 Environment Variables:
@@ -108,6 +114,9 @@ DEPLOYMENT="${DEPLOYMENT:-deployment-solo}"
 TOPOLOGY="${TOPOLOGY:-single}"
 TOPOLOGIES_DIR="${TOPOLOGIES_DIR:-${SCRIPT_DIR}/topologies}"
 SKIP_KIND="false"
+# CONTEXT and CLUSTER_REF can be set via env vars, otherwise derived later
+CONTEXT="${CONTEXT:-}"
+CLUSTER_REF="${CLUSTER_REF:-}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -135,6 +144,14 @@ while [[ $# -gt 0 ]]; do
     --skip-kind)
       SKIP_KIND="true"
       shift
+      ;;
+    --context)
+      CONTEXT="$2"
+      shift 2
+      ;;
+    --cluster-ref)
+      CLUSTER_REF="$2"
+      shift 2
       ;;
     --help|-h)
       show_help
@@ -308,9 +325,16 @@ function main {
   # Load topology first to get node count
   load_topology "${TOPOLOGY}"
 
-  # Derived values
-  CONTEXT="kind-${CLUSTER_NAME}"
-  CLUSTER_REF="kind-${CLUSTER_NAME}"
+  # Derived values - use provided values or default to Kind naming
+  if [[ -z "${CONTEXT}" ]]; then
+    if [[ "${SKIP_KIND}" == "true" ]]; then
+      fail "ERROR: --context is required when using --skip-kind for external clusters" 1
+    fi
+    CONTEXT="kind-${CLUSTER_NAME}"
+  fi
+  if [[ -z "${CLUSTER_REF}" ]]; then
+    CLUSTER_REF="${CONTEXT}"
+  fi
   NODE_ALIASES=$(generate_node_aliases "${NODE_COUNT}")
 
   check_prerequisites
