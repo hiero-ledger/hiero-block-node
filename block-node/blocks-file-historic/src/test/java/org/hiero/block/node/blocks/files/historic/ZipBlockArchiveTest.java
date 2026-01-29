@@ -491,7 +491,7 @@ class ZipBlockArchiveTest {
     private FilesHistoricConfig createTestConfiguration(
             final Path blocksRoot, final int powersOfTenPerZipFileContents) {
         // for simplicity let's use no compression
-        return new FilesHistoricConfig(blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3);
+        return new FilesHistoricConfig(blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3, false);
     }
 
     /**
