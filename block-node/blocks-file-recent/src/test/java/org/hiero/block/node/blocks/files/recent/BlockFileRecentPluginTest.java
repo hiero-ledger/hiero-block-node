@@ -11,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
-import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -184,9 +183,11 @@ class BlockFileRecentPluginTest {
                     new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems)),
                     BlockSource.PUBLISHER));
             // now try and read it back
-            final Block block = plugin.block(blockNumber).block();
+            final BlockUnparsed block = plugin.block(blockNumber).blockUnparsed();
             // check we got the correct block
-            assertArrayEquals(blockBlockItems, block.items().toArray());
+            assertArrayEquals(
+                    toBlockItemsUnparsed(blockBlockItems).toArray(),
+                    block.blockItems().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
         }
@@ -246,9 +247,11 @@ class BlockFileRecentPluginTest {
             blockMessaging.sendBlockVerification(
                     new VerificationNotification(true, blockNumber, Bytes.EMPTY, blockOrig, BlockSource.PUBLISHER));
             // now try and read it back
-            final Block block = plugin.block(blockNumber).block();
+            final BlockUnparsed block = plugin.block(blockNumber).blockUnparsed();
             // check we got the correct block
-            assertArrayEquals(blockBlockItems, block.items().toArray());
+            assertArrayEquals(
+                    toBlockItemsUnparsed(blockBlockItems).toArray(),
+                    block.blockItems().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
         }

@@ -5,11 +5,17 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
+import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.grpc.Pipelines;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockRequest;
 import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
+import org.hiero.block.internal.BlockResponseUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -37,12 +43,37 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     // ==== BlockAccessServiceInterface Methods ========================================================================
 
     /**
-     * Handle a request for a single block
+     * {@inheritDoc}
+     * <p>
+     * Override to use unparsed response type, avoiding full block parsing.
+     * This prevents parse failures when proto versions differ between CN and BN,
+     * and improves performance by not parsing block items unnecessarily.
+     */
+    @Override
+    @NonNull
+    public Pipeline<? super Bytes> open(
+            @NonNull final Method method,
+            @NonNull final RequestOptions options,
+            @NonNull final Pipeline<? super Bytes> replies) {
+        final BlockAccessServiceMethod blockAccessServiceMethod = (BlockAccessServiceMethod) method;
+        return switch (blockAccessServiceMethod) {
+            case getBlock ->
+                Pipelines.<BlockRequest, BlockResponseUnparsed>unary()
+                        .mapRequest(bytes -> BlockRequest.PROTOBUF.parse(bytes.toReadableSequentialData()))
+                        .method(this::getBlockUnparsed)
+                        .mapResponse(BlockResponseUnparsed.PROTOBUF::toBytes)
+                        .respondTo(replies)
+                        .build();
+        };
+    }
+
+    /**
+     * Handle a request for a single block, returning unparsed block data.
      *
      * @param request the request containing the block number or latest flag
-     * @return the response containing the block or an error status
+     * @return the response containing the unparsed block or an error status
      */
-    public BlockResponse getBlock(BlockRequest request) {
+    private BlockResponseUnparsed getBlockUnparsed(BlockRequest request) {
         requestCounter.increment();
         try {
             long blockNumberToRetrieve;
@@ -59,7 +90,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                         TRACE, "Received 'retrieveLatest' BlockRequest, retrieving block={0}", blockNumberToRetrieve);
             } else {
                 LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
-                return new BlockResponse(Code.INVALID_REQUEST, null);
+                return new BlockResponseUnparsed(Code.INVALID_REQUEST, null);
             }
             // Check if block is within the available range
             if (!blockProvider.availableBlocks().contains(blockNumberToRetrieve)) {
@@ -72,27 +103,35 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                         lowestBlockNumber,
                         highestBlockNumber);
                 responseCounterNotAvailable.increment();
-                return new BlockResponse(Code.NOT_AVAILABLE, null);
+                return new BlockResponseUnparsed(Code.NOT_AVAILABLE, null);
             }
             // Retrieve the block
             try (final BlockAccessor accessor = blockProvider.block(blockNumberToRetrieve)) {
                 if (accessor != null) {
-                    // even though we have checked for the existence of the block
-                    // it may not be available anymore, so we have to ensure the accessor
-                    // still exists
-                    final BlockResponse response = new BlockResponse(Code.SUCCESS, accessor.block());
-                    responseCounterSuccess.increment();
-                    return response;
-                } else {
-                    return new BlockResponse(Code.NOT_FOUND, null);
+                    // Use blockUnparsed() to avoid full parsing of block items
+                    final BlockUnparsed block = accessor.blockUnparsed();
+                    if (block != null) {
+                        responseCounterSuccess.increment();
+                        return new BlockResponseUnparsed(Code.SUCCESS, block);
+                    }
                 }
+                responseCounterNotFound.increment();
+                return new BlockResponseUnparsed(Code.NOT_FOUND, null);
             }
         } catch (final RuntimeException e) {
             final String message = "Failed to retrieve block number %d.".formatted(request.blockNumber());
             LOGGER.log(ERROR, message, e);
-            responseCounterNotFound.increment(); // Should this be a failure counter?
-            return new BlockResponse(Code.NOT_FOUND, null);
+            responseCounterNotFound.increment();
+            return new BlockResponseUnparsed(Code.NOT_FOUND, null);
         }
+    }
+
+    // ==== "dead" method required by the interface ====
+    @Override
+    public BlockResponse getBlock(BlockRequest request) {
+        // do nothing; in order to use unparsed alternatives we must override
+        // open instead of this method.
+        return null;
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================

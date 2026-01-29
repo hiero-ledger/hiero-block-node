@@ -118,7 +118,7 @@ class ZipBlockAccessorTest {
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
             final Bytes expected = Block.PROTOBUF.toBytes(block);
-            // test zipBlockAccessor.block()
+            // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             final Format format = getHappyPathFormat(compressionType);
             // The blockBytes method should return the bytes of the block with the
@@ -148,7 +148,7 @@ class ZipBlockAccessorTest {
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
             final Bytes expected = Block.PROTOBUF.toBytes(block);
-            // test zipBlockAccessor.block()
+            // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             final Format format = getHappyPathFormat(compressionType);
             // The blockBytes method should return the bytes of the block with the
@@ -190,7 +190,7 @@ class ZipBlockAccessorTest {
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
             final Bytes expected = Block.PROTOBUF.toBytes(block);
-            // test zipBlockAccessor.block()
+            // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             // The blockBytes method should return the bytes of the block with the
             // specified format. In order to assert the same bytes, we need to decompress
@@ -226,7 +226,7 @@ class ZipBlockAccessorTest {
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
             final Bytes expected = Block.PROTOBUF.toBytes(block);
-            // test zipBlockAccessor.block()
+            // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             // The blockBytes method should return the bytes of the block with the
             // specified format. In order to assert the same bytes, we need to decompress
@@ -274,7 +274,7 @@ class ZipBlockAccessorTest {
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
             final Bytes expected = Block.PROTOBUF.toBytes(block);
-            // test zipBlockAccessor.block()
+            // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             // The blockBytes method should return the bytes of the block with the
             // specified format.
@@ -306,7 +306,7 @@ class ZipBlockAccessorTest {
                     testConfig, blockItems[0].blockHeader().number());
             final Block block = new Block(List.of(blockItems));
             final Bytes expected = Block.PROTOBUF.toBytes(block);
-            // test zipBlockAccessor.block()
+            // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             // The blockBytes method should return the bytes of the block with the
             // specified format.
@@ -330,14 +330,15 @@ class ZipBlockAccessorTest {
         }
 
         /**
-         * This test aims to verify that the {@link ZipBlockAccessor#block()}
-         * will correctly return a zipped block.
+         * This test aims to verify that a persisted block can be read with
+         * {@link ZipBlockAccessor#blockUnparsed()} and then fully parsed to a {@link Block}.
+         * This ensures the round-trip of storing and retrieving zipped blocks works correctly.
          */
         @ParameterizedTest
         @EnumSource(CompressionType.class)
-        @DisplayName("Test block() returns correctly a persisted block")
+        @DisplayName("Test block can be read and parsed from zipped persisted data")
         @SuppressWarnings("DataFlowIssue")
-        void testBlock(final CompressionType compressionType) throws IOException {
+        void testBlockParsedFromUnparsed(final CompressionType compressionType) throws IOException, ParseException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
@@ -345,24 +346,25 @@ class ZipBlockAccessorTest {
                     testConfig, blockItems[0].blockHeader().number());
             final Block expected = new Block(List.of(blockItems));
             final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
-            // test zipBlockAccessor.block()
+            // test zipBlockAccessor.blockUnparsed() and parse
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
-            final Block actual = toTest.block();
+            final BlockUnparsed unparsed = toTest.blockUnparsed();
+            assertThat(unparsed).isNotNull();
+            final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
         }
 
         /**
-         * This test aims to verify that the {@link ZipBlockAccessor#block()}
-         * will correctly return a zipped block. Here we verify that two
-         * consecutive accessors to the same block will return the same block.
-         * Closing an accessor does not in any way interfere with the data and
-         * the ability to access it.
+         * This test aims to verify that a persisted zipped block can be read and parsed correctly
+         * across subsequent accessor instances. Closing an accessor does not in any way interfere
+         * with the data and the ability to access it.
          */
         @ParameterizedTest
         @EnumSource(CompressionType.class)
-        @DisplayName("Test block() returns correctly a persisted block - consecutive calls")
+        @DisplayName("Test block can be read and parsed - consecutive calls")
         @SuppressWarnings("DataFlowIssue")
-        void testBlockConsecutiveCalls(final CompressionType compressionType) throws IOException {
+        void testBlockParsedFromUnparsedConsecutiveCalls(final CompressionType compressionType)
+                throws IOException, ParseException {
             // build a test block
             final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
@@ -370,9 +372,11 @@ class ZipBlockAccessorTest {
                     testConfig, blockItems[0].blockHeader().number());
             final Block expected = new Block(List.of(blockItems));
             final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
-            // test zipBlockAccessor.block()
+            // test zipBlockAccessor.blockUnparsed() and parse
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
-            final Block actual = toTest.block();
+            final BlockUnparsed unparsed = toTest.blockUnparsed();
+            assertThat(unparsed).isNotNull();
+            final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
             // now we close the accessor
             toTest.close();
@@ -385,7 +389,10 @@ class ZipBlockAccessorTest {
             // now we create a new accessor to the same block
             final ZipBlockAccessor toTest2 = new ZipBlockAccessor(blockPath, linksTempDir);
             // now we should be able to access the block again
-            assertThat(toTest2.block()).isEqualTo(expected);
+            final BlockUnparsed unparsed2 = toTest2.blockUnparsed();
+            assertThat(unparsed2).isNotNull();
+            final Block actual2 = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed2));
+            assertThat(actual2).isEqualTo(expected);
         }
 
         /**

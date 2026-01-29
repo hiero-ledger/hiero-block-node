@@ -6,7 +6,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.common.hasher.StreamingHasher;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -329,15 +330,22 @@ public class AllBlocksHasherHandler {
         return result.blockHash().toByteArray();
     }
 
-    private byte[] extractPreviousRootHashFromBlock(long blockNumber) {
-        var items = context.historicalBlockProvider().block(blockNumber).block().items();
+    private byte[] extractPreviousRootHashFromBlock(long blockNumber) throws ParseException {
+        BlockUnparsed block =
+                context.historicalBlockProvider().block(blockNumber).blockUnparsed();
+        if (block == null) {
+            throw new IllegalStateException("Failed to read block " + blockNumber);
+        }
+
+        List<BlockItemUnparsed> items = block.blockItems();
 
         // blocks place the footer close to the very end.
         // We iterate backwards to find it almost instantly.
         for (int i = items.size() - 1; i >= 0; i--) {
-            var item = items.get(i);
-            if (item.item().kind() == BlockItem.ItemOneOfType.BLOCK_FOOTER) {
-                return item.blockFooter().previousBlockRootHash().toByteArray();
+            BlockItemUnparsed item = items.get(i);
+            if (item.hasBlockFooter()) {
+                BlockFooter footer = BlockFooter.PROTOBUF.parse(item.blockFooter());
+                return footer.previousBlockRootHash().toByteArray();
             }
         }
 

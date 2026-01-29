@@ -83,22 +83,6 @@ final class BlockFileBlockAccessor implements BlockAccessor {
      * The method should be otherwise identical to the default.
      */
     @Override
-    public Block block() {
-        try {
-            final Bytes rawData = blockBytes(Format.PROTOBUF);
-            return rawData == null ? null : Block.PROTOBUF.parse(rawData);
-        } catch (final UncheckedIOException | ParseException e) {
-            LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
-            return null;
-        }
-    }
-
-    /**
-     * {@inheritDoc}
-     * <p>Note, we only override here to change the logging message.
-     * The method should be otherwise identical to the default.
-     */
-    @Override
     public BlockUnparsed blockUnparsed() {
         try {
             final Bytes rawData = blockBytes(Format.PROTOBUF);

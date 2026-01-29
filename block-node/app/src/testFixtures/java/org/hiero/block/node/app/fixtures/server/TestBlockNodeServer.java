@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.server;
 
+import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.PbjRouting.Builder;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.ConnectionConfig;
@@ -18,6 +20,7 @@ import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
 public class TestBlockNodeServer {
@@ -81,17 +84,23 @@ public class TestBlockNodeServer {
                     break;
                 } else {
                     // Path 2: Block available - send block items followed by end-of-block marker
-                    replies.onNext(SubscribeStreamResponse.newBuilder()
-                            .blockItems(BlockItemSet.newBuilder()
-                                    .blockItems(historicalBlockFacility
-                                            .block(i)
-                                            .block()
-                                            .items())
-                                    .build())
-                            .build());
-                    replies.onNext(SubscribeStreamResponse.newBuilder()
-                            .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())
-                            .build());
+                    try (BlockAccessor accessor = historicalBlockFacility.block(i)) {
+                        Block block = Block.PROTOBUF.parse(accessor.blockBytes(BlockAccessor.Format.PROTOBUF));
+                        replies.onNext(SubscribeStreamResponse.newBuilder()
+                                .blockItems(BlockItemSet.newBuilder()
+                                        .blockItems(block.items())
+                                        .build())
+                                .build());
+                        replies.onNext(SubscribeStreamResponse.newBuilder()
+                                .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())
+                                .build());
+                    } catch (ParseException e) {
+                        replies.onNext(SubscribeStreamResponse.newBuilder()
+                                .status(SubscribeStreamResponse.Code.NOT_AVAILABLE)
+                                .build());
+                        blocksAvailable = false;
+                        break;
+                    }
                 }
             }
 
