@@ -17,6 +17,7 @@ import picocli.CommandLine.Spec;
             ValidateBlockTimes.class,
             AddNewerBlockTimes.class,
             FetchMirrorNodeRecordsCsv.class,
+            FetchMissingTransactions.class,
             ExtractDayBlocks.class,
             UpdateBlockData.class,
             GenerateAddressBookFromMirrorNode.class,
