@@ -169,6 +169,12 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * @return a BlockNodeClient for the specified node
      */
     protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+        // Check if existing client is unreachable and remove it to allow recreation
+        BlockNodeClient existingClient = nodeClientMap.get(node);
+        if (existingClient != null && !existingClient.isNodeReachable()) {
+            nodeClientMap.remove(node);
+            LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
+        }
         return nodeClientMap.computeIfAbsent(
                 node, n -> new BlockNodeClient(n, globalGrpcTimeoutMs, enableTls, n.grpcWebclientTuning()));
     }
