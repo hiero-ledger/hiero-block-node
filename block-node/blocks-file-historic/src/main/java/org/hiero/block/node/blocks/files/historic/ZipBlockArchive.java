@@ -151,7 +151,7 @@ class ZipBlockArchive {
                             .filter(path -> path.getFileName().toString().endsWith(".zip"))
                             .min(Comparator.comparingLong(filePath -> {
                                 String fileName = filePath.getFileName().toString();
-                                return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
+                                return Long.parseLong(fileName.substring(0, fileName.lastIndexOf('.')));
                             }));
                     if (zipFilePath.isPresent()) {
                         final Path candidateZip = zipFilePath.get();
@@ -209,7 +209,7 @@ class ZipBlockArchive {
                             .filter(path -> path.getFileName().toString().endsWith(".zip"))
                             .max(Comparator.comparingLong(filePath -> {
                                 String fileName = filePath.getFileName().toString();
-                                return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
+                                return Long.parseLong(fileName.substring(0, fileName.lastIndexOf('.')));
                             }));
                     if (zipFilePath.isPresent()) {
                         final Path candidateZip = zipFilePath.get();
