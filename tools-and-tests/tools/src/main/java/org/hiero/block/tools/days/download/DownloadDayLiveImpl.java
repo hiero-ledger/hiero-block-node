@@ -158,13 +158,6 @@ public class DownloadDayLiveImpl {
 
         final ListingRecordFile mostCommonRecordFile = findMostCommonByType(group, ListingRecordFile.Type.RECORD);
 
-        // Log sidecar distribution for debugging
-        final long totalSidecarsForBlock = group.stream()
-                .filter(lr -> lr.type() == ListingRecordFile.Type.RECORD_SIDECAR)
-                .count();
-        System.out.println("[download-live] Block " + blockNumber + " at " + blockTime + " has " + group.size()
-                + " listing entries, sidecars=" + totalSidecarsForBlock);
-
         // Mirror historic behaviour: use a single most common sidecar candidate
         final ListingRecordFile mostCommonSidecarFile =
                 findMostCommonByType(group, ListingRecordFile.Type.RECORD_SIDECAR);
@@ -172,14 +165,8 @@ public class DownloadDayLiveImpl {
 
         if (mostCommonSidecarFile == null) {
             mostCommonSidecarFiles = new ListingRecordFile[0];
-            System.out.println("[download-live] No most-common sidecar selected for block " + blockNumber + " at "
-                    + blockTime + " (mostCommonSidecarFile=null)");
         } else {
             mostCommonSidecarFiles = new ListingRecordFile[] {mostCommonSidecarFile};
-            System.out.println("[download-live] Selected most-common sidecar for block " + blockNumber
-                    + " at " + blockTime + ": type=" + mostCommonSidecarFile.type()
-                    + ", path=" + mostCommonSidecarFile.path()
-                    + ", md5=" + mostCommonSidecarFile.md5Hex());
         }
 
         final Set<ListingRecordFile> mostCommonFiles = new HashSet<>();
@@ -282,24 +269,11 @@ public class DownloadDayLiveImpl {
             final byte[] blockHashFromMirrorNode)
             throws Exception {
 
-        System.out.println("[download-live] Starting hash-chain validation for block " + blockNumber
-                + " with " + files.size() + " files (prevHash="
-                + (previousRecordFileHash == null ? "null" : HexFormat.of().formatHex(previousRecordFileHash))
-                + ")");
-
         try {
-            final byte[] newPrevRecordFileHash =
-                    validateBlockHashes(blockNumber, files, previousRecordFileHash, blockHashFromMirrorNode);
-
-            System.out.println("[download-live] Completed hash-chain validation for block " + blockNumber
-                    + " (newPrevHash="
-                    + (newPrevRecordFileHash == null ? "null" : HexFormat.of().formatHex(newPrevRecordFileHash))
-                    + ")");
-
-            return newPrevRecordFileHash;
+            return validateBlockHashes(blockNumber, files, previousRecordFileHash, blockHashFromMirrorNode);
         } catch (Exception e) {
-            System.err.println("[download-live] Hash-chain validation failed for block " + blockNumber + " with "
-                    + files.size() + " files: " + e.getMessage());
+            System.err.println(
+                    "[download-live] Hash-chain validation failed for block " + blockNumber + ": " + e.getMessage());
             throw e;
         }
     }
@@ -905,7 +879,7 @@ public class DownloadDayLiveImpl {
      * @param group the full list of listing record files for the block
      * @return the ordered list of files to download
      */
-    static List<ListingRecordFile> computeFilesToDownload(
+    public static List<ListingRecordFile> computeFilesToDownload(
             ListingRecordFile mostCommonRecordFile,
             ListingRecordFile[] mostCommonSidecarFiles,
             List<ListingRecordFile> group) {
