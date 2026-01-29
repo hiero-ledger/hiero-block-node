@@ -50,11 +50,9 @@ Before you begin, ensure you have:
          - GENERATOR_END_BLOCK_NUMBER=100
    ```
 
-> **Note:** Replace "host.docker.internal" and "40840" with the actual service IP/hostname and gRPC port for your Block Node.
-
->
-
-> **Note:** Replace `<BLOCK_NODE_VERSION_TAG>` with the version of the Block Node you are testing (for example, `0.25.0`). Always use a simulator image version that matches your Block Node version. Refer to the [package registry](https://github.com/hiero-ledger/hiero-block-node/pkgs/container/hiero-block-node%2Fsimulator-image) to find the available versions.
+- Replace `host.docker.internal` with the actual service IP or hostname for your Block Node.
+- Replace `40840` with the gRPC port exposed by your Block Node service.
+- Replace `<BLOCK_NODE_VERSION_TAG>` with the Block Node version you are testing (for example, `0.25.0`). Always use a simulator image tag that matches your Block Node version. See the [package registry](https://github.com/hiero-ledger/hiero-block-node/pkgs/container/hiero-block-node%2Fsimulator-image) for available tags.
 
 ### **Choose the Correct Block Node Address:**
 
@@ -73,9 +71,8 @@ The following variables are the minimum required to run the simulator publisher 
 - **GRPC_PORT**: The gRPC port exposed by the Block Node service (e.g., **`40840`**).
 - **GENERATOR_START_BLOCK_NUMBER**: First block number the simulator will generate (for example, **`0`**).
 - **GENERATOR_END_BLOCK_NUMBER**: Last block number the simulator will generate, the simulator stops after publishing up to this block number.
-  
-For the complete and official Block Node configuration reference, see the [Block Node configuration document](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/configuration.md).
 
+For the complete and official Block Node configuration reference, see the [Block Node configuration document](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/configuration.md).
 
 ## Step 2: Run the Docker Compose File
 
@@ -160,20 +157,26 @@ For **single-node Kubernetes deployments**, run:
 
 - Delete live and historic data directories inside the Block Node pod:
 
-   ```bash
-   kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
-   ````
+  ```bash
+  kubectl -n ${NAMESPACE} exec ${POD} -- sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
+  ```
+
+  > Note: Replace `${NAMESPACE}` and `${POD}` with values from your deployment: `${NAMESPACE}` is the Kubernetes namespace where your Block Node is running (for example, block-node), and `${POD}` is the Block Node pod name returned by `kubectl get pods -n ${NAMESPACE}` (for example, block-node-0).
 
 - Restart the Block Node pod so it starts with a clean data directory:
 
-   ```bash
-   kubectl -n ${NAMESPACE} delete pod ${POD}
-   ```
+  ```bash
+  kubectl -n ${NAMESPACE} delete pod ${POD}
+  ```
 
 For **Docker based Block Node deployments**, run the equivalent inside the Block Node container:
 
-   ```bash
-   docker exec <BLOCK_NODE_CONTAINER_NAME> sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
-   docker restart <BLOCK_NODE_CONTAINER_NAME>
-   ```
+```bash
+# Clear live and historic data directories
+docker exec <BLOCK_NODE_CONTAINER_NAME> sh -c 'rm -rf /opt/hiero/block-node/data/live/* /opt/hiero/block-node/data/historic/*'
+
+# Restart the container
+docker restart <BLOCK_NODE_CONTAINER_NAME>
+```
+
 After the pod or container restarts, the Block Node will come up with empty live and historic data directories, ready for a fresh simulator run or to begin consuming real block streams.
