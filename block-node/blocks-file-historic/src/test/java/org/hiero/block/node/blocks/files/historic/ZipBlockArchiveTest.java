@@ -150,9 +150,9 @@ class ZipBlockArchiveTest {
         void testMinStoredWithException() throws IOException {
             // create test environment, in this case we simply create an empty zip file which will produce
             // an exception when we attempt to look for an entry inside
-            final BlockPath computedBlockPath00s = BlockPath.computeBlockPath(testConfig, 0L);
-            Files.createDirectories(computedBlockPath00s.dirPath());
-            Files.createFile(computedBlockPath00s.zipFilePath());
+            final BlockPath computedBlockPath00 = BlockPath.computeBlockPath(testConfig, 0L);
+            Files.createDirectories(computedBlockPath00.dirPath());
+            Files.createFile(computedBlockPath00.zipFilePath());
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             // call
