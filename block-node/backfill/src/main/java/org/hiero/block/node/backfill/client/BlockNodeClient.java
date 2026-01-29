@@ -148,8 +148,9 @@ public class BlockNodeClient {
     }
 
     private Http2ClientProtocolConfig buildHttp2Config(@Nullable GrpcWebClientTuning tuning) {
-        // Skip HTTP/1.1 upgrade negotiation for better performance
-        final boolean priorKnowledge = tuning == null || tuning.priorKnowledge();
+        // Use HTTP/1.1 upgrade by default (priorKnowledge=false) to match CN client behavior.
+        // Direct h2c (priorKnowledge=true) has compatibility issues with Helidon's HTTP/2 preface timeout.
+        final boolean priorKnowledge = tuning != null && tuning.priorKnowledge();
         // HTTP/2 frame and window sizes for flow control (validated per RFC 7540)
         final int maxFrameSize = MAX_FRAME_SIZE.getValidOrDefault(tuning);
         final int initialWindowSize = INITIAL_WINDOW_SIZE.getValidOrDefault(tuning);
@@ -188,6 +189,7 @@ public class BlockNodeClient {
             blockStreamSubscribeUnparsedClient = new BlockStreamSubscribeUnparsedClient(pbjGrpcClient, globalTimeoutMs);
             nodeReachable = true;
         } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException ex) {
+            LOGGER.log(Level.WARNING, "Failed to initialize gRPC client: %s".formatted(ex.getMessage()), ex);
             nodeReachable = false;
         }
     }
