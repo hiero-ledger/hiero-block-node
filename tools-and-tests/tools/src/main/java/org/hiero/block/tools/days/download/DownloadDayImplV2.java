@@ -28,6 +28,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
@@ -105,6 +106,88 @@ public class DownloadDayImplV2 {
             final long totalDays,
             final int dayIndex,
             final long overallStartMillis)
+            throws Exception {
+        return downloadDay(
+                downloadManager,
+                dayBlockInfo,
+                blockTimeReader,
+                listingDir,
+                downloadedDaysDir,
+                year,
+                month,
+                day,
+                previousRecordFileHash,
+                totalDays,
+                dayIndex,
+                overallStartMillis,
+                false); // validate by default
+    }
+
+    /**
+     *  Download all record files for a given day from GCP, group by block, deduplicate, optionally validate,
+     *  and write into a single .tar.zstd file.
+     *
+     * @param skipValidation if true, skip hash chain validation (useful for catch-up when BlockTimeReader may be stale)
+     * @return the hash of the last most common record file for this day, or null if validation was skipped
+     * @throws Exception on any error
+     */
+    public static byte[] downloadDay(
+            final ConcurrentDownloadManager downloadManager,
+            final DayBlockInfo dayBlockInfo,
+            final BlockTimeReader blockTimeReader,
+            final Path listingDir,
+            final Path downloadedDaysDir,
+            final int year,
+            final int month,
+            final int day,
+            final byte[] previousRecordFileHash,
+            final long totalDays,
+            final int dayIndex,
+            final long overallStartMillis,
+            final boolean skipValidation)
+            throws Exception {
+        return downloadDay(
+                downloadManager,
+                dayBlockInfo,
+                blockTimeReader,
+                listingDir,
+                downloadedDaysDir,
+                year,
+                month,
+                day,
+                previousRecordFileHash,
+                totalDays,
+                dayIndex,
+                overallStartMillis,
+                skipValidation,
+                null); // no block callback
+    }
+
+    /**
+     *  Download all record files for a given day from GCP, group by block, deduplicate, optionally validate,
+     *  and write into a single .tar.zstd file.
+     *
+     * @param skipValidation if true, skip hash chain validation (useful for catch-up when BlockTimeReader may be stale)
+     * @param blockCallback optional callback invoked for each block with (blockNumber, signatureCount)
+     *                      for signature statistics tracking. Pass null to skip.
+     * @return the hash of the last most common record file for this day, or null if validation was skipped
+     * @throws Exception on any error
+     */
+    public static byte[] downloadDay(
+            final ConcurrentDownloadManager downloadManager,
+            final DayBlockInfo dayBlockInfo,
+            final BlockTimeReader blockTimeReader,
+            final Path listingDir,
+            final Path downloadedDaysDir,
+            final int year,
+            final int month,
+            final int day,
+            final byte[] previousRecordFileHash,
+            final long totalDays,
+            final int dayIndex,
+            final long overallStartMillis,
+            final boolean skipValidation,
+            final BiConsumer<Long, Integer> blockCallback)
             throws Exception {
         // the running blockchain hash from previous record file, null means unknown (first block of chain, or starting
         // mid-chain)
@@ -284,6 +367,22 @@ public class DownloadDayImplV2 {
                         ready.blockNumber, inMemoryFilesForWriting, prevRecordFileHash, ready.blockHashFromMirrorNode);
                 // write files to output tar.zstd
                 for (InMemoryFile imf : inMemoryFilesForWriting) writer.putEntry(imf);
+                // invoke block callback for signature statistics if provided
+                if (blockCallback != null) {
+                    int signatureCount = 0;
+                    for (InMemoryFile imf : inMemoryFilesForWriting) {
+                        String fileName = imf.path().getFileName().toString();
+                        if (fileName.endsWith(".rcd_sig") || fileName.endsWith(".rcs_sig")) {
+                            signatureCount++;
+                        }
+                    }
+                    blockCallback.accept(ready.blockNumber, signatureCount);
+                    // Debug log for first block of each day
+                    if (blocksProcessed.get() == 0) {
+                        System.out.println("[STATS-DEBUG] First block callback: block=" + ready.blockNumber + " sigs="
+                                + signatureCount + " files=" + inMemoryFilesForWriting.size());
+                    }
+                }
                 // print progress
                 printProgress(
                         blocksProcessed,
