@@ -112,9 +112,10 @@ jobs:
           # Each entry defines a topology and which tests are valid for it
           case "${RUN_TYPE}" in
             daily)
-              # Quick validation - single topology, smoke test only
+              # Quick validation - single topology smoke test + backfill test
               MATRIX='[
-                {"topology":"single","tests":"smoke-test"}
+                {"topology":"single","tests":"smoke-test"},
+                {"topology":"2cn-2bn-backfill","tests":"full-history-backfill"}
               ]'
               ;;
             weekend|rc)
@@ -123,7 +124,8 @@ jobs:
                 {"topology":"single","tests":"smoke-test,basic-load,node-restart-resilience"},
                 {"topology":"paired-3","tests":"smoke-test,basic-load"},
                 {"topology":"3cn-1bn","tests":"smoke-test"},
-                {"topology":"fan-out-3cn-2bn","tests":"smoke-test"}
+                {"topology":"fan-out-3cn-2bn","tests":"smoke-test"},
+                {"topology":"2cn-2bn-backfill","tests":"full-history-backfill"}
               ]'
               ;;
             *)

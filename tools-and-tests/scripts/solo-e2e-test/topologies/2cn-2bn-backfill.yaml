@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# 2 Consensus Nodes, 2 Block Nodes with bidirectional backfill
+#
+# Each Consensus Node streams to its corresponding Block Node (CN1->BN1, CN2->BN2).
+# Block Nodes peer with each other for backfill.
+# Used for testing node replacement and backfill scenarios.
+#
+# CN1 → BN1 (primary); CN2 → BN2 (primary)
+# BN1 ↔ BN2 (backfill)
+# MN ← BN1, BN2
+
+name: 2cn-2bn-backfill
+description: "2 CNs, 2 BNs with priority routing and bidirectional backfill"
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+    peers: [block-node-2]
+    greedy: true
+  block-node-2:
+    address: block-node-2
+    port: 40840
+    peers: [block-node-1]
+    greedy: true
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1]
+  node2:
+    block_nodes: [block-node-2]
+
+mirror_nodes:
+  mirror-1:
+    block_nodes: [block-node-1, block-node-2]
+
+relay_nodes:
+  relay-1:
+    mirror_nodes: [mirror-1]
+
+explorer_nodes:
+  explorer-1:
+    mirror_nodes: [mirror-1]

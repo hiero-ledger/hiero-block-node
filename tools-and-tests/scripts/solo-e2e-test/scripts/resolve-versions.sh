@@ -2,15 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Resolves version keywords to actual release versions.
-# Supports: 'latest' (GA release), 'rc' (Release Candidate), 'main' (snapshot), or specific version tags.
+# Supports: 'latest' (GA release), 'rc' (Release Candidate), 'main' (SNAPSHOT from main branch), or specific version tags.
 #
 # Usage:
 #   ./resolve-versions.sh [cn_version] [mn_version] [bn_version]
 #
 # Arguments:
-#   cn_version - Consensus Node version ('latest', 'rc', 'main', or tag like 'v0.68.6')
-#   mn_version - Mirror Node version ('latest', 'rc', 'main', or tag like 'v0.146.0')
-#   bn_version - Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')
+#   cn_version - Consensus Node version ('latest', 'rc', 'main' for SNAPSHOT, or tag like 'v0.68.6')
+#   mn_version - Mirror Node version ('latest', 'rc', 'main' for SNAPSHOT, or tag like 'v0.146.0')
+#   bn_version - Block Node version ('latest', 'rc', 'main' for SNAPSHOT, or tag like 'v0.21.2')
 #
 # Output:
 #   Outputs key=value pairs to stdout that can be captured by the caller:
@@ -90,6 +90,44 @@ function get_cn_fallback_version {
   fallback_tag=$(echo "${response}" | grep -o '"name": *"[^"]*"' | sed 's/"name": *"\([^"]*\)"/\1/' | grep -E "${CN_FALLBACK_VERSION_PATTERN}" | head -1)
 
   echo "${fallback_tag}"
+}
+
+# Fetches the version from the main branch of a GitHub repository.
+# Tries version.txt first, then falls back to gradle.properties.
+# Arguments:
+#   $1 - Repository in format "owner/repo"
+# Returns:
+#   The version string (e.g., "0.27.0-SNAPSHOT")
+function get_main_branch_version {
+  local repo="${1}"
+  local version=""
+
+  # Try version.txt first (used by Block Node and Consensus Node)
+  local version_txt_url="https://raw.githubusercontent.com/${repo}/main/version.txt"
+  local response
+  response=$(curl -s -f "${version_txt_url}" 2>/dev/null)
+
+  if [[ $? -eq 0 && -n "${response}" ]]; then
+    version=$(echo "${response}" | tr -d '[:space:]')
+  fi
+
+  # Fall back to gradle.properties (used by Mirror Node)
+  if [[ -z "${version}" || ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    local gradle_props_url="https://raw.githubusercontent.com/${repo}/main/gradle.properties"
+    response=$(curl -s -f "${gradle_props_url}" 2>/dev/null)
+
+    if [[ $? -eq 0 && -n "${response}" ]]; then
+      # Extract version=X.Y.Z from gradle.properties
+      version=$(echo "${response}" | grep -E "^version=" | sed 's/version=//' | tr -d '[:space:]')
+    fi
+  fi
+
+  if [[ -z "${version}" || ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    log_line "ERROR: Could not find version in version.txt or gradle.properties"
+    return 1
+  fi
+
+  echo "${version}"
 }
 
 # Fetches the latest GA release tag from a GitHub repository
@@ -180,9 +218,11 @@ function resolve_version {
       echo "${resolved}"
       ;;
     main|MAIN)
-      start_task "Using 'main' branch for ${component}"
-      end_task "main (will use -SNAPSHOT)"
-      echo "main"
+      start_task "Resolving 'main' branch version for ${component}"
+      local resolved
+      resolved=$(get_main_branch_version "${repo}") || fail "ERROR: Failed to fetch main branch version for ${component}" 1
+      end_task "${resolved}"
+      echo "${resolved}"
       ;;
     *)
       # Validate it looks like a version tag

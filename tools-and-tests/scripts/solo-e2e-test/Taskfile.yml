@@ -41,7 +41,10 @@ vars:
   CLUSTER_NAME: '{{.CLUSTER_NAME | default "solo-cluster"}}'
   NAMESPACE: '{{.NAMESPACE | default "solo-network"}}'
   DEPLOYMENT: '{{.DEPLOYMENT | default "deployment-solo"}}'
-  CLUSTER_REF: 'kind-{{.CLUSTER_NAME}}'
+  # CLUSTER_REF defaults to kind-<cluster> for Kind, override for external clusters
+  CLUSTER_REF: '{{.CLUSTER_REF | default (printf "kind-%s" .CLUSTER_NAME)}}'
+  # CONTEXT for kubectl - defaults to same as CLUSTER_REF for Kind
+  CONTEXT: '{{.CONTEXT | default .CLUSTER_REF}}'
 
   # Version defaults
   CN_VERSION: '{{.CN_VERSION | default "latest"}}'
@@ -120,6 +123,24 @@ tasks:
         echo "Destroying Kind cluster '{{.CLUSTER_NAME}}'..."
         kind delete cluster -n "{{.CLUSTER_NAME}}" || true
         echo "Cluster and Solo config cleaned up."
+
+  cluster:init:
+    desc: Initialize Solo for an existing external cluster (no Kind creation)
+    cmds:
+      - |
+        if [[ -z "{{.CONTEXT}}" ]] || [[ "{{.CONTEXT}}" == "kind-"* ]]; then
+          echo "ERROR: CONTEXT must be provided for external clusters"
+          echo "Usage: task cluster:init CONTEXT=<kubectl-context> CLUSTER_REF=<solo-ref> TOPOLOGY=<topology>"
+          exit 1
+        fi
+        "{{.SCRIPTS_DIR}}/solo-setup-cluster.sh" \
+          --skip-kind \
+          --context "{{.CONTEXT}}" \
+          --cluster-ref "{{.CLUSTER_REF}}" \
+          --namespace "{{.NAMESPACE}}" \
+          --deployment "{{.DEPLOYMENT}}" \
+          --topology "{{.TOPOLOGY}}" \
+          --topologies-dir "{{.TOPOLOGIES_DIR}}"
 
   # ============================================================================
   # Network Deployment
@@ -231,6 +252,31 @@ tasks:
       NODE: '{{.NODE | default "1"}}'
     cmds:
       - kubectl logs -n "{{.NAMESPACE}}" -l "app.kubernetes.io/name=block-node-{{.NODE}}" --all-containers -f
+
+  bn:reset:
+    desc: "Reset a Block Node by clearing verification state and restarting (NODE=n, default: 1)"
+    vars:
+      NODE: '{{.NODE | default "1"}}'
+    cmds:
+      - |
+        POD_NAME="block-node-{{.NODE}}-0"
+        VERIFICATION_FILE="/opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin"
+
+        echo "Resetting Block Node {{.NODE}}..."
+
+        # Delete verification state file (persisted on PVC)
+        echo "  Clearing verification state..."
+        kubectl exec "${POD_NAME}" -n "{{.NAMESPACE}}" --context "{{.CLUSTER_REF}}" \
+          -c block-node-server -- rm -f "${VERIFICATION_FILE}" 2>/dev/null || true
+
+        # Delete and recreate pod
+        echo "  Restarting pod..."
+        kubectl delete pod "${POD_NAME}" -n "{{.NAMESPACE}}" --context "{{.CLUSTER_REF}}"
+
+        echo "  Waiting for pod to be ready..."
+        kubectl wait --for=condition=Ready "pod/${POD_NAME}" -n "{{.NAMESPACE}}" --context "{{.CLUSTER_REF}}" --timeout=120s
+
+        echo "Block Node {{.NODE}} reset complete."
 
   # ============================================================================
   # Load Generation
