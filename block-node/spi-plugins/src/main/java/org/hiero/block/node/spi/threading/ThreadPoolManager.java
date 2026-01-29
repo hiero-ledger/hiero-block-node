@@ -118,4 +118,17 @@ public interface ThreadPoolManager {
             int corePoolSize,
             @Nullable final String threadName,
             @Nullable final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
+
+    /**
+     * Factory method for a single thread scheduled executor using platform threads.
+     * Platform threads are required for certain operations where virtual threads
+     * have compatibility issues (e.g., Helidon WebClient HTTP/2 in containers).
+     *
+     * @param threadName the thread's name for debugging, must not be blank
+     * @param uncaughtExceptionHandler the uncaught exception handler
+     * @return a new single thread scheduled executor service using platform threads
+     */
+    @NonNull
+    ScheduledExecutorService createSingleThreadScheduledExecutor(
+            @NonNull final String threadName, @NonNull final Thread.UncaughtExceptionHandler uncaughtExceptionHandler);
 }
