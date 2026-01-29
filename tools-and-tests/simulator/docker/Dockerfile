@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21
+FROM eclipse-temurin:25
 
 # Create a non-root user and group
 ARG UNAME=hedera
