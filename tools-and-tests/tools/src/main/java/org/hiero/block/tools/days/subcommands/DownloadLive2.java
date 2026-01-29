@@ -5,6 +5,7 @@ import static java.nio.file.StandardOpenOption.APPEND;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static org.hiero.block.tools.days.downloadlive.ValidateDownloadLive.fullBlockValidate;
+import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
@@ -25,14 +26,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import org.hiero.block.tools.days.download.DownloadConstants;
+import org.hiero.block.tools.days.download.DownloadDayImplV2;
 import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
 import org.hiero.block.tools.days.listing.DayListingFileReader;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.mirrornode.BlockInfo;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
+import org.hiero.block.tools.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.mirrornode.FetchBlockQuery;
+import org.hiero.block.tools.mirrornode.FixBlockTime;
 import org.hiero.block.tools.mirrornode.MirrorNodeBlockQueryOrder;
+import org.hiero.block.tools.mirrornode.UpdateBlockData;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.utils.ConcurrentTarZstdWriter;
 import org.hiero.block.tools.utils.gcp.ConcurrentDownloadManagerVirtualThreadsV3;
@@ -60,8 +66,13 @@ public class DownloadLive2 implements Runnable {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Duration LIVE_POLL_INTERVAL = Duration.ofSeconds(2);
-    private static final int MAX_VALIDATION_RETRIES = 3;
     private static final int PROGRESS_LOG_INTERVAL = 100;
+
+    /** Number of blocks to download at a time in batch mode (when 1000+ blocks available) */
+    private static final int BATCH_SIZE = 1000;
+    /** Number of blocks to download at a time in live mode (when <500 blocks available) */
+    private static final int LIVE_BATCH_SIZE = 50;
+
     private static final File CACHE_DIR = new File("metadata/gcp-cache");
     private static final int MIN_NODE_ACCOUNT_ID = 3;
     private static final int MAX_NODE_ACCOUNT_ID = 37;
@@ -210,10 +221,28 @@ public class DownloadLive2 implements Runnable {
             currentDayStats.recordBlock(signatureCount, addressBookNodeCount);
         }
 
+        /**
+         * Records a block's signature count directly (used by bulk download callbacks).
+         */
+        void recordBlock(int signatureCount, int addressBookNodeCount) {
+            if (currentDayStats == null) return;
+            currentDayStats.recordBlock(signatureCount, addressBookNodeCount);
+        }
+
         void finalizeDayStats() {
             if (currentDayStats != null) {
                 writeDayToCsv(currentDayStats);
                 printDaySummary(currentDayStats);
+            }
+        }
+
+        /**
+         * Write current progress to CSV (called after each batch for safety).
+         * Overwrites the current day's row if it exists.
+         */
+        void writeProgress() {
+            if (currentDayStats != null && currentDayStats.totalBlocks > 0) {
+                writeDayToCsv(currentDayStats);
             }
         }
 
@@ -369,8 +398,23 @@ public class DownloadLive2 implements Runnable {
                             },
                             "download-live2-shutdown"));
 
-            // Main processing loop
-            processBlocks(initialState, addressBookRegistry, downloadManager, blockTimeReader, stats);
+            // Check for catch-up mode (downloading complete historical days in bulk)
+            System.out.println("[download-live2] About to check catch-up mode...");
+            System.out.flush();
+            State currentState = initialState;
+            State catchUpResult =
+                    processCatchUpMode(initialState, downloadManager, blockTimeReader, stats, addressBookRegistry);
+            System.out.println(
+                    "[download-live2] Catch-up mode check returned: " + (catchUpResult != null ? "state" : "null"));
+            System.out.flush();
+            if (catchUpResult != null) {
+                currentState = catchUpResult;
+                System.out.println("[download-live2] Catch-up complete, continuing from block "
+                        + currentState.blockNumber + " day=" + currentState.dayDate);
+            }
+
+            // Main processing loop (live mode with batch download for remaining blocks)
+            processBlocks(currentState, addressBookRegistry, downloadManager, blockTimeReader, stats);
 
         } catch (Exception e) {
             System.err.println("[download-live2] Fatal error: " + e.getMessage());
@@ -451,6 +495,480 @@ public class DownloadLive2 implements Runnable {
         state.dayDate = today.toString();
         // No hash yet - will be fetched from mirror node for first block
         return state;
+    }
+
+    /**
+     * Determines the current "today" date from the mirror node.
+     */
+    private LocalDate getTodayFromMirrorNode() {
+        List<BlockInfo> latestBlocks = FetchBlockQuery.getLatestBlocks(1, MirrorNodeBlockQueryOrder.DESC);
+        if (latestBlocks.isEmpty()) {
+            return LocalDate.now(ZoneOffset.UTC);
+        }
+        BlockInfo latestBlock = latestBlocks.getFirst();
+        String timestamp = latestBlock.timestampFrom != null ? latestBlock.timestampFrom : latestBlock.timestampTo;
+        if (timestamp == null) {
+            return LocalDate.now(ZoneOffset.UTC);
+        }
+        String[] parts = timestamp.split("\\.");
+        long epochSeconds = Long.parseLong(parts[0]);
+        return Instant.ofEpochSecond(epochSeconds).atZone(ZoneOffset.UTC).toLocalDate();
+    }
+
+    /**
+     * Processes catch-up mode: downloads complete days in bulk when behind live edge.
+     * Returns the updated state after catch-up, or null if no catch-up was needed.
+     *
+     * <p>Catch-up mode is active when:
+     * <ul>
+     *   <li>startDay is before (today - 1)</li>
+     *   <li>There are complete days to download</li>
+     * </ul>
+     *
+     * @param initialState the initial state from resume or start date
+     * @param downloadManager the download manager for bulk downloads
+     * @param blockTimeReader the block time reader
+     * @param stats the signature statistics tracker
+     * @param addressBookRegistry the address book registry
+     * @return the updated state after catch-up, or null if no catch-up was performed
+     */
+    private State processCatchUpMode(
+            State initialState,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            BlockTimeReader blockTimeReader,
+            SignatureStats stats,
+            AddressBookRegistry addressBookRegistry)
+            throws Exception {
+
+        System.out.println("[CATCH-UP] Checking catch-up mode...");
+        System.out.flush();
+        LocalDate today = getTodayFromMirrorNode();
+        LocalDate startDay = initialState.getDayDate();
+        System.out.println("[CATCH-UP] startDay=" + startDay + ", today=" + today);
+        System.out.flush();
+
+        // Only catch up if we're at least 1 full day behind
+        if (startDay == null || !startDay.isBefore(today)) {
+            System.out.println("[CATCH-UP] No catch-up needed, already at or past " + today);
+            return null;
+        }
+
+        System.out.println("=".repeat(70));
+        System.out.println("[CATCH-UP] Catch-up mode activated");
+        System.out.println("[CATCH-UP] Start day: " + startDay + ", Today: " + today);
+        System.out.println("=".repeat(70));
+
+        // Update block data from mirror node to ensure we have latest day boundaries
+        System.out.println("[CATCH-UP] Updating block data from mirror node...");
+        UpdateBlockData.updateMirrorNodeData(MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
+
+        // Load day block info for catch-up
+        final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
+
+        // Calculate days to download (from startDay up to but not including today)
+        final List<LocalDate> daysToDownload = startDay.datesUntil(today).toList();
+
+        if (daysToDownload.isEmpty()) {
+            System.out.println("[CATCH-UP] No complete days to download in catch-up mode");
+            return null;
+        }
+
+        System.out.println("[CATCH-UP] Will download " + daysToDownload.size() + " complete days in bulk mode");
+
+        byte[] previousRecordHash = initialState.getHashBytes();
+        long overallStartMillis = System.currentTimeMillis();
+        long totalDays = daysToDownload.size();
+        LocalDate lastProcessedDay = startDay;
+        long lastBlockNumber = initialState.blockNumber;
+        Instant lastRecordFileTime = null;
+
+        for (int i = 0; i < daysToDownload.size(); i++) {
+            LocalDate dayDate = daysToDownload.get(i);
+            DayBlockInfo dayBlockInfo = daysInfo.get(dayDate);
+
+            if (dayBlockInfo == null) {
+                System.out.println("[CATCH-UP] No day block info for " + dayDate + ", stopping catch-up");
+                break;
+            }
+
+            // Check if day archive already exists
+            Path dayArchive = outputDir.toPath().resolve(dayDate + ".tar.zstd");
+            if (Files.exists(dayArchive)) {
+                System.out.println("[CATCH-UP] Skipping " + dayDate + " - archive already exists");
+                // Update state to end of this day for proper resume
+                lastBlockNumber = dayBlockInfo.lastBlockNumber;
+                lastProcessedDay = dayDate;
+                // Get the hash from mirror node for this day's last block
+                if (dayBlockInfo.lastBlockHash != null) {
+                    String hexStr = dayBlockInfo.lastBlockHash.startsWith("0x")
+                            ? dayBlockInfo.lastBlockHash.substring(2)
+                            : dayBlockInfo.lastBlockHash;
+                    previousRecordHash = HexFormat.of().parseHex(hexStr);
+                }
+                continue;
+            }
+
+            // Refresh listings for this day
+            refreshListingsForDay(dayDate);
+
+            System.out.println("[CATCH-UP] Downloading day " + dayDate + " (day " + (i + 1) + "/" + totalDays
+                    + ", blocks " + dayBlockInfo.firstBlockNumber + "-" + dayBlockInfo.lastBlockNumber + ")");
+
+            // Start stats for this day
+            int nodeCount =
+                    addressBookRegistry.getCurrentAddressBook().nodeAddress().size();
+            stats.startDay(dayDate, nodeCount);
+
+            long dayStartMillis = System.currentTimeMillis();
+
+            try {
+                // Download all blocks for the day with full validation
+                previousRecordHash = downloadDayWithFullValidation(
+                        dayDate,
+                        dayBlockInfo,
+                        previousRecordHash,
+                        downloadManager,
+                        blockTimeReader,
+                        addressBookRegistry,
+                        stats);
+
+                lastBlockNumber = dayBlockInfo.lastBlockNumber;
+                lastProcessedDay = dayDate;
+
+                // Get timestamp for last block of day
+                LocalDateTime lastBlockTime = blockTimeReader.getBlockLocalDateTime(lastBlockNumber);
+                lastRecordFileTime = lastBlockTime.atZone(ZoneOffset.UTC).toInstant();
+
+                long dayDurationSec = (System.currentTimeMillis() - dayStartMillis) / 1000;
+                long blocksInDay = dayBlockInfo.lastBlockNumber - dayBlockInfo.firstBlockNumber + 1;
+                double blocksPerSec = blocksInDay / Math.max(1.0, dayDurationSec);
+
+                System.out.println("[CATCH-UP] Completed " + dayDate + " in " + formatDuration(dayDurationSec) + " ("
+                        + blocksInDay + " blocks, " + String.format("%.1f", blocksPerSec) + " blocks/sec)");
+
+                // Finalize day stats
+                stats.finalizeDayStats();
+
+                // Save state after each day
+                saveState(new State(lastBlockNumber, previousRecordHash, lastRecordFileTime, lastProcessedDay));
+
+            } catch (Exception e) {
+                System.err.println("[CATCH-UP] Error downloading day " + dayDate + ": " + e.getMessage());
+                e.printStackTrace();
+                // Save state at the last successfully completed day
+                if (lastRecordFileTime != null) {
+                    saveState(new State(lastBlockNumber, previousRecordHash, lastRecordFileTime, lastProcessedDay));
+                }
+                throw e;
+            }
+        }
+
+        long totalDurationSec = (System.currentTimeMillis() - overallStartMillis) / 1000;
+        System.out.println("=".repeat(70));
+        System.out.println("[CATCH-UP] Catch-up complete: processed " + daysToDownload.size() + " days in "
+                + formatDuration(totalDurationSec));
+        System.out.println("[CATCH-UP] Last block: " + lastBlockNumber + ", switching to live mode for " + today);
+        System.out.println("=".repeat(70));
+
+        // Return updated state to continue with live mode
+        return new State(lastBlockNumber, previousRecordHash, lastRecordFileTime, lastProcessedDay);
+    }
+
+    /**
+     * Downloads all blocks for a day with full validation (hash chain + signatures).
+     * Uses parallel download (via DownloadDayLiveImpl.downloadDay) then adds signature validation.
+     *
+     * @return the running hash after processing all blocks
+     */
+    private byte[] downloadDayWithFullValidation(
+            LocalDate dayDate,
+            DayBlockInfo dayBlockInfo,
+            byte[] previousRecordHash,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            BlockTimeReader blockTimeReader,
+            AddressBookRegistry addressBookRegistry,
+            SignatureStats stats)
+            throws Exception {
+
+        // Refresh listings for this day
+        refreshListingsForDay(dayDate);
+
+        // Load listings for the day
+        List<ListingRecordFile> dayListings = DayListingFileReader.loadRecordsFileForDay(
+                listingDir.toPath(), dayDate.getYear(), dayDate.getMonthValue(), dayDate.getDayOfMonth());
+
+        if (dayListings.isEmpty()) {
+            throw new IllegalStateException("No listing files found for " + dayDate);
+        }
+
+        long firstBlock = dayBlockInfo.firstBlockNumber;
+        long lastBlock = dayBlockInfo.lastBlockNumber;
+        long totalBlocks = lastBlock - firstBlock + 1;
+
+        System.out.println("[CATCH-UP] Day " + dayDate + ": " + totalBlocks + " blocks, " + dayListings.size()
+                + " listing entries (using V2 parallel bulk download)");
+
+        // Get node count for stats tracking
+        final int nodeCount =
+                addressBookRegistry.getCurrentAddressBook().nodeAddress().size();
+
+        // Use the parallel bulk download from DownloadDayImplV2 (same as download-days-v3)
+        // This downloads all blocks in parallel, validates hash chain, and writes to archive
+        // Pass a callback to track signature statistics for each block
+        return DownloadDayImplV2.downloadDay(
+                downloadManager,
+                dayBlockInfo,
+                blockTimeReader,
+                listingDir.toPath(),
+                outputDir.toPath(),
+                dayDate.getYear(),
+                dayDate.getMonthValue(),
+                dayDate.getDayOfMonth(),
+                previousRecordHash,
+                1, // totalDays (just this day for progress)
+                0, // dayIndex
+                System.currentTimeMillis(),
+                false, // don't skip validation
+                (blockNumber, signatureCount) -> stats.recordBlock(signatureCount, nodeCount));
+    }
+
+    /**
+     * Result of a batch download operation.
+     */
+    private static class BatchDownloadResult {
+        final int blocksDownloaded;
+        final byte[] finalHash;
+
+        BatchDownloadResult(int blocksDownloaded, byte[] finalHash) {
+            this.blocksDownloaded = blocksDownloaded;
+            this.finalHash = finalHash;
+        }
+    }
+
+    /** Helper container for pending block downloads (same pattern as DownloadDayImplV2) */
+    private static final class BlockWork {
+        final long blockNumber;
+        final LocalDateTime blockTime;
+        final List<ListingRecordFile> orderedFiles;
+        final List<java.util.concurrent.CompletableFuture<InMemoryFile>> futures = new java.util.ArrayList<>();
+
+        BlockWork(long blockNumber, LocalDateTime blockTime, List<ListingRecordFile> orderedFiles) {
+            this.blockNumber = blockNumber;
+            this.blockTime = blockTime;
+            this.orderedFiles = orderedFiles;
+        }
+    }
+
+    /**
+     * Downloads remaining blocks of the current day in batch mode.
+     * This is used when we're on the current day but behind the live edge.
+     *
+     * <p>Performance optimization: Uses async downloads like DownloadDayImplV2 -
+     * queues all file downloads upfront, then processes as they complete.
+     *
+     * @param minBlocksRequired minimum blocks required to trigger batch download (e.g., 500 for batch mode, 1 for live mode)
+     * @param maxBlocksToDownload maximum blocks to download in this batch (e.g., 500 for batch mode, 50 for live mode)
+     * @param modeLabel label for logging (e.g., "BATCH" or "LIVE")
+     * @return the batch download result with count and final hash, or null if fewer than minBlocksRequired blocks available
+     */
+    private BatchDownloadResult downloadCurrentDayBlocksBatch(
+            long startBlockNumber,
+            LocalDate currentDay,
+            byte[] currentHash,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            BlockTimeReader blockTimeReader,
+            AddressBookRegistry addressBookRegistry,
+            SignatureStats stats,
+            ConcurrentTarZstdWriter writer,
+            List<ListingRecordFile> cachedListingFiles,
+            int minBlocksRequired,
+            int maxBlocksToDownload,
+            String modeLabel)
+            throws Exception {
+
+        // Get all available blocks from listings
+        Map<LocalDateTime, List<ListingRecordFile>> filesByBlock = cachedListingFiles.stream()
+                .collect(java.util.stream.Collectors.groupingBy(ListingRecordFile::timestamp));
+
+        // Find blocks we need to download
+        List<Long> allAvailableBlocks = new java.util.ArrayList<>();
+        for (long blockNum = startBlockNumber + 1; ; blockNum++) {
+            try {
+                LocalDateTime blockTime = blockTimeReader.getBlockLocalDateTime(blockNum);
+                if (!blockTime.toLocalDate().equals(currentDay)) {
+                    break; // Moved to next day
+                }
+                if (filesByBlock.containsKey(blockTime)) {
+                    allAvailableBlocks.add(blockNum);
+                } else {
+                    break; // No more blocks available in listings
+                }
+            } catch (Exception e) {
+                break; // Block not in BlockTimeReader yet
+            }
+        }
+
+        // Only proceed if we have minimum required blocks
+        if (allAvailableBlocks.size() < minBlocksRequired) {
+            return null; // Not enough blocks available
+        }
+
+        // Take up to maxBlocksToDownload blocks for this batch
+        List<Long> blocksToDownload =
+                allAvailableBlocks.subList(0, Math.min(maxBlocksToDownload, allAvailableBlocks.size()));
+
+        System.out.println("[" + modeLabel + "] Downloading " + blocksToDownload.size() + " blocks (blocks "
+                + blocksToDownload.getFirst() + "-" + blocksToDownload.getLast() + ", "
+                + (allAvailableBlocks.size() - blocksToDownload.size()) + " more available)");
+
+        long downloadStartTime = System.currentTimeMillis();
+
+        // Build mostCommonFiles set for path computation
+        final java.util.Set<ListingRecordFile> mostCommonFiles = new java.util.HashSet<>();
+        for (Long blockNum : blocksToDownload) {
+            LocalDateTime blockTime = blockTimeReader.getBlockLocalDateTime(blockNum);
+            List<ListingRecordFile> group = filesByBlock.get(blockTime);
+            if (group != null) {
+                ListingRecordFile mostCommonRecord = org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType(
+                        group, ListingRecordFile.Type.RECORD);
+                ListingRecordFile mostCommonSidecar =
+                        org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType(
+                                group, ListingRecordFile.Type.RECORD_SIDECAR);
+                if (mostCommonRecord != null) mostCommonFiles.add(mostCommonRecord);
+                if (mostCommonSidecar != null) mostCommonFiles.add(mostCommonSidecar);
+            }
+        }
+
+        // Phase 1: Queue all file downloads for all blocks (async, returns immediately)
+        System.out.println("[" + modeLabel + "] Phase 1: Queuing downloads for all blocks...");
+        java.util.concurrent.LinkedBlockingDeque<BlockWork> pending = new java.util.concurrent.LinkedBlockingDeque<>();
+
+        for (Long blockNum : blocksToDownload) {
+            LocalDateTime blockTime = blockTimeReader.getBlockLocalDateTime(blockNum);
+            List<ListingRecordFile> group = filesByBlock.get(blockTime);
+
+            if (group == null || group.isEmpty()) {
+                System.err.println("[" + modeLabel + "] WARNING: No files for block " + blockNum);
+                continue;
+            }
+
+            // Select most common files
+            ListingRecordFile mostCommonRecord = org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType(
+                    group, ListingRecordFile.Type.RECORD);
+            ListingRecordFile[] mostCommonSidecars =
+                    org.hiero.block.tools.records.RecordFileUtils.findMostCommonSidecars(group);
+
+            // Build ordered list of files to download
+            List<ListingRecordFile> orderedFiles =
+                    DownloadDayLiveImpl.computeFilesToDownload(mostCommonRecord, mostCommonSidecars, group);
+
+            // Create BlockWork and queue async downloads
+            BlockWork bw = new BlockWork(blockNum, blockTime, orderedFiles);
+            for (ListingRecordFile lr : orderedFiles) {
+                String blobName = DownloadConstants.BUCKET_PATH_PREFIX + lr.path();
+                bw.futures.add(downloadManager.downloadAsync(DownloadConstants.BUCKET_NAME, blobName));
+            }
+            pending.add(bw);
+        }
+
+        System.out.println("[" + modeLabel + "] Queued " + pending.size() + " blocks for download");
+
+        // Phase 2: Process blocks as downloads complete - validate and write
+        System.out.println("[" + modeLabel + "] Phase 2: Processing downloads...");
+        byte[] hash = currentHash;
+        int processedCount = 0;
+
+        while (!pending.isEmpty()) {
+            BlockWork ready = pending.pollFirst();
+            if (ready == null) continue;
+
+            try {
+                // Wait for all downloads for this block to complete
+                java.util.concurrent.CompletableFuture.allOf(
+                                ready.futures.toArray(new java.util.concurrent.CompletableFuture[0]))
+                        .join();
+
+                // Convert downloaded files to InMemoryFiles
+                List<InMemoryFile> inMemoryFiles = new java.util.ArrayList<>();
+                for (int i = 0; i < ready.orderedFiles.size(); i++) {
+                    ListingRecordFile lr = ready.orderedFiles.get(i);
+                    String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
+
+                    try {
+                        InMemoryFile downloadedFile = ready.futures.get(i).join();
+
+                        // Check MD5
+                        boolean md5Valid =
+                                org.hiero.block.tools.utils.Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data());
+                        if (!md5Valid) {
+                            System.err.println("[" + modeLabel + "] MD5 mismatch for " + lr.path() + ", skipping");
+                            continue;
+                        }
+
+                        byte[] contentBytes = downloadedFile.data();
+                        if (filename.endsWith(".gz")) {
+                            contentBytes = org.hiero.block.tools.utils.Gzip.ungzipInMemory(contentBytes);
+                            filename = filename.replaceAll("\\.gz$", "");
+                        }
+
+                        Path newFilePath = DownloadDayLiveImpl.computeNewFilePath(lr, mostCommonFiles, filename);
+                        inMemoryFiles.add(new InMemoryFile(newFilePath, contentBytes));
+                    } catch (java.io.EOFException eofe) {
+                        System.err.println("[" + modeLabel + "] Skipping corrupted file: " + filename);
+                    }
+                }
+
+                // Validate hash chain
+                byte[] newHash = DownloadDayLiveImpl.validateBlockHashes(ready.blockNumber, inMemoryFiles, hash, null);
+
+                // Create result for full validation
+                DownloadDayLiveImpl.BlockDownloadResult result =
+                        new DownloadDayLiveImpl.BlockDownloadResult(ready.blockNumber, inMemoryFiles, newHash);
+
+                // Full block validation
+                Instant recordFileTime = ready.blockTime.atZone(ZoneOffset.UTC).toInstant();
+                boolean valid = fullBlockValidate(addressBookRegistry, hash, recordFileTime, result, null);
+
+                if (!valid) {
+                    System.err.println(
+                            "[" + modeLabel + "] WARNING: Full block validation failed for block " + ready.blockNumber);
+                }
+
+                // Record statistics
+                int nodeCount = addressBookRegistry
+                        .getAddressBookForBlock(recordFileTime)
+                        .nodeAddress()
+                        .size();
+                stats.recordBlock(result.files, nodeCount);
+
+                // Write to archive
+                for (InMemoryFile file : inMemoryFiles) {
+                    writer.putEntry(file);
+                }
+
+                hash = newHash;
+                processedCount++;
+
+                if (processedCount % PROGRESS_LOG_INTERVAL == 0) {
+                    long elapsed = System.currentTimeMillis() - downloadStartTime;
+                    double blocksPerSec = processedCount / (elapsed / 1000.0);
+                    System.out.println("[" + modeLabel + "] Processed " + processedCount + "/" + blocksToDownload.size()
+                            + " blocks (" + String.format("%.1f", blocksPerSec) + " blocks/sec)");
+                }
+
+            } catch (java.util.concurrent.CompletionException ce) {
+                System.err.println(
+                        "[" + modeLabel + "] Download failed for block " + ready.blockNumber + ": " + ce.getMessage());
+                throw new RuntimeException("Download failed for block " + ready.blockNumber, ce.getCause());
+            }
+        }
+
+        long totalTime = System.currentTimeMillis() - downloadStartTime;
+        double blocksPerSec = processedCount / (totalTime / 1000.0);
+        System.out.println("[" + modeLabel + "] Completed: " + processedCount + " blocks in " + totalTime + "ms ("
+                + String.format("%.1f", blocksPerSec) + " blocks/sec)");
+
+        return new BatchDownloadResult(processedCount, hash);
     }
 
     /**
@@ -574,15 +1092,29 @@ public class DownloadLive2 implements Runnable {
 
                 // Refresh listings if day changed
                 if (!blockDay.equals(cachedListingDay)) {
-                    refreshListingsForDay(blockDay);
                     int year = blockTime.getYear();
                     int month = blockTime.getMonthValue();
                     int day = blockTime.getDayOfMonth();
-                    cachedListingFiles =
-                            DayListingFileReader.loadRecordsFileForDay(listingDir.toPath(), year, month, day);
-                    cachedListingDay = blockDay;
-                    System.out.println("[download-live2] Loaded " + cachedListingFiles.size() + " listing entries for "
-                            + blockDay);
+
+                    // Retry loop for live edge - listings may not be available yet
+                    // Wait 15 minutes between attempts, retry indefinitely
+                    int attempt = 0;
+                    while (true) {
+                        attempt++;
+                        refreshListingsForDay(blockDay);
+                        try {
+                            cachedListingFiles =
+                                    DayListingFileReader.loadRecordsFileForDay(listingDir.toPath(), year, month, day);
+                            cachedListingDay = blockDay;
+                            System.out.println("[download-live2] Loaded " + cachedListingFiles.size()
+                                    + " listing entries for " + blockDay);
+                            break;
+                        } catch (java.nio.file.NoSuchFileException e) {
+                            System.out.println("[download-live2] Listings not available yet for " + blockDay
+                                    + ", waiting 15 minutes... (attempt " + attempt + ")");
+                            Thread.sleep(15 * 60 * 1000); // 15 minutes
+                        }
+                    }
                 }
 
                 // If no hash yet, fetch previous hash from mirror node
@@ -600,15 +1132,75 @@ public class DownloadLive2 implements Runnable {
                     }
                 }
 
-                // Download and validate block
-                DownloadDayLiveImpl.BlockDownloadResult result = downloadBlockWithRetry(
-                        nextBlockNumber, blockTime, currentHash, cachedListingFiles, downloadManager, blockTimeReader);
+                // Update block times before batch mode to ensure we have current timestamps
+                System.out.println("[download-live2] Updating block times from mirror node...");
+                UpdateBlockData.updateMirrorNodeData(MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
+                blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
 
-                if (result == null) {
-                    // Block not available yet in GCS - we're at the live edge
-                    System.out.println("[LIVE] Waiting for block " + nextBlockNumber + " in GCS...");
-                    Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
-                    // Refresh listings in case new files appeared
+                // Try batch download - if hash mismatch, fix block times and retry
+                BatchDownloadResult batchResult = null;
+                try {
+                    batchResult = downloadCurrentDayBlocksBatch(
+                            currentBlockNumber,
+                            blockDay,
+                            currentHash,
+                            downloadManager,
+                            blockTimeReader,
+                            addressBookRegistry,
+                            stats,
+                            currentDayWriter,
+                            cachedListingFiles,
+                            BATCH_SIZE, // minBlocksRequired
+                            BATCH_SIZE, // maxBlocksToDownload
+                            "BATCH");
+                } catch (Exception e) {
+                    if (e.getMessage() != null && e.getMessage().contains("hash mismatch")) {
+                        // Hash mismatch detected - fix block times and retry
+                        System.out.println("[download-live2] Hash mismatch detected, fixing block times...");
+                        long estimatedEndBlock = currentBlockNumber + BATCH_SIZE + 100;
+                        FixBlockTime.fixBlockTimeRange(
+                                MetadataFiles.BLOCK_TIMES_FILE, currentBlockNumber + 1, estimatedEndBlock);
+                        blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+
+                        // Retry the batch
+                        System.out.println("[download-live2] Retrying batch after fix...");
+                        batchResult = downloadCurrentDayBlocksBatch(
+                                currentBlockNumber,
+                                blockDay,
+                                currentHash,
+                                downloadManager,
+                                blockTimeReader,
+                                addressBookRegistry,
+                                stats,
+                                currentDayWriter,
+                                cachedListingFiles,
+                                BATCH_SIZE,
+                                BATCH_SIZE,
+                                "BATCH");
+                    } else {
+                        throw e; // Re-throw non-hash-mismatch errors
+                    }
+                }
+
+                if (batchResult != null && batchResult.blocksDownloaded > 0) {
+                    // Batch download succeeded - update state and continue
+                    long lastDownloadedBlock = currentBlockNumber + batchResult.blocksDownloaded;
+                    LocalDateTime lastBlockTime = blockTimeReader.getBlockLocalDateTime(lastDownloadedBlock);
+                    Instant lastRecordFileTime =
+                            lastBlockTime.atZone(ZoneOffset.UTC).toInstant();
+
+                    currentBlockNumber = lastDownloadedBlock;
+                    currentHash = batchResult.finalHash;
+                    blocksProcessedTotal += batchResult.blocksDownloaded;
+                    blocksProcessedToday += batchResult.blocksDownloaded;
+
+                    // Save state after batch
+                    saveState(new State(currentBlockNumber, currentHash, lastRecordFileTime, currentDay));
+
+                    // Write stats progress after each batch (safety)
+                    stats.writeProgress();
+
+                    // Refresh listings to check for more blocks
                     refreshListingsForDay(blockDay);
                     cachedListingFiles = DayListingFileReader.loadRecordsFileForDay(
                             listingDir.toPath(),
@@ -618,46 +1210,56 @@ public class DownloadLive2 implements Runnable {
                     continue;
                 }
 
-                // Full block validation
-                Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
-                boolean valid = fullBlockValidate(addressBookRegistry, currentHash, recordFileTime, result, null);
+                // Try live batch mode (<100 blocks available -> download up to 50)
+                BatchDownloadResult liveResult = downloadCurrentDayBlocksBatch(
+                        currentBlockNumber,
+                        blockDay,
+                        currentHash,
+                        downloadManager,
+                        blockTimeReader,
+                        addressBookRegistry,
+                        stats,
+                        currentDayWriter,
+                        cachedListingFiles,
+                        1, // minBlocksRequired (any blocks available)
+                        LIVE_BATCH_SIZE, // maxBlocksToDownload
+                        "LIVE");
 
-                if (!valid) {
-                    System.err.println("[download-live2] WARNING: Full block validation failed for block "
-                            + nextBlockNumber + ", continuing anyway...");
+                if (liveResult != null && liveResult.blocksDownloaded > 0) {
+                    // Live batch download succeeded - update state
+                    long lastDownloadedBlock = currentBlockNumber + liveResult.blocksDownloaded;
+                    LocalDateTime lastBlockTime = blockTimeReader.getBlockLocalDateTime(lastDownloadedBlock);
+                    Instant lastRecordFileTime =
+                            lastBlockTime.atZone(ZoneOffset.UTC).toInstant();
+
+                    currentBlockNumber = lastDownloadedBlock;
+                    currentHash = liveResult.finalHash;
+                    blocksProcessedTotal += liveResult.blocksDownloaded;
+                    blocksProcessedToday += liveResult.blocksDownloaded;
+
+                    // Save state after live batch
+                    saveState(new State(currentBlockNumber, currentHash, lastRecordFileTime, currentDay));
+
+                    // Write stats progress after each batch (safety)
+                    stats.writeProgress();
+
+                    // Refresh listings to check for more blocks
+                    refreshListingsForDay(blockDay);
+                    cachedListingFiles = DayListingFileReader.loadRecordsFileForDay(
+                            listingDir.toPath(),
+                            blockTime.getYear(),
+                            blockTime.getMonthValue(),
+                            blockTime.getDayOfMonth());
+                    continue;
                 }
 
-                // Record block statistics
-                int nodeCount = addressBookRegistry
-                        .getAddressBookForBlock(recordFileTime)
-                        .nodeAddress()
-                        .size();
-                stats.recordBlock(result.files, nodeCount);
-
-                // Write block to archive
-                for (InMemoryFile file : result.files) {
-                    currentDayWriter.putEntry(file);
-                }
-
-                // Update state
-                currentBlockNumber = nextBlockNumber;
-                currentHash = result.newPreviousRecordFileHash;
-                blocksProcessedTotal++;
-                blocksProcessedToday++;
-
-                // Save state periodically
-                if (blocksProcessedTotal % 100 == 0) {
-                    saveState(new State(currentBlockNumber, currentHash, recordFileTime, currentDay));
-                }
-
-                // Log progress
-                if (blocksProcessedTotal % PROGRESS_LOG_INTERVAL == 0) {
-                    long elapsed = System.currentTimeMillis() - dayStartTime;
-                    double blocksPerSec = blocksProcessedToday / (elapsed / 1000.0);
-                    System.out.printf(
-                            "[download-live2] Block %d (%s) - %.1f blocks/sec - %d blocks today%n",
-                            currentBlockNumber, blockTime, blocksPerSec, blocksProcessedToday);
-                }
+                // No blocks available - we're at the live edge, wait and retry
+                System.out.println("[LIVE] Waiting for new blocks (current: " + currentBlockNumber + ")...");
+                Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
+                // Refresh listings in case new files appeared
+                refreshListingsForDay(blockDay);
+                cachedListingFiles = DayListingFileReader.loadRecordsFileForDay(
+                        listingDir.toPath(), blockTime.getYear(), blockTime.getMonthValue(), blockTime.getDayOfMonth());
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -682,79 +1284,29 @@ public class DownloadLive2 implements Runnable {
     }
 
     /**
-     * Downloads a block with retry logic.
-     */
-    private DownloadDayLiveImpl.BlockDownloadResult downloadBlockWithRetry(
-            long blockNumber,
-            LocalDateTime blockTime,
-            byte[] previousHash,
-            List<ListingRecordFile> cachedListingFiles,
-            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
-            BlockTimeReader blockTimeReader)
-            throws IOException {
-
-        Exception lastException = null;
-
-        for (int attempt = 1; attempt <= MAX_VALIDATION_RETRIES; attempt++) {
-            try {
-                int year = blockTime.getYear();
-                int month = blockTime.getMonthValue();
-                int day = blockTime.getDayOfMonth();
-
-                // Filter cached listing files for this specific block
-                List<ListingRecordFile> blockFiles = cachedListingFiles.stream()
-                        .filter(f -> f.timestamp().equals(blockTime))
-                        .toList();
-
-                if (blockFiles.isEmpty()) {
-                    // Block not available yet in GCS
-                    return null;
-                }
-
-                // Download the block
-                return DownloadDayLiveImpl.downloadSingleBlockForLive(
-                        downloadManager,
-                        null, // dayBlockInfo not needed for live mode
-                        blockTimeReader,
-                        listingDir.toPath(),
-                        year,
-                        month,
-                        day,
-                        blockNumber,
-                        previousHash,
-                        false); // don't skip hash validation
-
-            } catch (Exception e) {
-                lastException = e;
-                if (attempt < MAX_VALIDATION_RETRIES) {
-                    System.err.println("[download-live2] Download failed for block " + blockNumber + ", attempt "
-                            + attempt + "/" + MAX_VALIDATION_RETRIES + ": " + e.getMessage());
-                    try {
-                        Thread.sleep(1000L * attempt); // exponential backoff
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new IOException("Interrupted during retry backoff", ie);
-                    }
-                }
-            }
-        }
-
-        throw new IOException(
-                "Failed to download block " + blockNumber + " after " + MAX_VALIDATION_RETRIES + " attempts",
-                lastException);
-    }
-
-    /**
-     * Refreshes GCS listings for a day.
+     * Refreshes GCS listings for a specific day.
+     * First updates all historical days (up to yesterday) via updateDayListings,
+     * then fetches listings for the specific target day (including today).
      */
     private void refreshListingsForDay(LocalDate day) {
+        // First update historical days (up to yesterday)
         UpdateDayListingsCommand.updateDayListings(
                 listingDir.toPath(),
                 CACHE_DIR.toPath(),
-                true, // forceRefresh
+                true, // cacheEnabled
                 MIN_NODE_ACCOUNT_ID,
                 MAX_NODE_ACCOUNT_ID,
                 DownloadConstants.GCP_PROJECT_ID);
+
+        // Then fetch listings for the specific target day (including today)
+        UpdateDayListingsCommand.updateListingsForSingleDay(
+                listingDir.toPath(),
+                CACHE_DIR.toPath(),
+                true, // cacheEnabled
+                MIN_NODE_ACCOUNT_ID,
+                MAX_NODE_ACCOUNT_ID,
+                DownloadConstants.GCP_PROJECT_ID,
+                day);
     }
 
     /**

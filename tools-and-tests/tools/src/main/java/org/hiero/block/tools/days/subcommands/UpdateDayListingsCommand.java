@@ -372,6 +372,56 @@ public class UpdateDayListingsCommand implements Runnable {
     }
 
     /**
+     * Updates listings for a single specific day (including today).
+     * Unlike updateDayListings which excludes today, this method can fetch listings
+     * for any day including the current day.
+     *
+     * @param listingDir the directory where listing files are stored
+     * @param cacheDir the directory for GCS cache
+     * @param cacheEnabled whether to enable GCS caching
+     * @param minNodeAccountId minimum node account ID
+     * @param maxNodeAccountId maximum node account ID
+     * @param userProject GCP project for requester-pays billing
+     * @param targetDay the specific day to fetch listings for
+     */
+    public static void updateListingsForSingleDay(
+            Path listingDir,
+            Path cacheDir,
+            boolean cacheEnabled,
+            int minNodeAccountId,
+            int maxNodeAccountId,
+            String userProject,
+            LocalDate targetDay) {
+        try {
+            // Ensure the listing directory exists
+            if (!Files.exists(listingDir)) {
+                Files.createDirectories(listingDir);
+            }
+
+            // Ensure cache directory exists if caching is enabled
+            if (cacheEnabled) {
+                Files.createDirectories(cacheDir);
+            }
+
+            // Create MainNetBucket for GCS access
+            final MainNetBucket mainNetBucket =
+                    new MainNetBucket(cacheEnabled, cacheDir, minNodeAccountId, maxNodeAccountId, userProject);
+
+            // Process the single day
+            final long startTimeNanos = System.nanoTime();
+            processDayStatic(listingDir, mainNetBucket, targetDay, 0, 1, startTimeNanos);
+
+            PrettyPrint.clearProgress();
+            System.out.println("Updated listings for " + targetDay);
+
+        } catch (Exception e) {
+            PrettyPrint.clearProgress();
+            System.err.println("Error updating listings for " + targetDay + ": " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
      * Static version of formatElapsedTime for use by the static API.
      */
     private static String formatElapsedTimeStatic(final long millis) {
