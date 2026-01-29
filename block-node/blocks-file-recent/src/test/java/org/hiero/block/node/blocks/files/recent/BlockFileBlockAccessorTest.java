@@ -8,8 +8,10 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -280,13 +282,14 @@ class BlockFileBlockAccessorTest {
     @DisplayName("Functionality Tests")
     final class FunctionalityTests {
         /**
-         * This test aims to verify that the {@link BlockFileBlockAccessor#block()} will correctly return a
-         * persisted block.
+         * This test aims to verify that a persisted block can be read with
+         * {@link BlockFileBlockAccessor#blockUnparsed()} and then fully parsed to a {@link Block}.
+         * This ensures the round-trip of storing and retrieving blocks works correctly.
          */
         @ParameterizedTest
         @EnumSource(CompressionType.class)
-        @DisplayName("Test block method returns correctly a persisted block")
-        void testBlock(final CompressionType compressionType) throws IOException {
+        @DisplayName("Test block can be read and parsed from persisted data")
+        void testBlockParsedFromUnparsed(final CompressionType compressionType) throws IOException, ParseException {
             // create block file path before call
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // build a test block
@@ -296,20 +299,23 @@ class BlockFileBlockAccessorTest {
             // create instance to test
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, protoBytes);
-            // test accessor.block()
-            final Block actual = toTest.block();
+            // test accessor.blockUnparsed() and then parse to Block
+            final BlockUnparsed unparsed = toTest.blockUnparsed();
+            assertThat(unparsed).isNotNull();
+            final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
         }
 
         /**
-         * This test aims to verify that the {@link BlockFileBlockAccessor#block()} will correctly return a
-         * persisted block. Here we aim to verify that when one accessor closes and deletes the link it has
-         * created, this will not affect actual data and subsequent accessors can still retrieve the data.
+         * This test aims to verify that a persisted block can be read and parsed correctly across
+         * subsequent accessor instances. When one accessor closes and deletes its hard link,
+         * this should not affect actual data and subsequent accessors can still retrieve and parse the data.
          */
         @ParameterizedTest
         @EnumSource(CompressionType.class)
-        @DisplayName("Test block method returns correctly a persisted block - subsequent reads")
-        void testBlockSubsequentReads(final CompressionType compressionType) throws IOException {
+        @DisplayName("Test block can be read and parsed - subsequent reads")
+        void testBlockParsedFromUnparsedSubsequentReads(final CompressionType compressionType)
+                throws IOException, ParseException {
             // create block file path before call
             final long blockNumber = 0;
             final Path blockFilePath =
@@ -321,8 +327,10 @@ class BlockFileBlockAccessorTest {
             // create instance to test
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockNumber, blockFilePath, compressionType, protoBytes);
-            // test accessor.block()
-            final Block actual = toTest.block();
+            // test accessor.blockUnparsed() and parse
+            final BlockUnparsed unparsed = toTest.blockUnparsed();
+            assertThat(unparsed).isNotNull();
+            final Block actual = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed));
             assertThat(actual).isEqualTo(expected);
             // calling close will drop the hard link, and accessor will no longer
             // be able to find the data
@@ -330,22 +338,26 @@ class BlockFileBlockAccessorTest {
             // assert that the actual data still exists
             assertThat(blockFilePath).exists().isRegularFile().isNotEmptyFile().isReadable();
             // assert that the accessor can no longer find the data
-            assertThat(toTest.block()).isNull();
+            assertThat(toTest.blockUnparsed()).isNull();
             // now create a new accessor
             final BlockFileBlockAccessor toTest2 = new BlockFileBlockAccessor(
                     blockFilePath, createConfig(compressionType, dataRoot).compression(), linksRoot, blockNumber);
             // assert that the second accessor can retrieve the same data as did the first one
-            assertThat(toTest2.block()).isEqualTo(expected);
+            final BlockUnparsed unparsed2 = toTest2.blockUnparsed();
+            assertThat(unparsed2).isNotNull();
+            final Block actual2 = Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(unparsed2));
+            assertThat(actual2).isEqualTo(expected);
         }
 
         /**
-         * This test aims to verify that the {@link BlockFileBlockAccessor#block()} will correctly handle
-         * IOExceptions encountered when attempting to persist blocks.
+         * This test aims to verify that the accessor correctly handles IOExceptions
+         * when attempting to read a block after the accessor has been closed.
+         * The accessor should return null gracefully without throwing exceptions.
          */
         @ParameterizedTest
         @EnumSource(CompressionType.class)
-        @DisplayName("Test block() method correctly handles an IOException")
-        void testBlockIOException(final CompressionType compressionType) throws IOException {
+        @DisplayName("Test block read correctly handles an IOException after close")
+        void testBlockParsedIOException(final CompressionType compressionType) throws IOException {
             // create block file path before call
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // build a test block
@@ -363,18 +375,19 @@ class BlockFileBlockAccessorTest {
             // assert that the actual data still exists
             assertThat(blockFilePath).exists().isRegularFile().isNotEmptyFile().isReadable();
 
-            assertThatNoException().isThrownBy(toTest::block);
-            assertThat(toTest.block()).isNull();
+            assertThatNoException().isThrownBy(toTest::blockUnparsed);
+            assertThat(toTest.blockUnparsed()).isNull();
         }
 
         /**
-         * This test aims to verify that the {@link BlockFileBlockAccessor#block()} will correctly handle
-         * protobuf parse exception encountered when attempting to persist blocks.
+         * This test aims to verify that the accessor correctly handles protobuf parse exceptions
+         * when the persisted data is invalid/corrupted. The accessor should return null
+         * gracefully without throwing exceptions.
          */
         @ParameterizedTest
         @EnumSource(CompressionType.class)
-        @DisplayName("Test block() method correctly handles proto parse exception")
-        void testBlockParseException(final CompressionType compressionType) throws IOException {
+        @DisplayName("Test block read correctly handles proto parse exception")
+        void testBlockParsedParseException(final CompressionType compressionType) throws IOException {
             // create block file path before call
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
 
@@ -384,8 +397,8 @@ class BlockFileBlockAccessorTest {
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, protoBytes);
 
-            assertThatNoException().isThrownBy(toTest::block);
-            assertThat(toTest.block()).isNull();
+            assertThatNoException().isThrownBy(toTest::blockUnparsed);
+            assertThat(toTest.blockUnparsed()).isNull();
         }
 
         /**
@@ -458,9 +471,9 @@ class BlockFileBlockAccessorTest {
             // create block file path before call
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final Block expected = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
+            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
             // create instance to test
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, protoBytes);
@@ -495,6 +508,62 @@ class BlockFileBlockAccessorTest {
 
             assertThatNoException().isThrownBy(toTest::blockUnparsed);
             assertThat(toTest.blockUnparsed()).isNull();
+        }
+
+        /**
+         * This test verifies that blockUnparsed() can handle blocks with unknown protobuf fields,
+         * simulating the scenario where a Consensus Node creates blocks with a newer proto version
+         * than the Block Node. In such cases, fully parsing the block would fail, but blockUnparsed()
+         * should succeed because it only parses the top-level structure without deeply parsing
+         * nested messages like BlockProof.
+         *
+         * <p>This is a regression test for the proto version mismatch issue where CN 0.70.0-rc.2
+         * blocks failed to parse on BN with proto 0.69.0 due to MerkleSiblingHash changes.
+         */
+        @Test
+        @DisplayName("Test blockUnparsed() handles blocks with unknown fields from newer proto versions")
+        void testBlockUnparsedHandlesUnknownFields() throws IOException {
+            // create block file path
+            final Path blockFilePath = config.liveRootPath().resolve("0.blk");
+
+            // Build a valid block first
+            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final BlockUnparsed validBlock = new BlockUnparsed(List.of(blockItems));
+            final byte[] validBytes = BlockUnparsed.PROTOBUF.toBytes(validBlock).toByteArray();
+
+            // Append unknown protobuf fields to simulate a block from a newer proto version.
+            // In protobuf, unknown fields are encoded as: tag (field_number << 3 | wire_type) + value
+            // We add a field with a high field number (100) and wire type 2 (length-delimited)
+            // to simulate additional fields that don't exist in the current proto schema.
+            final ByteArrayOutputStream modifiedBytes = new ByteArrayOutputStream();
+            modifiedBytes.write(validBytes);
+            // Field 100, wire type 2 (length-delimited): tag = (100 << 3) | 2 = 802 = 0xA2 0x06 (varint)
+            modifiedBytes.write(0xA2); // first byte of varint tag
+            modifiedBytes.write(0x06); // second byte of varint tag
+            modifiedBytes.write(0x05); // length = 5 bytes
+            modifiedBytes.write(new byte[] {0x01, 0x02, 0x03, 0x04, 0x05}); // dummy payload
+
+            final Bytes protoBytes = Bytes.wrap(modifiedBytes.toByteArray());
+
+            // Create accessor with the modified bytes
+            final BlockFileBlockAccessor toTest =
+                    createBlockAndGetAssociatedAccessor(0, blockFilePath, CompressionType.NONE, protoBytes);
+
+            // blockUnparsed() should succeed - it only parses top-level structure
+            final BlockUnparsed result = toTest.blockUnparsed();
+            assertThat(result).isNotNull();
+            assertThat(result.blockItems()).hasSize(blockItems.length);
+
+            // Verify the block items are still accessible
+            assertThat(result.blockItems().getFirst().hasBlockHeader()).isTrue();
+
+            // For comparison: fully parsing with Block.PROTOBUF would typically fail or
+            // behave unexpectedly when encountering deeply nested unknown fields.
+            // This demonstrates why we use blockUnparsed() for cross-version compatibility.
+            final Bytes rawBytes = toTest.blockBytes(Format.PROTOBUF);
+            assertThat(rawBytes).isNotNull();
+            // The raw bytes include the unknown field, but blockUnparsed handles it gracefully
+            assertThat(rawBytes.length()).isGreaterThan(validBytes.length);
         }
 
         /**

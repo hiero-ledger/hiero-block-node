@@ -3,10 +3,8 @@ package org.hiero.block.node.spi.historicalblocks;
 
 import static java.lang.System.Logger.Level.WARNING;
 
-import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.UncheckedIOException;
 import org.hiero.block.internal.BlockUnparsed;
 
 /**
@@ -31,24 +29,6 @@ public interface BlockAccessor extends AutoCloseable {
      * @return the block number
      */
     long blockNumber();
-
-    /**
-     * Get the block as parsed {@code Block} Java object. This is the simplest but usually the least efficient way to
-     * get the block.
-     *
-     * @return the block as a {@code Block} Java object, or null if parsing failed.
-     *     Also returns null if the data cannot be read from a source.
-     */
-    default Block block() {
-        try {
-            final Bytes rawData = blockBytes(Format.PROTOBUF);
-            return rawData == null ? null : Block.PROTOBUF.parse(rawData);
-        } catch (final UncheckedIOException | ParseException e) {
-            final System.Logger LOGGER = System.getLogger(getClass().getName());
-            LOGGER.log(WARNING, "Failed to parse block", e);
-            return null;
-        }
-    }
 
     /**
      * Get the block as unparsed {@code BlockUnparsed} Java object.
