@@ -1,12 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
 public record JFileInfo(boolean deleted, JKey wacl, long expirationTimeInSec) {
     private static final long BPACK_VERSION = 1;
+
     public static JFileInfo deserialize(byte[] bytes) {
         try (DataInputStream stream = new DataInputStream(new ByteArrayInputStream(bytes))) {
             long version = stream.readLong();
@@ -15,11 +17,9 @@ public record JFileInfo(boolean deleted, JKey wacl, long expirationTimeInSec) {
 
             if (objectType != JObjectType.JFileInfo.longValue()) {
                 throw new IllegalStateException(
-                        "Illegal JObjectType was read from the stream! read objectType long value = "
-                                + objectType);
+                        "Illegal JObjectType was read from the stream! read objectType long value = " + objectType);
             } else if (version != BPACK_VERSION) {
-                throw new IllegalStateException(
-                        "Illegal version was read from the stream! read version = " + version);
+                throw new IllegalStateException("Illegal version was read from the stream! read version = " + version);
             }
             // from unpack()
             boolean deleted = stream.readBoolean();

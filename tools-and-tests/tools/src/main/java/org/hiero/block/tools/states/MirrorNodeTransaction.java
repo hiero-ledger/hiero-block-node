@@ -1,7 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states;
 
 import com.google.gson.Gson;
-import com.google.gson.annotations.SerializedName;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -21,28 +21,24 @@ public class MirrorNodeTransaction {
      * 0.0.11337@1568411616.448357000
      * https://hashscan.io/mainnet/transaction/1568411631.396440000
      */
-    public static final MirrorNodeTransaction TRANSACTION_1 = new MirrorNodeTransaction(
-            "0.0.11337-1568411616-448357000", "Transaction 1");
+    public static final MirrorNodeTransaction TRANSACTION_1 =
+            new MirrorNodeTransaction("0.0.11337-1568411616-448357000", "Transaction 1");
 
     /**
      * Transfers for transaction 2 in the hedera history, in block 1.
      * 0.0.11337-1568411656-265684000
      * https://hashscan.io/mainnet/transaction/1568411670.872035001
      */
-    public static final MirrorNodeTransaction TRANSACTION_2 = new MirrorNodeTransaction(
-            "0.0.11337-1568411656-265684000", "Transaction 2");
+    public static final MirrorNodeTransaction TRANSACTION_2 =
+            new MirrorNodeTransaction("0.0.11337-1568411656-265684000", "Transaction 2");
 
     /**
      * Transfers for transaction 3 in the hedera history, from block 3.
      * 0.0.11337@1568411747.660028000
      * https://hashscan.io/mainnet/transaction/1568411762.486929000
      */
-    public static final MirrorNodeTransaction TRANSACTION_3 = new MirrorNodeTransaction(
-            "0.0.11337-1568411747-660028000", "Transaction 3");
-
-
-
-
+    public static final MirrorNodeTransaction TRANSACTION_3 =
+            new MirrorNodeTransaction("0.0.11337-1568411747-660028000", "Transaction 3");
 
     /** The transaction ID of the Hedera transaction. */
     private final String transactionId;
@@ -77,9 +73,7 @@ public class MirrorNodeTransaction {
         String responseBody = null;
         try {
             HttpClient client = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .build();
+            HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             responseBody = response.body();
             Gson gson = new Gson();
@@ -95,7 +89,7 @@ public class MirrorNodeTransaction {
                 accountSums.put(accountId, accountSums.getOrDefault(accountId, 0L) + t.amount);
             }
             for (Map.Entry<Long, Long> entry : accountSums.entrySet()) {
-                transfers.add(new long[]{entry.getKey(), entry.getValue()});
+                transfers.add(new long[] {entry.getKey(), entry.getValue()});
             }
             return transfers;
         } catch (Exception e) {
@@ -164,9 +158,13 @@ public class MirrorNodeTransaction {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("MirrorNodeTransaction{")
-          .append(" transactionId=").append(transactionId).append(",")
-          .append(" nickname=").append(nickname).append(",")
-          .append(" transfers=\n");
+                .append(" transactionId=")
+                .append(transactionId)
+                .append(",")
+                .append(" nickname=")
+                .append(nickname)
+                .append(",")
+                .append(" transfers=\n");
         transfers.forEach(accounts -> {
             long accountId = accounts[0];
             long balance = accounts[1];

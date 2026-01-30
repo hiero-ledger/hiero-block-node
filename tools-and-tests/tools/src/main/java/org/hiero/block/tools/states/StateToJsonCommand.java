@@ -4,12 +4,7 @@ package org.hiero.block.tools.states;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import java.io.File;
-import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import org.hiero.block.tools.states.model.SignedState;
-import org.hiero.block.tools.states.postgres.BinaryObjectCsvRow;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Parameters;
@@ -19,9 +14,7 @@ import picocli.CommandLine.Spec;
  * Subcommand to read a saved state and print its contents as a block stream block of state changes
  */
 @SuppressWarnings("MismatchedReadAndWriteOfArray")
-@Command(
-        name = "state-to-json",
-        description = "Convert a saved state directory to JSON representation")
+@Command(name = "state-to-json", description = "Convert a saved state directory to JSON representation")
 public class StateToJsonCommand implements Runnable {
     @Parameters(index = "0..*", description = "Saves state directories to process")
     private final File[] savedStateDirectories = new File[0];

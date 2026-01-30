@@ -1,23 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.Utilities;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HexFormat;
+import org.hiero.block.tools.states.utils.Utilities;
 
 // com.swirlds.platform.Hash
-public record Hash(
-        byte[] hash,
-        int hashMapSeed
-) {
+public record Hash(byte[] hash, int hashMapSeed) {
     public static Hash readHash(DataInputStream dis) throws IOException {
         int hashMapSeed = dis.readInt();
         byte[] hash = Utilities.readByteArray(dis);
         return new Hash(hash, hashMapSeed);
     }
-
 
     /**
      * hash the given long
@@ -54,9 +51,8 @@ public record Hash(
 
     @Override
     public String toString() {
-        return "Hash{" +
-                "hashMapSeed=" + hashMapSeed +
-                ", hash=" + HexFormat.of().formatHex(hash) +
-                '}';
+        return "Hash{" + "hashMapSeed="
+                + hashMapSeed + ", hash="
+                + HexFormat.of().formatHex(hash) + '}';
     }
 }

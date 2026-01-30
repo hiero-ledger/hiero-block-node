@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.IOException;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
 public record JAccountID(long shardNum, long realmNum, long accountNum) {
 

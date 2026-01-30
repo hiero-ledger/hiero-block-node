@@ -1,23 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.zip.GZIPInputStream;
-import org.hiero.block.tools.states.utils.CryptoUtils;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.FCDataOutputStream;
-import org.hiero.block.tools.states.utils.HashingOutputStream;
-import org.hiero.block.tools.states.utils.Utilities;
-import java.io.BufferedOutputStream;
-import java.io.IOException;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.zip.GZIPInputStream;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.FCDataOutputStream;
+import org.hiero.block.tools.states.utils.HashingOutputStream;
+import org.hiero.block.tools.states.utils.Utilities;
 
 @SuppressWarnings("CallToPrintStackTrace")
 public final class SignedState {
@@ -49,10 +49,9 @@ public final class SignedState {
     public static SignedState load(URL stateFileUrl) throws IOException {
         SignedState signedState = new SignedState();
         try (FCDataInputStream fin = new FCDataInputStream(
-            stateFileUrl.toString().endsWith(".gz") ?
-                new GZIPInputStream(new BufferedInputStream(stateFileUrl.openStream(), 1024 * 1024)) :
-                new BufferedInputStream(stateFileUrl.openStream(), 1024 * 1024)
-        )) {
+                stateFileUrl.toString().endsWith(".gz")
+                        ? new GZIPInputStream(new BufferedInputStream(stateFileUrl.openStream(), 1024 * 1024))
+                        : new BufferedInputStream(stateFileUrl.openStream(), 1024 * 1024))) {
             signedState.copyFrom(fin);
             signedState.copyFromExtra(fin);
         }
@@ -69,10 +68,9 @@ public final class SignedState {
     public static SignedState load(Path stateFile) throws IOException {
         SignedState signedState = new SignedState();
         try (FCDataInputStream fin = new FCDataInputStream(
-            stateFile.getFileName().toString().endsWith(".gz") ?
-                new GZIPInputStream(new BufferedInputStream(Files.newInputStream(stateFile), 1024 * 1024)) :
-                new BufferedInputStream(Files.newInputStream(stateFile), 1024 * 1024)
-        )) {
+                stateFile.getFileName().toString().endsWith(".gz")
+                        ? new GZIPInputStream(new BufferedInputStream(Files.newInputStream(stateFile), 1024 * 1024))
+                        : new BufferedInputStream(Files.newInputStream(stateFile), 1024 * 1024))) {
             signedState.copyFrom(fin);
             signedState.copyFromExtra(fin);
         }
@@ -112,18 +110,19 @@ public final class SignedState {
     }
 
     public void copyFrom(FCDataInputStream inStream) throws IOException {
-        instanceVersion = inStream.readLong();// classVersion
+        instanceVersion = inStream.readLong(); // classVersion
         if (instanceVersion != CLASS_VERSION) {
-            throw new IOException("SignedState version mismatch: expected " + CLASS_VERSION + ", got " + instanceVersion);
+            throw new IOException(
+                    "SignedState version mismatch: expected " + CLASS_VERSION + ", got " + instanceVersion);
         }
         readHash = Utilities.readByteArray(inStream);
         state.copyFrom(inStream);
         round = inStream.readLong();
         System.out.println("    round = " + round);
         // check round, should be 33312259 which is OA round
-//        if (round != 33312259) {
-//            throw new IOException("Invalid round number: " + round+" expected 33312259");
-//        }
+        //        if (round != 33312259) {
+        //            throw new IOException("Invalid round number: " + round+" expected 33312259");
+        //        }
         numEventsCons = inStream.readLong();
         addressBook.copyFrom(inStream);
         hashEventsCons = Utilities.readByteArray(inStream);
@@ -137,8 +136,7 @@ public final class SignedState {
         HashMap<CreatorSeqPair, Event> eventsByCreatorSeq = new HashMap<>();
         for (int i = 0; i < events.length; i++) {
             events[i] = Event.readFrom(inStream, eventsByCreatorSeq);
-            eventsByCreatorSeq.put(new CreatorSeqPair(events[i].creatorId(),
-                    events[i].creatorSeq()), events[i]);
+            eventsByCreatorSeq.put(new CreatorSeqPair(events[i].creatorId(), events[i].creatorSeq()), events[i]);
         }
 
         // from version 2 we store the minGen info
@@ -161,7 +159,8 @@ public final class SignedState {
         state.copyFromExtra(inStream);
     }
 
-    private static final  long roundsStale = 25;
+    private static final long roundsStale = 25;
+
     private List<Pair<Long, Long>> produceMinGenFromEvents() {
         long minGen = events[0].generation();
         List<Pair<Long, Long>> list = new LinkedList<>();
@@ -195,19 +194,18 @@ public final class SignedState {
 
     @Override
     public String toString() {
-        return "SignedState{" +
-                "instanceVersion=" + instanceVersion +
-                ",\n     readHash=" + HexFormat.of().formatHex(readHash) +
-                ",\n     state=" + state +
-                ",\n     round=" + round +
-                ",\n     numEventsCons=" + numEventsCons +
-                ",\n     addressBook=" + addressBook +
-                ",\n     hashEventsCons=" + HexFormat.of().formatHex(hashEventsCons) +
-                ",\n     consensusTimestamp=" + consensusTimestamp +
-                ",\n     shouldSaveToDisk=" + shouldSaveToDisk +
-                ",\n     events Count=" + events.length +
-                ",\n     minGenInfo=" + minGenInfo +
-                ",\n     sigSet=" + sigSet +
-                "\n}";
+        return "SignedState{" + "instanceVersion="
+                + instanceVersion + ",\n     readHash="
+                + HexFormat.of().formatHex(readHash) + ",\n     state="
+                + state + ",\n     round="
+                + round + ",\n     numEventsCons="
+                + numEventsCons + ",\n     addressBook="
+                + addressBook + ",\n     hashEventsCons="
+                + HexFormat.of().formatHex(hashEventsCons) + ",\n     consensusTimestamp="
+                + consensusTimestamp + ",\n     shouldSaveToDisk="
+                + shouldSaveToDisk + ",\n     events Count="
+                + events.length + ",\n     minGenInfo="
+                + minGenInfo + ",\n     sigSet="
+                + sigSet + "\n}";
     }
 }

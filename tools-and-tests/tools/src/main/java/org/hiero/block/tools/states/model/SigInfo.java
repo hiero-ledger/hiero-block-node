@@ -1,18 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.Utilities;
 import java.io.IOException;
 import java.util.HexFormat;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.Utilities;
 
-public record SigInfo(
-        long classVersion,
-        long round,
-        long memberId,
-        byte[] hash,
-        byte[] sig
-) {
-
+public record SigInfo(long classVersion, long round, long memberId, byte[] hash, byte[] sig) {
 
     public static SigInfo copyFrom(FCDataInputStream inStream) throws IOException {
         var classVersion = inStream.readLong();
@@ -25,12 +19,11 @@ public record SigInfo(
 
     @Override
     public String toString() {
-        return "SigInfo[" +
-                "classVersion=" + classVersion +
-                ", round=" + round +
-                ", memberId=" + memberId +
-                ", hash=" + HexFormat.of().formatHex(hash) +
-                ", sig=" + HexFormat.of().formatHex(sig) +
-                ']';
+        return "SigInfo[" + "classVersion="
+                + classVersion + ", round="
+                + round + ", memberId="
+                + memberId + ", hash="
+                + HexFormat.of().formatHex(hash) + ", sig="
+                + HexFormat.of().formatHex(sig) + ']';
     }
 }

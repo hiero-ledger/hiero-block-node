@@ -1,12 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.CryptoUtils;
-import org.hiero.block.tools.states.utils.Utilities;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.PublicKey;
+import org.hiero.block.tools.states.utils.CryptoUtils;
+import org.hiero.block.tools.states.utils.Utilities;
 
 public record Address(
         long id,
@@ -14,16 +15,19 @@ public record Address(
         String selfName,
         long stake,
         boolean ownHost,
-        byte[] addressInternalIpv4, int portInternalIpv4,
-        byte[] addressExternalIpv4, int portExternalIpv4,
-        byte[] addressInternalIpv6, int portInternalIpv6,
-        byte[] addressExternalIpv6, int portExternalIpv6,
+        byte[] addressInternalIpv4,
+        int portInternalIpv4,
+        byte[] addressExternalIpv4,
+        int portExternalIpv4,
+        byte[] addressInternalIpv6,
+        int portInternalIpv6,
+        byte[] addressExternalIpv6,
+        int portExternalIpv6,
         PublicKey sigPublicKey,
         PublicKey encPublicKey,
         PublicKey agreePublicKey,
-        String memo
-) {
-    private static final byte[] ALL_INTERFACES = new byte[] { 0, 0, 0, 0 };
+        String memo) {
+    private static final byte[] ALL_INTERFACES = new byte[] {0, 0, 0, 0};
     private static final int MAX_KEY_LENGTH = 6_144;
 
     public void updateHash(MessageDigest md) {
@@ -71,23 +75,24 @@ public record Address(
      * @return the new Address object that was read.
      */
     public static Address readAddress(DataInputStream inStream) throws IOException {
-        return new Address(//
+        return new Address( //
                 inStream.readLong(), // id
                 Utilities.readNormalisedString(inStream), // nickname
                 Utilities.readNormalisedString(inStream), // selfName
                 inStream.readLong(), // stake
                 false, // ownHost
                 // XXX ownHost needs to be set for each node when being read
-                readBytes(inStream), inStream.readInt(), // addressInternalIpv4 portInternalIpv4
-                readBytes(inStream), inStream.readInt(), // addressExternalIpv4 portExternalIpv4
-                readBytes(inStream), inStream.readInt(), // addressInternalIpv6 portInternalIpv6
-                readBytes(inStream), inStream.readInt(), // addressExternalIpv6 portExternalIpv6
-                CryptoUtils.bytesToPublicKey(readBytes(inStream),
-                        CryptoUtils.SIG_TYPE1), // sigPublicKey
-                CryptoUtils.bytesToPublicKey(readBytes(inStream),
-                        CryptoUtils.ENC_TYPE), // encPublicKey
-                CryptoUtils.bytesToPublicKey(readBytes(inStream),
-                        CryptoUtils.AGR_TYPE),  // agreePublicKey
+                readBytes(inStream),
+                inStream.readInt(), // addressInternalIpv4 portInternalIpv4
+                readBytes(inStream),
+                inStream.readInt(), // addressExternalIpv4 portExternalIpv4
+                readBytes(inStream),
+                inStream.readInt(), // addressInternalIpv6 portInternalIpv6
+                readBytes(inStream),
+                inStream.readInt(), // addressExternalIpv6 portExternalIpv6
+                CryptoUtils.bytesToPublicKey(readBytes(inStream), CryptoUtils.SIG_TYPE1), // sigPublicKey
+                CryptoUtils.bytesToPublicKey(readBytes(inStream), CryptoUtils.ENC_TYPE), // encPublicKey
+                CryptoUtils.bytesToPublicKey(readBytes(inStream), CryptoUtils.AGR_TYPE), // agreePublicKey
                 Utilities.readNormalisedString(inStream)); // memo
     }
 
@@ -112,8 +117,7 @@ public record Address(
         Utilities.writeNormalisedString(outStream, memo);
     }
 
-    private static void writeBytes(DataOutputStream outStream, byte[] data)
-            throws IOException {
+    private static void writeBytes(DataOutputStream outStream, byte[] data) throws IOException {
         if (data == null) {
             outStream.writeInt(-1);
         } else {
@@ -122,8 +126,7 @@ public record Address(
         }
     }
 
-    private static byte[] readBytes(DataInputStream inStream)
-            throws IOException {
+    private static byte[] readBytes(DataInputStream inStream) throws IOException {
         int len = inStream.readInt();
         if (len < 0) {
             // if length is negative, it's a null value
@@ -136,25 +139,24 @@ public record Address(
 
     @Override
     public String toString() {
-        return "Address[" +
-                "id=" + id +
-                ", nickname='" + nickname + '\'' +
-                ", selfName='" + selfName + '\'' +
-                ", stake=" + stake +
-                ", ownHost=" + ownHost +
-                ", addressInternalIpv4=" + formatIpv4(addressInternalIpv4) +
-                ", portInternalIpv4=" + portInternalIpv4 +
-                ", addressExternalIpv4=" + formatIpv4(addressExternalIpv4) +
-                ", portExternalIpv4=" + portExternalIpv4 +
-                ", addressInternalIpv6=" + formatIpv4(addressInternalIpv6) +
-                ", portInternalIpv6=" + portInternalIpv6 +
-                ", addressExternalIpv6=" + formatIpv4(addressExternalIpv6) +
-                ", portExternalIpv6=" + portExternalIpv6 +
-                ", sigPublicKey=" + sigPublicKey +
-                ", encPublicKey=" + encPublicKey +
-                ", agreePublicKey=" + agreePublicKey +
-                ", memo='" + memo + '\'' +
-                ']';
+        return "Address[" + "id="
+                + id + ", nickname='"
+                + nickname + '\'' + ", selfName='"
+                + selfName + '\'' + ", stake="
+                + stake + ", ownHost="
+                + ownHost + ", addressInternalIpv4="
+                + formatIpv4(addressInternalIpv4) + ", portInternalIpv4="
+                + portInternalIpv4 + ", addressExternalIpv4="
+                + formatIpv4(addressExternalIpv4) + ", portExternalIpv4="
+                + portExternalIpv4 + ", addressInternalIpv6="
+                + formatIpv4(addressInternalIpv6) + ", portInternalIpv6="
+                + portInternalIpv6 + ", addressExternalIpv6="
+                + formatIpv4(addressExternalIpv6) + ", portExternalIpv6="
+                + portExternalIpv6 + ", sigPublicKey="
+                + sigPublicKey + ", encPublicKey="
+                + encPublicKey + ", agreePublicKey="
+                + agreePublicKey + ", memo='"
+                + memo + '\'' + ']';
     }
 
     public static String formatIpv4(byte[] ipV4Address) {

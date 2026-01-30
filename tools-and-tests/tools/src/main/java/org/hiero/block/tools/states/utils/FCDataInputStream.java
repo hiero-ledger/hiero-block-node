@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /*
  * (c) 2016-2019 Swirlds, Inc.
  *
@@ -16,7 +17,6 @@
  */
 package org.hiero.block.tools.states.utils;
 
-
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,53 +28,51 @@ import java.io.InputStream;
  */
 public class FCDataInputStream extends DataInputStream {
 
-	// Use {@inheritDoc} when it starts working--right now (9/26/19) doesn't seem to
+    // Use {@inheritDoc} when it starts working--right now (9/26/19) doesn't seem to
 
-	/**
-	 * Creates a FCDataInputStream that uses the specified
-	 * underlying InputStream.
-	 *
-	 * @param in
-	 * 		the specified input stream
-	 */
-	public FCDataInputStream(InputStream in) {
-		super(in);
-	}
+    /**
+     * Creates a FCDataInputStream that uses the specified
+     * underlying InputStream.
+     *
+     * @param in
+     * 		the specified input stream
+     */
+    public FCDataInputStream(InputStream in) {
+        super(in);
+    }
 
-	//TODO Javadoc
-	public byte[] readBytes() throws IOException {
-		return readBytes(Integer.MAX_VALUE);
-	}
+    // TODO Javadoc
+    public byte[] readBytes() throws IOException {
+        return readBytes(Integer.MAX_VALUE);
+    }
 
-	//TODO Javadoc
-	public byte[] readBytes(int maxLength) throws IOException {
-		int len = this.readInt();
-		if (len < 0) {
-			// if length is negative, it's a null value
-			return null;
-		}
-		byte[] bytes = null;
-		if (len < maxLength) {
-			bytes = new byte[len];
-			this.readFully(bytes);
-		} else {
-			throw new IOException(String.format(
-					"Tried to read %d bytes, which is more than limit of %d",
-					len, maxLength
-			));
-		}
-		return bytes;
-	}
+    // TODO Javadoc
+    public byte[] readBytes(int maxLength) throws IOException {
+        int len = this.readInt();
+        if (len < 0) {
+            // if length is negative, it's a null value
+            return null;
+        }
+        byte[] bytes = null;
+        if (len < maxLength) {
+            bytes = new byte[len];
+            this.readFully(bytes);
+        } else {
+            throw new IOException(
+                    String.format("Tried to read %d bytes, which is more than limit of %d", len, maxLength));
+        }
+        return bytes;
+    }
 
-	/**
-	 * Reads a String encoded in the Swirlds default charset (UTF8) from the input stream
-	 *
-	 * @return the String read
-	 * @throws IOException
-	 * 		thrown if there are any problems during the operation
-	 */
-	public String readNormalisedString() throws IOException {
-		byte[] data = DataStreamUtils.readByteArray(this);
-		return CommonUtils.getNormalisedStringFromBytes(data);
-	}
+    /**
+     * Reads a String encoded in the Swirlds default charset (UTF8) from the input stream
+     *
+     * @return the String read
+     * @throws IOException
+     * 		thrown if there are any problems during the operation
+     */
+    public String readNormalisedString() throws IOException {
+        byte[] data = DataStreamUtils.readByteArray(this);
+        return CommonUtils.getNormalisedStringFromBytes(data);
+    }
 }

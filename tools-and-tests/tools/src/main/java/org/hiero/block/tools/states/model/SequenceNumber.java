@@ -1,8 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.IOException;
 import org.hiero.block.tools.states.utils.FCDataInputStream;
 import org.hiero.block.tools.states.utils.FCDataOutputStream;
-import java.io.IOException;
 
 public record SequenceNumber(long sequenceNum) {
 
@@ -17,5 +18,4 @@ public record SequenceNumber(long sequenceNum) {
     public void copyTo(FCDataOutputStream fcDataOutputStream) throws IOException {
         fcDataOutputStream.writeLong(sequenceNum);
     }
-
 }

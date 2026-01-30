@@ -1,6 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -8,6 +8,7 @@ import java.io.ObjectInputStream;
 import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
 public class JKey {
     private static final long LEGACY_VERSION = 1;
@@ -83,9 +84,8 @@ public class JKey {
         return unpack(stream, type, length);
     }
 
-
     public static <T> T deserialize(byte[] objectData) {
-        return (T)deserialize((InputStream)(new ByteArrayInputStream(objectData)));
+        return (T) deserialize((InputStream) (new ByteArrayInputStream(objectData)));
     }
 
     public static <T> T deserialize(InputStream inputStream) {
@@ -95,7 +95,7 @@ public class JKey {
 
             Object var3;
             try {
-                T obj = (T)in.readObject();
+                T obj = (T) in.readObject();
                 var3 = obj;
             } catch (Throwable var5) {
                 try {
@@ -108,21 +108,21 @@ public class JKey {
             }
 
             in.close();
-            return (T)var3;
+            return (T) var3;
         } catch (IOException | ClassNotFoundException ex) {
             throw new RuntimeException(ex);
         }
     }
+
     @SuppressWarnings("unchecked")
-    private static <T extends JKey> T unpack(FCDataInputStream stream, JObjectType type,
-            long length) throws IOException {
+    private static <T extends JKey> T unpack(FCDataInputStream stream, JObjectType type, long length)
+            throws IOException {
 
         if (JObjectType.JEd25519Key.equals(type) || JObjectType.JECDSA_384Key.equals(type)) {
             byte[] key = new byte[(int) length];
             stream.readFully(key);
 
-            return (JObjectType.JEd25519Key.equals(type)) ? (T) new JEd25519Key(key)
-                    : (T) new JECDSA_384Key(key);
+            return (JObjectType.JEd25519Key.equals(type)) ? (T) new JEd25519Key(key) : (T) new JECDSA_384Key(key);
         } else if (JObjectType.JThresholdKey.equals(type)) {
             int threshold = stream.readInt();
             JKeyList keyList = copyFrom(stream);
@@ -152,8 +152,7 @@ public class JKey {
 
             return (T) new JContractIDKey(shard, realm, contract);
         } else {
-            throw new IllegalStateException(
-                    "Unknown type was encountered while reading from the input stream");
+            throw new IllegalStateException("Unknown type was encountered while reading from the input stream");
         }
     }
 
@@ -236,7 +235,6 @@ public class JKey {
         private long realmNum = 0; // the realm number (nonnegative)
         private long contractNum = 0; // a nonnegative number unique within its realm
 
-
         public JContractIDKey getContractIDKey() {
             return this;
         }
@@ -244,11 +242,11 @@ public class JKey {
         public boolean hasContractID() {
             return true;
         }
-//
-//        public ContractID getContractID() {
-//            return ContractID.newBuilder().setShardNum(shardNum).setRealmNum(realmNum)
-//                    .setContractNum(contractNum).build();
-//        }
+        //
+        //        public ContractID getContractID() {
+        //            return ContractID.newBuilder().setShardNum(shardNum).setRealmNum(realmNum)
+        //                    .setContractNum(contractNum).build();
+        //        }
 
         public JContractIDKey(long shardNum, long realmNum, long contractNum) {
             super();
@@ -273,8 +271,8 @@ public class JKey {
         public String toString() {
             return "<JContractID: " + shardNum + "." + realmNum + "." + contractNum + ">";
         }
-
     }
+
     public static class JECDSA_384Key extends JKey {
 
         private static final long serialVersionUID = 1L;
@@ -329,6 +327,5 @@ public class JKey {
         public int getThreshold() {
             return threshold;
         }
-
     }
 }

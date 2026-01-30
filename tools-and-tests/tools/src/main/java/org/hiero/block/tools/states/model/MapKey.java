@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.IOException;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
 public record MapKey(long realmId, long shardId, long accountId) {
     private static final long CURRENT_VERSION = 1;

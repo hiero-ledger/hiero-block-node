@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /*
  * (c) 2016-2019 Swirlds, Inc.
  *
@@ -21,5 +22,5 @@ import java.io.IOException;
 import org.hiero.block.tools.states.utils.FCDataInputStream;
 
 public interface Deserializer<T> {
-	T deserialize(FCDataInputStream stream) throws IOException;
+    T deserialize(FCDataInputStream stream) throws IOException;
 }

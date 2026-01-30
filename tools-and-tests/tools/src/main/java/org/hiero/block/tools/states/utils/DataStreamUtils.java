@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /*
  * (c) 2016-2019 Swirlds, Inc.
  *
@@ -23,41 +24,39 @@ import java.io.IOException;
 
 public abstract class DataStreamUtils {
 
-	/**
-	 * write a byte array to the given stream
-	 *
-	 * @param stream
-	 * 		the stream to write to
-	 * @param data
-	 * 		the array to write
-	 * @throws IOException
-	 * 		thrown if there are any problems during the operation
-	 */
-	public static void writeByteArray(DataOutputStream stream, byte[] data)
-			throws IOException {
-		int len = (data == null ? 0 : data.length);
-		stream.writeInt(len);
-		for (int i = 0; i < len; i++) {
-			stream.writeByte(data[i]);
-		}
-	}
+    /**
+     * write a byte array to the given stream
+     *
+     * @param stream
+     * 		the stream to write to
+     * @param data
+     * 		the array to write
+     * @throws IOException
+     * 		thrown if there are any problems during the operation
+     */
+    public static void writeByteArray(DataOutputStream stream, byte[] data) throws IOException {
+        int len = (data == null ? 0 : data.length);
+        stream.writeInt(len);
+        for (int i = 0; i < len; i++) {
+            stream.writeByte(data[i]);
+        }
+    }
 
-	/**
-	 * read a byte array from the given stream
-	 *
-	 * @param stream
-	 * 		the stream to read from
-	 * @return the array that was read
-	 * @throws IOException
-	 * 		thrown if there are any problems during the operation
-	 */
-	public static byte[] readByteArray(DataInputStream stream)
-			throws IOException {
-		int len = stream.readInt();
-		byte[] data = new byte[len];
-		for (int i = 0; i < len; i++) {
-			data[i] = stream.readByte();
-		}
-		return data;
-	}
+    /**
+     * read a byte array from the given stream
+     *
+     * @param stream
+     * 		the stream to read from
+     * @return the array that was read
+     * @throws IOException
+     * 		thrown if there are any problems during the operation
+     */
+    public static byte[] readByteArray(DataInputStream stream) throws IOException {
+        int len = stream.readInt();
+        byte[] data = new byte[len];
+        for (int i = 0; i < len; i++) {
+            data[i] = stream.readByte();
+        }
+        return data;
+    }
 }

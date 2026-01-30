@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.IOException;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
 public record JTransactionRecord(
         JTransactionReceipt txReceipt,
@@ -19,7 +20,6 @@ public record JTransactionRecord(
     private static final long LEGACY_VERSION_1 = 1;
     private static final long LEGACY_VERSION_2 = 2;
     private static final long CURRENT_VERSION = 3;
-
 
     public static JTransactionRecord copyFrom(final FCDataInputStream inStream) {
         try {
@@ -163,8 +163,7 @@ public record JTransactionRecord(
                     contractCreateResult,
                     jTransferList,
                     expirationTime,
-                    deserializedVersion
-            );
+                    deserializedVersion);
         } catch (IOException e) {
             throw new RuntimeException("Failed to copy JTransactionRecord from input stream", e);
         }

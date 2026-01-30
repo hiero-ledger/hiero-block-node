@@ -1,15 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.BitUtil;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.FCDataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import org.hiero.block.tools.states.utils.BitUtil;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.FCDataOutputStream;
 
-public class FCMap<K,V> extends HashMap<K,V> {
+public class FCMap<K, V> extends HashMap<K, V> {
     /** Expected length of root hash byte array */
     public static final int HASH_LENGTH = 48;
     /** Delimiter to identify to the beginning of a serialized tree */
@@ -17,9 +18,11 @@ public class FCMap<K,V> extends HashMap<K,V> {
     /** Delimiter to identify the end of a serialized tree */
     private static final int END_MARKER_VALUE = 1_818_588_274; // 'l', 'e', 't', 'r'
     /** Begin Marker as array of bytes so it can be written directly to the stream */
-    private static final byte[] BEGIN_MARKER = ByteBuffer.allocate(Integer.BYTES).putInt(BEGIN_MARKER_VALUE).array();
+    private static final byte[] BEGIN_MARKER =
+            ByteBuffer.allocate(Integer.BYTES).putInt(BEGIN_MARKER_VALUE).array();
     /** End Marker as array of bytes, so it can be written directly to the stream */
-    private static final byte[] END_MARKER = ByteBuffer.allocate(Integer.BYTES).putInt(END_MARKER_VALUE).array();
+    private static final byte[] END_MARKER =
+            ByteBuffer.allocate(Integer.BYTES).putInt(END_MARKER_VALUE).array();
     /** Start delimiter for leaf keys */
     private static final int KEY_S = 1_801_812_339; // 'k', 'e', 'y', 's'
     /** End delimiter for leaf keys */
@@ -34,8 +37,7 @@ public class FCMap<K,V> extends HashMap<K,V> {
     private ParseFunction<K> keyDeserializer;
     private ParseFunction<V> valueDeserializer;
 
-    public FCMap(ParseFunction<K> keyDeserializer,
-            ParseFunction<V> valueDeserializer) {
+    public FCMap(ParseFunction<K> keyDeserializer, ParseFunction<V> valueDeserializer) {
         super();
         this.keyDeserializer = keyDeserializer;
         this.valueDeserializer = valueDeserializer;
@@ -73,43 +75,43 @@ public class FCMap<K,V> extends HashMap<K,V> {
 
         final byte[] rootHash = deserializeRootHash(inStream);
         final List<FCMLeaf<K, V>> leaves = copyTreeFrom(inStream);
-//        final FCMNode<K, V> rootNode;
-//        { // inlined copyTreeFrom() as multiple returns
-////            copyTreeFrom(inStream, keyDeserializer, valueDeserializer);
-//            // Discard the version number
-//            long treeVersion = inStream.readLong();
-//            leaves = deserializeLeaves(inStream, keyDeserializer, valueDeserializer);
-//            int size = leaves.size();
-//            if (size == 0) {
-//                rootNode = new FCMInternalNode<>(null, null);
-//            } else {
-//                List<FCMNode<K,V>> internalNodes = generateInitialInternalNodes(leaves);
-//                while (internalNodes.size() > 1) {
-//                    internalNodes = generateInternalLevel(internalNodes);
-//                }
-//
-//                rootNode = internalNodes.get(0);
-////                this.setRightMostLeaf(); // TODO not sure if this is needed
-//            }
-//        }
+        //        final FCMNode<K, V> rootNode;
+        //        { // inlined copyTreeFrom() as multiple returns
+        ////            copyTreeFrom(inStream, keyDeserializer, valueDeserializer);
+        //            // Discard the version number
+        //            long treeVersion = inStream.readLong();
+        //            leaves = deserializeLeaves(inStream, keyDeserializer, valueDeserializer);
+        //            int size = leaves.size();
+        //            if (size == 0) {
+        //                rootNode = new FCMInternalNode<>(null, null);
+        //            } else {
+        //                List<FCMNode<K,V>> internalNodes = generateInitialInternalNodes(leaves);
+        //                while (internalNodes.size() > 1) {
+        //                    internalNodes = generateInternalLevel(internalNodes);
+        //                }
+        //
+        //                rootNode = internalNodes.get(0);
+        ////                this.setRightMostLeaf(); // TODO not sure if this is needed
+        //            }
+        //        }
         final int endMarker = inStream.readInt();
         if (END_MARKER_VALUE != endMarker) {
             throw new IOException("The serialized FCMap stream ends unexpectedly");
         }
 
         // old code to recompute the root hash
-//        final MerkleHash<K, V> merkleHashWorker = new MerkleHash<>();
-//        merkleHashWorker.computeByLevels(this.tree);
-//        final byte[] treeRootHash = this.tree.getHash();
-//        if (this.copyCheckEnabled && !Arrays.equals(rootHash, treeRootHash)) {
-//            throw new IllegalStateException("The root hash serialized doesn't match the tree root hash");
-//        }
+        //        final MerkleHash<K, V> merkleHashWorker = new MerkleHash<>();
+        //        merkleHashWorker.computeByLevels(this.tree);
+        //        final byte[] treeRootHash = this.tree.getHash();
+        //        if (this.copyCheckEnabled && !Arrays.equals(rootHash, treeRootHash)) {
+        //            throw new IllegalStateException("The root hash serialized doesn't match the tree root hash");
+        //        }
 
         // old code to create the internal map
-//        this.internalMap = new HashMap<>(leaves.size());
-//        for (FCMLeaf<K, V> leaf : leaves) {
-//            this.internalMap.put(leaf.getKey(), leaf);
-//        }
+        //        this.internalMap = new HashMap<>(leaves.size());
+        //        for (FCMLeaf<K, V> leaf : leaves) {
+        //            this.internalMap.put(leaf.getKey(), leaf);
+        //        }
         for (FCMLeaf<K, V> leaf : leaves) {
             put(leaf.key(), leaf.value());
         }
@@ -122,7 +124,7 @@ public class FCMap<K,V> extends HashMap<K,V> {
             final List<FCMLeaf<K, V>> leaves = deserializeLeaves(inputStream);
             int size = leaves.size();
             if (size == 0) {
-                root = new FCMInternalNode<>(null,null);
+                root = new FCMInternalNode<>(null, null);
                 return leaves;
             }
 
@@ -132,7 +134,7 @@ public class FCMap<K,V> extends HashMap<K,V> {
             }
 
             this.root = (FCMInternalNode<K, V>) internalNodes.get(0);
-//            this.setRightMostLeaf(); TODO not sure if this is needed
+            //            this.setRightMostLeaf(); TODO not sure if this is needed
             return leaves;
         } catch (IOException ioException) {
             throw ioException;
@@ -141,7 +143,7 @@ public class FCMap<K,V> extends HashMap<K,V> {
         }
     }
 
-    private static <K,V> List<FCMNode<K, V>> generateInitialInternalNodes(final List<FCMLeaf<K, V>> leaves) {
+    private static <K, V> List<FCMNode<K, V>> generateInitialInternalNodes(final List<FCMLeaf<K, V>> leaves) {
         final long sizeofLastCompleteLevel = BitUtil.findLeftMostBit(leaves.size());
         final long nextSizeOfLastCompleteLevel = sizeofLastCompleteLevel << 1;
         final long numberOfLeavesInUpperLevel = nextSizeOfLastCompleteLevel - leaves.size();
@@ -150,12 +152,12 @@ public class FCMap<K,V> extends HashMap<K,V> {
             return generateInternalLevel(leaves);
         }
         final List<? extends FCMNode<K, V>> bottomLeaves = leaves.subList(0, (int) numberOfLeavesAtTheBottom);
-        final List<? extends FCMNode<K, V>> upperLeaves = leaves.subList((int) numberOfLeavesAtTheBottom, leaves.size());
+        final List<? extends FCMNode<K, V>> upperLeaves =
+                leaves.subList((int) numberOfLeavesAtTheBottom, leaves.size());
         final List<FCMNode<K, V>> internalNodes = new ArrayList<>(generateInternalLevel(bottomLeaves));
         internalNodes.addAll(upperLeaves);
         return internalNodes;
     }
-
 
     /**
      * Generates the complete tree based on the provided nodes.
@@ -164,13 +166,13 @@ public class FCMap<K,V> extends HashMap<K,V> {
      * 		Parent nodes
      * @return Parent nodes of the provided parent nodes
      */
-    private static <K,V> List<FCMNode<K, V>> generateInternalLevel(List<? extends FCMNode<K, V>> nodes) {
+    private static <K, V> List<FCMNode<K, V>> generateInternalLevel(List<? extends FCMNode<K, V>> nodes) {
         List<FCMNode<K, V>> internalNodes = new ArrayList<>(nodes.size() / 2);
         if (nodes.size() == 1) {
             final FCMNode<K, V> rightChild = nodes.get(0);
             FCMInternalNode<K, V> internalNode = new FCMInternalNode<>(rightChild, null);
-//            internalNode.setRightChild(rightChild);
-//            rightChild.setParent(internalNode);
+            //            internalNode.setRightChild(rightChild);
+            //            rightChild.setParent(internalNode);
             internalNodes.add(internalNode);
             return internalNodes;
         }
@@ -182,11 +184,11 @@ public class FCMap<K,V> extends HashMap<K,V> {
             FCMNode<K, V> rightChild = nodes.get(index++);
             FCMInternalNode<K, V> internalNode = new FCMInternalNode<>(leftChild, rightChild);
 
-//            internalNode.setLeftChild(leftChild);
-//            internalNode.setRightChild(rightChild);
-//
-//            leftChild.setParent(internalNode);
-//            rightChild.setParent(internalNode);
+            //            internalNode.setLeftChild(leftChild);
+            //            internalNode.setRightChild(rightChild);
+            //
+            //            leftChild.setParent(internalNode);
+            //            rightChild.setParent(internalNode);
 
             internalNodes.add(internalNode);
         }
@@ -204,7 +206,7 @@ public class FCMap<K,V> extends HashMap<K,V> {
     private List<FCMLeaf<K, V>> deserializeLeaves(final FCDataInputStream inputStream) throws IOException {
         final long numberOfLeaves = inputStream.readLong();
         final List<FCMLeaf<K, V>> leaves = new ArrayList<>((int) numberOfLeaves);
-        System.out.println("Deserializing "+numberOfLeaves+" leaves");
+        System.out.println("Deserializing " + numberOfLeaves + " leaves");
         for (int leafIndex = 0; leafIndex < numberOfLeaves; leafIndex++) {
             final int keyS = inputStream.readInt();
             if (keyS != KEY_S) {
@@ -214,9 +216,8 @@ public class FCMap<K,V> extends HashMap<K,V> {
             final K key = keyDeserializer.copyFrom(inputStream);
             final int keyE = inputStream.readInt();
             if (keyE != KEY_E) {
-                throw new IOException(
-                        String.format("Key %d/%d didn't consume the input stream correctly", leafIndex,
-                                numberOfLeaves));
+                throw new IOException(String.format(
+                        "Key %d/%d didn't consume the input stream correctly", leafIndex, numberOfLeaves));
             }
 
             final int valueS = inputStream.readInt();
@@ -228,8 +229,8 @@ public class FCMap<K,V> extends HashMap<K,V> {
             final V value = valueDeserializer.copyFrom(inputStream);
             final int valueE = inputStream.readInt();
             if (valueE != VALUE_E) {
-                throw new IOException(String.format("Value %d/%d didn't consume the input stream correctly", leafIndex,
-                        numberOfLeaves));
+                throw new IOException(String.format(
+                        "Value %d/%d didn't consume the input stream correctly", leafIndex, numberOfLeaves));
             }
 
             leaves.add(new FCMLeaf<>(key, value));
@@ -250,19 +251,19 @@ public class FCMap<K,V> extends HashMap<K,V> {
     private byte[] computeByLevels() throws IOException {
         byte[] computedHash;
         // TODO assume that the tree is not empty
-//        if (root == null) {
-//            computedHash = EMPTY_HASH;
-//        } else if (tree.size() == 1) {
-//            this.computeTreeWithOneLeaf(tree);
-//            return;
-//        }
+        //        if (root == null) {
+        //            computedHash = EMPTY_HASH;
+        //        } else if (tree.size() == 1) {
+        //            this.computeTreeWithOneLeaf(tree);
+        //            return;
+        //        }
 
-//        final Stack<Collection<FCMNode<K, V>>> levels = tree.retrieveLevels(forceHash);
-//
-//        while (!levels.isEmpty()) {
-//            this.computeHashForLevel(levels.pop().iterator(), forceHash);
-//        }
-//        byte[] readRootHash = root.getHash();
+        //        final Stack<Collection<FCMNode<K, V>>> levels = tree.retrieveLevels(forceHash);
+        //
+        //        while (!levels.isEmpty()) {
+        //            this.computeHashForLevel(levels.pop().iterator(), forceHash);
+        //        }
+        //        byte[] readRootHash = root.getHash();
         return root.getHash();
     }
 }

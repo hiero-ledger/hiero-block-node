@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.postgres;
 
 import java.io.BufferedReader;
@@ -28,13 +29,7 @@ import java.util.stream.Stream;
  * @param fileContents from "file_base64" column, parsed as byte[]
  */
 @SuppressWarnings("unused")
-public record BinaryObjectCsvRow(
-        long id,
-        long refCount,
-        byte[] hash,
-        int fileId,
-        byte[] fileContents
-) {
+public record BinaryObjectCsvRow(long id, long refCount, byte[] hash, int fileId, byte[] fileContents) {
 
     public String hexHash() {
         return HexFormat.of().formatHex(hash);
@@ -57,16 +52,13 @@ public record BinaryObjectCsvRow(
      * @return a map of hex hash strings to BinaryObjectCsvRow objects
      */
     public static Map<String, BinaryObjectCsvRow> loadBinaryObjectsMap(URL csvUrl) {
-            try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(csvUrl.openStream(), StandardCharsets.UTF_8))) {
-                return parseLineToRow(reader.lines())
-                    .collect(Collectors.toMap(
-                        BinaryObjectCsvRow::hexHash,
-                        Function.identity()
-                    ));
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
+        try (BufferedReader reader =
+                new BufferedReader(new InputStreamReader(csvUrl.openStream(), StandardCharsets.UTF_8))) {
+            return parseLineToRow(reader.lines())
+                    .collect(Collectors.toMap(BinaryObjectCsvRow::hexHash, Function.identity()));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**
@@ -77,11 +69,7 @@ public record BinaryObjectCsvRow(
      */
     public static Map<String, BinaryObjectCsvRow> loadBinaryObjectsMap(Path csvPath) {
         try (var lines = Files.lines(csvPath)) {
-            return parseLineToRow(lines)
-                    .collect(Collectors.toMap(
-                        BinaryObjectCsvRow::hexHash,
-                        Function.identity()
-                    ));
+            return parseLineToRow(lines).collect(Collectors.toMap(BinaryObjectCsvRow::hexHash, Function.identity()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load binary objects from CSV", e);
         }
@@ -108,39 +96,41 @@ public record BinaryObjectCsvRow(
      * @return a stream of BinaryObjectCsvRow objects
      */
     private static Stream<BinaryObjectCsvRow> parseLineToRow(Stream<String> lines) {
-        return lines
-            .skip(1) // Skip header line
-            .map(line -> {
-                String[] parts = line.split(",");
-                if (parts.length < 3) {
-                    return null; // Skip malformed lines
-                }
-                //CVS columns "id,ref_count,hash_hex,file_oid,file_base64"
-                long id = Long.parseLong(parts[0]);
-                long refCount = Long.parseLong(parts[1]);
-                byte[] hash = HexFormat.of().parseHex(parts[2]);
-                int fileId = Integer.parseInt(parts[3]);
-                byte[] fileContents;
-                if (parts[4].isEmpty() || parts[4].equals("\"\"")) {
-                    fileContents = new byte[0]; // Handle empty file contents
-                } else {
-                    try {
-                        fileContents = HexFormat.of().parseHex(parts[4]);
-                    } catch (NumberFormatException e) {
-                        StringBuilder sb = new StringBuilder();
-                        sb.append("Failed to parse file contents for id ").append(id)
-                            .append(", BAD parts[4] = [").append(parts[4]).append("] length = ")
-                            .append(parts[4].length());
-                        // print each character in parts[4] as hex
-                        for (int i = 0; i < parts[4].length(); i++) {
-                            char c = parts[4].charAt(i);
-                            sb.append(String.format("Character '%c' at index %d: %02X%n", c, i, (int) c));
-                        }
-                        throw new RuntimeException(sb.toString(), e);
+        return lines.skip(1) // Skip header line
+                .map(line -> {
+                    String[] parts = line.split(",");
+                    if (parts.length < 3) {
+                        return null; // Skip malformed lines
                     }
-                }
-                return new BinaryObjectCsvRow(id, refCount, hash, fileId, fileContents);
-            })
-            .filter(Objects::nonNull);
+                    // CVS columns "id,ref_count,hash_hex,file_oid,file_base64"
+                    long id = Long.parseLong(parts[0]);
+                    long refCount = Long.parseLong(parts[1]);
+                    byte[] hash = HexFormat.of().parseHex(parts[2]);
+                    int fileId = Integer.parseInt(parts[3]);
+                    byte[] fileContents;
+                    if (parts[4].isEmpty() || parts[4].equals("\"\"")) {
+                        fileContents = new byte[0]; // Handle empty file contents
+                    } else {
+                        try {
+                            fileContents = HexFormat.of().parseHex(parts[4]);
+                        } catch (NumberFormatException e) {
+                            StringBuilder sb = new StringBuilder();
+                            sb.append("Failed to parse file contents for id ")
+                                    .append(id)
+                                    .append(", BAD parts[4] = [")
+                                    .append(parts[4])
+                                    .append("] length = ")
+                                    .append(parts[4].length());
+                            // print each character in parts[4] as hex
+                            for (int i = 0; i < parts[4].length(); i++) {
+                                char c = parts[4].charAt(i);
+                                sb.append(String.format("Character '%c' at index %d: %02X%n", c, i, (int) c));
+                            }
+                            throw new RuntimeException(sb.toString(), e);
+                        }
+                    }
+                    return new BinaryObjectCsvRow(id, refCount, hash, fileId, fileContents);
+                })
+                .filter(Objects::nonNull);
     }
 }

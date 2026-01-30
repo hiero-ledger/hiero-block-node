@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.IOException;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
 public record MapValue(
         long balance,
@@ -15,8 +16,7 @@ public record MapValue(
         FCLinkedList<JTransactionRecord> recordLinkedList,
         long expirationTime,
         String memo,
-        boolean isSmartContract
-        ) {
+        boolean isSmartContract) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long LEGACY_VERSION_2 = 2;
     private static final long LEGACY_VERSION_3 = 3;
@@ -55,8 +55,8 @@ public record MapValue(
             byte[] ethAddressByte = new byte[20];
             inStream.readFully(ethAddressByte);
             accountKeys = JKey.copyFrom(inStream);
-            if(accountKeys !=null && accountKeys.hasContractID()) {
-                isSmartContract =true;
+            if (accountKeys != null && accountKeys.hasContractID()) {
+                isSmartContract = true;
             }
         } else if (version == LEGACY_VERSION_2) {
             balance = inStream.readLong();
@@ -70,8 +70,8 @@ public record MapValue(
             }
             autoRenewPeriod = inStream.readLong();
             deleted = inStream.readChar() == 1;
-            if(accountKeys !=null && accountKeys.hasContractID()) {
-                isSmartContract =true;
+            if (accountKeys != null && accountKeys.hasContractID()) {
+                isSmartContract = true;
             }
         } else if (version == LEGACY_VERSION_3) {
             balance = inStream.readLong();
@@ -86,8 +86,8 @@ public record MapValue(
             deleted = inStream.readByte() == 1;
             expirationTime = inStream.readLong();
             memo = "";
-            if(accountKeys !=null && accountKeys.hasContractID()) {
-                isSmartContract =true;
+            if (accountKeys != null && accountKeys.hasContractID()) {
+                isSmartContract = true;
             }
             FCLinkedList.copyFrom(inStream, JTransactionRecord::copyFrom);
         } else if (version == CURRENT_VERSION) {
@@ -118,7 +118,6 @@ public record MapValue(
                 recordLinkedList,
                 expirationTime,
                 memo,
-                isSmartContract
-        );
+                isSmartContract);
     }
 }

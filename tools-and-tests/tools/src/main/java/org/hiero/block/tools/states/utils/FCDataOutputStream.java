@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /*
  * (c) 2016-2018 Swirlds, Inc.
  *
@@ -26,10 +27,10 @@ import java.io.OutputStream;
  */
 public class FCDataOutputStream extends DataOutputStream {
 
-	/**
-	 * {@inheritDoc}
-	 */
-	public FCDataOutputStream(OutputStream out) {
-		super(out);
-	}
+    /**
+     * {@inheritDoc}
+     */
+    public FCDataOutputStream(OutputStream out) {
+        super(out);
+    }
 }

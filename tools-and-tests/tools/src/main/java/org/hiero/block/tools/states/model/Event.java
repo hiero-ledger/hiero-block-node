@@ -1,10 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.SyncUtils;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.SyncUtils;
 
 public record Event(
         long creatorId,
@@ -27,10 +28,10 @@ public record Event(
         long roundReceived,
         long consensusOrder,
         boolean lastInRoundReceived,
-        boolean abbreviated
-) {
+        boolean abbreviated) {
 
-    public static Event readFrom(FCDataInputStream dis,  Map<CreatorSeqPair, Event> eventsByCreatorSeq) throws IOException {
+    public static Event readFrom(FCDataInputStream dis, Map<CreatorSeqPair, Event> eventsByCreatorSeq)
+            throws IOException {
         int[] byteCount = new int[1];
 
         // info sent during a normal sync
@@ -46,10 +47,8 @@ public record Event(
         byte[] signature = SyncUtils.readByteArray(dis, byteCount);
 
         // find the parents if they exist
-        Event selfParent = eventsByCreatorSeq
-                .get(new CreatorSeqPair(creatorId, creatorSeq - 1));
-        Event otherParent = eventsByCreatorSeq
-                .get(new CreatorSeqPair(otherId, otherSeq));
+        Event selfParent = eventsByCreatorSeq.get(new CreatorSeqPair(creatorId, creatorSeq - 1));
+        Event otherParent = eventsByCreatorSeq.get(new CreatorSeqPair(otherId, otherSeq));
 
         // other info
         Hash hash = Hash.readHash(dis);
@@ -96,8 +95,7 @@ public record Event(
                 roundReceived,
                 consensusOrder,
                 lastInRoundReceived,
-                abbreviated
-        );
+                abbreviated);
     }
 
     public byte[] getHash() {

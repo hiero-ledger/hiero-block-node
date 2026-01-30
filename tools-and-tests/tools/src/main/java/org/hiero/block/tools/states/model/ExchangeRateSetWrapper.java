@@ -1,8 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.IOException;
 import org.hiero.block.tools.states.utils.FCDataInputStream;
 import org.hiero.block.tools.states.utils.FCDataOutputStream;
-import java.io.IOException;
 
 public record ExchangeRateSetWrapper(
         int currentHbarEquiv,
@@ -14,19 +15,16 @@ public record ExchangeRateSetWrapper(
     private static final long VERSION = 1L;
     private static final long OBJECT_ID = 10000121L;
 
-
     public static ExchangeRateSetWrapper copyFrom(FCDataInputStream fcDataInputStream) throws IOException {
-        //version number
+        // version number
         long version = fcDataInputStream.readLong();
         if (version != VERSION) {
-            throw new IOException(
-                    "Read Invalid version while calling ExchangeRateSetWrapper.copyFrom() - expected: "
-                            + VERSION + ", got: " + version);
+            throw new IOException("Read Invalid version while calling ExchangeRateSetWrapper.copyFrom() - expected: "
+                    + VERSION + ", got: " + version);
         }
         long objectId = fcDataInputStream.readLong();
         if (objectId != OBJECT_ID) {
-            throw new IOException(
-                    "Read Invalid ObjectID while calling ExchangeRateSetWrapper.copyFrom()");
+            throw new IOException("Read Invalid ObjectID while calling ExchangeRateSetWrapper.copyFrom()");
         }
         int currentHbarEquiv = fcDataInputStream.readInt();
         int currentCentEquiv = fcDataInputStream.readInt();
@@ -34,8 +32,13 @@ public record ExchangeRateSetWrapper(
         int nextHbarEquiv = fcDataInputStream.readInt();
         int nextCentEquiv = fcDataInputStream.readInt();
         long nextExpirationTime = fcDataInputStream.readLong();
-        return new ExchangeRateSetWrapper(currentHbarEquiv, currentCentEquiv, currentExpirationTime,
-                nextHbarEquiv, nextCentEquiv, nextExpirationTime);
+        return new ExchangeRateSetWrapper(
+                currentHbarEquiv,
+                currentCentEquiv,
+                currentExpirationTime,
+                nextHbarEquiv,
+                nextCentEquiv,
+                nextExpirationTime);
     }
 
     public void copyTo(FCDataOutputStream fcDataOutputStream) throws IOException {

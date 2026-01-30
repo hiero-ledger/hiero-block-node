@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /*
  * (c) 2016-2019 Swirlds, Inc.
  *
@@ -37,106 +38,108 @@ import org.hiero.block.tools.states.model.JKey;
 import org.hiero.block.tools.states.model.JKey.JKeyList;
 
 public abstract class CryptoUtils {
-	/** the type of hash to use */
-	private final static String HASH_TYPE = "SHA-384";
-	private final static String PRNG_TYPE = "SHA1PRNG";
-	private final static String PRNG_PROVIDER = "SUN";
+    /** the type of hash to use */
+    private static final String HASH_TYPE = "SHA-384";
 
-	// the algorithms and providers to use (AGR is key agreement, ENC is encryption, SIG is signatures)
-	public final static String AGR_TYPE = "EC";
-	public final static String AGR_PROVIDER = "SunEC";
-	// final static ObjectIdentifier AGR_ALG_ID = AlgorithmId.sha384WithECDSA_oid;
+    private static final String PRNG_TYPE = "SHA1PRNG";
+    private static final String PRNG_PROVIDER = "SUN";
 
-	public final static String ENC_TYPE = "EC";
-	public final static String ENC_PROVIDER = "SunEC";
-	// final static ObjectIdentifier ENC_ALG_ID = AlgorithmId.sha384WithECDSA_oid;
+    // the algorithms and providers to use (AGR is key agreement, ENC is encryption, SIG is signatures)
+    public static final String AGR_TYPE = "EC";
+    public static final String AGR_PROVIDER = "SunEC";
+    // final static ObjectIdentifier AGR_ALG_ID = AlgorithmId.sha384WithECDSA_oid;
 
-	public final static String SIG_TYPE1 =  "RSA"; // or RSA or SHA384withRSA
-	public final static String SIG_PROVIDER = "SunRsaSign";
+    public static final String ENC_TYPE = "EC";
+    public static final String ENC_PROVIDER = "SunEC";
+    // final static ObjectIdentifier ENC_ALG_ID = AlgorithmId.sha384WithECDSA_oid;
 
-	/**
-	 * Convert the given public key into a byte array, in a format that bytesToPublicKey can read.
-	 *
-	 * @param key
-	 * 		the public key to convert
-	 * @return a byte array representation of the public key
-	 */
-	public static byte[] publicKeyToBytes(PublicKey key) {
-		return key.getEncoded();
-	}
+    public static final String SIG_TYPE1 = "RSA"; // or RSA or SHA384withRSA
+    public static final String SIG_PROVIDER = "SunRsaSign";
 
-	/**
-	 * Read a byte array created by publicKeyToBytes, and return the public key it represents
-	 *
-	 * @param bytes
-	 * 		the byte array from publicKeyToBytes
-	 * @param keyType
-	 * 		the type of key this is, such as SIG_TYPE
-	 * @return the public key represented by that byte array
-	 */
-	public static PublicKey bytesToPublicKey(byte[] bytes, String keyType) {
-		PublicKey publicKey = null;
-		try {
-			EncodedKeySpec publicKeySpec = new X509EncodedKeySpec(bytes);
-			KeyFactory keyFactory = KeyFactory.getInstance(keyType);
-			publicKey = keyFactory.generatePublic(publicKeySpec);
-		} catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
-			throw new RuntimeException(e);
-		}
-		return publicKey;
-	}
+    /**
+     * Convert the given public key into a byte array, in a format that bytesToPublicKey can read.
+     *
+     * @param key
+     * 		the public key to convert
+     * @return a byte array representation of the public key
+     */
+    public static byte[] publicKeyToBytes(PublicKey key) {
+        return key.getEncoded();
+    }
 
-	// return the MessageDigest for the type of hash function used throughout the code
-	public static MessageDigest getMessageDigest() {
-		try {
-			return MessageDigest.getInstance(HASH_TYPE);
-		} catch (NoSuchAlgorithmException e) {
-			throw new RuntimeException(e);
-		}
-	}
+    /**
+     * Read a byte array created by publicKeyToBytes, and return the public key it represents
+     *
+     * @param bytes
+     * 		the byte array from publicKeyToBytes
+     * @param keyType
+     * 		the type of key this is, such as SIG_TYPE
+     * @return the public key represented by that byte array
+     */
+    public static PublicKey bytesToPublicKey(byte[] bytes, String keyType) {
+        PublicKey publicKey = null;
+        try {
+            EncodedKeySpec publicKeySpec = new X509EncodedKeySpec(bytes);
+            KeyFactory keyFactory = KeyFactory.getInstance(keyType);
+            publicKey = keyFactory.generatePublic(publicKeySpec);
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+            throw new RuntimeException(e);
+        }
+        return publicKey;
+    }
 
-	/**
-	 * Create an instance of the default deterministic {@link SecureRandom}
-	 *
-	 * @return an instance of {@link SecureRandom}
-	 * @throws NoSuchProviderException
-	 * 		if the security provider is not available on the system
-	 * @throws NoSuchAlgorithmException
-	 * 		if the algorithm is not available on the system
-	 */
-	public static SecureRandom getDetRandom() throws NoSuchProviderException, NoSuchAlgorithmException {
-		return SecureRandom.getInstance(PRNG_TYPE, PRNG_PROVIDER);
-	}
+    // return the MessageDigest for the type of hash function used throughout the code
+    public static MessageDigest getMessageDigest() {
+        try {
+            return MessageDigest.getInstance(HASH_TYPE);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Create an instance of the default deterministic {@link SecureRandom}
+     *
+     * @return an instance of {@link SecureRandom}
+     * @throws NoSuchProviderException
+     * 		if the security provider is not available on the system
+     * @throws NoSuchAlgorithmException
+     * 		if the algorithm is not available on the system
+     */
+    public static SecureRandom getDetRandom() throws NoSuchProviderException, NoSuchAlgorithmException {
+        return SecureRandom.getInstance(PRNG_TYPE, PRNG_PROVIDER);
+    }
 
     public static <K extends JKey> Key convertKey(K jKey) {
         return switch (jKey) {
-            case JKey.JThresholdKey thresholdKey -> Key.newBuilder().thresholdKey(
-                    new ThresholdKey(thresholdKey.getThreshold(), convertKeyList(thresholdKey.getKeys()))
-                ).build();
-            case JKey.JEd25519Key ed25519Key ->  Key.newBuilder().ed25519(
-                    Bytes.wrap(ed25519Key.getEd25519())
-                ).build();
-            case JKey.JECDSA_384Key ed384Key -> Key.newBuilder().ecdsa384(
-                    Bytes.wrap(ed384Key.getECDSA384())
-                ).build();
-            case JKey.JRSA_3072Key jrsa3072Key -> Key.newBuilder().rsa3072(
-                    Bytes.wrap(jrsa3072Key.getRSA3072())
-                ).build();
-            case JKey.JContractIDKey contractIDKey -> Key.newBuilder().contractID(
-                    new ContractID(
-                        contractIDKey.getShardNum(),
-                        contractIDKey.getRealmNum(),
-                        new OneOf<>(ContractOneOfType.CONTRACT_NUM, contractIDKey.getContractNum())
-                    )
-                ).build();
-            case JKeyList keyList -> Key.newBuilder().keyList(
-                    convertKeyList(keyList)
-                ).build();
-            default -> throw new IllegalArgumentException("Unsupported JKey type: " + jKey.getClass().getSimpleName());
+            case JKey.JThresholdKey thresholdKey ->
+                Key.newBuilder()
+                        .thresholdKey(
+                                new ThresholdKey(thresholdKey.getThreshold(), convertKeyList(thresholdKey.getKeys())))
+                        .build();
+            case JKey.JEd25519Key ed25519Key ->
+                Key.newBuilder().ed25519(Bytes.wrap(ed25519Key.getEd25519())).build();
+            case JKey.JECDSA_384Key ed384Key ->
+                Key.newBuilder().ecdsa384(Bytes.wrap(ed384Key.getECDSA384())).build();
+            case JKey.JRSA_3072Key jrsa3072Key ->
+                Key.newBuilder().rsa3072(Bytes.wrap(jrsa3072Key.getRSA3072())).build();
+            case JKey.JContractIDKey contractIDKey ->
+                Key.newBuilder()
+                        .contractID(new ContractID(
+                                contractIDKey.getShardNum(),
+                                contractIDKey.getRealmNum(),
+                                new OneOf<>(ContractOneOfType.CONTRACT_NUM, contractIDKey.getContractNum())))
+                        .build();
+            case JKeyList keyList ->
+                Key.newBuilder().keyList(convertKeyList(keyList)).build();
+            default ->
+                throw new IllegalArgumentException(
+                        "Unsupported JKey type: " + jKey.getClass().getSimpleName());
         };
     }
 
     static KeyList convertKeyList(JKeyList jKeyList) {
-        return new KeyList(jKeyList.getKeysList().stream().map(CryptoUtils::convertKey).toList());
+        return new KeyList(
+                jKeyList.getKeysList().stream().map(CryptoUtils::convertKey).toList());
     }
 }

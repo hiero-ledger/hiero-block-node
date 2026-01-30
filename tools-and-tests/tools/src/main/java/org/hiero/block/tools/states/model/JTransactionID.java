@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.IOException;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
 public record JTransactionID(JAccountID payerAccount, JTimestamp startTime) {
     private static final long LEGACY_VERSION_1 = 1;
@@ -30,7 +31,6 @@ public record JTransactionID(JAccountID payerAccount, JTimestamp startTime) {
         if (startTimePresent) {
             startTime = JTimestamp.copyFrom(inStream);
         }
-
 
         return new JTransactionID(payerAccount, startTime);
     }

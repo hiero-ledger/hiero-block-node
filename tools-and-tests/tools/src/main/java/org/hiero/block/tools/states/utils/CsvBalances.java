@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.utils;
 
 import java.nio.file.Files;
@@ -12,7 +13,7 @@ import java.util.stream.Stream;
 public class CsvBalances {
 
     /** Holds balances from the CSV file for the date 2019-09-13T22:00:00.000081Z */
-    public static final Map<Long,Long> BALANCES_CSV_2019_09_13T22 =
+    public static final Map<Long, Long> BALANCES_CSV_2019_09_13T22 =
             loadCsvBalances(Path.of("mainnet-data/2019-09-13T22_00_00.000081Z_Balances.csv"));
 
     /**
@@ -21,15 +22,15 @@ public class CsvBalances {
      * @return Map of account balances keyed by account ID.
      * @throws RuntimeException if an error occurs while reading the CSV file.
      */
-    public static Map<Long,Long> loadCsvBalances(Path csvFilePath) {
-        try(Stream<String> lines = Files.lines(csvFilePath)) {
+    public static Map<Long, Long> loadCsvBalances(Path csvFilePath) {
+        try (Stream<String> lines = Files.lines(csvFilePath)) {
             // skip the date and header lines and parse the rest
             return lines.skip(2) // Skip date and header lines
                     .map(line -> line.split(","))
                     .collect(Collectors.toMap(
                             parts -> parseLong(parts[2]), // Account ID
-                            parts -> parseLong(parts[3])  // Balance
-                    ));
+                            parts -> parseLong(parts[3]) // Balance
+                            ));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load balances from " + csvFilePath, e);
         }
@@ -49,5 +50,4 @@ public class CsvBalances {
             return Long.MIN_VALUE; // or handle the error as needed
         }
     }
-
 }

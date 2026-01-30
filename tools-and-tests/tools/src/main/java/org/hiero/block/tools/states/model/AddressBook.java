@@ -1,14 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.CryptoUtils;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.FCDataOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.hiero.block.tools.states.utils.CryptoUtils;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.FCDataOutputStream;
 
 public class AddressBook {
     /** This version number should be used to handle compatibility issues that may arise from any future changes */
@@ -19,8 +20,7 @@ public class AddressBook {
     long[] stakes;
     Map<String, Long> publicKeyToId;
 
-    public AddressBook() {
-    }
+    public AddressBook() {}
 
     public AddressBook(List<Address> addresses, long totalStake, long[] stakes, Map<String, Long> publicKeyToId) {
         this.addresses = addresses;
@@ -70,8 +70,8 @@ public class AddressBook {
             addresses.add(Address.readAddress(inStream));
         }
         publicKeyToId = addressesToHashMap(addresses);
-        totalStake = 0; //force recalculation on the next getTotalStake() call
-        stakes = null; //force recalculation on the next getStakes() call
+        totalStake = 0; // force recalculation on the next getTotalStake() call
+        stakes = null; // force recalculation on the next getStakes() call
     }
 
     public void copyTo(FCDataOutputStream outStream) throws IOException {
@@ -84,8 +84,7 @@ public class AddressBook {
         }
     }
 
-    public void copyFromExtra(FCDataInputStream inStream) throws IOException {
-    }
+    public void copyFromExtra(FCDataInputStream inStream) throws IOException {}
 
     // create the hashMap and add all the current addresses
     private static Map<String, Long> addressesToHashMap(List<Address> addresses) {

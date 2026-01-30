@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /*
  * (c) 2016-2018 Swirlds, Inc.
  *
@@ -19,23 +20,23 @@ package org.hiero.block.tools.states.utils;
 
 public final class BitUtil {
 
-	/**
-	 * Finds b = leftmost 1 bit in size (assuming size > 1)
-	 *
-	 * @param value
-	 * 		> 1
-	 * @return leftmost 1 bit
-	 */
-	public static long findLeftMostBit(final long value) {
-		if (value == 0) {
-			return 0;
-		}
+    /**
+     * Finds b = leftmost 1 bit in size (assuming size > 1)
+     *
+     * @param value
+     * 		> 1
+     * @return leftmost 1 bit
+     */
+    public static long findLeftMostBit(final long value) {
+        if (value == 0) {
+            return 0;
+        }
 
-		long leftMostBit = 1L << 62;
-		while ((value & leftMostBit) == 0) {
-			leftMostBit >>= 1;
-		}
+        long leftMostBit = 1L << 62;
+        while ((value & leftMostBit) == 0) {
+            leftMostBit >>= 1;
+        }
 
-		return leftMostBit;
-	}
+        return leftMostBit;
+    }
 }

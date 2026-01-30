@@ -1,21 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.IOException;
+import java.time.Instant;
 import org.hiero.block.tools.states.utils.FCDataInputStream;
 import org.hiero.block.tools.states.utils.FCDataOutputStream;
 import org.hiero.block.tools.states.utils.Utilities;
-import java.io.IOException;
-import java.time.Instant;
 
 public class HGCAppState {
     /** since version4, ExchangeRateSetWrapper is saved in state */
     private static final long VERSION_WITH_EXCHANGE_RATE = 4;
+
     private static final long LEGACY_VERSION = 3;
     private static final long CURRENT_VERSION = 4;
 
     private SequenceNumber sequenceNum;
     private final AddressBook addressBook = new AddressBook();
     private final FCMap<MapKey, MapValue> accountMap = new FCMap<>(MapKey::copyFrom, MapValue::copyFrom);
-    private final FCMap<StorageKey, StorageValue> storageMap = new FCMap<>(StorageKey::copyFrom, StorageValue::copyFrom);
+    private final FCMap<StorageKey, StorageValue> storageMap =
+            new FCMap<>(StorageKey::copyFrom, StorageValue::copyFrom);
     private ExchangeRateSetWrapper exchangeRateSetWrapper;
     private Instant lastHandleTxConsensusTime;
 
@@ -37,7 +40,8 @@ public class HGCAppState {
         if (savedVersion >= VERSION_WITH_EXCHANGE_RATE) {
             if (fcDataInputStream.readBoolean()) {
                 exchangeRateSetWrapper = ExchangeRateSetWrapper.copyFrom(fcDataInputStream);
-                System.out.println("Loaded exchange rates from state via HGCAppState::copyFrom() - "+exchangeRateSetWrapper);
+                System.out.println(
+                        "Loaded exchange rates from state via HGCAppState::copyFrom() - " + exchangeRateSetWrapper);
             } else {
                 System.out.println("No exchange rates were loaded from state via HGCAppState::copyFrom()");
             }
@@ -82,6 +86,4 @@ public class HGCAppState {
             Utilities.writeInstant(fcDataOutputStream, lastHandleTxConsensusTime);
         }
     }
-
-
 }

@@ -1,16 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
-public record JContractFunctionResult(JAccountID contractID, byte[] result, String error, byte[] bloom,
-                                      long gasUsed, List<JContractLogInfo>jContractLogInfo) {
+public record JContractFunctionResult(
+        JAccountID contractID,
+        byte[] result,
+        String error,
+        byte[] bloom,
+        long gasUsed,
+        List<JContractLogInfo> jContractLogInfo) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;
-
 
     public static JContractFunctionResult deserialize(final FCDataInputStream inStream) throws IOException {
         final long version = inStream.readLong();
@@ -29,7 +34,7 @@ public record JContractFunctionResult(JAccountID contractID, byte[] result, Stri
         String error;
         byte[] bloom;
         long gasUsed;
-        List<JContractLogInfo>jContractLogInfo;
+        List<JContractLogInfo> jContractLogInfo;
 
         boolean contractIDPresent;
 

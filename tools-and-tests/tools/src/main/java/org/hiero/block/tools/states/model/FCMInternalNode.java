@@ -1,6 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-public record FCMInternalNode<K,V>(FCMNode<K,V> leftChild, FCMNode<K,V> rightChild) implements  FCMNode<K,V> {
+public record FCMInternalNode<K, V>(FCMNode<K, V> leftChild, FCMNode<K, V> rightChild) implements FCMNode<K, V> {
     @Override
     public FCMNode<K, V> getLeftChild() {
         return leftChild;

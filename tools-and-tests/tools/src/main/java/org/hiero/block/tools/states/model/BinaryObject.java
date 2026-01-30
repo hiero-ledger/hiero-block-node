@@ -1,8 +1,9 @@
+// SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.IOException;
 import java.util.HexFormat;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
 public final class BinaryObject {
     private static final long VERSION = 1L;
@@ -11,20 +12,23 @@ public final class BinaryObject {
     private Hash hash = null;
     private byte[] data;
 
-
-    public BinaryObject() {
-    }
+    public BinaryObject() {}
 
     public BinaryObject(byte[] data) {
         this.data = data;
     }
 
-    public Long id() {return id;}
+    public Long id() {
+        return id;
+    }
 
-    public Hash hash() {return hash;}
+    public Hash hash() {
+        return hash;
+    }
 
-    public byte[] data() {return data;}
-
+    public byte[] data() {
+        return data;
+    }
 
     public synchronized void copyFrom(final FCDataInputStream inStream) throws IOException {
         long version = inStream.readLong();
@@ -39,17 +43,16 @@ public final class BinaryObject {
         final byte[] hashValue = new byte[48];
         inStream.readFully(hashValue);
 
-        hash = new Hash(hashValue,0);
+        hash = new Hash(hashValue, 0);
 
-        //BinaryObjectStore.getInstance().registerForRecovery(this);
+        // BinaryObjectStore.getInstance().registerForRecovery(this);
     }
 
     @Override
     public String toString() {
-        return "BinaryObject{" +
-                "id=" + id +
-                ", data=" + (data==null?"null":HexFormat.of().formatHex(data)) +
-                ", hash=" + hash +
-                '}';
+        return "BinaryObject{" + "id="
+                + id + ", data="
+                + (data == null ? "null" : HexFormat.of().formatHex(data)) + ", hash="
+                + hash + '}';
     }
 }
