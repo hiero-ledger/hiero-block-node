@@ -83,5 +83,3 @@ assertions:
     type: blocks-increasing
     description: "All Block Nodes are receiving new blocks after restart"
     target: all
-    args:
-      wait_seconds: 70
