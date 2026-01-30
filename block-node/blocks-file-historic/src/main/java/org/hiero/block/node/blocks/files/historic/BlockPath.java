@@ -82,8 +82,8 @@ record BlockPath(
         }
         // create zip file name, there are always 10 zip files in each base directory as DIGITS_PER_ZIP_FILE_NAME = 1
         // the name of the zip file is the set of values stored in the zip. So if there are 1000 files in a zip file
-        // the zip file names will be 0000s.zip, 1000s.zip, 2000s.zip, 3000s.zip etc.
-        final String zipFileName = zipFileNameDigits + "0".repeat(config.powersOfTenPerZipFileContents()) + "s.zip";
+        // the zip file names will be 0000.zip, 1000.zip, 2000.zip, 3000.zip etc.
+        final String zipFileName = zipFileNameDigits + "0".repeat(config.powersOfTenPerZipFileContents()) + ".zip";
         // create the block file name, this is always the block number with the BLOCK_FILE_EXTENSION it is always the
         // whole number so if the file is manually expanded the blocks always have the full block number so there are
         // no duplicates or confusion.
