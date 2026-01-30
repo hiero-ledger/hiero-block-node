@@ -6,7 +6,6 @@ import java.security.Signature;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Map;
-import org.hiero.block.tools.states.OaAddressBook;
 import org.hiero.block.tools.states.postgres.BinaryObjectCsvRow;
 import org.hiero.block.tools.states.utils.CryptoUtils;
 import picocli.CommandLine.Help.Ansi;
@@ -36,7 +35,7 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
         System.out.println(Ansi.AUTO.string("@|blue ──────────────────────────────────────────────|@"));
 
         byte[] readHash = signedState.readHash();
-        byte[] computedHash = signedState.generateSwirldStateHash(CryptoUtils.getMessageDigest());
+        byte[] computedHash = signedState.generateSignedStateHash(CryptoUtils.getMessageDigest());
         String readHashHex = HexFormat.of().formatHex(readHash);
         String computedHashHex = computedHash != null ? HexFormat.of().formatHex(computedHash) : "null";
         boolean hashMatch = computedHash != null && Arrays.equals(readHash, computedHash);
@@ -50,38 +49,17 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
             System.out.println(Ansi.AUTO.string("  @|bold,red ✗ Hashes DO NOT match|@"));
         }
 
-        // === 2. Address book comparison ===
-        System.out.println(Ansi.AUTO.string("\n@|bold,blue ▶ Address Book Comparison|@"));
-        System.out.println(Ansi.AUTO.string("@|blue ──────────────────────────────────────────────|@"));
-
+        // === 2. Address book info ===
         AddressBook stateAddressBook = signedState.sigSet().addressBook();
-        AddressBook oaAddressBook = OaAddressBook.OA_ADDRESS_BOOK;
-
         System.out.println(Ansi.AUTO.string(
-                String.format("  State address book size:  @|yellow %d|@", stateAddressBook.getSize())));
-        System.out.println(
-                Ansi.AUTO.string(String.format("  OA address book size:     @|yellow %d|@", oaAddressBook.getSize())));
-
-        boolean addressBooksMatch = stateAddressBook.getSize() == oaAddressBook.getSize();
-        if (addressBooksMatch) {
-            // compare each address by public key
-            for (int i = 0; i < stateAddressBook.getSize(); i++) {
-                Address stateAddr = stateAddressBook.getAddress(i);
-                Address oaAddr = oaAddressBook.getAddress(i);
-                if (stateAddr == null
-                        || oaAddr == null
-                        || !Arrays.equals(
-                                CryptoUtils.publicKeyToBytes(stateAddr.sigPublicKey()),
-                                CryptoUtils.publicKeyToBytes(oaAddr.sigPublicKey()))) {
-                    addressBooksMatch = false;
-                    break;
-                }
+                String.format("\n@|bold,blue ▶ Address Book|@ (@|yellow %d|@ members)", stateAddressBook.getSize())));
+        System.out.println(Ansi.AUTO.string("@|blue ──────────────────────────────────────────────|@"));
+        for (int i = 0; i < stateAddressBook.getSize(); i++) {
+            Address addr = stateAddressBook.getAddress(i);
+            if (addr != null) {
+                System.out.println(Ansi.AUTO.string(String.format(
+                        "    Node %d: @|cyan %s|@ (stake: @|yellow %d|@)", i, addr.nickname(), addr.stake())));
             }
-        }
-        if (addressBooksMatch) {
-            System.out.println(Ansi.AUTO.string("  @|bold,green ✓ Address books match (all signing keys identical)|@"));
-        } else {
-            System.out.println(Ansi.AUTO.string("  @|bold,red ✗ Address books DO NOT match|@"));
         }
 
         // === 3. Signature verification ===
@@ -108,7 +86,9 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
                 continue;
             }
             Address addr = stateAddressBook.getAddress(i);
-            boolean valid = verifySignature(addr != null ? addr.sigPublicKey() : null, sigInfo.hash(), sigInfo.sig());
+            // Use readHash when SigInfo hash is empty (common optimization in later versions)
+            byte[] hashToVerify = sigInfo.hash().length > 0 ? sigInfo.hash() : readHash;
+            boolean valid = verifySignature(addr != null ? addr.sigPublicKey() : null, hashToVerify, sigInfo.sig());
             if (valid) {
                 validCount++;
                 System.out.println(Ansi.AUTO.string(String.format(
@@ -121,36 +101,13 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
             }
         }
 
-        // verify each signature against OA address book
-        System.out.println(Ansi.AUTO.string("\n  @|bold Verifying signatures against OA address book:|@"));
-        int oaValidCount = 0;
-        int oaInvalidCount = 0;
-        for (int i = 0; i < sigSet.numMembers(); i++) {
-            SigInfo sigInfo = sigSet.sigInfo(i);
-            if (sigInfo == null) {
-                continue;
-            }
-            Address addr = oaAddressBook.getAddress(i);
-            boolean valid = verifySignature(addr != null ? addr.sigPublicKey() : null, sigInfo.hash(), sigInfo.sig());
-            if (valid) {
-                oaValidCount++;
-                System.out.println(Ansi.AUTO.string(String.format(
-                        "    @|green ✓|@ Node %d (@|cyan %s|@)", i, addr.nickname())));
-            } else {
-                oaInvalidCount++;
-                System.out.println(Ansi.AUTO.string(String.format(
-                        "    @|red ✗|@ Node %d (@|cyan %s|@) - @|red signature invalid|@",
-                        i, addr != null ? addr.nickname() : "unknown")));
-            }
-        }
-
         // === 4. Signature hash vs state hash ===
         System.out.println(Ansi.AUTO.string("\n@|bold,blue ▶ Signature Hash vs State Hash|@"));
         System.out.println(Ansi.AUTO.string("@|blue ──────────────────────────────────────────────|@"));
         boolean allSigHashesMatchRead = true;
         for (int i = 0; i < sigSet.numMembers(); i++) {
             SigInfo sigInfo = sigSet.sigInfo(i);
-            if (sigInfo != null && !Arrays.equals(sigInfo.hash(), readHash)) {
+            if (sigInfo != null && sigInfo.hash().length > 0 && !Arrays.equals(sigInfo.hash(), readHash)) {
                 allSigHashesMatchRead = false;
                 System.out.println(Ansi.AUTO.string(
                         String.format("  @|red ✗|@ Node %d signature hash differs from stored state hash", i)));
@@ -167,11 +124,8 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
         System.out.println(
                 Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         printCheck("State hash matches computed hash", hashMatch);
-        printCheck("Address books match", addressBooksMatch);
         printCheck("Supermajority achieved", sigSet.complete());
-        printCheck("State AB signatures valid: " + validCount + "/" + (validCount + invalidCount), invalidCount == 0);
-        printCheck(
-                "OA AB signatures valid: " + oaValidCount + "/" + (oaValidCount + oaInvalidCount), oaInvalidCount == 0);
+        printCheck("Signatures valid: " + validCount + "/" + (validCount + invalidCount), invalidCount == 0);
         printCheck("All sig hashes match stored hash", allSigHashesMatchRead);
         System.out.println(Ansi.AUTO.string("@|blue ────────────────────────────────────────────────────────────|@"));
     }

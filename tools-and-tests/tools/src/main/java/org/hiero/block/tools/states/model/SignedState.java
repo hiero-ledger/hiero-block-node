@@ -167,6 +167,29 @@ public final class SignedState {
     }
 
     /**
+     * Generates a hash of the full SignedState, matching the original platform's
+     * {@code SignedState.generateSigendStateHash()} method.
+     *
+     * @param digest the object to do the hashing
+     * @return the hash generated, or null if an error occurred
+     */
+    public byte[] generateSignedStateHash(MessageDigest digest) {
+        byte[] swirldStateHash = generateSwirldStateHash(digest);
+        if (swirldStateHash == null) return null;
+        digest.reset();
+        Hash.update(digest, round);
+        Hash.update(digest, consensusTimestamp);
+        Hash.update(digest, numEventsCons);
+        digest.update(hashEventsCons);
+        for (Event event : events) {
+            digest.update(event.getHash());
+        }
+        digest.update(swirldStateHash);
+        digest.update(addressBook.getHash());
+        return digest.digest();
+    }
+
+    /**
      * Generates a hash of the SwirldState
      *
      * @param digest

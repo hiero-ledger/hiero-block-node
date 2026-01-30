@@ -236,7 +236,6 @@ public class FCMap<K, V> extends HashMap<K, V> {
     }
 
     public void copyTo(DataOutputStream outStream) throws IOException {
-        byte[] rootHash = computeByLevels();
         outStream.write(BEGIN_MARKER);
         outStream.write(rootHash);
         outStream.write(END_MARKER);
