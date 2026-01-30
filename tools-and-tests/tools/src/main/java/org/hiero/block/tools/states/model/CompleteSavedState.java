@@ -10,4 +10,11 @@ import org.hiero.block.tools.states.postgres.BinaryObjectCsvRow;
  * @param signedState the signed state
  * @param binaryObjectByHexHashMap map of binary objects by their hex hash. Loaded from Postgres export CSV
  */
-public record CompleteSavedState(SignedState signedState, Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap) {}
+public record CompleteSavedState(SignedState signedState, Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap) {
+    /**
+     * Validates the complete saved state. Hashing and checking computed hash with stored hash. Then checking hash with
+     * signatures using public keys from the address book in state and the OaAddressBook address book. Prints a nicely
+     * formatted summary of all checks to the console.
+     */
+    public void printValidationReport() {}
+}

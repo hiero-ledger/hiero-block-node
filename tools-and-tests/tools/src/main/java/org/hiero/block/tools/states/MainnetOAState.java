@@ -16,6 +16,7 @@ import org.hiero.block.tools.states.model.FCMap;
 import org.hiero.block.tools.states.model.MapKey;
 import org.hiero.block.tools.states.model.MapValue;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Help.Ansi;
 
 /**
  * Subcommand to construct and verify the state at beginning of block zero of Hedera mainnet. Block zero is what we
@@ -195,38 +196,91 @@ public class MainnetOAState implements Runnable {
             String expectedBalancesName,
             Map<Long, Long> comparingBalances,
             String comparingBalancesName) {
-        // compare the two maps, finding accounts that are in the state but not in the CSV and vice versa
-        System.out.println("\n===========================================================================");
-        System.out.println("Comparing balances from " + expectedBalancesName + " and " + comparingBalancesName + "...");
-        // Accounts in state but not in CSV
-        Map<Long, Long> missingInCsv = expectedBalances.entrySet().stream()
+        // compare the two maps
+        Map<Long, Long> onlyInExpected = expectedBalances.entrySet().stream()
                 .filter(entry -> !comparingBalances.containsKey(entry.getKey()))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-        // Accounts in CSV but not in state
-        Map<Long, Long> missingInState = comparingBalances.entrySet().stream()
+        Map<Long, Long> onlyInComparing = comparingBalances.entrySet().stream()
                 .filter(entry -> !expectedBalances.containsKey(entry.getKey()))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-        // find accounts with different balances
         Map<Long, Long> differentBalances = expectedBalances.entrySet().stream()
                 .filter(entry -> comparingBalances.containsKey(entry.getKey())
                         && !entry.getValue().equals(comparingBalances.get(entry.getKey())))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-        // print results
-        System.out.println("    Accounts in state but not in CSV: " + missingInCsv.size());
-        missingInCsv.forEach((accountId, balance) ->
-                System.out.println("        Account ID: " + accountId + ", Balance: " + balance));
-        System.out.println("    Accounts in CSV but not in state: " + missingInState.size());
-        missingInState.forEach((accountId, balance) ->
-                System.out.println("        Account ID: " + accountId + ", Balance: " + balance));
-        System.out.println("    Accounts with different balances: " + differentBalances.size());
-        differentBalances.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
-            long accountId = entry.getKey();
-            long balance = entry.getValue();
-            long balance2 = comparingBalances.get(accountId);
-            System.out.printf(
-                    "        Account ID: %8d, State Balance: %,18d, CSV Balance: %,18d (Difference: %,12d)\n",
-                    accountId, balance, balance2, (balance - balance2));
-        });
+        long matchingCount = expectedBalances.size() - onlyInExpected.size() - differentBalances.size();
+
+        // print header
+        System.out.println();
+        System.out.println(Ansi.AUTO.string(
+                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(Ansi.AUTO.string("@|bold,cyan   COMPARE ACCOUNTS|@"));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  @|bold %s|@  vs  @|bold %s|@", expectedBalancesName, comparingBalancesName)));
+        System.out.println(Ansi.AUTO.string(
+                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+
+        // summary counts
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Matching accounts:    @|green %,d|@", matchingCount)));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Different balances:   @|%s %,d|@",
+                differentBalances.isEmpty() ? "green" : "red", differentBalances.size())));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Only in expected:     @|%s %,d|@",
+                onlyInExpected.isEmpty() ? "green" : "yellow", onlyInExpected.size())));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Only in comparing:    @|%s %,d|@",
+                onlyInComparing.isEmpty() ? "green" : "yellow", onlyInComparing.size())));
+
+        // accounts only in expected
+        if (!onlyInExpected.isEmpty()) {
+            System.out.println(Ansi.AUTO.string(
+                    "\n@|bold,yellow   ▶ Accounts only in " + expectedBalancesName + "|@"));
+            System.out.println(Ansi.AUTO.string(
+                    "@|yellow   ──────────────────────────────────────────────|@"));
+            onlyInExpected.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry ->
+                    System.out.println(Ansi.AUTO.string(String.format(
+                            "    Account @|cyan %8d|@  Balance: @|yellow %,18d|@",
+                            entry.getKey(), entry.getValue()))));
+        }
+
+        // accounts only in comparing
+        if (!onlyInComparing.isEmpty()) {
+            System.out.println(Ansi.AUTO.string(
+                    "\n@|bold,yellow   ▶ Accounts only in " + comparingBalancesName + "|@"));
+            System.out.println(Ansi.AUTO.string(
+                    "@|yellow   ──────────────────────────────────────────────|@"));
+            onlyInComparing.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry ->
+                    System.out.println(Ansi.AUTO.string(String.format(
+                            "    Account @|cyan %8d|@  Balance: @|yellow %,18d|@",
+                            entry.getKey(), entry.getValue()))));
+        }
+
+        // accounts with different balances
+        if (!differentBalances.isEmpty()) {
+            System.out.println(Ansi.AUTO.string(
+                    "\n@|bold,red   ▶ Accounts with different balances|@"));
+            System.out.println(Ansi.AUTO.string(
+                    "@|red   ──────────────────────────────────────────────|@"));
+            differentBalances.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
+                long accountId = entry.getKey();
+                long expected = entry.getValue();
+                long comparing = comparingBalances.get(accountId);
+                long diff = expected - comparing;
+                System.out.println(Ansi.AUTO.string(String.format(
+                        "    Account @|cyan %8d|@  Expected: @|yellow %,18d|@  Comparing: @|yellow %,18d|@  Diff: @|red %,+14d|@",
+                        accountId, expected, comparing, diff)));
+            });
+        }
+
+        // overall result
+        if (onlyInExpected.isEmpty() && onlyInComparing.isEmpty() && differentBalances.isEmpty()) {
+            System.out.println(Ansi.AUTO.string("\n  @|bold,green ✓ All accounts match perfectly|@"));
+        } else {
+            System.out.println(Ansi.AUTO.string("\n  @|bold,red ✗ Differences found|@"));
+        }
+        System.out.println(Ansi.AUTO.string(
+                "@|blue ────────────────────────────────────────────────────────────|@"));
     }
 
     /**
@@ -242,19 +296,64 @@ public class MainnetOAState implements Runnable {
                         .balance()));
     }
 
+    /**
+     * Prints a summary of the complete saved state. This includes key statistics such as:
+     * - round
+     * - consensusTimestamp
+     * - number of accounts: HGCAppState.accountMap.size()
+     * - total balance of all accounts
+     * - number of binary object files: CompleteSavedState.binaryObjectByHexHashMap.size()
+     * - number of smart contracts KV pairs: HGCAppState.storageMap.size()
+     *
+     * @param state the CompleteSavedState object to summarize
+     * @param stateName the name of the state (for printing)
+     */
+    public static void printCompleteSavedStateSummary(CompleteSavedState state, String stateName) {
+        final var signedState = state.signedState();
+        final var accountMap = signedState.state().accountMap();
+        final var storageMap = signedState.state().storageMap();
+        final long totalBalance = accountMap.values().stream().mapToLong(MapValue::balance).sum();
+        final long numAccounts = accountMap.size();
+        final long numBinaryObjects = state.binaryObjectByHexHashMap().size();
+        final long numStorageEntries = storageMap.size();
+
+        System.out.println(Ansi.AUTO.string(
+                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(Ansi.AUTO.string("@|bold,cyan   SAVED STATE SUMMARY: " + stateName + "|@"));
+        System.out.println(Ansi.AUTO.string(
+                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Round:                @|yellow %,d|@", signedState.round())));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Consensus Timestamp:  @|cyan %s|@", signedState.consensusTimestamp())));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Accounts:             @|yellow %,d|@", numAccounts)));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Total Balance:        @|yellow %,d|@ tinybars", totalBalance)));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Binary Objects:       @|yellow %,d|@", numBinaryObjects)));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Storage KV Pairs:     @|yellow %,d|@", numStorageEntries)));
+        System.out.println(Ansi.AUTO.string(
+                "@|blue ────────────────────────────────────────────────────────────|@"));
+    }
+
     @Override
     public void run() {
         try {
             // load the state at start of block zero
             final CompleteSavedState stateStartBlockZero = loadStartBlockZeroState();
             final Map<Long, Long> stateStartBlockZeroBalances = getBalancesFromSignedState(stateStartBlockZero);
+            printCompleteSavedStateSummary(stateStartBlockZero, "Start of Block 0 State");
             // apply the transaction changes from block zero
             final CompleteSavedState computedStateEndBlockZero =
                     applyTransactions(stateStartBlockZero, MirrorNodeTransaction.getTransaction1());
             final Map<Long, Long> computedStateEndBlockZeroBalances =
                     getBalancesFromSignedState(computedStateEndBlockZero);
+            printCompleteSavedStateSummary(computedStateEndBlockZero, "Computed End of Block 0 State");
             // compare with saved state at end of block zero 33485415
             final CompleteSavedState stateEndBlockZero = load33485415State();
+            stateEndBlockZero.printValidationReport();
             final Map<Long, Long> stateEndBlockZeroBalances = getBalancesFromSignedState(stateEndBlockZero);
             // compare the balances of the two states
             compareAccounts(
