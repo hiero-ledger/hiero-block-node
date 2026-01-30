@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.mirrornode.model;
 
 import com.google.gson.Gson;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,30 +17,34 @@ import java.util.Map;
  * This class represents a transaction on the Hedera mirror node.
  * It fetches transaction details from the mirror node API and provides methods to access the transaction ID and transfers.
  */
-public class MirrorNodeTransaction {
+@SuppressWarnings("unused")
+public final class MirrorNodeTransaction {
     /**
-     * Transfers for transaction 1 in the hedera history, in block 0.
-     * 0.0.11337@1568411616.448357000
-     * https://hashscan.io/mainnet/transaction/1568411631.396440000
+     * Transfers for transaction 1 in the hedera history, in block 0. 0.0.11337@1568411616.448357000
+     * @see <a href="https://hashscan.io/mainnet/transaction/1568411631.396440000">T1 Explorer</a>
+     * @see <a href="https://mainnet-public.mirrornode.hedera.com/api/v1/transactions/0.0.11337-1568411616-448357000">T1 Mirror Node</a>
      */
-    public static final MirrorNodeTransaction TRANSACTION_1 =
-            new MirrorNodeTransaction("0.0.11337-1568411616-448357000", "Transaction 1");
+    public static MirrorNodeTransaction getTransaction1() {
+        return new MirrorNodeTransaction("0.0.11337-1568411616-448357000", "Transaction 1");
+    }
 
     /**
-     * Transfers for transaction 2 in the hedera history, in block 1.
-     * 0.0.11337-1568411656-265684000
-     * https://hashscan.io/mainnet/transaction/1568411670.872035001
+     * Transfers for transaction 2 in the hedera history, in block 1. 0.0.11337-1568411656-265684000
+     * @see <a href="https://hashscan.io/mainnet/transaction/1568411670.872035001">T2 Explorer</a>
+     * @see <a href="https://mainnet-public.mirrornode.hedera.com/api/v1/transactions/0.0.11337-1568411656-265684000">T2 Mirror Node</a>
      */
-    public static final MirrorNodeTransaction TRANSACTION_2 =
-            new MirrorNodeTransaction("0.0.11337-1568411656-265684000", "Transaction 2");
+    public static MirrorNodeTransaction getTransaction2() {
+        return new MirrorNodeTransaction("0.0.11337-1568411656-265684000", "Transaction 2");
+    }
 
     /**
-     * Transfers for transaction 3 in the hedera history, from block 3.
-     * 0.0.11337@1568411747.660028000
-     * https://hashscan.io/mainnet/transaction/1568411762.486929000
+     * Transfers for transaction 3 in the hedera history, from block 3. 0.0.11337@1568411747.660028000
+     * @see <a href="https://hashscan.io/mainnet/transaction/1568411762.486929000">T3 Explorer</a>
+     * @see <a href="https://mainnet-public.mirrornode.hedera.com/api/v1/transactions/0.0.11337-1568411747-660028000">T3 Mirror Node</a>
      */
-    public static final MirrorNodeTransaction TRANSACTION_3 =
-            new MirrorNodeTransaction("0.0.11337-1568411747-660028000", "Transaction 3");
+    public static MirrorNodeTransaction getTransaction3() {
+        return new MirrorNodeTransaction("0.0.11337-1568411747-660028000", "Transaction 3");
+    }
 
     /** The transaction ID of the Hedera transaction. */
     private final String transactionId;
@@ -51,7 +57,7 @@ public class MirrorNodeTransaction {
      * Constructs a MirrorNodeTransaction with the specified transaction ID and nickname.
      * It downloads and parses the transaction details from the Hedera mirror node API.
      *
-     * @param transactionId the ID of the transaction
+     * @param transactionId the ID of the transaction in mirror node format (e.g., "0.0.11337-1568411616-448357000")
      * @param nickname a nickname for the transaction
      */
     public MirrorNodeTransaction(String transactionId, String nickname) {
@@ -64,15 +70,14 @@ public class MirrorNodeTransaction {
     /**
      * Downloads the transaction details from the Hedera mirror node API.
      *
-     * @param transactionId the ID of the transaction to download
+     * @param transactionId the ID of the transaction to download in mirror node format (e.g., "0.0.11337-1568411616-448357000")
      * @return a list of transfers, where each transfer is represented as an array of [accountId, amount]
      */
     private List<long[]> downloadTransactionDetails(String transactionId) {
         List<long[]> transfers = new ArrayList<>();
         String url = "https://mainnet-public.mirrornode.hedera.com/api/v1/transactions/" + transactionId;
         String responseBody = null;
-        try {
-            HttpClient client = HttpClient.newHttpClient();
+        try (HttpClient client = HttpClient.newHttpClient()){
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             responseBody = response.body();
@@ -92,33 +97,14 @@ public class MirrorNodeTransaction {
                 transfers.add(new long[] {entry.getKey(), entry.getValue()});
             }
             return transfers;
-        } catch (Exception e) {
-            System.err.println("Failed to download transaction details for " + transactionId + ": " + e.getMessage());
-            System.err.println("URL: " + url);
-            if (responseBody != null) {
-                System.err.println("JSON response: " + responseBody);
-            }
-            e.printStackTrace();
-            return null;
+        } catch (IOException e) {
+            throw new UncheckedIOException(
+                    "Failed to download transaction details for " + transactionId + " @ "+url+
+                    " responseBody="+responseBody+" : " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
         }
     }
-
-    /** JSON mapping for the transactions API response. */
-    private static final class TransactionsResponse {
-        List<TransactionJson> transactions;
-    }
-
-    /** JSON mapping for a single transaction. */
-    private static final class TransactionJson {
-        List<TransferJson> transfers;
-    }
-
-    /** JSON mapping for a single transfer entry. */
-    private static final class TransferJson {
-        String account;
-        long amount;
-    }
-    // https://mainnet-public.mirrornode.hedera.com/api/v1/transactions/0.0.11337-1568411747-660028000
 
     /**
      * Returns the transaction id of the transaction.
@@ -174,10 +160,23 @@ public class MirrorNodeTransaction {
         return sb.toString();
     }
 
-    /** main for testing the MirrorNodeTransaction class. */
-    public static void main(String[] args) {
-        String transactionId = "0.0.11337-1568411747-660028000"; // Example transaction ID
-        MirrorNodeTransaction transaction = new MirrorNodeTransaction(transactionId, "Example Transaction");
-        System.out.println(transaction);
+    // ======= JSON Mapping Classes ====================================================================================
+
+    /** JSON mapping for the transactions API response. */
+    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
+    private static final class TransactionsResponse {
+        List<TransactionJson> transactions;
+    }
+
+    /** JSON mapping for a single transaction. */
+    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
+    private static final class TransactionJson {
+        List<TransferJson> transfers;
+    }
+
+    /** JSON mapping for a single transfer entry. */
+    private static final class TransferJson {
+        String account;
+        long amount;
     }
 }
