@@ -2,11 +2,11 @@
 #
 # Node Restart Resilience Test
 #
-# Validates that the Block Node recovers correctly after a restart.
+# Validates that all Block Nodes recover correctly after one is restarted.
 # Tests resilience, data integrity, and backfill capability.
 #
 # Prerequisites:
-#   - Topology "single" deployed (task up)
+#   - Any topology deployed (task up)
 #   - Port forwards active (task port-forward)
 #
 # Usage:
@@ -21,18 +21,18 @@ events:
     description: "Print early metrics"
     delay: 10
     args:
-      target: block-node-1
+      target: all
 
   - id: pre-restart-metrics
     type: print-metrics
     description: "Print metrics before restart"
     delay: 30
     args:
-      target: block-node-1
+      target: all
 
   - id: restart-bn
     type: restart
-    description: "Restart Block Node"
+    description: "Restart Block Node 1"
     delay: 60
     target: block-node-1
     timeout: 300
@@ -52,36 +52,36 @@ events:
     description: "Print metrics after restart recovery"
     delay: 150
     args:
-      target: block-node-1
+      target: all
 
   - id: final-metrics
     type: print-metrics
     description: "Print final metrics"
     delay: 180
     args:
-      target: block-node-1
+      target: all
 
 assertions:
-  - id: bn1-recovered
+  - id: all-healthy
     type: node-healthy
-    description: "Block Node 1 recovered and is healthy"
-    target: block-node-1
+    description: "All Block Nodes are healthy after restart"
+    target: all
 
-  - id: bn1-has-blocks
+  - id: all-have-blocks
     type: block-available
-    description: "Block Node 1 has blocks after recovery"
-    target: block-node-1
+    description: "All Block Nodes have blocks after recovery"
+    target: all
     args:
       min_block: 0
 
   - id: no-verify-errors
     type: no-errors
     description: "No verification errors after restart"
-    target: block-node-1
+    target: all
 
-  - id: bn1-blocks-increasing
+  - id: all-blocks-increasing
     type: blocks-increasing
-    description: "Block Node is receiving new blocks after restart"
-    target: block-node-1
+    description: "All Block Nodes are receiving new blocks after restart"
+    target: all
     args:
       wait_seconds: 70

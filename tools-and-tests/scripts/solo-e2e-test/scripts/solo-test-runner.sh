@@ -548,6 +548,17 @@ function execute_event {
 # ============================================================================
 # Assertion Functions
 # ============================================================================
+
+# Get list of all block nodes from topology file
+function get_all_block_nodes {
+    local topology_file="${TOPOLOGIES_DIR}/${TOPOLOGY}.yaml"
+    if [[ -f "$topology_file" ]]; then
+        grep -E '^[[:space:]]+block-node-[0-9]+:' "$topology_file" | sed 's/://g' | awk '{print $1}' || echo "block-node-1"
+    else
+        echo "block-node-1"
+    fi
+}
+
 function get_bn_metrics_port {
     local target="$1"
     local node_num
@@ -562,15 +573,16 @@ function get_bn_grpc_port {
     echo $((40839 + node_num))
 }
 
-function assert_block_available {
-    local target="${1:-block-node-1}"
+# Single node block availability check
+function assert_block_available_single {
+    local target="$1"
     local min_block="${2:-0}"
     local max_block_gte="${3:-0}"
     local port
     port=$(get_bn_grpc_port "$target")
 
     if [[ -z "${PROTO_PATH}" || ! -d "${PROTO_PATH}" ]]; then
-        echo "PROTO_PATH not set or invalid"
+        echo "${target}: PROTO_PATH not set or invalid"
         return 1
     fi
 
@@ -588,51 +600,99 @@ function assert_block_available {
     last_block=$(echo "$status_json" | jq -r '.lastAvailableBlock // "null"')
 
     if [[ "$first_block" == "null" || "$last_block" == "null" ]]; then
-        echo "No blocks available"
+        echo "${target}: No blocks available"
         return 1
     fi
 
     if [[ "$first_block" -gt "$min_block" ]]; then
-        echo "First block ($first_block) > expected min ($min_block)"
+        echo "${target}: First block ($first_block) > expected min ($min_block)"
         return 1
     fi
 
     if [[ "$max_block_gte" -gt 0 && "$last_block" -lt "$max_block_gte" ]]; then
-        echo "Last block ($last_block) < expected ($max_block_gte)"
+        echo "${target}: Last block ($last_block) < expected ($max_block_gte)"
         return 1
     fi
 
-    echo "Blocks: ${first_block}-${last_block}"
+    echo "${target}: Blocks ${first_block}-${last_block}"
 }
 
-function assert_node_healthy {
+function assert_block_available {
+    local target="${1:-all}"
+    local min_block="${2:-0}"
+    local max_block_gte="${3:-0}"
+
+    if [[ "$target" == "all" ]]; then
+        local failed=0
+        local results=""
+        for bn in $(get_all_block_nodes); do
+            local result
+            if result=$(assert_block_available_single "$bn" "$min_block" "$max_block_gte"); then
+                results="${results}${result}\n"
+            else
+                results="${results}${result}\n"
+                failed=1
+            fi
+        done
+        echo -e "${results%\\n}"
+        return $failed
+    else
+        assert_block_available_single "$target" "$min_block" "$max_block_gte"
+    fi
+}
+
+# Single node health check
+function assert_node_healthy_single {
     local target="$1"
     local status
     status=$(kctl get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
         -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
 
     if [[ -z "$status" ]]; then
-        echo "Pod not found"
+        echo "${target}: Pod not found"
         return 1
     fi
 
     if [[ "$status" != "Running" ]]; then
-        echo "Status: $status (expected Running)"
+        echo "${target}: $status (expected Running)"
         return 1
     fi
 
-    echo "Running"
+    echo "${target}: Running"
 }
 
-function assert_no_errors {
-    local target="${1:-block-node-1}"
+function assert_node_healthy {
+    local target="${1:-all}"
+
+    if [[ "$target" == "all" ]]; then
+        local failed=0
+        local results=""
+        for bn in $(get_all_block_nodes); do
+            local result
+            if result=$(assert_node_healthy_single "$bn"); then
+                results="${results}${result}\n"
+            else
+                results="${results}${result}\n"
+                failed=1
+            fi
+        done
+        echo -e "${results%\\n}"
+        return $failed
+    else
+        assert_node_healthy_single "$target"
+    fi
+}
+
+# Single node error check
+function assert_no_errors_single {
+    local target="$1"
     local port
     port=$(get_bn_metrics_port "$target")
     local metrics
     metrics=$(curl -s "http://localhost:${port}/metrics" 2>/dev/null)
 
     if [[ -z "$metrics" ]]; then
-        echo "Could not fetch metrics"
+        echo "${target}: Could not fetch metrics"
         return 1
     fi
 
@@ -647,21 +707,44 @@ function assert_no_errors {
 
     local total=$((verify_failed + verify_errors + stream_errors))
     if [[ "$total" -gt 0 ]]; then
-        echo "Errors: verify_failed=$verify_failed verify_errors=$verify_errors stream_errors=$stream_errors"
+        echo "${target}: Errors: verify_failed=$verify_failed verify_errors=$verify_errors stream_errors=$stream_errors"
         return 1
     fi
 
-    echo "0 errors"
+    echo "${target}: 0 errors"
 }
 
-function assert_blocks_increasing {
-    local target="${1:-block-node-1}"
-    local wait_seconds="${2:-15}"
+function assert_no_errors {
+    local target="${1:-all}"
+
+    if [[ "$target" == "all" ]]; then
+        local failed=0
+        local results=""
+        for bn in $(get_all_block_nodes); do
+            local result
+            if result=$(assert_no_errors_single "$bn"); then
+                results="${results}${result}\n"
+            else
+                results="${results}${result}\n"
+                failed=1
+            fi
+        done
+        echo -e "${results%\\n}"
+        return $failed
+    else
+        assert_no_errors_single "$target"
+    fi
+}
+
+# Single node blocks increasing check
+function assert_blocks_increasing_single {
+    local target="$1"
+    local wait_seconds="$2"
     local port
     port=$(get_bn_grpc_port "$target")
 
     if [[ -z "${PROTO_PATH}" || ! -d "${PROTO_PATH}" ]]; then
-        echo "PROTO_PATH not set"
+        echo "${target}: PROTO_PATH not set"
         return 1
     fi
 
@@ -689,11 +772,34 @@ function assert_blocks_increasing {
     second_block=$(echo "$second_json" | jq -r '.lastAvailableBlock // "0"')
 
     if [[ "$second_block" -le "$first_block" ]]; then
-        echo "Blocks not increasing: $first_block -> $second_block (after ${wait_seconds}s)"
+        echo "${target}: Blocks not increasing: $first_block -> $second_block (after ${wait_seconds}s)"
         return 1
     fi
 
-    echo "Blocks flowing: $first_block -> $second_block (+$((second_block - first_block)) in ${wait_seconds}s)"
+    echo "${target}: $first_block -> $second_block (+$((second_block - first_block)) in ${wait_seconds}s)"
+}
+
+function assert_blocks_increasing {
+    local target="${1:-all}"
+    local wait_seconds="${2:-15}"
+
+    if [[ "$target" == "all" ]]; then
+        local failed=0
+        local results=""
+        for bn in $(get_all_block_nodes); do
+            local result
+            if result=$(assert_blocks_increasing_single "$bn" "$wait_seconds"); then
+                results="${results}${result}\n"
+            else
+                results="${results}${result}\n"
+                failed=1
+            fi
+        done
+        echo -e "${results%\\n}"
+        return $failed
+    else
+        assert_blocks_increasing_single "$target" "$wait_seconds"
+    fi
 }
 
 function run_assertion {

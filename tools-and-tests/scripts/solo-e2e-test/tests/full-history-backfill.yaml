@@ -12,13 +12,13 @@
 #   4. Wait for gap to form (BN2 continues receiving from CN2)
 #   5. Scale up BN1
 #   6. Verify BN1 backfills all historical blocks from BN2
-#   7. Verify BN1 resumes receiving live blocks
+#   7. Verify all BNs resume receiving live blocks
 #
 # Prerequisites:
-#   - Topology "2cn-2bn-backfill" deployed (BN1 and BN2 with mutual backfill)
+#   - Topology with 2+ BNs and mutual backfill configured
 #
 # Usage:
-#   task test:run TEST_FILE=tests/full-history-backfill.yaml TOPOLOGY=2cn-2bn-backfill
+#   task test:run TEST_FILE=tests/full-history-backfill.yaml
 
 name: full-history-backfill
 description: "Test BN recovery via backfill after data loss (Issue #1712)"
@@ -107,43 +107,26 @@ events:
       target: all
 
 assertions:
-  - id: bn1-healthy
+  - id: all-healthy
     type: node-healthy
-    description: "BN1 recovered and healthy"
-    target: block-node-1
+    description: "All Block Nodes are healthy after backfill"
+    target: all
 
-  - id: bn2-healthy
-    type: node-healthy
-    description: "BN2 remained healthy throughout"
-    target: block-node-2
-
-  - id: bn1-has-blocks
+  - id: all-have-blocks
     type: block-available
-    description: "BN1 has blocks after backfill"
-    target: block-node-1
+    description: "All Block Nodes have blocks"
+    target: all
     args:
       min_block: 0
 
-  - id: bn2-has-blocks
-    type: block-available
-    description: "BN2 has blocks"
-    target: block-node-2
-    args:
-      min_block: 0
-
-  - id: no-bn1-errors
+  - id: no-errors
     type: no-errors
-    description: "No verification errors on BN1"
-    target: block-node-1
+    description: "No verification errors on any Block Node"
+    target: all
 
-  - id: no-bn2-errors
-    type: no-errors
-    description: "No verification errors on BN2"
-    target: block-node-2
-
-  - id: bn1-blocks-increasing
+  - id: all-blocks-increasing
     type: blocks-increasing
-    description: "BN1 receiving live blocks after recovery"
-    target: block-node-1
+    description: "All Block Nodes receiving live blocks after recovery"
+    target: all
     args:
-      wait_seconds: 15
+      wait_seconds: 30

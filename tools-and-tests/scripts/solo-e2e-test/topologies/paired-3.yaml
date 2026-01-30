@@ -9,9 +9,9 @@
 # BN1 ↔ BN2 ↔ BN3 (backfill mesh)
 # MN ← BN1, BN2, BN3
 #
-# NOTE: grpc_tuning.max_frame_size is set to 4MB to handle larger blocks.
+# NOTE: grpc_tuning.max_frame_size is set to 8MB to match server.http2.maxFrameSize and handle larger blocks.
 # This can be removed once Block Node v0.27+ is released, as the default
-# will be increased from 2MB to 4MB.
+# will be increased from 2MB to 8MB.
 
 name: paired-3
 description: "3 Consensus Nodes, 3 Block Nodes (paired streaming)"
@@ -23,21 +23,21 @@ block_nodes:
     peers: [block-node-2, block-node-3]
     greedy: true
     grpc_tuning:
-      max_frame_size: 4194304  # 4MB to handle larger blocks
+      max_frame_size: 8388608  # 8MB to match server.http2.maxFrameSize and handle larger blocks
   block-node-2:
     address: block-node-2
     port: 40840
     peers: [block-node-3, block-node-1]
     greedy: false
     grpc_tuning:
-      max_frame_size: 4194304
+      max_frame_size: 8388608
   block-node-3:
     address: block-node-3
     port: 40840
     peers: [block-node-1, block-node-2]
     greedy: true
     grpc_tuning:
-      max_frame_size: 4194304
+      max_frame_size: 8388608
 
 consensus_nodes:
   node1:

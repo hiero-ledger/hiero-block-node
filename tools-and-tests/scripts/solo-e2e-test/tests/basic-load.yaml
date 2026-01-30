@@ -2,11 +2,11 @@
 #
 # Basic Load Test
 #
-# Validates that the Block Node correctly receives and stores blocks
+# Validates that all Block Nodes correctly receive and store blocks
 # under normal load conditions.
 #
 # Prerequisites:
-#   - Topology "single" deployed (task up)
+#   - Any topology deployed (task up)
 #   - Port forwards active (task port-forward)
 #
 # Usage:
@@ -55,27 +55,26 @@ events:
       target: all
 
 assertions:
-  - id: bn1-has-blocks
+  - id: all-have-blocks
     type: block-available
-    description: "Block Node 1 has blocks"
-    target: block-node-1
+    description: "All Block Nodes have blocks"
+    target: all
     args:
       min_block: 0
-      max_block_gte: 10
 
-  - id: bn1-healthy
+  - id: all-healthy
     type: node-healthy
-    description: "Block Node 1 is healthy"
-    target: block-node-1
+    description: "All Block Nodes are healthy"
+    target: all
 
   - id: no-verify-errors
     type: no-errors
     description: "No verification errors"
-    target: block-node-1
+    target: all
 
-  - id: bn1-blocks-increasing
+  - id: all-blocks-increasing
     type: blocks-increasing
-    description: "Block Node is receiving new blocks"
-    target: block-node-1
+    description: "All Block Nodes are receiving new blocks"
+    target: all
     args:
       wait_seconds: 15

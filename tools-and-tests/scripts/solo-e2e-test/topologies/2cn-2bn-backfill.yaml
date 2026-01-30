@@ -9,9 +9,9 @@
 # BN1 ↔ BN2 (backfill)
 # MN ← BN1, BN2
 #
-# NOTE: grpc_tuning.max_frame_size is set to 4MB to handle larger blocks.
+# NOTE: grpc_tuning.max_frame_size is set to 8MB to match server.http2.maxFrameSize and handle larger blocks.
 # This can be removed once Block Node v0.27+ is released, as the default
-# will be increased from 2MB to 4MB.
+# will be increased from 2MB to 8MB.
 
 name: 2cn-2bn-backfill
 description: "2 CNs, 2 BNs with priority routing and bidirectional backfill"
@@ -23,14 +23,14 @@ block_nodes:
     peers: [block-node-2]
     greedy: true
     grpc_tuning:
-      max_frame_size: 4194304  # 4MB to handle larger blocks
+      max_frame_size: 8388608  # 8MB to match server.http2.maxFrameSize and handle larger blocks
   block-node-2:
     address: block-node-2
     port: 40840
     peers: [block-node-1]
     greedy: true
     grpc_tuning:
-      max_frame_size: 4194304
+      max_frame_size: 8388608
 
 consensus_nodes:
   node1:
