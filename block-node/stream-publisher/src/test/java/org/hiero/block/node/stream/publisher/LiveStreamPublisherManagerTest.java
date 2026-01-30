@@ -1616,8 +1616,8 @@ class LiveStreamPublisherManagerTest {
             }
 
             /**
-             * This test aims to assert that the {@link LiveStreamPublisherManager} will keep resetting the
-             * publisher unavailability timeout and publishing updates as long as there are no active publishers.
+             * This test aims to assert that the {@link LiveStreamPublisherManager} will send only one publisher
+             * unavailability timeout state change update and will not reset if state does not change.
              */
             @Test
             @DisplayName("LiveStreamPublisherManager continues to restart timeout future when no publishers are active")
@@ -1638,7 +1638,7 @@ class LiveStreamPublisherManagerTest {
                 // Assert that multiple timeout notifications were sent.
                 final List<PublisherStatusUpdateNotification> actual =
                         messagingFacility.getSentPublisherStatusUpdateNotifications();
-                assertThat(actual).isNotEmpty().hasSize(3).allSatisfy(notification -> {
+                assertThat(actual).isNotEmpty().hasSize(1).allSatisfy(notification -> {
                     assertThat(notification.type()).isEqualTo(UpdateType.PUBLISHER_UNAVAILABILITY_TIMEOUT);
                     assertThat(notification.activePublishers()).isZero();
                 });
