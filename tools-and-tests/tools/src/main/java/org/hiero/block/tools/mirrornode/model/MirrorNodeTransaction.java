@@ -77,7 +77,7 @@ public final class MirrorNodeTransaction {
         List<long[]> transfers = new ArrayList<>();
         String url = "https://mainnet-public.mirrornode.hedera.com/api/v1/transactions/" + transactionId;
         String responseBody = null;
-        try (HttpClient client = HttpClient.newHttpClient()){
+        try (HttpClient client = HttpClient.newHttpClient()) {
             HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             responseBody = response.body();
@@ -99,8 +99,9 @@ public final class MirrorNodeTransaction {
             return transfers;
         } catch (IOException e) {
             throw new UncheckedIOException(
-                    "Failed to download transaction details for " + transactionId + " @ "+url+
-                    " responseBody="+responseBody+" : " + e.getMessage(), e);
+                    "Failed to download transaction details for " + transactionId + " @ " + url + " responseBody="
+                            + responseBody + " : " + e.getMessage(),
+                    e);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }

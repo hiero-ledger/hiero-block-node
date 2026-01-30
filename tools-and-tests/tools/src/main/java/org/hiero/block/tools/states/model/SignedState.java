@@ -118,20 +118,12 @@ public final class SignedState {
         readHash = Utils.readByteArray(inStream);
         state.copyFrom(inStream);
         round = inStream.readLong();
-        System.out.println("    round = " + round);
-        // check round, should be 33312259 which is OA round
-        //        if (round != 33312259) {
-        //            throw new IOException("Invalid round number: " + round+" expected 33312259");
-        //        }
         numEventsCons = inStream.readLong();
         addressBook.copyFrom(inStream);
         hashEventsCons = Utils.readByteArray(inStream);
         consensusTimestamp = Utils.readInstant(inStream);
-        System.out.println("    consensusTimestamp = " + consensusTimestamp);
         shouldSaveToDisk = inStream.readBoolean();
-
         int numEvents = inStream.readInt();
-        System.out.println("    numEvents = " + numEvents);
         events = new Event[numEvents];
         HashMap<CreatorSeqPair, Event> eventsByCreatorSeq = new HashMap<>();
         for (int i = 0; i < events.length; i++) {

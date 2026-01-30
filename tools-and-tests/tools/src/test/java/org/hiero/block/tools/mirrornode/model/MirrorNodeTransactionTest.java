@@ -128,8 +128,7 @@ class MirrorNodeTransactionTest {
                 MirrorNodeTransaction.getTransaction2(),
                 MirrorNodeTransaction.getTransaction3())) {
             long sum = tx.transfers().stream().mapToLong(arr -> arr[1]).sum();
-            assertEquals(0L, sum,
-                    "Transfers for " + tx.nickname() + " should sum to zero but was " + sum);
+            assertEquals(0L, sum, "Transfers for " + tx.nickname() + " should sum to zero but was " + sum);
         }
     }
 
@@ -140,18 +139,15 @@ class MirrorNodeTransactionTest {
      */
     private static void assertTransfersMatch(Map<Long, Long> expected, List<long[]> actual) {
         assertNotNull(actual, "Transfers list should not be null");
-        assertEquals(expected.size(), actual.size(),
-                "Number of distinct accounts should match");
+        assertEquals(expected.size(), actual.size(), "Number of distinct accounts should match");
         Map<Long, Long> actualMap = new HashMap<>();
         for (long[] entry : actual) {
             assertEquals(2, entry.length, "Each transfer should have exactly 2 elements");
             actualMap.put(entry[0], entry[1]);
         }
         for (Map.Entry<Long, Long> e : expected.entrySet()) {
-            assertTrue(actualMap.containsKey(e.getKey()),
-                    "Missing account " + e.getKey());
-            assertEquals(e.getValue(), actualMap.get(e.getKey()),
-                    "Amount mismatch for account " + e.getKey());
+            assertTrue(actualMap.containsKey(e.getKey()), "Missing account " + e.getKey());
+            assertEquals(e.getValue(), actualMap.get(e.getKey()), "Amount mismatch for account " + e.getKey());
         }
     }
 }

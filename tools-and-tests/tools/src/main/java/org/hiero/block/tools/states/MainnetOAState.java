@@ -3,16 +3,18 @@ package org.hiero.block.tools.states;
 
 import static org.hiero.block.tools.states.SavedStateConverter.loadState;
 
-import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import java.net.URL;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.hiero.block.tools.mirrornode.model.MirrorNodeTransaction;
 import org.hiero.block.tools.states.balances.CsvAccountBalances;
 import org.hiero.block.tools.states.model.CompleteSavedState;
-import org.hiero.block.tools.states.model.SignedState;
+import org.hiero.block.tools.states.model.FCMap;
+import org.hiero.block.tools.states.model.MapKey;
+import org.hiero.block.tools.states.model.MapValue;
 import picocli.CommandLine.Command;
 
 /**
@@ -47,6 +49,7 @@ import picocli.CommandLine.Command;
  *                                    1568412919.286477002     2019-09-13T22:15:19.286477Z
  * </pre>
  */
+@SuppressWarnings("DuplicatedCode")
 @Command(
         name = "oa-state",
         description = "Load and print the state at the start of Hedera Mainnet Open Access (round 33485415)")
@@ -57,9 +60,17 @@ public class MainnetOAState implements Runnable {
     public static URL BALANCES_CSV_2019_09_13T22_URL =
             MainnetOAState.class.getResource("/2019-09-13T22_00_00.000081Z_Balances.csv.gz");
 
+    /** Cached state at the start of Hedera Mainnet Open Access (round 33485415) */
+    private static CompleteSavedState state33485415;
+    /** Cached state at the start of Hedera Mainnet at block zero */
+    private static CompleteSavedState blockZeroState;
+
     /** Load the state at the start of Hedera Mainnet Open Access (round 33485415) */
     public static CompleteSavedState load33485415State() {
-        return loadState(STATE_33485415_DIR_URL);
+        if (state33485415 == null) {
+            state33485415 = loadState(STATE_33485415_DIR_URL);
+        }
+        return state33485415;
     }
 
     /** Holds balances from the CSV file for the date 2019-09-13T22:00:00.000081Z */
@@ -71,14 +82,24 @@ public class MainnetOAState implements Runnable {
      * Get the block items representing the state changes for the initial state at the start of Hedera Mainnet at the
      * beginning of block zero.
      *
+     * @return the complete saved state at the start of block zero
+     */
+    public static CompleteSavedState loadStartBlockZeroState() {
+        if (blockZeroState == null) {
+            final CompleteSavedState stateEndBlockZero = load33485415State();
+            blockZeroState = reverseTransactions(stateEndBlockZero, MirrorNodeTransaction.getTransaction1());
+        }
+        return blockZeroState;
+    }
+
+    /**
+     * Get the block items representing the state changes for the initial state at the start of Hedera Mainnet at the
+     * beginning of block zero.
+     *
      * @return list of block items representing the state changes at the start of block zero
      */
-    public static List<BlockItem> getStartBlockZeroState() {
-        final CompleteSavedState stateEndBlockZero = load33485415State();
-        final CompleteSavedState stateStartBlockZero = reverseTransactions(
-                stateEndBlockZero,
-                MirrorNodeTransaction.getTransaction1());
-        return SavedStateConverter.signedStateToStateChanges(stateStartBlockZero);
+    public static List<BlockItem> loadStartBlockZeroStateChanges() {
+        return SavedStateConverter.signedStateToStateChanges(loadStartBlockZeroState());
     }
 
     /**
@@ -88,62 +109,107 @@ public class MainnetOAState implements Runnable {
      * @param transactions the transactions to reverse, where each transaction contains transfers
      * @return a new map with the reversed balances
      */
-    public static CompleteSavedState reverseTransactions(CompleteSavedState state, MirrorNodeTransaction... transactions) {
-        return null; //TODO implement
+    public static CompleteSavedState reverseTransactions(
+            CompleteSavedState state, MirrorNodeTransaction... transactions) {
+        // Build a map of accountId -> total amount to reverse across all transactions
+        Map<Long, Long> reversals = new HashMap<>();
+        for (MirrorNodeTransaction transaction : transactions) {
+            for (long[] transfer : transaction.transfers()) {
+                reversals.merge(transfer[0], transfer[1], Long::sum);
+            }
+        }
+        // Apply reversals to the account map
+        FCMap<MapKey, MapValue> accountMap = state.signedState().state().accountMap();
+        for (Map.Entry<MapKey, MapValue> entry : accountMap.entrySet()) {
+            Long reversal = reversals.get(entry.getKey().accountId());
+            if (reversal != null) {
+                MapValue oldValue = entry.getValue();
+                entry.setValue(new MapValue(
+                        oldValue.balance() - reversal,
+                        oldValue.receiverThreshold(),
+                        oldValue.senderThreshold(),
+                        oldValue.receiverSigRequired(),
+                        oldValue.accountKeys(),
+                        oldValue.proxyAccount(),
+                        oldValue.autoRenewPeriod(),
+                        oldValue.deleted(),
+                        oldValue.recordLinkedList(),
+                        oldValue.expirationTime(),
+                        oldValue.memo(),
+                        oldValue.isSmartContract()));
+            }
+        }
+        return state;
     }
 
     /**
-     * Reverses the balance changes from the given transactions on the original balances.
+     * Applies the balance changes from the given transactions on the original state.
      *
-     * @param originalBalances the original balances map where the key is the account ID and the value is the balance
-     * @param transactions the transactions to reverse, where each transaction contains transfers
+     * @param state the original state
+     * @param transactions the transactions to apply, where each transaction contains transfers
      * @return a new map with the reversed balances
      */
-    public static Map<Long, Long> reverseTransactions(
-            Map<Long, Long> originalBalances, MirrorNodeTransaction... transactions) {
-        return originalBalances.entrySet().stream()
-                .map(entry -> {
-                    final long accountId = entry.getKey();
-                    long balance = entry.getValue();
-                    for (MirrorNodeTransaction transaction : transactions) {
-                        // reverse the balance changes from each transaction
-                        for (long[] transfer : transaction.transfers()) {
-                            if (transfer[0] == accountId) {
-                                // reverse the balance
-                                balance -= transfer[1];
-                            }
-                        }
-                    }
-                    return Map.entry(accountId, balance);
-                })
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    public static CompleteSavedState applyTransactions(
+            CompleteSavedState state, MirrorNodeTransaction... transactions) {
+        // Build a map of accountId -> total amount to apply across all transactions
+        Map<Long, Long> adjustments = new HashMap<>();
+        for (MirrorNodeTransaction transaction : transactions) {
+            for (long[] transfer : transaction.transfers()) {
+                adjustments.merge(transfer[0], transfer[1], Long::sum);
+            }
+        }
+        // Apply adjustments to the account map
+        FCMap<MapKey, MapValue> accountMap = state.signedState().state().accountMap();
+        for (Map.Entry<MapKey, MapValue> entry : accountMap.entrySet()) {
+            Long adjustment = adjustments.get(entry.getKey().accountId());
+            if (adjustment != null) {
+                MapValue oldValue = entry.getValue();
+                entry.setValue(new MapValue(
+                        oldValue.balance() + adjustment,
+                        oldValue.receiverThreshold(),
+                        oldValue.senderThreshold(),
+                        oldValue.receiverSigRequired(),
+                        oldValue.accountKeys(),
+                        oldValue.proxyAccount(),
+                        oldValue.autoRenewPeriod(),
+                        oldValue.deleted(),
+                        oldValue.recordLinkedList(),
+                        oldValue.expirationTime(),
+                        oldValue.memo(),
+                        oldValue.isSmartContract()));
+            }
+        }
+        return state;
     }
 
     /**
      * Compares two maps of account balances and prints the differences.
      *
-     * @param balances1 the first map of account balances
-     * @param balances1Name the name of the first map (for printing)
-     * @param balances2 the second map of account balances
-     * @param balances2Name the name of the second map (for printing)
+     * @param expectedBalances the map of expected account balances
+     * @param expectedBalancesName the name of the expected map (for printing)
+     * @param comparingBalances the map of account balances to compare
+     * @param comparingBalancesName the name of the comparing map (for printing)
      */
     public static void compareAccounts(
-            Map<Long, Long> balances1, String balances1Name, Map<Long, Long> balances2, String balances2Name) {
+            Map<Long, Long> expectedBalances,
+            String expectedBalancesName,
+            Map<Long, Long> comparingBalances,
+            String comparingBalancesName) {
         // compare the two maps, finding accounts that are in the state but not in the CSV and vice versa
         System.out.println("\n===========================================================================");
-        System.out.println("Comparing balances from " + balances1Name + " and " + balances2Name + "...");
+        System.out.println("Comparing balances from " + expectedBalancesName + " and " + comparingBalancesName + "...");
         // Accounts in state but not in CSV
-        Map<Long, Long> missingInCsv = balances1.entrySet().stream()
-                .filter(entry -> !balances2.containsKey(entry.getKey()))
+        Map<Long, Long> missingInCsv = expectedBalances.entrySet().stream()
+                .filter(entry -> !comparingBalances.containsKey(entry.getKey()))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         // Accounts in CSV but not in state
-        Map<Long, Long> missingInState = balances2.entrySet().stream()
-                .filter(entry -> !balances1.containsKey(entry.getKey()))
+        Map<Long, Long> missingInState = comparingBalances.entrySet().stream()
+                .filter(entry -> !expectedBalances.containsKey(entry.getKey()))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         // find accounts with different balances
-        Map<Long, Long> differentBalances = balances1.entrySet().stream()
-                .filter(entry -> balances2.containsKey(entry.getKey())
-                        && !entry.getValue().equals(balances2.get(entry.getKey())))
+        Map<Long, Long> differentBalances = expectedBalances.entrySet().stream()
+                .filter(entry -> comparingBalances.containsKey(entry.getKey())
+                        && !entry.getValue().equals(comparingBalances.get(entry.getKey())))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         // print results
         System.out.println("    Accounts in state but not in CSV: " + missingInCsv.size());
@@ -156,7 +222,7 @@ public class MainnetOAState implements Runnable {
         differentBalances.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
             long accountId = entry.getKey();
             long balance = entry.getValue();
-            long balance2 = balances2.get(accountId);
+            long balance2 = comparingBalances.get(accountId);
             System.out.printf(
                     "        Account ID: %8d, State Balance: %,18d, CSV Balance: %,18d (Difference: %,12d)\n",
                     accountId, balance, balance2, (balance - balance2));
@@ -166,12 +232,12 @@ public class MainnetOAState implements Runnable {
     /**
      * Extracts account balances from a SignedState object and returns them as a map.
      *
-     * @param signedState the SignedState object containing the account balances
+     * @param savedState the CompleteSavedState object containing the account balances
      * @return a map where the key is the account ID and the value is the balance
      */
-    public static Map<Long, Long> getBalancesFromSignedState(SignedState signedState) {
+    public static Map<Long, Long> getBalancesFromSignedState(CompleteSavedState savedState) {
         // convert state balances to a map
-        return signedState.state().accountMap().entrySet().stream()
+        return savedState.signedState().state().accountMap().entrySet().stream()
                 .collect(Collectors.toMap(entry -> entry.getKey().accountId(), entry -> entry.getValue()
                         .balance()));
     }
@@ -179,56 +245,38 @@ public class MainnetOAState implements Runnable {
     @Override
     public void run() {
         try {
-            // load the state
-
-//            System.out.println(Block.JSON.toJSON(new Block(load33485415State())));
-
-//
-//            var BALANCES_CSV_2019_09_13T22 = MainnetOAState.loadAccountBalancesCsv();
-//            SignedState signedState33485415 = load33485415State();
-////            SignedState signedState33486127 = loadSignedStateForRound(33486127);
-//            // convert state balances to a maps
-//            Map<Long, Long> state33485415Balances = MainnetOAState.getBalancesFromSignedState(signedState33485415);
-//            Map<Long, Long> state33486127Balances = MainnetOAState.getBalancesFromSignedState(signedState33486127);
-//            // compare rounds and CVV
-//            MainnetOAState.compareAccounts(
-//                state33485415Balances,
-//                "State " + 33485415,
-//                BALANCES_CSV_2019_09_13T22,
-//                "CSV BALANCES_CSV_2019_09_13T22");
-//            MainnetOAState.compareAccounts(
-//                state33485415Balances, "State " + 33485415, state33486127Balances, "State " + 33486127);
-//            MainnetOAState.compareAccounts(
-//                state33486127Balances,
-//                "State " + 33486127,
-//                BALANCES_CSV_2019_09_13T22,
-//                "CSV BALANCES_CSV_2019_09_13T22");
-//
-//            // print transaction transfers
-//            var TRANSACTION_1 = MirrorNodeTransaction.getTransaction1();
-//            var TRANSACTION_2 = MirrorNodeTransaction.getTransaction2();
-//            var TRANSACTION_3 = MirrorNodeTransaction.getTransaction3();
-//            System.out.println(TRANSACTION_1);
-//            System.out.println(TRANSACTION_2);
-//            System.out.println(TRANSACTION_3);
-//            // now lets take state33486127Balances reverse balance changes from transactions 2 and 3
-//            // this should give us the same state to what we had in state33485415Balances
-//            Map<Long, Long> state33486127BalancesReversed =
-//                reverseTransactions(state33486127Balances, TRANSACTION_2, TRANSACTION_3);
-//            // compare state33486127BalancesReversed with signedState33485415
-//            MainnetOAState.compareAccounts(
-//                state33485415Balances,
-//                "State 33485415",
-//                state33486127BalancesReversed,
-//                "state33486127BalancesReversed");
-//            // now let's take state33485415Balances and reverse balance changes from transaction 1
-//            // this should give us the balances at the beginning of the network
-//            Map<Long, Long> initialBalances = reverseTransactions(state33485415Balances, TRANSACTION_1);
-//            // compare initialBalances with CSV balances
-//            MainnetOAState.compareAccounts(
-//                initialBalances, "Initial Balances", BALANCES_CSV_2019_09_13T22, "CSV BALANCES_CSV_2019_09_13T22");
-
-
+            // load the state at start of block zero
+            final CompleteSavedState stateStartBlockZero = loadStartBlockZeroState();
+            final Map<Long, Long> stateStartBlockZeroBalances = getBalancesFromSignedState(stateStartBlockZero);
+            // apply the transaction changes from block zero
+            final CompleteSavedState computedStateEndBlockZero =
+                    applyTransactions(stateStartBlockZero, MirrorNodeTransaction.getTransaction1());
+            final Map<Long, Long> computedStateEndBlockZeroBalances =
+                    getBalancesFromSignedState(computedStateEndBlockZero);
+            // compare with saved state at end of block zero 33485415
+            final CompleteSavedState stateEndBlockZero = load33485415State();
+            final Map<Long, Long> stateEndBlockZeroBalances = getBalancesFromSignedState(stateEndBlockZero);
+            // compare the balances of the two states
+            compareAccounts(
+                    stateEndBlockZeroBalances,
+                    "Loaded end of block zero 33485415",
+                    computedStateEndBlockZeroBalances,
+                    "Computed end of block zero after applying tx1");
+            // apply transaction 2 & 3 changes to get end of block two state
+            final CompleteSavedState computedStateEndBlockTwo = applyTransactions(
+                    computedStateEndBlockZero,
+                    MirrorNodeTransaction.getTransaction2(),
+                    MirrorNodeTransaction.getTransaction3());
+            final Map<Long, Long> computedStateEndBlockTwoBalances =
+                    getBalancesFromSignedState(computedStateEndBlockTwo);
+            // load the balances CSV at 2019-09-13T22:00:00.000081Z which is end of block two
+            final Map<Long, Long> csvBalances2019_09_13T22 = loadAccountBalancesCsv2019_09_13T22();
+            // compare with CSV balances at 2019-09-13T22:00:00.000081Z
+            compareAccounts(
+                    csvBalances2019_09_13T22,
+                    "CSV Balances at 2019-09-13T22:00:00.000081Z",
+                    computedStateEndBlockTwoBalances,
+                    "Computed end of block two after applying tx2 & tx3");
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

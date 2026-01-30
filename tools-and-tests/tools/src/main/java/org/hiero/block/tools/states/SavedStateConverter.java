@@ -121,8 +121,7 @@ public class SavedStateConverter {
      */
     public static List<BlockItem> signedStateToStateChanges(CompleteSavedState completeSavedState) {
         final SignedState signedState = completeSavedState.signedState();
-        final Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap =
-                completeSavedState.binaryObjectByHexHashMap();
+        final Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap = completeSavedState.binaryObjectByHexHashMap();
         final HGCAppState state = signedState.state();
         final FCMap<StorageKey, StorageValue> storageMap = state.storageMap();
         final Timestamp consensusTimestamp = new Timestamp(
