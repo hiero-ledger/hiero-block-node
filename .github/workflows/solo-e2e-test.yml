@@ -660,20 +660,42 @@ jobs:
           # Get BN Logs for ALL block nodes dynamically
           for svc in $(kubectl --context "${CONTEXT}" get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep "block-node-" | sort); do
             bn_name=$(basename "$svc")
+
+            # Get stdout/stderr logs via kubectl logs
             kubectl --context "${CONTEXT}" logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=${bn_name}" \
-              --all-containers --since=24h --timestamps --prefix --tail=-1 > "bn-logs/${bn_name}.log" 2>&1 || \
-              echo "Failed to collect logs for ${bn_name} (cluster may be unavailable)" > "bn-logs/${bn_name}.log"
+              --all-containers --since=24h --timestamps --prefix --tail=-1 > "bn-logs/${bn_name}-stdout.log" 2>&1 || \
+              echo "Failed to collect stdout logs for ${bn_name}" > "bn-logs/${bn_name}-stdout.log"
+
+            # Get file logs from inside the container using kubectl cp
+            # Block Node writes logs to /opt/hiero/block-node/logs/
+            POD_NAME=$(kubectl --context "${CONTEXT}" get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${bn_name}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+            if [[ -n "$POD_NAME" ]]; then
+              mkdir -p "bn-logs/${bn_name}-files"
+              kubectl --context "${CONTEXT}" cp "${NAMESPACE}/${POD_NAME}:/opt/hiero/block-node/logs/" "bn-logs/${bn_name}-files/" 2>/dev/null || \
+                echo "No file logs available for ${bn_name}" > "bn-logs/${bn_name}-files/no-logs.txt"
+              echo "Collected file logs for ${bn_name} from pod ${POD_NAME}"
+            fi
+
             echo "Collected logs for ${bn_name}"
           done
 
-          # Get MN Logs
+          # Get MN Logs - stdout/stderr
           kubectl --context "${CONTEXT}" logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" \
-            --all-containers --since=24h --timestamps --prefix --tail=-1 > "mn-logs/mirror-1-importer.log" 2>&1 || \
-            echo "Failed to collect MN logs (cluster may be unavailable)" > "mn-logs/mirror-1-importer.log"
+            --all-containers --since=24h --timestamps --prefix --tail=-1 > "mn-logs/mirror-1-importer-stdout.log" 2>&1 || \
+            echo "Failed to collect MN importer stdout logs" > "mn-logs/mirror-1-importer-stdout.log"
+
+          # Get MN file logs from importer pod
+          MN_POD=$(kubectl --context "${CONTEXT}" get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          if [[ -n "$MN_POD" ]]; then
+            mkdir -p "mn-logs/importer-files"
+            # Mirror Node importer typically logs to /var/log or container logs
+            kubectl --context "${CONTEXT}" cp "${NAMESPACE}/${MN_POD}:/var/log/" "mn-logs/importer-files/" 2>/dev/null || true
+            echo "Collected file logs for mirror-1-importer from pod ${MN_POD}"
+          fi
 
           # Show what was collected
-          echo "=== Collected BN logs ===" && ls -la bn-logs/
-          echo "=== Collected MN logs ===" && ls -la mn-logs/
+          echo "=== Collected BN logs ===" && ls -laR bn-logs/
+          echo "=== Collected MN logs ===" && ls -laR mn-logs/
 
       - name: Collect CN Logs
         if: always()
@@ -695,7 +717,10 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cn-logs
-          path: ${{ env.CN_LOG_FOLDER }}/*.zip
+          path: |
+            ${{ env.CN_LOG_FOLDER }}/**/*.zip
+            ${{ env.CN_LOG_FOLDER }}/*.log
+            ${{ env.CN_LOG_FOLDER }}/*.ndjson
 
       - name: Upload BN Logs
         if: always()
