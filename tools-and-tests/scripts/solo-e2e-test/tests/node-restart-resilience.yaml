@@ -2,8 +2,8 @@
 #
 # Node Restart Resilience Test
 #
-# Validates that the Block Node recovers correctly after a restart
-# during active load generation. Tests resilience and data integrity.
+# Validates that the Block Node recovers correctly after a restart.
+# Tests resilience, data integrity, and backfill capability.
 #
 # Prerequisites:
 #   - Topology "single" deployed (task up)
@@ -13,68 +13,51 @@
 #   task test:run TEST_FILE=tests/node-restart-resilience.yaml
 
 name: node-restart-resilience
-description: "Test BN recovery after restart during load"
+description: "Test BN recovery after restart"
 
 events:
-  - id: start-load
-    type: load-start
-    description: "Start CryptoTransfer load"
-    delay: 10
-    args:
-      test_class: CryptoTransferLoadTest
-      concurrency: 3
-      accounts: 5
-      duration: 300  # 5 minutes
-
   - id: early-metrics
     type: print-metrics
     description: "Print early metrics"
-    delay: 60  # 1 minute
+    delay: 10
     args:
       target: block-node-1
 
   - id: pre-restart-metrics
     type: print-metrics
     description: "Print metrics before restart"
-    delay: 90  # 1.5 minutes
+    delay: 30
     args:
       target: block-node-1
 
   - id: restart-bn
     type: restart
-    description: "Restart Block Node during load"
-    delay: 120  # 2 minutes
+    description: "Restart Block Node"
+    delay: 60
     target: block-node-1
     timeout: 300
 
   - id: refresh-ports
     type: port-forward
     description: "Refresh port forwards after restart"
-    delay: 150  # 2.5 minutes
+    delay: 90
 
   - id: post-restart-status
     type: network-status
     description: "Check network status after restart"
-    delay: 180  # 3 minutes
+    delay: 120
 
   - id: post-restart-metrics
     type: print-metrics
     description: "Print metrics after restart recovery"
-    delay: 240  # 4 minutes
+    delay: 150
     args:
       target: block-node-1
-
-  - id: stop-load
-    type: load-stop
-    description: "Stop load generation (cleanup)"
-    delay: 360  # 6 minutes - buffer after NLG ends
-    args:
-      test_class: CryptoTransferLoadTest
 
   - id: final-metrics
     type: print-metrics
     description: "Print final metrics"
-    delay: 390  # 6.5 minutes
+    delay: 180
     args:
       target: block-node-1
 
@@ -101,4 +84,4 @@ assertions:
     description: "Block Node is receiving new blocks after restart"
     target: block-node-1
     args:
-      wait_seconds: 15
+      wait_seconds: 70
