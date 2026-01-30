@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.io.IOException;
 import org.hiero.block.tools.states.utils.FCDataInputStream;
 
+@SuppressWarnings({"ConstantValue", "DuplicatedCode"})
 public record MapValue(
         long balance,
         long receiverThreshold,

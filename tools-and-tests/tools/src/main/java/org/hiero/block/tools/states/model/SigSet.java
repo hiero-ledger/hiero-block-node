@@ -2,36 +2,18 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
-import java.util.HexFormat;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import org.hiero.block.tools.states.utils.FCDataInputStream;
 import org.hiero.block.tools.states.utils.Utilities;
 
 public final class SigSet {
-    private byte[] hash;
     private long classVersion;
     private int count;
-    private long stakeCollected = 0;
+    private long stakeCollected;
     private int numMembers;
     private boolean complete = false;
     private AtomicReferenceArray<SigInfo> sigInfos;
     private final AddressBook addressBook;
-
-    public SigSet(
-            int count,
-            long stakeCollected,
-            int numMembers,
-            boolean complete,
-            AtomicReferenceArray<SigInfo> sigInfos,
-            AddressBook addressBook) {
-        this.classVersion = classVersion;
-        this.count = count;
-        this.stakeCollected = stakeCollected;
-        this.numMembers = numMembers;
-        this.complete = complete;
-        this.sigInfos = sigInfos;
-        this.addressBook = addressBook;
-    }
 
     /** create the signature set, taking the address book at this moment as the population */
     SigSet(AddressBook addressBook) {
@@ -104,8 +86,7 @@ public final class SigSet {
 
     @Override
     public String toString() {
-        return "SigSet{\n" + "        hash="
-                + (hash == null ? "NULL" : HexFormat.of().formatHex(hash)) + ",\n        classVersion="
+        return "SigSet{\n" + "                classVersion="
                 + classVersion + ",\n        count="
                 + count + ",\n        stakeCollected="
                 + stakeCollected + ",\n        numMembers="

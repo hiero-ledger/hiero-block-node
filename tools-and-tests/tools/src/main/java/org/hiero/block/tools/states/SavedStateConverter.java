@@ -97,7 +97,7 @@ public class SavedStateConverter {
         final Path stateFile =
                 Files.exists(compressedStateFile) ? compressedStateFile : savedStateDir.resolve("SignedState.swh");
         try {
-            signedState = SignedState.load(compressedStateFile);
+            signedState = SignedState.load(stateFile);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to load signed state from file: " + compressedStateFile, e);
         }

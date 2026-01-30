@@ -8,7 +8,7 @@ import org.hiero.block.tools.states.utils.FCDataInputStream;
 public final class BinaryObject {
     private static final long VERSION = 1L;
     private static final long OBJECT_ID = 1231553L;
-    private Long id = 0L;
+    private final Long id = 0L;
     private Hash hash = null;
     private byte[] data;
 

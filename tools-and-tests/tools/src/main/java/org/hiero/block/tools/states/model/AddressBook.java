@@ -11,6 +11,7 @@ import org.hiero.block.tools.states.utils.CryptoUtils;
 import org.hiero.block.tools.states.utils.FCDataInputStream;
 import org.hiero.block.tools.states.utils.FCDataOutputStream;
 
+@SuppressWarnings("ForLoopReplaceableByForEach")
 public class AddressBook {
     /** This version number should be used to handle compatibility issues that may arise from any future changes */
     private static final long VERSION = 1;
@@ -83,8 +84,6 @@ public class AddressBook {
             addresses.get(i).writeAddress(outStream);
         }
     }
-
-    public void copyFromExtra(FCDataInputStream inStream) throws IOException {}
 
     // create the hashMap and add all the current addresses
     private static Map<String, Long> addressesToHashMap(List<Address> addresses) {

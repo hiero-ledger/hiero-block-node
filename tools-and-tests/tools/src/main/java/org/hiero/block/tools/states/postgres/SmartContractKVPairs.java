@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SmartContractKVPairs {
-    private static int DWORD_BYTES = 32;
+    private static final int DWORD_BYTES = 32;
 
     public static List<DataWordPair> deserializeKeyValuePairs(byte[] serializedMap) {
         List<DataWordPair> cacheToPut = new ArrayList<>();
@@ -25,12 +25,10 @@ public class SmartContractKVPairs {
     public record DataWordPair(DataWord key, DataWord value) {}
 
     public record DataWord(byte[] data) {
-        public static final int DATA_SIZE = 32;
-
         public DataWord(byte[] data) {
             this.data = data;
-            if (data.length != DATA_SIZE) {
-                throw new IllegalArgumentException("DataWord must be exactly " + DATA_SIZE + " bytes long.");
+            if (data.length != DWORD_BYTES) {
+                throw new IllegalArgumentException("DataWord must be exactly " + DWORD_BYTES + " bytes long.");
             }
         }
     }

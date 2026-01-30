@@ -59,7 +59,6 @@ public class HGCAppState {
             throw new IOException("Unsupported HGCAppState version: " + version);
         }
         sequenceNum.copyFromExtra(fcDataInputStream);
-        addressBook.copyFromExtra(fcDataInputStream);
         accountMap.copyFromExtra(fcDataInputStream);
         storageMap.copyFromExtra(fcDataInputStream);
     }

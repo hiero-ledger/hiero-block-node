@@ -19,7 +19,7 @@ import org.hiero.block.tools.states.utils.FCDataOutputStream;
 import org.hiero.block.tools.states.utils.HashingOutputStream;
 import org.hiero.block.tools.states.utils.Utilities;
 
-@SuppressWarnings("CallToPrintStackTrace")
+@SuppressWarnings({"CallToPrintStackTrace", "unused"})
 public final class SignedState {
     /** This version number should be used to handle compatibility issues that may arise from any future changes */
     private static final long CLASS_VERSION = 2;

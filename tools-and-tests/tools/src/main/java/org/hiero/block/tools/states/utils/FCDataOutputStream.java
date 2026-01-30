@@ -28,7 +28,9 @@ import java.io.OutputStream;
 public class FCDataOutputStream extends DataOutputStream {
 
     /**
-     * {@inheritDoc}
+     * Create a new FCDataOutputStream that writes to the given OutputStream.
+     *
+     * @param out the OutputStream to write to
      */
     public FCDataOutputStream(OutputStream out) {
         super(out);

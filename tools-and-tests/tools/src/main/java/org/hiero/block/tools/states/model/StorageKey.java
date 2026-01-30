@@ -26,7 +26,7 @@ public record StorageKey(String path) {
 
     /**
      * Returns the ID extracted from the path.
-     * The path is expected to be in the format "/0/<type_char><id>".
+     * The path is expected to be in the format <pre>/0/&lt;type_char&gt;&lt;id&gt;</pre>.
      *
      * @return the ID as a long
      */
@@ -36,7 +36,7 @@ public record StorageKey(String path) {
 
     /**
      * Returns the BlobType based on the character at position 3 in the path.
-     * The path is expected to be in the format "/0/<type_char><id>".
+     * The path is expected to be in the format <pre>/0/&lt;type_char&gt;&lt;id&gt;</pre>.
      *
      * @return the BlobType corresponding to the character at position 3
      * @throws IllegalArgumentException if the path format is invalid

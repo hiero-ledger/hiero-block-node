@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+@SuppressWarnings("unused")
 public interface FCMNode<K, V> {
 
     FCMNode<K, V> getLeftChild();

@@ -4,10 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.util.HashMap;
 
 /**
- *  Mapping of Class name and Object Id
- *
- * @author Akshay
- * @Date : 1/17/2019
+ *  Mapping of Class name and Object ID used in serialization of various objects within the state
  */
 public enum JObjectType {
     JKey,

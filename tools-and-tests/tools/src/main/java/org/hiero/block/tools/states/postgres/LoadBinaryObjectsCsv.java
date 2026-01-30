@@ -26,9 +26,9 @@ import org.hiero.block.tools.states.model.StorageValue;
 
 /**
  * Expand db dump tar.gz file then cd to directory
- * <code>
+ * <pre><code>
  * docker run -it --rm -e POSTGRES_PASSWORD=password --volume "$(pwd):/data" postgres:10
- * docker exec -it <id> bash
+ * docker exec -it &lt;id&gt; bash
  * psql -h localhost -U postgres
  * create database fcfs with owner postgres;
  * create role swirlds;
@@ -36,7 +36,7 @@ import org.hiero.block.tools.states.model.StorageValue;
  * pg_restore -h localhost -U postgres --format=d -d fcfs /data
  * psql -h localhost -U postgres -d fcfs
  * \COPY (SELECT id,ref_count,encode(hash, 'hex') AS hash_hex,file_oid,encode(lo_get(file_oid), 'hex') AS file_base64 FROM binary_objects) TO '/data/binary_objects.csv' WITH CSV HEADER
- * </code>
+ * </code></pre>
  */
 public class LoadBinaryObjectsCsv {
     public static long ADDRESS_FILE_ACCOUNT_NUM = 101;
