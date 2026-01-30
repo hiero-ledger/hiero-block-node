@@ -195,10 +195,41 @@ function generate_bn_overlay {
     local peer_dns
     peer_dns=$(get_service_dns "${peer}" "${NAMESPACE}")
 
+    # Read gRPC tuning from the peer node (if configured)
+    local grpc_tuning=""
+    local max_frame_size
+    max_frame_size=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.max_frame_size // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+    local initial_window_size
+    initial_window_size=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.initial_window_size // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+    local initial_buffer_size
+    initial_buffer_size=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.initial_buffer_size // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+    local connect_timeout
+    connect_timeout=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.connect_timeout // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+    local read_timeout
+    read_timeout=$(yq ".block_nodes[\"${peer}\"].grpc_tuning.read_timeout // 0" "${TOPOLOGY_FILE}" 2>/dev/null)
+
+    # Build grpc_webclient_tuning block if any tuning is configured
+    if [[ "${max_frame_size}" -gt 0 ]] || [[ "${initial_window_size}" -gt 0 ]] || \
+       [[ "${initial_buffer_size}" -gt 0 ]] || [[ "${connect_timeout}" -gt 0 ]] || \
+       [[ "${read_timeout}" -gt 0 ]]; then
+      grpc_tuning="
+        grpc_webclient_tuning:"
+      [[ "${max_frame_size}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          max_frame_size: ${max_frame_size}"
+      [[ "${initial_window_size}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          initial_window_size: ${initial_window_size}"
+      [[ "${initial_buffer_size}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          initial_buffer_size: ${initial_buffer_size}"
+      [[ "${connect_timeout}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          connect_timeout: ${connect_timeout}"
+      [[ "${read_timeout}" -gt 0 ]] && grpc_tuning="${grpc_tuning}
+          read_timeout: ${read_timeout}"
+    fi
+
     sources="${sources}
       - address: \"${peer_dns}\"
         port: ${peer_port}
-        priority: ${priority}"
+        priority: ${priority}${grpc_tuning}"
     priority=$((priority + 1))
   done <<< "${peer_names}"
 

@@ -9,6 +9,10 @@
 # CN1,2,3 → BN1 and BN2 (all CNs to both BNs)
 # BN1 ↔ BN2 (backfill)
 # MN ← BN1, BN2
+#
+# NOTE: grpc_tuning.max_frame_size is set to 4MB to handle larger blocks.
+# This can be removed once Block Node v0.27+ is released, as the default
+# will be increased from 2MB to 4MB.
 
 name: fan-out-3cn-2bn
 description: "3 Consensus Nodes, 2 Block Nodes (fan-out streaming)"
@@ -19,11 +23,15 @@ block_nodes:
     port: 40840
     peers: [block-node-2]
     greedy: true
+    grpc_tuning:
+      max_frame_size: 4194304  # 4MB to handle larger blocks
   block-node-2:
     address: block-node-2
     port: 40840
     peers: [block-node-1]
     greedy: true
+    grpc_tuning:
+      max_frame_size: 4194304
 
 consensus_nodes:
   node1:

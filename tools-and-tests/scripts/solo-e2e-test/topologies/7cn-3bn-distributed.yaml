@@ -13,6 +13,10 @@
 # CN1,2,3 → BN1; CN4,5 → BN2; CN6,7 → BN3
 # BN1 ↔ BN2 ↔ BN3 (backfill mesh)
 # MN ← BN1, BN2, BN3
+#
+# NOTE: grpc_tuning.max_frame_size is set to 4MB to handle larger blocks.
+# This can be removed once Block Node v0.27+ is released, as the default
+# will be increased from 2MB to 4MB.
 
 name: 7cn-3bn-distributed
 description: "7 Consensus Nodes, 3 Block Nodes (distributed streaming)"
@@ -23,16 +27,22 @@ block_nodes:
     port: 40840
     peers: [block-node-2, block-node-3]
     greedy: true
+    grpc_tuning:
+      max_frame_size: 4194304  # 4MB to handle larger blocks
   block-node-2:
     address: block-node-2
     port: 40840
     peers: [block-node-1, block-node-3]
     greedy: true
+    grpc_tuning:
+      max_frame_size: 4194304
   block-node-3:
     address: block-node-3
     port: 40840
     peers: [block-node-1, block-node-2]
     greedy: true
+    grpc_tuning:
+      max_frame_size: 4194304
 
 consensus_nodes:
   node1:

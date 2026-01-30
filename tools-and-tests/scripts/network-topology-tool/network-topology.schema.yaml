@@ -36,6 +36,37 @@ $defs:
         - { $ref: "#/$defs/nodeLink" }
         - { $ref: "#/$defs/nodePriorityEntry" }
 
+  # gRPC client tuning for backfill connections
+  grpcTuning:
+    type: object
+    description: "gRPC WebClient tuning for backfill connections to this node"
+    properties:
+      max_frame_size:
+        type: integer
+        minimum: 16384
+        maximum: 16777215
+        description: "HTTP/2 max frame size in bytes (default: 4MB, range: 16KB-16MB per RFC 7540)"
+      initial_window_size:
+        type: integer
+        minimum: 1
+        maximum: 2147483647
+        description: "HTTP/2 initial window size for flow control (default: 4MB)"
+      initial_buffer_size:
+        type: integer
+        minimum: 1024
+        maximum: 67108864
+        description: "gRPC initial buffer size in bytes (default: 4MB, range: 1KB-64MB)"
+      connect_timeout:
+        type: integer
+        minimum: 100
+        maximum: 300000
+        description: "Connection timeout in milliseconds (default: 10000)"
+      read_timeout:
+        type: integer
+        minimum: 100
+        maximum: 300000
+        description: "Read timeout in milliseconds (default: 10000)"
+
 properties:
   name:
     type: string
@@ -66,6 +97,8 @@ properties:
           greedy:
             type: boolean
             description: "Enable greedy backfill mode (defaults to false)"
+          grpc_tuning:
+            $ref: "#/$defs/grpcTuning"
 
   consensus_nodes:
     type: object
