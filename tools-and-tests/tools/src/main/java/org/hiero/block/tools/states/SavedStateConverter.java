@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.stream.Collectors;
+import org.hiero.block.tools.states.model.CompleteSavedState;
 import org.hiero.block.tools.states.model.FCMap;
 import org.hiero.block.tools.states.model.HGCAppState;
 import org.hiero.block.tools.states.model.JFileInfo;
@@ -58,9 +59,9 @@ public class SavedStateConverter {
      * representing state changes
      *
      * @param resourceDirPath the resource directory path containing the saved state files
-     * @return list of BlockItems representing state changes
+     * @return complete saved state
      */
-    public static List<BlockItem> convertStateToStateChanges(String resourceDirPath) {
+    public static CompleteSavedState loadState(String resourceDirPath) {
         final URL signedStateUrl = SavedStateConverter.class.getResource(resourceDirPath + "/SignedState.swh.gz");
         if (signedStateUrl == null) {
             throw new IllegalArgumentException(
@@ -79,8 +80,8 @@ public class SavedStateConverter {
         }
         // load binary objects, try compressed first
         Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap = BinaryObjectCsvRow.loadBinaryObjectsMap(binCsvUrl);
-        // convert to block items
-        return signedStateToStateChanges(signedState, binaryObjectByHexHashMap);
+        // return complete saved state
+        return new CompleteSavedState(signedState, binaryObjectByHexHashMap);
     }
 
     /**
@@ -88,9 +89,9 @@ public class SavedStateConverter {
      * representing state changes
      *
      * @param savedStateDir the directory path containing the saved state files
-     * @return list of BlockItems representing state changes
+     * @return complete saved state
      */
-    public static List<BlockItem> convertStateToStateChanges(Path savedStateDir) {
+    public static CompleteSavedState loadState(Path savedStateDir) {
         SignedState signedState;
         // load signed state, try compressed first
         final Path compressedStateFile = savedStateDir.resolve("SignedState.swh.gz");
@@ -108,19 +109,20 @@ public class SavedStateConverter {
                 : savedStateDir.resolve("binary_objects.csv");
         Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap =
                 BinaryObjectCsvRow.loadBinaryObjectsMap(binaryObjectsCsvFile);
-        // convert to block items
-        return signedStateToStateChanges(signedState, binaryObjectByHexHashMap);
+        // return complete saved state
+        return new CompleteSavedState(signedState, binaryObjectByHexHashMap);
     }
 
     /**
      * Convert a SignedState into a list of BlockItems representing state changes
      *
-     * @param signedState the signed state to convert
-     * @param binaryObjectByHexHashMap map of binary objects by their hex hash. Loaded from Postgres export CSV
+     * @param completeSavedState the signed state to convert
      * @return list of BlockItems representing state changes
      */
-    public static List<BlockItem> signedStateToStateChanges(
-            SignedState signedState, Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap) {
+    public static List<BlockItem> signedStateToStateChanges(CompleteSavedState completeSavedState) {
+        final SignedState signedState = completeSavedState.signedState();
+        final Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap =
+                completeSavedState.binaryObjectByHexHashMap();
         final HGCAppState state = signedState.state();
         final FCMap<StorageKey, StorageValue> storageMap = state.storageMap();
         final Timestamp consensusTimestamp = new Timestamp(

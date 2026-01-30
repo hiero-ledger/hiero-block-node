@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import java.util.List;
+import org.hiero.block.tools.states.model.CompleteSavedState;
 import org.junit.jupiter.api.Test;
 
 /** Tests for {@link MainnetOAState}. */
@@ -14,8 +15,9 @@ class MainnetOAStateTest {
 
     @Test
     void loadOaStateReturnsNonEmptyList() {
-        List<BlockItem> blockItems = assertDoesNotThrow(MainnetOAState::loadOaState);
-        assertNotNull(blockItems);
+        CompleteSavedState completeSavedState = assertDoesNotThrow(MainnetOAState::load33485415State);
+        assertNotNull(completeSavedState);
+        List<BlockItem> blockItems = SavedStateConverter.signedStateToStateChanges(completeSavedState);
         assertFalse(blockItems.isEmpty(), "loadOaState should return a non-empty list of block items");
     }
 }

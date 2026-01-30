@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states;
 
-import static org.hiero.block.tools.mirrornode.model.MirrorNodeTransaction.TRANSACTION_1;
-import static org.hiero.block.tools.mirrornode.model.MirrorNodeTransaction.TRANSACTION_2;
-import static org.hiero.block.tools.mirrornode.model.MirrorNodeTransaction.TRANSACTION_3;
-import static org.hiero.block.tools.states.SavedStateConverter.convertStateToStateChanges;
+import static org.hiero.block.tools.states.SavedStateConverter.loadState;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
@@ -14,6 +11,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.hiero.block.tools.mirrornode.model.MirrorNodeTransaction;
 import org.hiero.block.tools.states.balances.CsvAccountBalances;
+import org.hiero.block.tools.states.model.CompleteSavedState;
 import org.hiero.block.tools.states.model.SignedState;
 import picocli.CommandLine.Command;
 
@@ -60,13 +58,38 @@ public class MainnetOAState implements Runnable {
             MainnetOAState.class.getResource("/2019-09-13T22_00_00.000081Z_Balances.csv.gz");
 
     /** Load the state at the start of Hedera Mainnet Open Access (round 33485415) */
-    private static List<BlockItem> load33485415State() {
-        return convertStateToStateChanges(STATE_33485415_DIR_URL);
+    public static CompleteSavedState load33485415State() {
+        return loadState(STATE_33485415_DIR_URL);
     }
 
     /** Holds balances from the CSV file for the date 2019-09-13T22:00:00.000081Z */
-    private static Map<Long, Long> loadAccountBalancesCsv() {
+    public static Map<Long, Long> loadAccountBalancesCsv2019_09_13T22() {
         return CsvAccountBalances.loadCsvBalances(BALANCES_CSV_2019_09_13T22_URL);
+    }
+
+    /**
+     * Get the block items representing the state changes for the initial state at the start of Hedera Mainnet at the
+     * beginning of block zero.
+     *
+     * @return list of block items representing the state changes at the start of block zero
+     */
+    public static List<BlockItem> getStartBlockZeroState() {
+        final CompleteSavedState stateEndBlockZero = load33485415State();
+        final CompleteSavedState stateStartBlockZero = reverseTransactions(
+                stateEndBlockZero,
+                MirrorNodeTransaction.getTransaction1());
+        return SavedStateConverter.signedStateToStateChanges(stateStartBlockZero);
+    }
+
+    /**
+     * Reverses the balance changes from the given transactions on the original state.
+     *
+     * @param state the original state
+     * @param transactions the transactions to reverse, where each transaction contains transfers
+     * @return a new map with the reversed balances
+     */
+    public static CompleteSavedState reverseTransactions(CompleteSavedState state, MirrorNodeTransaction... transactions) {
+        return null; //TODO implement
     }
 
     /**
@@ -156,49 +179,54 @@ public class MainnetOAState implements Runnable {
     @Override
     public void run() {
         try {
-            System.out.println(Block.JSON.toJSON(new Block(load33485415State())));
+            // load the state
 
+//            System.out.println(Block.JSON.toJSON(new Block(load33485415State())));
 
-            var BALANCES_CSV_2019_09_13T22 = MainnetOAState.loadAccountBalancesCsv();
-            SignedState signedState33485415 = loadSignedStateForRound(33485415);
-            SignedState signedState33486127 = loadSignedStateForRound(33486127);
-            // convert state balances to a maps
-            Map<Long, Long> state33485415Balances = MainnetOAState.getBalancesFromSignedState(signedState33485415);
-            Map<Long, Long> state33486127Balances = MainnetOAState.getBalancesFromSignedState(signedState33486127);
-            // compare rounds and CVV
-            MainnetOAState.compareAccounts(
-                state33485415Balances,
-                "State " + 33485415,
-                BALANCES_CSV_2019_09_13T22,
-                "CSV BALANCES_CSV_2019_09_13T22");
-            MainnetOAState.compareAccounts(
-                state33485415Balances, "State " + 33485415, state33486127Balances, "State " + 33486127);
-            MainnetOAState.compareAccounts(
-                state33486127Balances,
-                "State " + 33486127,
-                BALANCES_CSV_2019_09_13T22,
-                "CSV BALANCES_CSV_2019_09_13T22");
-
-            // print transaction transfers
-            System.out.println(TRANSACTION_1);
-            System.out.println(TRANSACTION_2);
-            System.out.println(TRANSACTION_3);
-            // now lets take state33486127Balances reverse balance changes from transactions 2 and 3
-            // this should give us the same state to what we had in state33485415Balances
-            Map<Long, Long> state33486127BalancesReversed =
-                reverseTransactions(state33486127Balances, TRANSACTION_2, TRANSACTION_3);
-            // compare state33486127BalancesReversed with signedState33485415
-            MainnetOAState.compareAccounts(
-                state33485415Balances,
-                "State 33485415",
-                state33486127BalancesReversed,
-                "state33486127BalancesReversed");
-            // now let's take state33485415Balances and reverse balance changes from transaction 1
-            // this should give us the balances at the beginning of the network
-            Map<Long, Long> initialBalances = reverseTransactions(state33485415Balances, TRANSACTION_1);
-            // compare initialBalances with CSV balances
-            MainnetOAState.compareAccounts(
-                initialBalances, "Initial Balances", BALANCES_CSV_2019_09_13T22, "CSV BALANCES_CSV_2019_09_13T22");
+//
+//            var BALANCES_CSV_2019_09_13T22 = MainnetOAState.loadAccountBalancesCsv();
+//            SignedState signedState33485415 = load33485415State();
+////            SignedState signedState33486127 = loadSignedStateForRound(33486127);
+//            // convert state balances to a maps
+//            Map<Long, Long> state33485415Balances = MainnetOAState.getBalancesFromSignedState(signedState33485415);
+//            Map<Long, Long> state33486127Balances = MainnetOAState.getBalancesFromSignedState(signedState33486127);
+//            // compare rounds and CVV
+//            MainnetOAState.compareAccounts(
+//                state33485415Balances,
+//                "State " + 33485415,
+//                BALANCES_CSV_2019_09_13T22,
+//                "CSV BALANCES_CSV_2019_09_13T22");
+//            MainnetOAState.compareAccounts(
+//                state33485415Balances, "State " + 33485415, state33486127Balances, "State " + 33486127);
+//            MainnetOAState.compareAccounts(
+//                state33486127Balances,
+//                "State " + 33486127,
+//                BALANCES_CSV_2019_09_13T22,
+//                "CSV BALANCES_CSV_2019_09_13T22");
+//
+//            // print transaction transfers
+//            var TRANSACTION_1 = MirrorNodeTransaction.getTransaction1();
+//            var TRANSACTION_2 = MirrorNodeTransaction.getTransaction2();
+//            var TRANSACTION_3 = MirrorNodeTransaction.getTransaction3();
+//            System.out.println(TRANSACTION_1);
+//            System.out.println(TRANSACTION_2);
+//            System.out.println(TRANSACTION_3);
+//            // now lets take state33486127Balances reverse balance changes from transactions 2 and 3
+//            // this should give us the same state to what we had in state33485415Balances
+//            Map<Long, Long> state33486127BalancesReversed =
+//                reverseTransactions(state33486127Balances, TRANSACTION_2, TRANSACTION_3);
+//            // compare state33486127BalancesReversed with signedState33485415
+//            MainnetOAState.compareAccounts(
+//                state33485415Balances,
+//                "State 33485415",
+//                state33486127BalancesReversed,
+//                "state33486127BalancesReversed");
+//            // now let's take state33485415Balances and reverse balance changes from transaction 1
+//            // this should give us the balances at the beginning of the network
+//            Map<Long, Long> initialBalances = reverseTransactions(state33485415Balances, TRANSACTION_1);
+//            // compare initialBalances with CSV balances
+//            MainnetOAState.compareAccounts(
+//                initialBalances, "Initial Balances", BALANCES_CSV_2019_09_13T22, "CSV BALANCES_CSV_2019_09_13T22");
 
 
         } catch (Exception e) {

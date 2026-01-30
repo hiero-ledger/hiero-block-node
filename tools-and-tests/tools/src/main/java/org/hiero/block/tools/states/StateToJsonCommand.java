@@ -5,6 +5,7 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import java.io.File;
 import java.util.List;
+import org.hiero.block.tools.states.model.CompleteSavedState;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Parameters;
@@ -30,7 +31,8 @@ public class StateToJsonCommand implements Runnable {
             return;
         }
         for (File savedStateDir : savedStateDirectories) {
-            final List<BlockItem> blockItems = SavedStateConverter.convertStateToStateChanges(savedStateDir.toPath());
+            final CompleteSavedState completeSavedState = SavedStateConverter.loadState(savedStateDir.toPath());
+            final List<BlockItem> blockItems = SavedStateConverter.signedStateToStateChanges(completeSavedState);
             System.out.println(Block.JSON.toJSON(new Block(blockItems)));
         }
     }
