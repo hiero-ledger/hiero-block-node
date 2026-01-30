@@ -80,7 +80,11 @@ public abstract class CryptoUtils {
         return publicKey;
     }
 
-    // return the MessageDigest for the type of hash function used throughout the code
+    /**
+     * Get a MessageDigest object for the hash type used in this code
+     *
+     * @return a MessageDigest object for the hash type used in this code
+     */
     public static MessageDigest getMessageDigest() {
         try {
             return MessageDigest.getInstance(HASH_TYPE);
@@ -89,6 +93,11 @@ public abstract class CryptoUtils {
         }
     }
 
+    /**
+     * Convert a JKey into a Key
+     *
+     * @return a Key converted from the given JKey
+     */
     public static <K extends JKey> Key convertKey(K jKey) {
         return switch (jKey) {
             case JKey.JThresholdKey thresholdKey ->
@@ -117,6 +126,11 @@ public abstract class CryptoUtils {
         };
     }
 
+    /**
+     * Convert a JKeyList into a KeyList
+     *
+     * @return a KeyList converted from the given JKeyList
+     */
     static KeyList convertKeyList(JKeyList jKeyList) {
         return new KeyList(
                 jKeyList.getKeysList().stream().map(CryptoUtils::convertKey).toList());

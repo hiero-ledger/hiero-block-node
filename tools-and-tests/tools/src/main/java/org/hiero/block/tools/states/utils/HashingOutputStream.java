@@ -40,11 +40,17 @@ public class HashingOutputStream extends OutputStream {
         this.md = md;
     }
 
+    /**
+     * @inheritDoc
+     */
     @Override
     public void write(int arg0) throws IOException {
         md.update((byte) arg0);
     }
 
+    /**
+     * @inheritDoc
+     */
     @Override
     public void write(byte b[], int off, int len) throws IOException {
         if (b == null) {
@@ -54,7 +60,6 @@ public class HashingOutputStream extends OutputStream {
         } else if (len == 0) {
             return;
         }
-
         md.update(b, off, len);
     }
 }

@@ -18,22 +18,15 @@
 
 package org.hiero.block.tools.states.utils;
 
-import java.awt.Color;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.text.Normalizer.Form;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
 import org.hiero.block.tools.states.model.DeserializeFunction;
@@ -43,8 +36,17 @@ import org.hiero.block.tools.states.model.Deserializer;
  * This is a collection of static utility methods, such as for comparing and deep cloning of arrays.
  */
 public class Utils {
-    static Charset defaultCharset = StandardCharsets.UTF_8;
 
+    /**
+     * Write an Instant to the given stream
+     *
+     * @param stream
+     * 		the stream to write to
+     * @param instant
+     * 		the Instant to write
+     * @throws IOException
+     * 		thrown if there are any problems during the operation
+     */
     public static void writeInstant(DataOutputStream stream, Instant instant) throws IOException {
         stream.writeLong(instant.getEpochSecond());
         stream.writeLong(instant.getNano());
@@ -61,7 +63,7 @@ public class Utils {
      */
     public static String readNormalisedString(DataInputStream in) throws IOException {
         byte data[] = readByteArray(in);
-        return new String(data, defaultCharset);
+        return new String(data, StandardCharsets.UTF_8);
     }
 
     /**
@@ -294,6 +296,14 @@ public class Utils {
         return readByteArrayOfLength(dis, byteCount, len);
     }
 
+    /**
+     * Read a byte[] from a data stream and increment byteCount[0] by the number of bytes
+     *
+     * @param dis data input stream to read from
+     * @param byteCount an array of length at least 1, whose first element is incremented by the number of bytes read
+     * @return the byte array read
+     * @throws IOException if an I/O error occurs
+     */
     public static byte[] readByteArray(DataInputStream dis, int[] byteCount) throws IOException {
         return readByteArray(dis, byteCount, Integer.MAX_VALUE);
     }
