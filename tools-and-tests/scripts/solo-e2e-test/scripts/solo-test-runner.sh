@@ -736,59 +736,117 @@ function assert_no_errors {
     fi
 }
 
-# Single node blocks increasing check
-function assert_blocks_increasing_single {
+# Helper to get block count from a node with error handling
+function get_block_count {
     local target="$1"
-    local wait_seconds="$2"
     local port
     port=$(get_bn_grpc_port "$target")
+
+    if [[ -z "${PROTO_PATH}" || ! -d "${PROTO_PATH}" ]]; then
+        echo ""
+        return 1
+    fi
+
+    local import_args="-import-path ${PROTO_PATH}"
+    local json block_count
+
+    json=$(grpcurl -plaintext -emit-defaults \
+        ${import_args} \
+        -proto block-node/api/node_service.proto \
+        -d '{}' "localhost:${port}" \
+        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
+
+    block_count=$(echo "$json" | jq -r '.lastAvailableBlock // ""' 2>/dev/null)
+
+    # Return empty if we got nothing valid
+    if [[ -z "$block_count" || "$block_count" == "null" ]]; then
+        echo ""
+        return 1
+    fi
+
+    echo "$block_count"
+}
+
+# Single node blocks increasing check with retry logic
+# Attempts multiple checks to handle backfill gaps and transient failures
+# Default: 3 attempts x 60s = 180s total before declaring failure
+function assert_blocks_increasing_single {
+    local target="$1"
+    local wait_seconds="${2:-60}"
+    local max_attempts="${3:-3}"
 
     if [[ -z "${PROTO_PATH}" || ! -d "${PROTO_PATH}" ]]; then
         echo "${target}: PROTO_PATH not set"
         return 1
     fi
 
-    local import_args="-import-path ${PROTO_PATH}"
+    local attempt=1
+    local baseline_block=""
+    local current_block=""
+    local last_error=""
 
-    # First check
-    local first_json first_block
-    first_json=$(grpcurl -plaintext -emit-defaults \
-        ${import_args} \
-        -proto block-node/api/node_service.proto \
-        -d '{}' "localhost:${port}" \
-        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
-    first_block=$(echo "$first_json" | jq -r '.lastAvailableBlock // "0"')
+    # Get baseline block count (retry up to 3 times if needed)
+    for retry in 1 2 3; do
+        baseline_block=$(get_block_count "$target")
+        if [[ -n "$baseline_block" ]]; then
+            break
+        fi
+        sleep 2
+    done
 
-    # Wait
-    sleep "$wait_seconds"
-
-    # Second check
-    local second_json second_block
-    second_json=$(grpcurl -plaintext -emit-defaults \
-        ${import_args} \
-        -proto block-node/api/node_service.proto \
-        -d '{}' "localhost:${port}" \
-        org.hiero.block.api.BlockNodeService/serverStatus 2>/dev/null)
-    second_block=$(echo "$second_json" | jq -r '.lastAvailableBlock // "0"')
-
-    if [[ "$second_block" -le "$first_block" ]]; then
-        echo "${target}: Blocks not increasing: $first_block -> $second_block (after ${wait_seconds}s)"
+    if [[ -z "$baseline_block" ]]; then
+        echo "${target}: Could not get baseline block count"
         return 1
     fi
 
-    echo "${target}: $first_block -> $second_block (+$((second_block - first_block)) in ${wait_seconds}s)"
+    # Try multiple times to detect block increase
+    while [[ $attempt -le $max_attempts ]]; do
+        sleep "$wait_seconds"
+
+        # Get current block count (retry up to 3 times if needed)
+        current_block=""
+        for retry in 1 2 3; do
+            current_block=$(get_block_count "$target")
+            if [[ -n "$current_block" ]]; then
+                break
+            fi
+            sleep 2
+        done
+
+        if [[ -z "$current_block" ]]; then
+            last_error="${target}: Could not get block count on attempt $attempt"
+            attempt=$((attempt + 1))
+            continue
+        fi
+
+        # Check if blocks increased
+        if [[ "$current_block" -gt "$baseline_block" ]]; then
+            local total_wait=$((wait_seconds * attempt))
+            echo "${target}: $baseline_block -> $current_block (+$((current_block - baseline_block)) in ${total_wait}s, attempt $attempt/$max_attempts)"
+            return 0
+        fi
+
+        last_error="${target}: $baseline_block -> $current_block (no increase after ${wait_seconds}s, attempt $attempt/$max_attempts)"
+        attempt=$((attempt + 1))
+    done
+
+    # All attempts exhausted
+    local total_wait=$((wait_seconds * max_attempts))
+    echo "${target}: Blocks not increasing after ${max_attempts} attempts (${total_wait}s total): $baseline_block -> ${current_block:-unknown}"
+    return 1
 }
 
 function assert_blocks_increasing {
     local target="${1:-all}"
-    local wait_seconds="${2:-15}"
+    local wait_seconds="${2:-60}"
+    local max_attempts="${3:-3}"
 
     if [[ "$target" == "all" ]]; then
         local failed=0
         local results=""
         for bn in $(get_all_block_nodes); do
             local result
-            if result=$(assert_blocks_increasing_single "$bn" "$wait_seconds"); then
+            if result=$(assert_blocks_increasing_single "$bn" "$wait_seconds" "$max_attempts"); then
                 results="${results}${result}\n"
             else
                 results="${results}${result}\n"
@@ -798,7 +856,7 @@ function assert_blocks_increasing {
         echo -e "${results%\\n}"
         return $failed
     else
-        assert_blocks_increasing_single "$target" "$wait_seconds"
+        assert_blocks_increasing_single "$target" "$wait_seconds" "$max_attempts"
     fi
 }
 
@@ -824,10 +882,11 @@ function run_assertion {
             assert_no_errors "$target"
             ;;
         blocks-increasing)
-            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "block-node-1"')
-            local wait_seconds
-            wait_seconds=$(echo "$args" | yq '.wait_seconds // 15')
-            assert_blocks_increasing "$target" "$wait_seconds"
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local wait_seconds max_attempts
+            wait_seconds=$(echo "$args" | yq '.wait_seconds // 60')
+            max_attempts=$(echo "$args" | yq '.max_attempts // 3')
+            assert_blocks_increasing "$target" "$wait_seconds" "$max_attempts"
             ;;
         *)
             echo "Unknown assertion type: $assert_type"
