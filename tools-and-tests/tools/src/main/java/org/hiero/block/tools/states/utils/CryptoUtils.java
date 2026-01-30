@@ -28,9 +28,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
 import java.security.PublicKey;
-import java.security.SecureRandom;
 import java.security.spec.EncodedKeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
@@ -38,15 +36,22 @@ import org.hiero.block.tools.states.model.JKey;
 import org.hiero.block.tools.states.model.JKey.JKeyList;
 
 /**
- * Utility functions for cryptographic operations
+ * Utility functions for cryptographic operations, including public key serialization, message
+ * digest creation, and conversion of legacy {@link JKey} types into their modern protobuf
+ * {@link Key} equivalents.
  */
 public abstract class CryptoUtils {
-    /** the type of hash to use */
+    /** The hash algorithm used throughout the platform (SHA-384). */
     private static final String HASH_TYPE = "SHA-384";
-    // the algorithms and providers to use (AGR is key agreement, ENC is encryption, SIG is signatures)
+
+    /** Algorithm type for Elliptic Curve key agreement operations. */
     public static final String AGR_TYPE = "EC";
+
+    /** Algorithm type for Elliptic Curve encryption operations. */
     public static final String ENC_TYPE = "EC";
-    public static final String SIG_TYPE1 = "RSA"; // or RSA or SHA384withRSA
+
+    /** Algorithm type for RSA signature operations. */
+    public static final String SIG_TYPE1 = "RSA";
 
     /**
      * Convert the given public key into a byte array, in a format that bytesToPublicKey can read.
@@ -69,7 +74,7 @@ public abstract class CryptoUtils {
      * @return the public key represented by that byte array
      */
     public static PublicKey bytesToPublicKey(byte[] bytes, String keyType) {
-        PublicKey publicKey = null;
+        PublicKey publicKey;
         try {
             EncodedKeySpec publicKeySpec = new X509EncodedKeySpec(bytes);
             KeyFactory keyFactory = KeyFactory.getInstance(keyType);
@@ -94,9 +99,22 @@ public abstract class CryptoUtils {
     }
 
     /**
-     * Convert a JKey into a Key
+     * Converts a legacy {@link JKey} into a modern protobuf {@link Key}.
      *
-     * @return a Key converted from the given JKey
+     * <p>Supported {@link JKey} subtypes:
+     * <ul>
+     *   <li>{@link JKey.JEd25519Key} &rarr; {@link Key} with {@code ed25519} field</li>
+     *   <li>{@link JKey.JECDSA_384Key} &rarr; {@link Key} with {@code ecdsa384} field</li>
+     *   <li>{@link JKey.JRSA_3072Key} &rarr; {@link Key} with {@code rsa3072} field</li>
+     *   <li>{@link JKey.JContractIDKey} &rarr; {@link Key} with {@code contractID} field</li>
+     *   <li>{@link JKey.JKeyList} &rarr; {@link Key} with {@code keyList} field</li>
+     *   <li>{@link JKey.JThresholdKey} &rarr; {@link Key} with {@code thresholdKey} field</li>
+     * </ul>
+     *
+     * @param <K> the specific {@link JKey} subtype
+     * @param jKey the legacy key to convert
+     * @return the equivalent protobuf {@link Key}
+     * @throws IllegalArgumentException if the {@link JKey} subtype is not recognized
      */
     public static <K extends JKey> Key convertKey(K jKey) {
         return switch (jKey) {
@@ -127,9 +145,11 @@ public abstract class CryptoUtils {
     }
 
     /**
-     * Convert a JKeyList into a KeyList
+     * Converts a legacy {@link JKeyList} into a protobuf {@link KeyList} by recursively converting
+     * each contained {@link JKey} via {@link #convertKey(JKey)}.
      *
-     * @return a KeyList converted from the given JKeyList
+     * @param jKeyList the legacy key list to convert
+     * @return the equivalent protobuf {@link KeyList}
      */
     static KeyList convertKeyList(JKeyList jKeyList) {
         return new KeyList(

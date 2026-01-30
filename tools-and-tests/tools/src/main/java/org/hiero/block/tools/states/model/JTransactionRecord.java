@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import java.io.IOException;
 import java.io.DataInputStream;
+import java.io.IOException;
 
 public record JTransactionRecord(
         JTransactionReceipt txReceipt,
@@ -18,7 +18,6 @@ public record JTransactionRecord(
         // track deserialize version to ensure hash matches
         Long deserializedVersion) {
     private static final long LEGACY_VERSION_1 = 1;
-    private static final long LEGACY_VERSION_2 = 2;
     private static final long CURRENT_VERSION = 3;
 
     public static JTransactionRecord copyFrom(final DataInputStream inStream) {

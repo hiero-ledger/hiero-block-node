@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states;
 
+import static org.hiero.block.tools.states.MainnetOAState.reverseTransactions;
 import static org.hiero.block.tools.states.MirrorNodeTransaction.TRANSACTION_1;
 import static org.hiero.block.tools.states.MirrorNodeTransaction.TRANSACTION_2;
 import static org.hiero.block.tools.states.MirrorNodeTransaction.TRANSACTION_3;
 import static org.hiero.block.tools.states.model.SignedState.load;
-import static org.hiero.block.tools.states.MainnetOAState.reverseTransactions;
 
 import java.io.IOException;
 import java.nio.file.Path;

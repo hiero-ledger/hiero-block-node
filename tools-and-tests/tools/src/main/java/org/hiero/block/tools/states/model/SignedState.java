@@ -3,6 +3,8 @@ package org.hiero.block.tools.states.model;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
@@ -14,8 +16,6 @@ import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.zip.GZIPInputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import org.hiero.block.tools.states.utils.HashingOutputStream;
 import org.hiero.block.tools.states.utils.Utils;
 

@@ -23,8 +23,8 @@ public class MainnetOAState implements Runnable {
     /** Directory containing the saved state at the start of Hedera Mainnet Open Access (round 33485415) */
     public static String STATE_33485415_DIR_URL = "/saved-state-33485415";
     /** CSV file containing balances at the time of the saved state */
-    public static URL BALANCES_CSV_2019_09_13T22_URL = MainnetOAState.class.getResource(
-        "/2019-09-13T22_00_00.000081Z_Balances.csv.gz");
+    public static URL BALANCES_CSV_2019_09_13T22_URL =
+            MainnetOAState.class.getResource("/2019-09-13T22_00_00.000081Z_Balances.csv.gz");
 
     /** Load the state at the start of Hedera Mainnet Open Access (round 33485415) */
     public static List<BlockItem> loadOaState() {
@@ -32,7 +32,7 @@ public class MainnetOAState implements Runnable {
     }
 
     /** Holds balances from the CSV file for the date 2019-09-13T22:00:00.000081Z */
-    public static Map<Long, Long> loadAccountBalancesCsv(){
+    public static Map<Long, Long> loadAccountBalancesCsv() {
         return CsvAccountBalances.loadCsvBalances(BALANCES_CSV_2019_09_13T22_URL);
     }
 

@@ -2,52 +2,20 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
-import java.io.DataInputStream;
 
 public class JKey {
     private static final long LEGACY_VERSION = 1;
     private static final long BPACK_VERSION = 2;
 
-    public boolean hasEd25519Key() {
-        return false;
-    }
-
-    public boolean hasECDSA_383Key() {
-        return false;
-    }
-
-    public boolean hasRSA_3072Key() {
-        return false;
-    }
-
-    public boolean hasKeyList() {
-        return false;
-    }
-
-    public boolean hasThresholdKey() {
-        return false;
-    }
-
     public boolean hasContractID() {
         return false;
-    }
-
-    public JContractIDKey getContractIDKey() {
-        return null;
-    }
-
-    public JThresholdKey getThresholdKey() {
-        return null;
-    }
-
-    public JKeyList getKeyList() {
-        return null;
     }
 
     public byte[] getEd25519() {
@@ -85,7 +53,7 @@ public class JKey {
     }
 
     public static <T> T deserialize(byte[] objectData) {
-        return (T) deserialize((InputStream) (new ByteArrayInputStream(objectData)));
+        return deserialize(new ByteArrayInputStream(objectData));
     }
 
     public static <T> T deserialize(InputStream inputStream) {
@@ -95,6 +63,7 @@ public class JKey {
 
             Object var3;
             try {
+                @SuppressWarnings("unchecked")
                 T obj = (T) in.readObject();
                 var3 = obj;
             } catch (Throwable var5) {
@@ -115,8 +84,7 @@ public class JKey {
     }
 
     @SuppressWarnings("unchecked")
-    private static <T extends JKey> T unpack(DataInputStream stream, JObjectType type, long length)
-            throws IOException {
+    private static <T extends JKey> T unpack(DataInputStream stream, JObjectType type, long length) throws IOException {
 
         if (JObjectType.JEd25519Key.equals(type) || JObjectType.JECDSA_384Key.equals(type)) {
             byte[] key = new byte[(int) length];
@@ -180,8 +148,7 @@ public class JKey {
 
     public static class JKeyList extends JKey {
 
-        private static final long serialVersionUID = 1L;
-        private List<JKey> keys = null;
+        private final List<JKey> keys;
 
         public JKeyList(List<JKey> keys) {
             this.keys = keys;
@@ -192,23 +159,14 @@ public class JKey {
             return "<JKeyList: keys=" + keys.toString() + ">";
         }
 
-        public boolean hasKeyList() {
-            return true;
-        }
-
         public List<JKey> getKeysList() {
             return keys;
-        }
-
-        public JKeyList getKeyList() {
-            return this;
         }
     }
 
     public static class JRSA_3072Key extends JKey {
 
-        private static final long serialVersionUID = 1L;
-        private byte[] RSA_3072Key = null;
+        private final byte[] RSA_3072Key;
 
         public JRSA_3072Key(byte[] RSA_3072Key) {
             this.RSA_3072Key = RSA_3072Key;
@@ -219,34 +177,19 @@ public class JKey {
             return "<JRSA_3072Key: RSA_3072Key hex=" + HexFormat.of().formatHex(RSA_3072Key) + ">";
         }
 
-        public boolean hasRSA_3072Key() {
-            return true;
-        }
-
         public byte[] getRSA3072() {
             return RSA_3072Key;
         }
     }
 
     public static class JContractIDKey extends JKey {
-
-        private static final long serialVersionUID = 1L;
-        private long shardNum = 0; // the shard number (nonnegative)
-        private long realmNum = 0; // the realm number (nonnegative)
-        private long contractNum = 0; // a nonnegative number unique within its realm
-
-        public JContractIDKey getContractIDKey() {
-            return this;
-        }
+        private final long shardNum; // the shard number (nonnegative)
+        private final long realmNum; // the realm number (nonnegative)
+        private final long contractNum; // a nonnegative number unique within its realm
 
         public boolean hasContractID() {
             return true;
         }
-        //
-        //        public ContractID getContractID() {
-        //            return ContractID.newBuilder().setShardNum(shardNum).setRealmNum(realmNum)
-        //                    .setContractNum(contractNum).build();
-        //        }
 
         public JContractIDKey(long shardNum, long realmNum, long contractNum) {
             super();
@@ -275,8 +218,7 @@ public class JKey {
 
     public static class JECDSA_384Key extends JKey {
 
-        private static final long serialVersionUID = 1L;
-        private byte[] ECDSA_384Key = null;
+        private final byte[] ECDSA_384Key;
 
         public JECDSA_384Key(byte[] ECDSA_384Key) {
             this.ECDSA_384Key = ECDSA_384Key;
@@ -287,10 +229,6 @@ public class JKey {
             return "<JECDSA_384Key: ECDSA_384Key hex=" + HexFormat.of().formatHex(ECDSA_384Key) + ">";
         }
 
-        public boolean hasECDSA_384Key() {
-            return true;
-        }
-
         public byte[] getECDSA384() {
             return ECDSA_384Key;
         }
@@ -298,9 +236,8 @@ public class JKey {
 
     public static class JThresholdKey extends JKey {
 
-        private static final long serialVersionUID = 1L;
-        int threshold = 0;
-        private JKeyList keys = null;
+        private final int threshold;
+        private final JKeyList keys;
 
         public JThresholdKey(JKeyList keys, int threshold) {
             this.keys = keys;
@@ -310,14 +247,6 @@ public class JKey {
         @Override
         public String toString() {
             return "<JThresholdKey: thd=" + threshold + ", keys=" + keys.toString() + ">";
-        }
-
-        public boolean hasThresholdKey() {
-            return true;
-        }
-
-        public JThresholdKey getThresholdKey() {
-            return this;
         }
 
         public JKeyList getKeys() {

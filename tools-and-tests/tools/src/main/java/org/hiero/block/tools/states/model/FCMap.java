@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import org.hiero.block.tools.states.utils.Utils;
 
 public class FCMap<K, V> extends HashMap<K, V> {
@@ -34,17 +34,13 @@ public class FCMap<K, V> extends HashMap<K, V> {
 
     private byte[] rootHash;
     private FCMInternalNode<K, V> root;
-    private ParseFunction<K> keyDeserializer;
-    private ParseFunction<V> valueDeserializer;
+    private final ParseFunction<K> keyDeserializer;
+    private final ParseFunction<V> valueDeserializer;
 
     public FCMap(ParseFunction<K> keyDeserializer, ParseFunction<V> valueDeserializer) {
         super();
         this.keyDeserializer = keyDeserializer;
         this.valueDeserializer = valueDeserializer;
-    }
-
-    public byte[] rootHash() {
-        return rootHash;
     }
 
     public void copyFrom(DataInputStream inStream) throws IOException {
@@ -245,8 +241,6 @@ public class FCMap<K, V> extends HashMap<K, V> {
         outStream.write(rootHash);
         outStream.write(END_MARKER);
     }
-
-    private static final byte[] EMPTY_HASH = new byte[48];
 
     private byte[] computeByLevels() throws IOException {
         byte[] computedHash;

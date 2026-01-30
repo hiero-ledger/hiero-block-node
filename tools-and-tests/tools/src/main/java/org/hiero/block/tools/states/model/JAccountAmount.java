@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import java.io.IOException;
 import java.io.DataInputStream;
+import java.io.IOException;
 
 public record JAccountAmount(JAccountID accountID, long amount) {
     private static final long LEGACY_VERSION_1 = 1;

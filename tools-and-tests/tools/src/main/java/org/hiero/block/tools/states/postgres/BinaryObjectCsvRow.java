@@ -53,10 +53,9 @@ public record BinaryObjectCsvRow(long id, long refCount, byte[] hash, int fileId
      * @return a map of hex hash strings to BinaryObjectCsvRow objects
      */
     public static Map<String, BinaryObjectCsvRow> loadBinaryObjectsMap(URL csvUrl) {
-        try (BufferedReader reader =
-                new BufferedReader(new InputStreamReader(
-                    csvUrl.toString().endsWith(".gz") ? new GZIPInputStream(csvUrl.openStream()) : csvUrl.openStream(),
-                    StandardCharsets.UTF_8))) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                csvUrl.toString().endsWith(".gz") ? new GZIPInputStream(csvUrl.openStream()) : csvUrl.openStream(),
+                StandardCharsets.UTF_8))) {
             return parseLineToRow(reader.lines())
                     .collect(Collectors.toMap(BinaryObjectCsvRow::hexHash, Function.identity()));
         } catch (IOException e) {

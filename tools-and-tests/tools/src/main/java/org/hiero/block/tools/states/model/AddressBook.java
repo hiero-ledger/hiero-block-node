@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -8,8 +10,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.hiero.block.tools.states.utils.CryptoUtils;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 
 @SuppressWarnings("ForLoopReplaceableByForEach")
 public class AddressBook {

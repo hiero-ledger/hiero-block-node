@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import java.io.IOException;
 import java.io.DataInputStream;
+import java.io.IOException;
 
 public record StorageValue(BinaryObject data) {
     private static final long LEGACY_VERSION = 1;

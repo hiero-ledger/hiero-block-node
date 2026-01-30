@@ -22,6 +22,7 @@ import org.hiero.block.tools.states.model.JKey.JThresholdKey;
 import org.junit.jupiter.api.Test;
 
 /** Tests for {@link CryptoUtils}. */
+@SuppressWarnings("DataFlowIssue")
 class CryptoUtilsTest {
 
     // ==================== getMessageDigest ====================

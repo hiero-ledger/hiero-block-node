@@ -104,7 +104,7 @@ class UtilsTest {
         byte[] data = {10, 20, 30};
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream dos = new DataOutputStream(baos);
-        dos.writeInt(data.length);       // length
+        dos.writeInt(data.length); // length
         dos.writeInt(101 - data.length); // checksum
         dos.write(data);
         dos.flush();
@@ -120,7 +120,7 @@ class UtilsTest {
     void readByteArrayWithBadChecksumThrows() throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream dos = new DataOutputStream(baos);
-        dos.writeInt(3);   // length
+        dos.writeInt(3); // length
         dos.writeInt(999); // bad checksum
         dos.write(new byte[3]);
         dos.flush();

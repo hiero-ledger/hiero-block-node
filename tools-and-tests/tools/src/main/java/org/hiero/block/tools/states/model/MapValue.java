@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import java.io.IOException;
 import java.io.DataInputStream;
+import java.io.IOException;
 
 @SuppressWarnings({"ConstantValue", "DuplicatedCode"})
 public record MapValue(

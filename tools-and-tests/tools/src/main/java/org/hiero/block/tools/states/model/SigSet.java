@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import java.io.IOException;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.io.DataInputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import org.hiero.block.tools.states.utils.Utils;
 
 public final class SigSet {
@@ -28,25 +29,22 @@ public final class SigSet {
     public void copyFrom(DataInputStream inStream) throws IOException {
         classVersion = inStream.readLong();
         numMembers = inStream.readInt();
-        SigInfo[] sigInfoArr = new SigInfo[numMembers];
+        SigInfo[] sigInfoArr;
         try {
             sigInfoArr =
                     Utils.readFastCopyableArray(inStream, SigInfo::copyFrom).toArray(new SigInfo[0]);
-        } catch (Exception e) {
-            // TODO fix this to log the error, then rethrow.
-            e.printStackTrace();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
 
         count = 0;
         stakeCollected = 0;
         sigInfos = new AtomicReferenceArray<>(numMembers);
-        if (sigInfos != null) {
-            for (int id = 0; id < sigInfoArr.length; id++) {
-                if (sigInfoArr[id] != null) {
-                    sigInfos.set(id, sigInfoArr[id]);
-                    count++;
-                    stakeCollected += addressBook.getStake(id);
-                }
+        for (int id = 0; id < sigInfoArr.length; id++) {
+            if (sigInfoArr[id] != null) {
+                sigInfos.set(id, sigInfoArr[id]);
+                count++;
+                stakeCollected += addressBook.getStake(id);
             }
         }
         calculateComplete();
@@ -56,28 +54,12 @@ public final class SigSet {
         complete = Utils.isSupermajority(stakeCollected, addressBook.getTotalStake());
     }
 
-    public long classVersion() {
-        return classVersion;
-    }
-
     public int count() {
         return count;
     }
 
-    public long stakeCollected() {
-        return stakeCollected;
-    }
-
-    public int numMembers() {
-        return numMembers;
-    }
-
     public boolean complete() {
         return complete;
-    }
-
-    public AtomicReferenceArray<SigInfo> sigInfos() {
-        return sigInfos;
     }
 
     public AddressBook addressBook() {

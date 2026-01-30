@@ -10,6 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import org.junit.jupiter.api.Test;
 
 /** Tests for {@link HashingOutputStream}. */
+@SuppressWarnings("resource")
 class HashingOutputStreamTest {
 
     private MessageDigest newSha384() {

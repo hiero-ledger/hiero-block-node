@@ -33,7 +33,11 @@ import org.hiero.block.tools.states.model.DeserializeFunction;
 import org.hiero.block.tools.states.model.Deserializer;
 
 /**
- * This is a collection of static utility methods, such as for comparing and deep cloning of arrays.
+ * A collection of static utility methods for serialization and deserialization of primitive types,
+ * byte arrays, strings, and instants to and from {@link DataOutputStream}/{@link DataInputStream}.
+ *
+ * <p>These methods follow the Swirlds serialization conventions, including NFD-normalized UTF-8
+ * string encoding, checksummed byte array framing, and big-endian long encoding.
  */
 public class Utils {
 
@@ -62,7 +66,7 @@ public class Utils {
      * 		thrown if there are any problems during the operation
      */
     public static String readNormalisedString(DataInputStream in) throws IOException {
-        byte data[] = readByteArray(in);
+        final byte[] data = readByteArray(in);
         return new String(data, StandardCharsets.UTF_8);
     }
 
@@ -246,7 +250,14 @@ public class Utils {
         return data;
     }
 
-
+    /**
+     * Writes a string to the given stream after normalizing it to NFD form and encoding it as
+     * UTF-8. The resulting byte array is written using {@link #writeByteArray(DataOutputStream, byte[])}.
+     *
+     * @param out the stream to write to
+     * @param s the string to normalize and write; if {@code null}, an empty byte array is written
+     * @throws IOException if an I/O error occurs
+     */
     public static void writeNormalisedString(DataOutputStream out, String s) throws IOException {
         byte[] data = getNormalisedStringBytes(s);
         writeByteArray(out, data);
@@ -280,7 +291,17 @@ public class Utils {
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
-    /** read an Instant from a data stream and increment byteCount[0] by the number of bytes */
+    /**
+     * Reads an {@link Instant} from the given {@link DataInput} stream (epoch seconds followed by
+     * nanoseconds, each as a {@code long}) and increments the byte counter by the number of bytes
+     * consumed (16 bytes total).
+     *
+     * @param dis the data input stream to read from
+     * @param byteCount an array of length at least 1 whose first element is incremented by the
+     *        number of bytes read (2 &times; {@link Long#BYTES})
+     * @return the {@link Instant} that was read
+     * @throws IOException if an I/O error occurs
+     */
     public static Instant readInstant(DataInput dis, int[] byteCount) throws IOException {
         Instant time = Instant.ofEpochSecond( //
                 dis.readLong(), // from getEpochSecond()
@@ -289,7 +310,22 @@ public class Utils {
         return time;
     }
 
-    /** read a byte[] from a data stream and increment byteCount[0] by the number of bytes */
+    /**
+     * Reads a checksummed byte array from the given stream, verifying that the declared length does
+     * not exceed the specified maximum, and increments the byte counter accordingly.
+     *
+     * <p>The wire format is: {@code int length}, {@code int checksum} (must equal
+     * {@code 101 - length}), followed by {@code length} bytes of data.
+     *
+     * @param dis the data input stream to read from
+     * @param byteCount an array of length at least 1 whose first element is incremented by the
+     *        number of bytes read
+     * @param maxArrayLength the maximum allowed array length; a {@link RuntimeException} is thrown
+     *        if the declared length exceeds this value
+     * @return the byte array read from the stream
+     * @throws IOException if an I/O error occurs or the checksum does not match
+     * @throws RuntimeException if the declared length exceeds {@code maxArrayLength}
+     */
     static byte[] readByteArray(DataInputStream dis, int[] byteCount, int maxArrayLength) throws IOException {
         int len = dis.readInt();
         checkArrayLength(len, maxArrayLength);
@@ -308,6 +344,13 @@ public class Utils {
         return readByteArray(dis, byteCount, Integer.MAX_VALUE);
     }
 
+    /**
+     * Validates that the given array length does not exceed the maximum allowed length.
+     *
+     * @param len the declared array length
+     * @param maxArrayLength the maximum permitted length
+     * @throws RuntimeException if {@code len} exceeds {@code maxArrayLength}
+     */
     private static void checkArrayLength(int len, int maxArrayLength) {
         if (len > maxArrayLength) {
             throw new RuntimeException(
@@ -315,6 +358,18 @@ public class Utils {
         }
     }
 
+    /**
+     * Reads a byte array of the given length from the stream, first verifying a checksum integer
+     * that must equal {@code 101 - len}. Increments the byte counter by
+     * {@code 2 * Integer.BYTES + len} bytes.
+     *
+     * @param dis the data input stream to read from
+     * @param byteCount an array of length at least 1 whose first element is incremented by the
+     *        number of bytes consumed
+     * @param len the number of data bytes to read
+     * @return the byte array read from the stream
+     * @throws IOException if an I/O error occurs, the length is negative, or the checksum is invalid
+     */
     private static byte[] readByteArrayOfLength(DataInputStream dis, int[] byteCount, int len) throws IOException {
         int checksum = dis.readInt();
         if (len < 0 || checksum != (101 - len)) { // must be at wrong place in the stream
@@ -328,11 +383,13 @@ public class Utils {
     }
 
     /**
-     * Finds b = leftmost 1 bit in size (assuming size > 1)
+     * Finds the leftmost (most significant) set bit in the given value. For example,
+     * {@code findLeftMostBit(10)} returns {@code 8} (binary {@code 1000}), because 10 in binary
+     * is {@code 1010} and the highest set bit has value 8.
      *
-     * @param value
-     * 		> 1
-     * @return leftmost 1 bit
+     * @param value the value to examine; returns 0 if the value is 0
+     * @return a {@code long} with only the leftmost set bit of {@code value}, or 0 if
+     *         {@code value} is 0
      */
     public static long findLeftMostBit(final long value) {
         if (value == 0) {

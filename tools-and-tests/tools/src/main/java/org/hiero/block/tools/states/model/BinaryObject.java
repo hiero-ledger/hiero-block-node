@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.HexFormat;
-import java.io.DataInputStream;
 
 public final class BinaryObject {
     private static final long VERSION = 1L;

@@ -21,19 +21,23 @@ package org.hiero.block.tools.states.utils;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.security.MessageDigest;
-import org.jspecify.annotations.NonNull;
 
 /**
- * An OutputStream which creates a hash of all the bytes that go through it
+ * An {@link OutputStream} that computes a cryptographic hash of all bytes written through it.
+ *
+ * <p>This stream does not write data to any underlying destination; it only feeds the bytes into a
+ * {@link MessageDigest} for hash computation. After all data has been written, the caller can
+ * retrieve the final hash by calling {@link MessageDigest#digest()} on the digest instance that
+ * was provided at construction time.
  */
 public class HashingOutputStream extends OutputStream {
     MessageDigest md;
 
     /**
-     * A constructor used to create an OutputStream that only computes a hash.
+     * Creates a new {@code HashingOutputStream} that feeds all written bytes into the given
+     * {@link MessageDigest}.
      *
-     * @param md
-     * 		the MessageDigest object that does the hashing
+     * @param md the {@link MessageDigest} instance used to compute the hash of all written bytes
      */
     public HashingOutputStream(MessageDigest md) {
         super();
@@ -41,7 +45,11 @@ public class HashingOutputStream extends OutputStream {
     }
 
     /**
-     * @inheritDoc
+     * Writes a single byte to the message digest. The byte is the low-order 8 bits of the
+     * given {@code int} value.
+     *
+     * @param arg0 the byte value to hash (only the low-order 8 bits are used)
+     * @throws IOException if an I/O error occurs
      */
     @Override
     public void write(int arg0) throws IOException {
@@ -49,7 +57,15 @@ public class HashingOutputStream extends OutputStream {
     }
 
     /**
-     * @inheritDoc
+     * Writes a portion of a byte array to the message digest.
+     *
+     * @param b the byte array containing the data to hash
+     * @param off the start offset within the array
+     * @param len the number of bytes to hash
+     * @throws NullPointerException if {@code b} is {@code null}
+     * @throws IndexOutOfBoundsException if {@code off} or {@code len} is negative, or if
+     *         {@code off + len} exceeds the length of the array
+     * @throws IOException if an I/O error occurs
      */
     @Override
     public void write(byte b[], int off, int len) throws IOException {

@@ -18,8 +18,8 @@
 
 package org.hiero.block.tools.states.model;
 
-import java.io.IOException;
 import java.io.DataInputStream;
+import java.io.IOException;
 
 public interface Deserializer<T> {
     T deserialize(DataInputStream stream) throws IOException;

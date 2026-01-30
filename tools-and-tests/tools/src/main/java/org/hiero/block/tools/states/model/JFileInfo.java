@@ -4,11 +4,11 @@ package org.hiero.block.tools.states.model;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import java.io.DataInputStream;
 
 public record JFileInfo(boolean deleted, JKey wacl, long expirationTimeInSec) {
     private static final long BPACK_VERSION = 1;
 
+    @SuppressWarnings("unused")
     public static JFileInfo deserialize(byte[] bytes) {
         try (DataInputStream stream = new DataInputStream(new ByteArrayInputStream(bytes))) {
             long version = stream.readLong();

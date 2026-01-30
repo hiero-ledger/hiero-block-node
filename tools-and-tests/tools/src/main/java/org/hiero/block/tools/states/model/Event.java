@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
-import java.io.DataInputStream;
 import org.hiero.block.tools.states.utils.Utils;
 
 public record Event(

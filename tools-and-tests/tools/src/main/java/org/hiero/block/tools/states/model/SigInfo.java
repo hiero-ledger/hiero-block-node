@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.HexFormat;
-import java.io.DataInputStream;
 import org.hiero.block.tools.states.utils.Utils;
+import org.jspecify.annotations.NonNull;
 
 public record SigInfo(long classVersion, long round, long memberId, byte[] hash, byte[] sig) {
 
@@ -18,7 +19,7 @@ public record SigInfo(long classVersion, long round, long memberId, byte[] hash,
     }
 
     @Override
-    public String toString() {
+    public @NonNull String toString() {
         return "SigInfo[" + "classVersion="
                 + classVersion + ", round="
                 + round + ", memberId="

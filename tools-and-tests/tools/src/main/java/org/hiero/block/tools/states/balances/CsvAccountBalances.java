@@ -22,16 +22,16 @@ public class CsvAccountBalances {
      * @throws RuntimeException if an error occurs while reading the CSV file.
      */
     public static Map<Long, Long> loadCsvBalances(URL csvUrl) {
-        try (BufferedReader reader =
-            new BufferedReader(new InputStreamReader(
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 csvUrl.toString().endsWith(".gz") ? new GZIPInputStream(csvUrl.openStream()) : csvUrl.openStream(),
                 StandardCharsets.UTF_8))) {
-            return reader.lines().skip(2) // Skip date and header lines
-                .map(line -> line.split(","))
-                .collect(Collectors.toMap(
-                    parts -> parseLong(parts[2]), // Account ID
-                    parts -> parseLong(parts[3]) // Balance
-                ));
+            return reader.lines()
+                    .skip(2) // Skip date and header lines
+                    .map(line -> line.split(","))
+                    .collect(Collectors.toMap(
+                            parts -> parseLong(parts[2]), // Account ID
+                            parts -> parseLong(parts[3]) // Balance
+                            ));
         } catch (IOException e) {
             throw new RuntimeException("Failed to load balances from " + csvUrl, e);
         }

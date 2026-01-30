@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.DataInputStream;
 import java.io.IOException;
 import org.hiero.block.tools.states.postgres.BlobType;
-import java.io.DataInputStream;
 import org.hiero.block.tools.states.utils.Utils;
 
 public record StorageKey(String path) {
