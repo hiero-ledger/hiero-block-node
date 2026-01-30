@@ -69,13 +69,11 @@ STREAM_ERRORS="${STREAM_ERRORS:-0}"
 ITEM_QUEUE_PCT="${ITEM_QUEUE_PCT:-0}"
 NOTIF_QUEUE_PCT="${NOTIF_QUEUE_PCT:-0}"
 
-# Calculate avg block items per block
-if [[ "$BLOCKS_VERIFIED" != "0" && -n "$BLOCKS_VERIFIED" ]]; then
-  # Use awk for floating point arithmetic
-  AVG_ITEMS=$(awk "BEGIN {printf \"%.2f\", $BLOCK_ITEMS / $BLOCKS_VERIFIED}")
-else
-  AVG_ITEMS="N/A"
-fi
+# Calculate avg block items per block (use awk for numeric zero check)
+AVG_ITEMS=$(awk -v items="$BLOCK_ITEMS" -v verified="$BLOCKS_VERIFIED" 'BEGIN {
+  if (verified + 0 > 0) printf "%.2f", items / verified
+  else print "N/A"
+}')
 
 # Format queue percentages with % suffix
 ITEM_QUEUE_DISPLAY=$(awk "BEGIN {printf \"%.1f%%\", $ITEM_QUEUE_PCT}")

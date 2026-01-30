@@ -426,6 +426,10 @@ jobs:
             exit 1
           fi
 
+          # Brief cooldown to let streaming connections settle before grpcurl validation
+          echo "Waiting 15s for streaming connections to settle..."
+          sleep 15
+
       # ---- BN verification with grpcurl ----
       # Verify the BN is getting blocks
       - name: Get ServerStatus from Block Node
@@ -463,39 +467,67 @@ jobs:
 
       - name: Get first block from Block Node
         run: |
-          FIRST_BLOCK=$(grpcurl \
-            -plaintext \
-            -emit-defaults \
-            -max-msg-sz 268435456 \
-            -import-path protobuf-sources/proto \
-            -proto block-node/api/block_access_service.proto \
-            -d "{\"block_number\": $FIRST_AVAILABLE_BLOCK}" \
-            localhost:40840 \
-            org.hiero.block.api.BlockAccessService/getBlock \
-            | jq -r '.block.items[0].blockHeader.number')
-          if [ -z "FIRST_BLOCK" ]; then
-            echo "Error: FIRST_BLOCK is empty"
-            exit 1
-          fi
-          echo "FirstBlock is ${FIRST_BLOCK}"
+          # Retry logic for transient gRPC errors (e.g., flow control under load)
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $attempt of $MAX_RETRIES: Getting block $FIRST_AVAILABLE_BLOCK"
+            FIRST_BLOCK=$(grpcurl \
+              -plaintext \
+              -emit-defaults \
+              -max-msg-sz 268435456 \
+              -import-path protobuf-sources/proto \
+              -proto block-node/api/block_access_service.proto \
+              -d "{\"block_number\": $FIRST_AVAILABLE_BLOCK}" \
+              localhost:40840 \
+              org.hiero.block.api.BlockAccessService/getBlock 2>&1 \
+              | jq -r '.block.items[0].blockHeader.number' 2>/dev/null) || true
+
+            if [[ -n "$FIRST_BLOCK" && "$FIRST_BLOCK" != "null" ]]; then
+              echo "FirstBlock is ${FIRST_BLOCK}"
+              exit 0
+            fi
+
+            if [[ $attempt -lt $MAX_RETRIES ]]; then
+              echo "Retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            fi
+          done
+
+          echo "Error: Failed to get first block after $MAX_RETRIES attempts"
+          exit 1
 
       - name: Get last block from Block Node
         run: |
-          LAST_BLOCK=$(grpcurl \
-            -plaintext \
-            -emit-defaults \
-            -max-msg-sz 268435456 \
-            -import-path protobuf-sources/proto \
-            -proto block-node/api/block_access_service.proto \
-            -d "{\"block_number\": $LAST_AVAILABLE_BLOCK}" \
-            localhost:40840 \
-            org.hiero.block.api.BlockAccessService/getBlock \
-            | jq -r '.block.items[0].blockHeader.number')
-          if [ -z "LAST_BLOCK" ]; then
-            echo "Error: LAST_BLOCK is empty"
-            exit 1
-          fi
-          echo "LastBlock is ${LAST_BLOCK}"
+          # Retry logic for transient gRPC errors (e.g., flow control under load)
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $attempt of $MAX_RETRIES: Getting block $LAST_AVAILABLE_BLOCK"
+            LAST_BLOCK=$(grpcurl \
+              -plaintext \
+              -emit-defaults \
+              -max-msg-sz 268435456 \
+              -import-path protobuf-sources/proto \
+              -proto block-node/api/block_access_service.proto \
+              -d "{\"block_number\": $LAST_AVAILABLE_BLOCK}" \
+              localhost:40840 \
+              org.hiero.block.api.BlockAccessService/getBlock 2>&1 \
+              | jq -r '.block.items[0].blockHeader.number' 2>/dev/null) || true
+
+            if [[ -n "$LAST_BLOCK" && "$LAST_BLOCK" != "null" ]]; then
+              echo "LastBlock is ${LAST_BLOCK}"
+              exit 0
+            fi
+
+            if [[ $attempt -lt $MAX_RETRIES ]]; then
+              echo "Retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            fi
+          done
+
+          echo "Error: Failed to get last block after $MAX_RETRIES attempts"
+          exit 1
 
       - name: Validate first block on Mirror Node
         run: |
