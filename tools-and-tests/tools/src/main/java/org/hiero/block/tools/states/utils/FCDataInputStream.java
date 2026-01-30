@@ -14,7 +14,7 @@
  * ANY DAMAGES SUFFERED BY LICENSEE AS A RESULT OF USING, MODIFYING OR
  * DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES.
  */
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.states.utils;
 
 
 import java.io.DataInputStream;
@@ -74,7 +74,7 @@ public class FCDataInputStream extends DataInputStream {
 	 * 		thrown if there are any problems during the operation
 	 */
 	public String readNormalisedString() throws IOException {
-		byte data[] = DataStreamUtils.readByteArray(this);
+		byte[] data = DataStreamUtils.readByteArray(this);
 		return CommonUtils.getNormalisedStringFromBytes(data);
 	}
 }

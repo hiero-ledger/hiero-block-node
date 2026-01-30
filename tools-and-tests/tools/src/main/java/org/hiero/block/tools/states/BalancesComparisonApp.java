@@ -1,8 +1,8 @@
 package org.hiero.block.tools.states;
 
-import static org.hiero.block.tools.states.BalancesTools.reverseTransactions;
-import static org.hiero.block.tools.states.CsvBalances.BALANCES_CSV_2019_09_13T22;
-import static org.hiero.block.tools.states.Main.loadSignedState;
+import static org.hiero.block.tools.states.utils.BalancesTools.reverseTransactions;
+import static org.hiero.block.tools.states.utils.CsvBalances.BALANCES_CSV_2019_09_13T22;
+import static org.hiero.block.tools.states.model.SignedState.load;
 import static org.hiero.block.tools.states.MirrorNodeTransaction.TRANSACTION_1;
 import static org.hiero.block.tools.states.MirrorNodeTransaction.TRANSACTION_2;
 import static org.hiero.block.tools.states.MirrorNodeTransaction.TRANSACTION_3;
@@ -11,12 +11,13 @@ import org.hiero.block.tools.states.model.SignedState;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
+import org.hiero.block.tools.states.utils.BalancesTools;
 
 public class BalancesComparisonApp {
 
     public static SignedState loadSignedStateForRound(long round) throws IOException {
         final Path stateFile = Path.of("mainnet-data/"+round+"/SignedState.swh");
-        return loadSignedState(stateFile);
+        return load(stateFile);
     }
 
     public static void main(String[] args) throws IOException {

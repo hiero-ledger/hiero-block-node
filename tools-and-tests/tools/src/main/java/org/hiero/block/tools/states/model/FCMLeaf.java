@@ -1,7 +1,6 @@
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.FCDataInputStream;
-import org.hiero.block.tools.states.ParseFunction;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 import java.io.IOException;
 
 public record  FCMLeaf<K,V>(K key, V value) implements  FCMNode<K,V> {

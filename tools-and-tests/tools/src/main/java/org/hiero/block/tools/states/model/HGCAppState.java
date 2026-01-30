@@ -1,8 +1,8 @@
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.FCDataInputStream;
-import org.hiero.block.tools.states.FCDataOutputStream;
-import org.hiero.block.tools.states.Utilities;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.FCDataOutputStream;
+import org.hiero.block.tools.states.utils.Utilities;
 import java.io.IOException;
 import java.time.Instant;
 

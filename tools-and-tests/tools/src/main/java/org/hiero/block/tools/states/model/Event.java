@@ -1,7 +1,7 @@
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.FCDataInputStream;
-import org.hiero.block.tools.states.SyncUtils;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.SyncUtils;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;

@@ -1,5 +1,5 @@
 /*
- * (c) 2016-2018 Swirlds, Inc.
+ * (c) 2016-2019 Swirlds, Inc.
  *
  * This software is the confidential and proprietary information of
  * Swirlds, Inc. ("Confidential Information"). You shall not
@@ -15,27 +15,11 @@
  * DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES.
  */
 
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.states.model;
 
-public final class BitUtil {
+import java.io.IOException;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
 
-	/**
-	 * Finds b = leftmost 1 bit in size (assuming size > 1)
-	 *
-	 * @param value
-	 * 		> 1
-	 * @return leftmost 1 bit
-	 */
-	public static long findLeftMostBit(final long value) {
-		if (value == 0) {
-			return 0;
-		}
-
-		long leftMostBit = 1L << 62;
-		while ((value & leftMostBit) == 0) {
-			leftMostBit >>= 1;
-		}
-
-		return leftMostBit;
-	}
+public interface Deserializer<T> {
+	T deserialize(FCDataInputStream stream) throws IOException;
 }

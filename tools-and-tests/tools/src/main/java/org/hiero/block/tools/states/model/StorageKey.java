@@ -1,7 +1,7 @@
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.FCDataInputStream;
-import org.hiero.block.tools.states.Utilities;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.Utilities;
 import org.hiero.block.tools.states.postgres.BlobType;
 import java.io.IOException;
 

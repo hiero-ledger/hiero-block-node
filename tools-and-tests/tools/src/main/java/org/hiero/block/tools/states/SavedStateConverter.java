@@ -1,7 +1,6 @@
 package org.hiero.block.tools.states;
 
 
-import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
 import com.hedera.hapi.block.stream.output.MapChangeKey;
@@ -15,22 +14,29 @@ import com.hedera.hapi.node.base.AccountID.AccountOneOfType;
 import com.hedera.hapi.node.base.ContractID;
 import com.hedera.hapi.node.base.ContractID.ContractOneOfType;
 import com.hedera.hapi.node.base.FileID;
-import com.hedera.hapi.node.base.Key;
 import com.hedera.hapi.node.base.KeyList;
-import com.hedera.hapi.node.base.ThresholdKey;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.state.contract.Bytecode;
 import com.hedera.hapi.node.state.contract.SlotKey;
 import com.hedera.hapi.node.state.contract.SlotValue;
 import com.hedera.hapi.node.state.file.File;
 import com.hedera.hapi.node.state.token.Account;
-import org.hiero.block.tools.states.SmartContracts;
-import org.hiero.block.tools.states.SmartContracts.DataWordPair;
+import com.hedera.pbj.runtime.OneOf;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.stream.Collectors;
 import org.hiero.block.tools.states.model.FCMap;
 import org.hiero.block.tools.states.model.HGCAppState;
 import org.hiero.block.tools.states.model.JFileInfo;
-import org.hiero.block.tools.states.model.JKey;
-import org.hiero.block.tools.states.model.JKey.JKeyList;
 import org.hiero.block.tools.states.model.MapKey;
 import org.hiero.block.tools.states.model.MapValue;
 import org.hiero.block.tools.states.model.SignedState;
@@ -38,36 +44,84 @@ import org.hiero.block.tools.states.model.StorageKey;
 import org.hiero.block.tools.states.model.StorageValue;
 import org.hiero.block.tools.states.postgres.BinaryObjectCsvRow;
 import org.hiero.block.tools.states.postgres.BlobType;
-import com.hedera.pbj.runtime.OneOf;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
-import java.io.BufferedOutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.TreeMap;
-import java.util.stream.Collectors;
+import org.hiero.block.tools.states.postgres.SmartContractKVPairs;
+import org.hiero.block.tools.states.postgres.SmartContractKVPairs.DataWordPair;
+import org.hiero.block.tools.states.utils.CryptoUtils;
 
 /**
- *  1568411616.448357000 first transaction in block zero
- *  1568331900.310557000 round 33312259 saved state
+ *  Converter class to transform a SavedState (SignedState + binary objects) into block stream items
  */
-public class BlockStreamWriter {
+public class SavedStateConverter {
 
-    public static void writeBlockStream(String fileName, SignedState signedState,
+    /**
+     * Convert a saved state located in the given resource directory path into a list of BlockItems
+     * representing state changes
+     *
+     * @param resourceDirPath the resource directory path containing the saved state files
+     * @return list of BlockItems representing state changes
+     */
+    public static List<BlockItem> convertStateToStateChanges(String resourceDirPath) {
+        final URL signedStateUrl = SavedStateConverter.class.getResource(resourceDirPath+"/SignedState.swh.gz");
+        if(signedStateUrl == null) {
+            throw new IllegalArgumentException("Signed state resource not found at path: " + resourceDirPath+"/SignedState.swh.gz");
+        }
+        final URL binCsvUrl = SavedStateConverter.class.getResource(resourceDirPath+"/binary_objects.csv.gz");
+        if(binCsvUrl == null) {
+            throw new IllegalArgumentException("Binary objects CSV resource not found at path: " + resourceDirPath+"/binary_objects.csv.gz");
+        }
+        SignedState signedState;
+        try {
+            signedState= SignedState.load(signedStateUrl);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to load signed state from URL: " + signedStateUrl, e);
+        }
+        // load binary objects, try compressed first
+        Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap = BinaryObjectCsvRow.loadBinaryObjectsMap(binCsvUrl);
+        // convert to block items
+        return signedStateToStateChanges(signedState, binaryObjectByHexHashMap);
+    }
+
+    /**
+     * Convert a saved state located in the given directory path into a list of BlockItems
+     * representing state changes
+     *
+     * @param savedStateDir the directory path containing the saved state files
+     * @return list of BlockItems representing state changes
+     */
+    public static List<BlockItem> convertStateToStateChanges(Path savedStateDir) {
+        SignedState signedState;
+        // load signed state, try compressed first
+        final Path compressedStateFile = savedStateDir.resolve("SignedState.swh.gz");
+        final Path stateFile = Files.exists(compressedStateFile) ? compressedStateFile :
+            savedStateDir.resolve("SignedState.swh");
+        try {
+            signedState = SignedState.load(compressedStateFile);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to load signed state from file: " + compressedStateFile, e);
+        }
+        // load binary objects, try compressed first
+        Path compressedBinaryObjectsCsvFile = savedStateDir.resolve("binary_objects.csv.gz");
+        Path binaryObjectsCsvFile = Files.exists(compressedBinaryObjectsCsvFile) ? compressedBinaryObjectsCsvFile :
+            savedStateDir.resolve("binary_objects.csv");
+        Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap =
+            BinaryObjectCsvRow.loadBinaryObjectsMap(binaryObjectsCsvFile);
+        // convert to block items
+        return signedStateToStateChanges(signedState, binaryObjectByHexHashMap);
+    }
+
+    /**
+     * Convert a SignedState into a list of BlockItems representing state changes
+     *
+     * @param signedState the signed state to convert
+     * @param binaryObjectByHexHashMap map of binary objects by their hex hash. Loaded from Postgres export CSV
+     * @return list of BlockItems representing state changes
+     */
+    public static List<BlockItem> signedStateToStateChanges(SignedState signedState,
             Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap) {
         final HGCAppState state = signedState.state();
         final FCMap<StorageKey, StorageValue> storageMap = state.storageMap();
         final Timestamp consensusTimestamp = new Timestamp(signedState.consensusTimestamp().getEpochSecond(),
                 signedState.consensusTimestamp().getNano());
-        // Implementation for writing the block stream to a file
-        // This is a placeholder for the actual implementation
-        System.out.println("Writing block stream to " + fileName);
         // list to collect block items into
         final List<BlockItem> blockItems = new ArrayList<>();
         // start with converting accounts into state changes
@@ -82,7 +136,7 @@ public class BlockStreamWriter {
                             .tinybarBalance(mapValue.balance())
                             // TODO what are long receiverThreshold and long senderThreshold
                             .receiverSigRequired(mapValue.receiverSigRequired())
-                            .key(convertKey(mapValue.accountKeys()))
+                            .key(CryptoUtils.convertKey(mapValue.accountKeys()))
                             // TODO: Handle proxyAccount if needed
                             .autoRenewSeconds(mapValue.autoRenewPeriod())
                             .deleted(mapValue.deleted())
@@ -132,8 +186,6 @@ public class BlockStreamWriter {
             for (Entry<StorageKey, StorageValue> entry : entries) {
                 StorageKey key = entry.getKey();
                 StorageValue value = entry.getValue();
-                System.out.println("  0.0." + key.getId());
-                System.out.println("      Key: " + key + ", Value: " + value);
                 // try and find the binary object by hash
                 BinaryObjectCsvRow binaryObject = binaryObjectByHexHashMap.get(value.data().hash().hex());
                 if (binaryObject == null)  throw new IllegalStateException(
@@ -154,7 +206,7 @@ public class BlockStreamWriter {
                                         .value(MapChangeValue.newBuilder().fileValue(
                                                 File.newBuilder()
                                                         .fileId(fileId)
-                                                        .keys(new KeyList(List.of(convertKey(jFileInfo.wacl()))))
+                                                        .keys(new KeyList(List.of(CryptoUtils.convertKey(jFileInfo.wacl()))))
                                                         .contents(fileContents)
                                                         .expirationSecond(jFileInfo.expirationTimeInSec())
                                                         .deleted(jFileInfo.deleted())
@@ -178,14 +230,8 @@ public class BlockStreamWriter {
                         final ContractID contractId = new ContractID(0, 0,
                                 new OneOf<>(ContractOneOfType.CONTRACT_NUM, key.getId()));
                         // parse pairs from the binary object
-                        List<DataWordPair> pairs = SmartContracts.deserializeKeyValuePairs(binaryObject.fileContents());
+                        List<DataWordPair> pairs = SmartContractKVPairs.deserializeKeyValuePairs(binaryObject.fileContents());
                         // convert pairs to ContractSlot objects
-                        List<ContractSlot> slotEntries = pairs.stream()
-                                .map(pair -> new ContractSlot(
-                                        new SlotKey(contractId, Bytes.wrap(pair.key().data())),
-                                        Bytes.wrap(pair.value().data())
-                                ) )
-                                .toList();
                         for (int i = 0; i < pairs.size(); i++) {
                             DataWordPair previousPair = i > 0 ? pairs.get(i-1) : null;
                             DataWordPair currentPair = pairs.get(i);
@@ -210,73 +256,6 @@ public class BlockStreamWriter {
                 }
             }
         }
-
-
-        // create the block object with the collected block items
-        Block block = new Block(blockItems);
-        // write protobuf binary file
-        Path protobufFilePath = Path.of(fileName + ".blk");
-        try (WritableStreamingData out = new WritableStreamingData(new BufferedOutputStream(
-                Files.newOutputStream(protobufFilePath, StandardOpenOption.CREATE), 8 * 1024 * 1024))) {
-            Block.PROTOBUF.write(block, out);
-        } catch (Exception e) {
-            System.err.println("Error writing block stream: " + e.getMessage());
-            e.printStackTrace();
-        }
-        // write JSON file
-        Path jsonFilePath = Path.of(fileName + ".json");
-        try (WritableStreamingData out = new WritableStreamingData(new BufferedOutputStream(
-                Files.newOutputStream(jsonFilePath, StandardOpenOption.CREATE), 8 * 1024 * 1024))) {
-            Block.JSON.write(block, out);
-        } catch (Exception e) {
-            System.err.println("Error writing block stream JSON: " + e.getMessage());
-            e.printStackTrace();
-        }
+        return blockItems;
     }
-
-    static <K extends JKey> Key convertKey(K jKey) {
-        return switch (jKey) {
-            case JKey.JThresholdKey thresholdKey -> Key.newBuilder().thresholdKey(
-                    new ThresholdKey(thresholdKey.getThreshold(), convertKeyList(thresholdKey.getKeys()))
-                ).build();
-            case JKey.JEd25519Key ed25519Key ->  Key.newBuilder().ed25519(
-                    Bytes.wrap(ed25519Key.getEd25519())
-                ).build();
-            case JKey.JECDSA_384Key ed384Key -> Key.newBuilder().ecdsa384(
-                    Bytes.wrap(ed384Key.getECDSA384())
-                ).build();
-            case JKey.JRSA_3072Key jrsa3072Key -> Key.newBuilder().rsa3072(
-                    Bytes.wrap(jrsa3072Key.getRSA3072())
-                ).build();
-            case JKey.JContractIDKey contractIDKey -> Key.newBuilder().contractID(
-                    new ContractID(
-                        contractIDKey.getShardNum(),
-                        contractIDKey.getRealmNum(),
-                        new OneOf<>(ContractOneOfType.CONTRACT_NUM, contractIDKey.getContractNum())
-                    )
-                ).build();
-            case JKeyList keyList -> Key.newBuilder().keyList(
-                    convertKeyList(keyList)
-                ).build();
-            default -> throw new IllegalArgumentException("Unsupported JKey type: " + jKey.getClass().getSimpleName());
-        };
-    }
-
-    static KeyList convertKeyList(JKeyList jKeyList) {
-        return new KeyList(jKeyList.getKeysList().stream().map(BlockStreamWriter::convertKey).toList());
-    }
-
-
-    public static void printLargestAccounts(TreeMap<Long, AccountID>  accountBalances) {
-        // print first 100 largest account balances
-        System.out.println("\n=== Largest account balances ===============================================================");
-        accountBalances.entrySet().stream()
-                .sorted((e1, e2) -> Long.compare(e2.getKey(), e1.getKey())) // Sort by balance descending
-                .limit(100) // Limit to top 100
-                .forEach(entry -> {
-                    System.out.printf("     Account ID: %s, Balance: %d%n", entry.getValue(), entry.getKey());
-                });
-    }
-
-    public record ContractSlot(SlotKey slotKey, Bytes value) {}
 }

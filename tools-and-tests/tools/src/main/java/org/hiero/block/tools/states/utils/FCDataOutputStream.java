@@ -1,5 +1,5 @@
 /*
- * (c) 2016-2019 Swirlds, Inc.
+ * (c) 2016-2018 Swirlds, Inc.
  *
  * This software is the confidential and proprietary information of
  * Swirlds, Inc. ("Confidential Information"). You shall not
@@ -14,11 +14,22 @@
  * ANY DAMAGES SUFFERED BY LICENSEE AS A RESULT OF USING, MODIFYING OR
  * DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES.
  */
+package org.hiero.block.tools.states.utils;
 
-package org.hiero.block.tools.states;
+import java.io.DataOutputStream;
+import java.io.OutputStream;
 
-import java.io.IOException;
+/**
+ * A drop-in replacement for {@link DataOutputStream}, which handles FastCopyable classes specially. It
+ * doesn't add any new methods or variables that are public. It is designed for use with the FastCopyable
+ * interface, and its use is described there.
+ */
+public class FCDataOutputStream extends DataOutputStream {
 
-public interface Deserializer<T> {
-	T deserialize(FCDataInputStream stream) throws IOException;
+	/**
+	 * {@inheritDoc}
+	 */
+	public FCDataOutputStream(OutputStream out) {
+		super(out);
+	}
 }

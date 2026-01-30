@@ -15,7 +15,7 @@
  * DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES.
  */
 
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.states.utils;
 
 
 import java.awt.Dialog;

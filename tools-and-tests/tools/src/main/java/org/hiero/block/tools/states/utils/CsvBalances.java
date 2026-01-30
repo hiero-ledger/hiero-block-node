@@ -1,4 +1,4 @@
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.states.utils;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

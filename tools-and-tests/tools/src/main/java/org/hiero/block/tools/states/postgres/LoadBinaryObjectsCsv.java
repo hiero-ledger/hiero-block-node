@@ -1,6 +1,6 @@
 package org.hiero.block.tools.states.postgres;
 
-import static org.hiero.block.tools.states.Main.loadSignedState;
+import static org.hiero.block.tools.states.model.SignedState.load;
 
 import com.hedera.hapi.node.base.CurrentAndNextFeeSchedule;
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -79,7 +79,7 @@ public class LoadBinaryObjectsCsv {
         }
 
         final Path stateFile = Path.of("mainnet-data/33485415/SignedState.swh");
-        SignedState signedState = loadSignedState(stateFile);
+        SignedState signedState = load(stateFile);
         HGCAppState hgcAppState = signedState.state();
         FCMap<StorageKey, StorageValue> storageMap = hgcAppState.storageMap();
         // print storage map

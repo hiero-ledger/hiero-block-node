@@ -1,7 +1,7 @@
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.FCDataInputStream;
-import org.hiero.block.tools.states.FCDataOutputStream;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.FCDataOutputStream;
 import java.io.IOException;
 
 public record ExchangeRateSetWrapper(

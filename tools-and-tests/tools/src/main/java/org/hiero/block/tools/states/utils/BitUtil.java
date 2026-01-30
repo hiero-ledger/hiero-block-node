@@ -14,22 +14,28 @@
  * ANY DAMAGES SUFFERED BY LICENSEE AS A RESULT OF USING, MODIFYING OR
  * DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES.
  */
-package org.hiero.block.tools.states;
 
-import java.io.DataOutputStream;
-import java.io.OutputStream;
+package org.hiero.block.tools.states.utils;
 
-/**
- * A drop-in replacement for {@link DataOutputStream}, which handles FastCopyable classes specially. It
- * doesn't add any new methods or variables that are public. It is designed for use with the FastCopyable
- * interface, and its use is described there.
- */
-public class FCDataOutputStream extends DataOutputStream {
+public final class BitUtil {
 
 	/**
-	 * {@inheritDoc}
+	 * Finds b = leftmost 1 bit in size (assuming size > 1)
+	 *
+	 * @param value
+	 * 		> 1
+	 * @return leftmost 1 bit
 	 */
-	public FCDataOutputStream(OutputStream out) {
-		super(out);
+	public static long findLeftMostBit(final long value) {
+		if (value == 0) {
+			return 0;
+		}
+
+		long leftMostBit = 1L << 62;
+		while ((value & leftMostBit) == 0) {
+			leftMostBit >>= 1;
+		}
+
+		return leftMostBit;
 	}
 }

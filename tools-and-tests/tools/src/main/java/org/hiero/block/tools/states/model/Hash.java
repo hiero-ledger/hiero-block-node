@@ -1,6 +1,6 @@
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.Utilities;
+import org.hiero.block.tools.states.utils.Utilities;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.security.MessageDigest;

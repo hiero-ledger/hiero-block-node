@@ -15,8 +15,15 @@
  * DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES.
  */
 
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.states.utils;
 
+import com.hedera.hapi.node.base.ContractID;
+import com.hedera.hapi.node.base.ContractID.ContractOneOfType;
+import com.hedera.hapi.node.base.Key;
+import com.hedera.hapi.node.base.KeyList;
+import com.hedera.hapi.node.base.ThresholdKey;
+import com.hedera.pbj.runtime.OneOf;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -26,6 +33,8 @@ import java.security.SecureRandom;
 import java.security.spec.EncodedKeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
+import org.hiero.block.tools.states.model.JKey;
+import org.hiero.block.tools.states.model.JKey.JKeyList;
 
 public abstract class CryptoUtils {
 	/** the type of hash to use */
@@ -99,4 +108,35 @@ public abstract class CryptoUtils {
 		return SecureRandom.getInstance(PRNG_TYPE, PRNG_PROVIDER);
 	}
 
+    public static <K extends JKey> Key convertKey(K jKey) {
+        return switch (jKey) {
+            case JKey.JThresholdKey thresholdKey -> Key.newBuilder().thresholdKey(
+                    new ThresholdKey(thresholdKey.getThreshold(), convertKeyList(thresholdKey.getKeys()))
+                ).build();
+            case JKey.JEd25519Key ed25519Key ->  Key.newBuilder().ed25519(
+                    Bytes.wrap(ed25519Key.getEd25519())
+                ).build();
+            case JKey.JECDSA_384Key ed384Key -> Key.newBuilder().ecdsa384(
+                    Bytes.wrap(ed384Key.getECDSA384())
+                ).build();
+            case JKey.JRSA_3072Key jrsa3072Key -> Key.newBuilder().rsa3072(
+                    Bytes.wrap(jrsa3072Key.getRSA3072())
+                ).build();
+            case JKey.JContractIDKey contractIDKey -> Key.newBuilder().contractID(
+                    new ContractID(
+                        contractIDKey.getShardNum(),
+                        contractIDKey.getRealmNum(),
+                        new OneOf<>(ContractOneOfType.CONTRACT_NUM, contractIDKey.getContractNum())
+                    )
+                ).build();
+            case JKeyList keyList -> Key.newBuilder().keyList(
+                    convertKeyList(keyList)
+                ).build();
+            default -> throw new IllegalArgumentException("Unsupported JKey type: " + jKey.getClass().getSimpleName());
+        };
+    }
+
+    static KeyList convertKeyList(JKeyList jKeyList) {
+        return new KeyList(jKeyList.getKeysList().stream().map(CryptoUtils::convertKey).toList());
+    }
 }

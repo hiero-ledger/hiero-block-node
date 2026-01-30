@@ -1,9 +1,9 @@
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.states.postgres;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class SmartContracts {
+public class SmartContractKVPairs {
     private static int DWORD_BYTES = 32;
 
     public static List<DataWordPair> deserializeKeyValuePairs(byte[] serializedMap) {
@@ -21,12 +21,7 @@ public class SmartContracts {
         return cacheToPut;
     }
 
-    public record DataWordPair(DataWord key, DataWord value) {
-        public DataWordPair(DataWord key, DataWord value) {
-            this.key = key;
-            this.value = value;
-        }
-    }
+    public record DataWordPair(DataWord key, DataWord value) {}
 
     public record DataWord(byte[] data) {
         public static final int DATA_SIZE = 32;

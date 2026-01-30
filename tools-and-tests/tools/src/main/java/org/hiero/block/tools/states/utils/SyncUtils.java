@@ -14,7 +14,7 @@
  * ANY DAMAGES SUFFERED BY LICENSEE AS A RESULT OF USING, MODIFYING OR
  * DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES.
  */
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.states.utils;
 
 import java.io.DataInput;
 import java.io.DataInputStream;

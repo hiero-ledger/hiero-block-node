@@ -15,7 +15,7 @@
  * DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES.
  */
 
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.states.utils;
 
 
 import java.awt.Color;
@@ -35,6 +35,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
+import org.hiero.block.tools.states.model.DeserializeFunction;
+import org.hiero.block.tools.states.model.Deserializer;
 
 /**
  * This is a collection of static utility methods, such as for comparing and deep cloning of arrays.

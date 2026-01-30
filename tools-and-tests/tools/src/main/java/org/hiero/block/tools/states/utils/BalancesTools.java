@@ -1,5 +1,6 @@
-package org.hiero.block.tools.states;
+package org.hiero.block.tools.states.utils;
 
+import org.hiero.block.tools.states.MirrorNodeTransaction;
 import org.hiero.block.tools.states.model.SignedState;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -16,7 +17,7 @@ public class BalancesTools {
      * @param transactions the transactions to reverse, where each transaction contains transfers
      * @return a new map with the reversed balances
      */
-    public static Map<Long,Long> reverseTransactions(Map<Long,Long> originalBalances, MirrorNodeTransaction ... transactions) {
+    public static Map<Long,Long> reverseTransactions(Map<Long,Long> originalBalances, MirrorNodeTransaction... transactions) {
         return originalBalances.entrySet().stream()
                 .map(entry -> {
                     final long accountId = entry.getKey();
@@ -43,7 +44,7 @@ public class BalancesTools {
      * @param balances2 the second map of account balances
      * @param balances2Name the name of the second map (for printing)
      */
-    static void compareAccounts(Map<Long, Long> balances1, String balances1Name, Map<Long, Long> balances2,
+    public static void compareAccounts(Map<Long, Long> balances1, String balances1Name, Map<Long, Long> balances2,
             String balances2Name) {
         // compare the two maps, finding accounts that are in the state but not in the CSV and vice versa
         System.out.println("\n===========================================================================");

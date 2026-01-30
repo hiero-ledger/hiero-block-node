@@ -7,6 +7,7 @@ import org.hiero.block.tools.days.DaysCommand;
 import org.hiero.block.tools.metadata.MetadataCommand;
 import org.hiero.block.tools.mirrornode.MirrorNodeCommand;
 import org.hiero.block.tools.records.RecordsCommand;
+import org.hiero.block.tools.states.StatesCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
@@ -25,6 +26,7 @@ import picocli.CommandLine.Command;
             MirrorNodeCommand.class,
             MetadataCommand.class,
             NetworkCapacity.class,
+            StatesCommand.class,
         })
 public final class BlockStreamTool {
 

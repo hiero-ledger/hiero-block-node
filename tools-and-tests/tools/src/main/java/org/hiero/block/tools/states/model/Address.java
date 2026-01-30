@@ -1,7 +1,7 @@
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.CryptoUtils;
-import org.hiero.block.tools.states.Utilities;
+import org.hiero.block.tools.states.utils.CryptoUtils;
+import org.hiero.block.tools.states.utils.Utilities;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;

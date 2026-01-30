@@ -1,10 +1,15 @@
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.CryptoUtils;
-import org.hiero.block.tools.states.FCDataInputStream;
-import org.hiero.block.tools.states.FCDataOutputStream;
-import org.hiero.block.tools.states.HashingOutputStream;
-import org.hiero.block.tools.states.Utilities;
+import java.io.BufferedInputStream;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.zip.GZIPInputStream;
+import org.hiero.block.tools.states.utils.CryptoUtils;
+import org.hiero.block.tools.states.utils.FCDataInputStream;
+import org.hiero.block.tools.states.utils.FCDataOutputStream;
+import org.hiero.block.tools.states.utils.HashingOutputStream;
+import org.hiero.block.tools.states.utils.Utilities;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
@@ -33,6 +38,46 @@ public final class SignedState {
     private SigSet sigSet;
 
     public SignedState() {}
+
+    /**
+     * Load a SignedState from a URL, can be compressed (.gz) or uncompressed
+     *
+     * @param stateFileUrl the URL to the signed state file
+     * @return the loaded SignedState
+     * @throws IOException if an I/O error occurs
+     */
+    public static SignedState load(URL stateFileUrl) throws IOException {
+        SignedState signedState = new SignedState();
+        try (FCDataInputStream fin = new FCDataInputStream(
+            stateFileUrl.toString().endsWith(".gz") ?
+                new GZIPInputStream(new BufferedInputStream(stateFileUrl.openStream(), 1024 * 1024)) :
+                new BufferedInputStream(stateFileUrl.openStream(), 1024 * 1024)
+        )) {
+            signedState.copyFrom(fin);
+            signedState.copyFromExtra(fin);
+        }
+        return signedState;
+    }
+
+    /**
+     * Load a SignedState from a file, can be compressed (.gz) or uncompressed
+     *
+     * @param stateFile the path to the signed state file
+     * @return the loaded SignedState
+     * @throws IOException if an I/O error occurs
+     */
+    public static SignedState load(Path stateFile) throws IOException {
+        SignedState signedState = new SignedState();
+        try (FCDataInputStream fin = new FCDataInputStream(
+            stateFile.getFileName().toString().endsWith(".gz") ?
+                new GZIPInputStream(new BufferedInputStream(Files.newInputStream(stateFile), 1024 * 1024)) :
+                new BufferedInputStream(Files.newInputStream(stateFile), 1024 * 1024)
+        )) {
+            signedState.copyFrom(fin);
+            signedState.copyFromExtra(fin);
+        }
+        return signedState;
+    }
 
     public byte[] readHash() {
         return readHash;
@@ -116,7 +161,6 @@ public final class SignedState {
         state.copyFromExtra(inStream);
     }
 
-
     private static final  long roundsStale = 25;
     private List<Pair<Long, Long>> produceMinGenFromEvents() {
         long minGen = events[0].generation();
@@ -125,25 +169,6 @@ public final class SignedState {
             list.add(new Pair<>(i, minGen));
         }
         return list;
-    }
-
-    public byte[] generateSignedStateHash() {
-        MessageDigest digest = CryptoUtils.getMessageDigest();
-        byte[] swirldStateHash = generateSwirldStateHash(digest);
-        assert swirldStateHash != null;
-        System.out.println("swirldStateHash = " + HexFormat.of().formatHex(swirldStateHash));
-        digest.reset();
-
-        Hash.update(digest, this.round);
-        Hash.update(digest, consensusTimestamp);
-        Hash.update(digest, this.numEventsCons);
-        digest.update(this.hashEventsCons);
-        for (int i = 0; i < events.length; i++) {
-            digest.update(events[i].getHash());
-        }
-        digest.update(swirldStateHash);
-        digest.update(addressBook.getHash());
-        return digest.digest();
     }
 
     /**
