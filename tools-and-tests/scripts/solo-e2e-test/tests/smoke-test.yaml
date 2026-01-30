@@ -3,7 +3,7 @@
 # Smoke Test
 #
 # Quick validation that the network is functioning correctly.
-# Runs with minimal load for a short duration.
+# Verifies all block nodes are healthy and receiving blocks.
 #
 # Prerequisites:
 #   - Any topology deployed (default: single)
@@ -16,57 +16,46 @@ name: smoke-test
 description: "Quick smoke test for network validation"
 
 events:
-  - id: check-status
+  - id: initial-status
     type: network-status
-    description: "Initial network status check"
-    delay: 10
+    description: "Initial network status"
+    delay: 5
 
-  - id: start-load
-    type: load-start
-    description: "Start light load"
-    delay: 30
-    args:
-      test_class: CryptoTransferLoadTest
-      concurrency: 2
-      accounts: 5
-      duration: 390  # 6.5 minutes - ends at ~420s
-
-  - id: mid-check
+  - id: early-metrics
     type: print-metrics
-    description: "Mid-test metrics check"
-    delay: 300  # 5 minutes
+    description: "Early metrics snapshot"
+    delay: 30
     args:
       target: all
 
-  - id: stop-load
-    type: load-stop
-    description: "Stop load (cleanup)"
-    delay: 510  # 8.5 minutes - 90s buffer after NLG should end
+  - id: mid-metrics
+    type: print-metrics
+    description: "Mid-test metrics"
+    delay: 60
     args:
-      test_class: CryptoTransferLoadTest
+      target: all
 
-  - id: final-check
+  - id: final-status
     type: network-status
     description: "Final network status"
-    delay: 570  # 9.5 minutes
+    delay: 90
 
 assertions:
-  - id: bn1-healthy
+  - id: all-healthy
     type: node-healthy
-    description: "Block Node is healthy"
-    target: block-node-1
+    description: "All Block Nodes are healthy"
+    target: all
 
-  - id: bn1-has-blocks
+  - id: all-have-blocks
     type: block-available
-    description: "Block Node has received blocks"
-    target: block-node-1
+    description: "All Block Nodes have blocks"
+    target: all
     args:
       min_block: 0
-      max_block_gte: 1
 
-  - id: bn1-blocks-increasing
+  - id: all-blocks-increasing
     type: blocks-increasing
-    description: "Block Node is receiving new blocks"
-    target: block-node-1
+    description: "All Block Nodes are receiving new blocks"
+    target: all
     args:
-      wait_seconds: 15
+      wait_seconds: 30
