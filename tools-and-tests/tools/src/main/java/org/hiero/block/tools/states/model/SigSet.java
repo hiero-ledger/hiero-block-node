@@ -62,6 +62,18 @@ public final class SigSet {
         return complete;
     }
 
+    public int numMembers() {
+        return numMembers;
+    }
+
+    public SigInfo sigInfo(int index) {
+        return sigInfos.get(index);
+    }
+
+    public long stakeCollected() {
+        return stakeCollected;
+    }
+
     public AddressBook addressBook() {
         return addressBook;
     }

@@ -50,16 +50,14 @@ import picocli.CommandLine.Help.Ansi;
  *                                    1568412919.286477002     2019-09-13T22:15:19.286477Z
  * </pre>
  */
-@SuppressWarnings("DuplicatedCode")
-@Command(
-        name = "oa-state",
-        description = "Load and print the state at the start of Hedera Mainnet Open Access (round 33485415)")
-public class MainnetOAState implements Runnable {
+@SuppressWarnings({"DuplicatedCode", "unused"})
+@Command(name = "block-zero", description = "Load and validate the state at the start of Hedera Mainnet Block Zero")
+public class MainnetBlockZeroState implements Runnable {
     /** Directory containing the saved state at the start of Hedera Mainnet Open Access (round 33485415) */
     public static String STATE_33485415_DIR_URL = "/saved-state-33485415";
     /** CSV file containing balances at the time of the saved state */
     public static URL BALANCES_CSV_2019_09_13T22_URL =
-            MainnetOAState.class.getResource("/2019-09-13T22_00_00.000081Z_Balances.csv.gz");
+            MainnetBlockZeroState.class.getResource("/2019-09-13T22_00_00.000081Z_Balances.csv.gz");
 
     /** Cached state at the start of Hedera Mainnet Open Access (round 33485415) */
     private static CompleteSavedState state33485415;
@@ -211,17 +209,16 @@ public class MainnetOAState implements Runnable {
 
         // print header
         System.out.println();
-        System.out.println(Ansi.AUTO.string(
-                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println(Ansi.AUTO.string("@|bold,cyan   COMPARE ACCOUNTS|@"));
-        System.out.println(Ansi.AUTO.string(String.format(
-                "  @|bold %s|@  vs  @|bold %s|@", expectedBalancesName, comparingBalancesName)));
         System.out.println(Ansi.AUTO.string(
-                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+                String.format("  @|bold %s|@  vs  @|bold %s|@", expectedBalancesName, comparingBalancesName)));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
 
         // summary counts
-        System.out.println(Ansi.AUTO.string(String.format(
-                "  Matching accounts:    @|green %,d|@", matchingCount)));
+        System.out.println(Ansi.AUTO.string(String.format("  Matching accounts:    @|green %,d|@", matchingCount)));
         System.out.println(Ansi.AUTO.string(String.format(
                 "  Different balances:   @|%s %,d|@",
                 differentBalances.isEmpty() ? "green" : "red", differentBalances.size())));
@@ -234,43 +231,40 @@ public class MainnetOAState implements Runnable {
 
         // accounts only in expected
         if (!onlyInExpected.isEmpty()) {
-            System.out.println(Ansi.AUTO.string(
-                    "\n@|bold,yellow   ▶ Accounts only in " + expectedBalancesName + "|@"));
-            System.out.println(Ansi.AUTO.string(
-                    "@|yellow   ──────────────────────────────────────────────|@"));
-            onlyInExpected.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry ->
-                    System.out.println(Ansi.AUTO.string(String.format(
-                            "    Account @|cyan %8d|@  Balance: @|yellow %,18d|@",
-                            entry.getKey(), entry.getValue()))));
+            System.out.println(Ansi.AUTO.string("\n@|bold,yellow   ▶ Accounts only in " + expectedBalancesName + "|@"));
+            System.out.println(Ansi.AUTO.string("@|yellow   ──────────────────────────────────────────────|@"));
+            onlyInExpected.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> System.out.println(Ansi.AUTO.string(String.format(
+                            "    Account @|cyan %8d|@  Balance: @|yellow %,18d|@", entry.getKey(), entry.getValue()))));
         }
 
         // accounts only in comparing
         if (!onlyInComparing.isEmpty()) {
-            System.out.println(Ansi.AUTO.string(
-                    "\n@|bold,yellow   ▶ Accounts only in " + comparingBalancesName + "|@"));
-            System.out.println(Ansi.AUTO.string(
-                    "@|yellow   ──────────────────────────────────────────────|@"));
-            onlyInComparing.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry ->
-                    System.out.println(Ansi.AUTO.string(String.format(
-                            "    Account @|cyan %8d|@  Balance: @|yellow %,18d|@",
-                            entry.getKey(), entry.getValue()))));
+            System.out.println(
+                    Ansi.AUTO.string("\n@|bold,yellow   ▶ Accounts only in " + comparingBalancesName + "|@"));
+            System.out.println(Ansi.AUTO.string("@|yellow   ──────────────────────────────────────────────|@"));
+            onlyInComparing.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> System.out.println(Ansi.AUTO.string(String.format(
+                            "    Account @|cyan %8d|@  Balance: @|yellow %,18d|@", entry.getKey(), entry.getValue()))));
         }
 
         // accounts with different balances
         if (!differentBalances.isEmpty()) {
-            System.out.println(Ansi.AUTO.string(
-                    "\n@|bold,red   ▶ Accounts with different balances|@"));
-            System.out.println(Ansi.AUTO.string(
-                    "@|red   ──────────────────────────────────────────────|@"));
-            differentBalances.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
-                long accountId = entry.getKey();
-                long expected = entry.getValue();
-                long comparing = comparingBalances.get(accountId);
-                long diff = expected - comparing;
-                System.out.println(Ansi.AUTO.string(String.format(
-                        "    Account @|cyan %8d|@  Expected: @|yellow %,18d|@  Comparing: @|yellow %,18d|@  Diff: @|red %,+14d|@",
-                        accountId, expected, comparing, diff)));
-            });
+            System.out.println(Ansi.AUTO.string("\n@|bold,red   ▶ Accounts with different balances|@"));
+            System.out.println(Ansi.AUTO.string("@|red   ──────────────────────────────────────────────|@"));
+            differentBalances.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> {
+                        long accountId = entry.getKey();
+                        long expected = entry.getValue();
+                        long comparing = comparingBalances.get(accountId);
+                        long diff = expected - comparing;
+                        System.out.println(Ansi.AUTO.string(String.format(
+                                "    Account @|cyan %8d|@  Expected: @|yellow %,18d|@  Comparing: @|yellow %,18d|@  Diff: @|red %,+14d|@",
+                                accountId, expected, comparing, diff)));
+                    });
         }
 
         // overall result
@@ -279,8 +273,7 @@ public class MainnetOAState implements Runnable {
         } else {
             System.out.println(Ansi.AUTO.string("\n  @|bold,red ✗ Differences found|@"));
         }
-        System.out.println(Ansi.AUTO.string(
-                "@|blue ────────────────────────────────────────────────────────────|@"));
+        System.out.println(Ansi.AUTO.string("@|blue ────────────────────────────────────────────────────────────|@"));
     }
 
     /**
@@ -312,30 +305,28 @@ public class MainnetOAState implements Runnable {
         final var signedState = state.signedState();
         final var accountMap = signedState.state().accountMap();
         final var storageMap = signedState.state().storageMap();
-        final long totalBalance = accountMap.values().stream().mapToLong(MapValue::balance).sum();
+        final long totalBalance =
+                accountMap.values().stream().mapToLong(MapValue::balance).sum();
         final long numAccounts = accountMap.size();
         final long numBinaryObjects = state.binaryObjectByHexHashMap().size();
         final long numStorageEntries = storageMap.size();
 
-        System.out.println(Ansi.AUTO.string(
-                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println(Ansi.AUTO.string("@|bold,cyan   SAVED STATE SUMMARY: " + stateName + "|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(
+                Ansi.AUTO.string(String.format("  Round:                @|yellow %,d|@", signedState.round())));
         System.out.println(Ansi.AUTO.string(
-                "@|bold,cyan ════════════════════════════════════════════════════════════|@"));
-        System.out.println(Ansi.AUTO.string(String.format(
-                "  Round:                @|yellow %,d|@", signedState.round())));
-        System.out.println(Ansi.AUTO.string(String.format(
-                "  Consensus Timestamp:  @|cyan %s|@", signedState.consensusTimestamp())));
-        System.out.println(Ansi.AUTO.string(String.format(
-                "  Accounts:             @|yellow %,d|@", numAccounts)));
-        System.out.println(Ansi.AUTO.string(String.format(
-                "  Total Balance:        @|yellow %,d|@ tinybars", totalBalance)));
-        System.out.println(Ansi.AUTO.string(String.format(
-                "  Binary Objects:       @|yellow %,d|@", numBinaryObjects)));
-        System.out.println(Ansi.AUTO.string(String.format(
-                "  Storage KV Pairs:     @|yellow %,d|@", numStorageEntries)));
-        System.out.println(Ansi.AUTO.string(
-                "@|blue ────────────────────────────────────────────────────────────|@"));
+                String.format("  Consensus Timestamp:  @|cyan %s|@", signedState.consensusTimestamp())));
+        System.out.println(Ansi.AUTO.string(String.format("  Accounts:             @|yellow %,d|@", numAccounts)));
+        System.out.println(
+                Ansi.AUTO.string(String.format("  Total Balance:        @|yellow %,d|@ tinybars", totalBalance)));
+        System.out.println(Ansi.AUTO.string(String.format("  Binary Objects:       @|yellow %,d|@", numBinaryObjects)));
+        System.out.println(
+                Ansi.AUTO.string(String.format("  Storage KV Pairs:     @|yellow %,d|@", numStorageEntries)));
+        System.out.println(Ansi.AUTO.string("@|blue ────────────────────────────────────────────────────────────|@"));
     }
 
     @Override
@@ -343,7 +334,6 @@ public class MainnetOAState implements Runnable {
         try {
             // load the state at start of block zero
             final CompleteSavedState stateStartBlockZero = loadStartBlockZeroState();
-            final Map<Long, Long> stateStartBlockZeroBalances = getBalancesFromSignedState(stateStartBlockZero);
             printCompleteSavedStateSummary(stateStartBlockZero, "Start of Block 0 State");
             // apply the transaction changes from block zero
             final CompleteSavedState computedStateEndBlockZero =

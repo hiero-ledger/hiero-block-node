@@ -9,11 +9,11 @@ import picocli.CommandLine.Spec;
  * Top level command for working with saved state directories containing SignedState.swh etc.
  */
 @Command(
-        name = "records",
+        name = "states",
         description = "Tools for working with saved states directories",
         subcommands = {
             StateToJsonCommand.class,
-            MainnetOAState.class,
+            MainnetBlockZeroState.class,
         },
         mixinStandardHelpOptions = true)
 public class StatesCommand implements Runnable {

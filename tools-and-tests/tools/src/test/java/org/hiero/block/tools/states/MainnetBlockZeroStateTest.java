@@ -10,12 +10,12 @@ import java.util.List;
 import org.hiero.block.tools.states.model.CompleteSavedState;
 import org.junit.jupiter.api.Test;
 
-/** Tests for {@link MainnetOAState}. */
-class MainnetOAStateTest {
+/** Tests for {@link MainnetBlockZeroState}. */
+class MainnetBlockZeroStateTest {
 
     @Test
     void loadOaStateReturnsNonEmptyList() {
-        CompleteSavedState completeSavedState = assertDoesNotThrow(MainnetOAState::load33485415State);
+        CompleteSavedState completeSavedState = assertDoesNotThrow(MainnetBlockZeroState::load33485415State);
         assertNotNull(completeSavedState);
         List<BlockItem> blockItems = SavedStateConverter.signedStateToStateChanges(completeSavedState);
         assertFalse(blockItems.isEmpty(), "loadOaState should return a non-empty list of block items");

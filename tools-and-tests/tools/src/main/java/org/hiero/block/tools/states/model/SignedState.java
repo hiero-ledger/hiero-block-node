@@ -109,6 +109,10 @@ public final class SignedState {
         return consensusTimestamp;
     }
 
+    public SigSet sigSet() {
+        return sigSet;
+    }
+
     public void copyFrom(DataInputStream inStream) throws IOException {
         instanceVersion = inStream.readLong(); // classVersion
         if (instanceVersion != CLASS_VERSION) {
