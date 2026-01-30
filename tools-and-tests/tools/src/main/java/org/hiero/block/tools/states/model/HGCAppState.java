@@ -58,7 +58,6 @@ public class HGCAppState {
         if (version < LEGACY_VERSION || version > CURRENT_VERSION) {
             throw new IOException("Unsupported HGCAppState version: " + version);
         }
-        sequenceNum.copyFromExtra(DataInputStream);
         accountMap.copyFromExtra(DataInputStream);
         storageMap.copyFromExtra(DataInputStream);
     }
