@@ -19,8 +19,8 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public interface Deserializer<T> {
-    T deserialize(FCDataInputStream stream) throws IOException;
+    T deserialize(DataInputStream stream) throws IOException;
 }

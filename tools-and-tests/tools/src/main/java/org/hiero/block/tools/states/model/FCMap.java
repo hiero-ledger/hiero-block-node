@@ -6,9 +6,9 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import org.hiero.block.tools.states.utils.BitUtil;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.FCDataOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import org.hiero.block.tools.states.utils.Utils;
 
 public class FCMap<K, V> extends HashMap<K, V> {
     /** Expected length of root hash byte array */
@@ -47,7 +47,7 @@ public class FCMap<K, V> extends HashMap<K, V> {
         return rootHash;
     }
 
-    public void copyFrom(FCDataInputStream inStream) throws IOException {
+    public void copyFrom(DataInputStream inStream) throws IOException {
         final int beginMarker = inStream.readInt();
         if (BEGIN_MARKER_VALUE != beginMarker) {
             throw new IOException("The stream is not at the beginning of a serialized FCMap");
@@ -60,7 +60,7 @@ public class FCMap<K, V> extends HashMap<K, V> {
         }
     }
 
-    public void copyFromExtra(FCDataInputStream inStream) throws IOException {
+    public void copyFromExtra(DataInputStream inStream) throws IOException {
 
         final int beginMarker = inStream.readInt();
         if (BEGIN_MARKER_VALUE != beginMarker) {
@@ -117,7 +117,7 @@ public class FCMap<K, V> extends HashMap<K, V> {
         }
     }
 
-    public List<FCMLeaf<K, V>> copyTreeFrom(FCDataInputStream inputStream) throws IOException {
+    public List<FCMLeaf<K, V>> copyTreeFrom(DataInputStream inputStream) throws IOException {
         try {
             // Discard the version number
             inputStream.readLong();
@@ -144,7 +144,7 @@ public class FCMap<K, V> extends HashMap<K, V> {
     }
 
     private static <K, V> List<FCMNode<K, V>> generateInitialInternalNodes(final List<FCMLeaf<K, V>> leaves) {
-        final long sizeofLastCompleteLevel = BitUtil.findLeftMostBit(leaves.size());
+        final long sizeofLastCompleteLevel = Utils.findLeftMostBit(leaves.size());
         final long nextSizeOfLastCompleteLevel = sizeofLastCompleteLevel << 1;
         final long numberOfLeavesInUpperLevel = nextSizeOfLastCompleteLevel - leaves.size();
         final long numberOfLeavesAtTheBottom = leaves.size() - numberOfLeavesInUpperLevel;
@@ -196,14 +196,14 @@ public class FCMap<K, V> extends HashMap<K, V> {
         return internalNodes;
     }
 
-    private static byte[] deserializeRootHash(final FCDataInputStream inStream) throws IOException {
+    private static byte[] deserializeRootHash(final DataInputStream inStream) throws IOException {
         final byte[] rootHash = new byte[HASH_LENGTH];
         inStream.readFully(rootHash, 0, HASH_LENGTH);
         return rootHash;
     }
 
     // com.swirlds.map.internal.FCSerializer#deserializeBody
-    private List<FCMLeaf<K, V>> deserializeLeaves(final FCDataInputStream inputStream) throws IOException {
+    private List<FCMLeaf<K, V>> deserializeLeaves(final DataInputStream inputStream) throws IOException {
         final long numberOfLeaves = inputStream.readLong();
         final List<FCMLeaf<K, V>> leaves = new ArrayList<>((int) numberOfLeaves);
         System.out.println("Deserializing " + numberOfLeaves + " leaves");
@@ -239,7 +239,7 @@ public class FCMap<K, V> extends HashMap<K, V> {
         return leaves;
     }
 
-    public void copyTo(FCDataOutputStream outStream) throws IOException {
+    public void copyTo(DataOutputStream outStream) throws IOException {
         byte[] rootHash = computeByLevels();
         outStream.write(BEGIN_MARKER);
         outStream.write(rootHash);

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.postgres;
 
+/**
+ * Enum of blob types stored in the blob storage.
+ */
 public enum BlobType {
     FILE_DATA,
     FILE_METADATA,

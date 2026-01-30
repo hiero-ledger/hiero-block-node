@@ -3,8 +3,8 @@ package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicReferenceArray;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.Utilities;
+import java.io.DataInputStream;
+import org.hiero.block.tools.states.utils.Utils;
 
 public final class SigSet {
     private long classVersion;
@@ -25,13 +25,13 @@ public final class SigSet {
         stakeCollected = 0;
     }
 
-    public void copyFrom(FCDataInputStream inStream) throws IOException {
+    public void copyFrom(DataInputStream inStream) throws IOException {
         classVersion = inStream.readLong();
         numMembers = inStream.readInt();
         SigInfo[] sigInfoArr = new SigInfo[numMembers];
         try {
             sigInfoArr =
-                    Utilities.readFastCopyableArray(inStream, SigInfo::copyFrom).toArray(new SigInfo[0]);
+                    Utils.readFastCopyableArray(inStream, SigInfo::copyFrom).toArray(new SigInfo[0]);
         } catch (Exception e) {
             // TODO fix this to log the error, then rethrow.
             e.printStackTrace();
@@ -53,7 +53,7 @@ public final class SigSet {
     }
 
     private void calculateComplete() {
-        complete = Utilities.isSupermajority(stakeCollected, addressBook.getTotalStake());
+        complete = Utils.isSupermajority(stakeCollected, addressBook.getTotalStake());
     }
 
     public long classVersion() {

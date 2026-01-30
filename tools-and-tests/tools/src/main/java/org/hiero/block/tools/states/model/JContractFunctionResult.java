@@ -5,7 +5,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public record JContractFunctionResult(
         JAccountID contractID,
@@ -17,7 +17,7 @@ public record JContractFunctionResult(
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;
 
-    public static JContractFunctionResult deserialize(final FCDataInputStream inStream) throws IOException {
+    public static JContractFunctionResult deserialize(final DataInputStream inStream) throws IOException {
         final long version = inStream.readLong();
         if (version < LEGACY_VERSION_1 || version > CURRENT_VERSION) {
             throw new IllegalStateException("Illegal version was read from the stream");

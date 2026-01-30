@@ -3,14 +3,14 @@ package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
 import org.hiero.block.tools.states.postgres.BlobType;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.Utilities;
+import java.io.DataInputStream;
+import org.hiero.block.tools.states.utils.Utils;
 
 public record StorageKey(String path) {
     private static final long CURRENT_VERSION = 1;
     private static final long OBJECT_ID = 15487002;
 
-    public static StorageKey copyFrom(FCDataInputStream inStream) throws IOException {
+    public static StorageKey copyFrom(DataInputStream inStream) throws IOException {
         long version = inStream.readLong();
         if (version != CURRENT_VERSION) {
             throw new IOException("Unsupported StorageKey version: " + version);
@@ -20,7 +20,7 @@ public record StorageKey(String path) {
             throw new IOException("Unexpected StorageKey object ID: " + objectId);
         }
 
-        String path = Utilities.readNormalisedString(inStream);
+        String path = Utils.readNormalisedString(inStream);
         return new StorageKey(path);
     }
 

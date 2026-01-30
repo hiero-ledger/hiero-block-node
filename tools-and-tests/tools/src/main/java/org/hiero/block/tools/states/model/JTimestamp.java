@@ -2,13 +2,13 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public record JTimestamp(long seconds, int nano) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;
 
-    public static JTimestamp copyFrom(final FCDataInputStream inStream) throws IOException {
+    public static JTimestamp copyFrom(final DataInputStream inStream) throws IOException {
         long version = inStream.readLong();
         if (version < LEGACY_VERSION_1 || version > CURRENT_VERSION) {
             throw new IllegalStateException("Illegal version was read from the stream");

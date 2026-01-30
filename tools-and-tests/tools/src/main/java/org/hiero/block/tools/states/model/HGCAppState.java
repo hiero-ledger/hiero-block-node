@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.time.Instant;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.FCDataOutputStream;
-import org.hiero.block.tools.states.utils.Utilities;
+import org.hiero.block.tools.states.utils.Utils;
 
 public class HGCAppState {
     /** since version4, ExchangeRateSetWrapper is saved in state */
@@ -30,59 +30,59 @@ public class HGCAppState {
         return storageMap;
     }
 
-    public HGCAppState copyFrom(FCDataInputStream fcDataInputStream) throws IOException {
-        long savedVersion = fcDataInputStream.readLong();
-        sequenceNum = SequenceNumber.copyFrom(fcDataInputStream);
-        addressBook.copyFrom(fcDataInputStream);
-        accountMap.copyFrom(fcDataInputStream);
-        storageMap.copyFrom(fcDataInputStream);
+    public HGCAppState copyFrom(DataInputStream DataInputStream) throws IOException {
+        long savedVersion = DataInputStream.readLong();
+        sequenceNum = SequenceNumber.copyFrom(DataInputStream);
+        addressBook.copyFrom(DataInputStream);
+        accountMap.copyFrom(DataInputStream);
+        storageMap.copyFrom(DataInputStream);
 
         if (savedVersion >= VERSION_WITH_EXCHANGE_RATE) {
-            if (fcDataInputStream.readBoolean()) {
-                exchangeRateSetWrapper = ExchangeRateSetWrapper.copyFrom(fcDataInputStream);
+            if (DataInputStream.readBoolean()) {
+                exchangeRateSetWrapper = ExchangeRateSetWrapper.copyFrom(DataInputStream);
                 System.out.println(
                         "Loaded exchange rates from state via HGCAppState::copyFrom() - " + exchangeRateSetWrapper);
             } else {
                 System.out.println("No exchange rates were loaded from state via HGCAppState::copyFrom()");
             }
 
-            if (fcDataInputStream.readBoolean()) {
-                lastHandleTxConsensusTime = Utilities.readInstant(fcDataInputStream);
+            if (DataInputStream.readBoolean()) {
+                lastHandleTxConsensusTime = Utils.readInstant(DataInputStream);
             }
         }
         return this;
     }
 
-    public void copyFromExtra(FCDataInputStream fcDataInputStream) throws IOException {
-        long version = fcDataInputStream.readLong();
+    public void copyFromExtra(DataInputStream DataInputStream) throws IOException {
+        long version = DataInputStream.readLong();
         if (version < LEGACY_VERSION || version > CURRENT_VERSION) {
             throw new IOException("Unsupported HGCAppState version: " + version);
         }
-        sequenceNum.copyFromExtra(fcDataInputStream);
-        accountMap.copyFromExtra(fcDataInputStream);
-        storageMap.copyFromExtra(fcDataInputStream);
+        sequenceNum.copyFromExtra(DataInputStream);
+        accountMap.copyFromExtra(DataInputStream);
+        storageMap.copyFromExtra(DataInputStream);
     }
 
-    public synchronized void copyTo(FCDataOutputStream fcDataOutputStream) throws IOException {
-        fcDataOutputStream.writeLong(CURRENT_VERSION);
-        // fcFileSystem.copyTo(fcDataOutputStream);
-        sequenceNum.copyTo(fcDataOutputStream);
-        addressBook.copyTo(fcDataOutputStream);
-        accountMap.copyTo(fcDataOutputStream);
-        storageMap.copyTo(fcDataOutputStream);
+    public synchronized void copyTo(DataOutputStream DataOutputStream) throws IOException {
+        DataOutputStream.writeLong(CURRENT_VERSION);
+        // fcFileSystem.copyTo(DataOutputStream);
+        sequenceNum.copyTo(DataOutputStream);
+        addressBook.copyTo(DataOutputStream);
+        accountMap.copyTo(DataOutputStream);
+        storageMap.copyTo(DataOutputStream);
 
         if (exchangeRateSetWrapper == null) {
-            fcDataOutputStream.writeBoolean(false);
+            DataOutputStream.writeBoolean(false);
         } else {
-            fcDataOutputStream.writeBoolean(true);
-            exchangeRateSetWrapper.copyTo(fcDataOutputStream);
+            DataOutputStream.writeBoolean(true);
+            exchangeRateSetWrapper.copyTo(DataOutputStream);
         }
 
         if (lastHandleTxConsensusTime == null) {
-            fcDataOutputStream.writeBoolean(false);
+            DataOutputStream.writeBoolean(false);
         } else {
-            fcDataOutputStream.writeBoolean(true);
-            Utilities.writeInstant(fcDataOutputStream, lastHandleTxConsensusTime);
+            DataOutputStream.writeBoolean(true);
+            Utils.writeInstant(DataOutputStream, lastHandleTxConsensusTime);
         }
     }
 }

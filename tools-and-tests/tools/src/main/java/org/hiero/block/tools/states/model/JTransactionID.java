@@ -2,13 +2,13 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public record JTransactionID(JAccountID payerAccount, JTimestamp startTime) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;
 
-    public static JTransactionID copyFrom(final FCDataInputStream inStream) throws IOException {
+    public static JTransactionID copyFrom(final DataInputStream inStream) throws IOException {
         JAccountID payerAccount = null;
         JTimestamp startTime = null;
 

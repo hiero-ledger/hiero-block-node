@@ -4,7 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public record JFileInfo(boolean deleted, JKey wacl, long expirationTimeInSec) {
     private static final long BPACK_VERSION = 1;
@@ -25,7 +25,7 @@ public record JFileInfo(boolean deleted, JKey wacl, long expirationTimeInSec) {
             boolean deleted = stream.readBoolean();
             long expirationTime = stream.readLong();
             byte[] key = stream.readAllBytes();
-            final JKey wacl = JKey.copyFrom(new FCDataInputStream(new ByteArrayInputStream(key)));
+            final JKey wacl = JKey.copyFrom(new DataInputStream(new ByteArrayInputStream(key)));
             return new JFileInfo(deleted, wacl, expirationTime);
         } catch (IOException e) {
             throw new RuntimeException("Error in deserialization of JFileInfo!", e);

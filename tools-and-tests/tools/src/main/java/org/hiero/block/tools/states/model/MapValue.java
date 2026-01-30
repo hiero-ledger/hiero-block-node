@@ -2,7 +2,7 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 @SuppressWarnings({"ConstantValue", "DuplicatedCode"})
 public record MapValue(
@@ -24,7 +24,7 @@ public record MapValue(
     private static final long CURRENT_VERSION = 4;
     private static final long OBJECT_ID = 15487001;
 
-    public static MapValue copyFrom(FCDataInputStream inStream) throws IOException {
+    public static MapValue copyFrom(DataInputStream inStream) throws IOException {
         long balance = 0L;
         long receiverThreshold = 0;
         long senderThreshold = 0;

@@ -8,7 +8,7 @@ import java.io.ObjectInputStream;
 import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public class JKey {
     private static final long LEGACY_VERSION = 1;
@@ -62,7 +62,7 @@ public class JKey {
         return null;
     }
 
-    public static <T extends JKey> T copyFrom(FCDataInputStream stream) throws IOException {
+    public static <T extends JKey> T copyFrom(DataInputStream stream) throws IOException {
         long version = stream.readLong();
         if (version < LEGACY_VERSION || version > BPACK_VERSION) {
             throw new IOException("Unsupported JKey version: " + version);
@@ -115,7 +115,7 @@ public class JKey {
     }
 
     @SuppressWarnings("unchecked")
-    private static <T extends JKey> T unpack(FCDataInputStream stream, JObjectType type, long length)
+    private static <T extends JKey> T unpack(DataInputStream stream, JObjectType type, long length)
             throws IOException {
 
         if (JObjectType.JEd25519Key.equals(type) || JObjectType.JECDSA_384Key.equals(type)) {

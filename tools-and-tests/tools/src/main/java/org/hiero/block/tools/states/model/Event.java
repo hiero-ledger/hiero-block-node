@@ -4,8 +4,8 @@ package org.hiero.block.tools.states.model;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.SyncUtils;
+import java.io.DataInputStream;
+import org.hiero.block.tools.states.utils.Utils;
 
 public record Event(
         long creatorId,
@@ -30,7 +30,7 @@ public record Event(
         boolean lastInRoundReceived,
         boolean abbreviated) {
 
-    public static Event readFrom(FCDataInputStream dis, Map<CreatorSeqPair, Event> eventsByCreatorSeq)
+    public static Event readFrom(DataInputStream dis, Map<CreatorSeqPair, Event> eventsByCreatorSeq)
             throws IOException {
         int[] byteCount = new int[1];
 
@@ -43,8 +43,8 @@ public record Event(
         // event.transactions = SyncUtils.readByteArray2d(dis, byteCount);
         // event.sysTransaction = SyncUtils.readBooleanArray(dis, byteCount);
 
-        Instant timeCreated = SyncUtils.readInstant(dis, byteCount);
-        byte[] signature = SyncUtils.readByteArray(dis, byteCount);
+        Instant timeCreated = Utils.readInstant(dis, byteCount);
+        byte[] signature = Utils.readByteArray(dis, byteCount);
 
         // find the parents if they exist
         Event selfParent = eventsByCreatorSeq.get(new CreatorSeqPair(creatorId, creatorSeq - 1));
@@ -57,7 +57,7 @@ public record Event(
 
         // event.creator = platform.getAddress(event.creatorId);
         creatorSeq = dis.readLong();
-        Instant timeReceived = SyncUtils.readInstant(dis, byteCount);
+        Instant timeReceived = Utils.readInstant(dis, byteCount);
         long generation = dis.readLong();
         long roundCreated = dis.readLong();
 
@@ -66,7 +66,7 @@ public record Event(
         boolean isFamous = dis.readBoolean();
         boolean isConsensus = dis.readBoolean();
 
-        Instant consensusTimestamp = SyncUtils.readInstant(dis, byteCount);
+        Instant consensusTimestamp = Utils.readInstant(dis, byteCount);
 
         long roundReceived = dis.readLong();
         long consensusOrder = dis.readLong();

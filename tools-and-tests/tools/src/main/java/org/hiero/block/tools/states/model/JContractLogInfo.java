@@ -4,13 +4,13 @@ package org.hiero.block.tools.states.model;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public record JContractLogInfo(JAccountID contractID, byte[] bloom, byte[] data, List<byte[]> topic) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;
 
-    public static JContractLogInfo copyFrom(FCDataInputStream inStream) throws IOException {
+    public static JContractLogInfo copyFrom(DataInputStream inStream) throws IOException {
         JAccountID contractID;
         byte[] bloom;
         byte[] data;

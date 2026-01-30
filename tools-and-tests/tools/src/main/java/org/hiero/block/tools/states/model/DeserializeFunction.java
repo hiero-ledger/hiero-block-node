@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public interface DeserializeFunction<T extends Record> {
-    T deserialize(FCDataInputStream inStream) throws java.io.IOException;
+    T deserialize(DataInputStream inStream) throws java.io.IOException;
 }

@@ -7,7 +7,7 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.PublicKey;
 import org.hiero.block.tools.states.utils.CryptoUtils;
-import org.hiero.block.tools.states.utils.Utilities;
+import org.hiero.block.tools.states.utils.Utils;
 
 public record Address(
         long id,
@@ -33,8 +33,8 @@ public record Address(
     public void updateHash(MessageDigest md) {
         // UTF-8 is supported by all Java implementations
         Hash.update(md, id);
-        md.update(Utilities.getNormalisedStringBytes(nickname));
-        md.update(Utilities.getNormalisedStringBytes(selfName));
+        md.update(Utils.getNormalisedStringBytes(nickname));
+        md.update(Utils.getNormalisedStringBytes(selfName));
         Hash.update(md, stake);
         // ownHost should not be included because different platforms will have different hashes
         if (addressInternalIpv4 != null) {
@@ -77,8 +77,8 @@ public record Address(
     public static Address readAddress(DataInputStream inStream) throws IOException {
         return new Address( //
                 inStream.readLong(), // id
-                Utilities.readNormalisedString(inStream), // nickname
-                Utilities.readNormalisedString(inStream), // selfName
+                Utils.readNormalisedString(inStream), // nickname
+                Utils.readNormalisedString(inStream), // selfName
                 inStream.readLong(), // stake
                 false, // ownHost
                 // XXX ownHost needs to be set for each node when being read
@@ -93,13 +93,13 @@ public record Address(
                 CryptoUtils.bytesToPublicKey(readBytes(inStream), CryptoUtils.SIG_TYPE1), // sigPublicKey
                 CryptoUtils.bytesToPublicKey(readBytes(inStream), CryptoUtils.ENC_TYPE), // encPublicKey
                 CryptoUtils.bytesToPublicKey(readBytes(inStream), CryptoUtils.AGR_TYPE), // agreePublicKey
-                Utilities.readNormalisedString(inStream)); // memo
+                Utils.readNormalisedString(inStream)); // memo
     }
 
     public void writeAddress(DataOutputStream outStream) throws IOException {
         outStream.writeLong(id);
-        Utilities.writeNormalisedString(outStream, nickname);
-        Utilities.writeNormalisedString(outStream, selfName);
+        Utils.writeNormalisedString(outStream, nickname);
+        Utils.writeNormalisedString(outStream, selfName);
         outStream.writeLong(stake);
         // this should not be written because it can differ on different nodes
         // outStream.writeBoolean(ownHost);
@@ -114,7 +114,7 @@ public record Address(
         writeBytes(outStream, CryptoUtils.publicKeyToBytes(sigPublicKey));
         writeBytes(outStream, CryptoUtils.publicKeyToBytes(encPublicKey));
         writeBytes(outStream, CryptoUtils.publicKeyToBytes(agreePublicKey));
-        Utilities.writeNormalisedString(outStream, memo);
+        Utils.writeNormalisedString(outStream, memo);
     }
 
     private static void writeBytes(DataOutputStream outStream, byte[] data) throws IOException {

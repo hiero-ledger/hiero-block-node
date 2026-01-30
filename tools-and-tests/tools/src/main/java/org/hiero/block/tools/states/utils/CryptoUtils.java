@@ -37,24 +37,16 @@ import java.security.spec.X509EncodedKeySpec;
 import org.hiero.block.tools.states.model.JKey;
 import org.hiero.block.tools.states.model.JKey.JKeyList;
 
+/**
+ * Utility functions for cryptographic operations
+ */
 public abstract class CryptoUtils {
     /** the type of hash to use */
     private static final String HASH_TYPE = "SHA-384";
-
-    private static final String PRNG_TYPE = "SHA1PRNG";
-    private static final String PRNG_PROVIDER = "SUN";
-
     // the algorithms and providers to use (AGR is key agreement, ENC is encryption, SIG is signatures)
     public static final String AGR_TYPE = "EC";
-    public static final String AGR_PROVIDER = "SunEC";
-    // final static ObjectIdentifier AGR_ALG_ID = AlgorithmId.sha384WithECDSA_oid;
-
     public static final String ENC_TYPE = "EC";
-    public static final String ENC_PROVIDER = "SunEC";
-    // final static ObjectIdentifier ENC_ALG_ID = AlgorithmId.sha384WithECDSA_oid;
-
     public static final String SIG_TYPE1 = "RSA"; // or RSA or SHA384withRSA
-    public static final String SIG_PROVIDER = "SunRsaSign";
 
     /**
      * Convert the given public key into a byte array, in a format that bytesToPublicKey can read.
@@ -95,19 +87,6 @@ public abstract class CryptoUtils {
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    /**
-     * Create an instance of the default deterministic {@link SecureRandom}
-     *
-     * @return an instance of {@link SecureRandom}
-     * @throws NoSuchProviderException
-     * 		if the security provider is not available on the system
-     * @throws NoSuchAlgorithmException
-     * 		if the algorithm is not available on the system
-     */
-    public static SecureRandom getDetRandom() throws NoSuchProviderException, NoSuchAlgorithmException {
-        return SecureRandom.getInstance(PRNG_TYPE, PRNG_PROVIDER);
     }
 
     public static <K extends JKey> Key convertKey(K jKey) {

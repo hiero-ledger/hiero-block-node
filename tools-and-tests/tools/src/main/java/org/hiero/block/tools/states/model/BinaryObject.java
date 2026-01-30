@@ -3,7 +3,7 @@ package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
 import java.util.HexFormat;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public final class BinaryObject {
     private static final long VERSION = 1L;
@@ -30,7 +30,7 @@ public final class BinaryObject {
         return data;
     }
 
-    public synchronized void copyFrom(final FCDataInputStream inStream) throws IOException {
+    public synchronized void copyFrom(final DataInputStream inStream) throws IOException {
         long version = inStream.readLong();
         if (version != VERSION) {
             throw new IOException("Unsupported BinaryObject version: " + version);

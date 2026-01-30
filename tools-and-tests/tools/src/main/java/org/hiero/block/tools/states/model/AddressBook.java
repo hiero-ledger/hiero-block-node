@@ -8,8 +8,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.hiero.block.tools.states.utils.CryptoUtils;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.FCDataOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 
 @SuppressWarnings("ForLoopReplaceableByForEach")
 public class AddressBook {
@@ -57,7 +57,7 @@ public class AddressBook {
         return totalStake;
     }
 
-    public void copyFrom(FCDataInputStream inStream) throws IOException {
+    public void copyFrom(DataInputStream inStream) throws IOException {
         // Discard the version number
         long version = inStream.readLong();
         if (version != VERSION) {
@@ -75,7 +75,7 @@ public class AddressBook {
         stakes = null; // force recalculation on the next getStakes() call
     }
 
-    public void copyTo(FCDataOutputStream outStream) throws IOException {
+    public void copyTo(DataOutputStream outStream) throws IOException {
         // Write the version number
         outStream.writeLong(VERSION);
 

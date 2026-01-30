@@ -2,13 +2,13 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public record MapKey(long realmId, long shardId, long accountId) {
     private static final long CURRENT_VERSION = 1;
     private static final long OBJECT_ID = 15486487;
 
-    public static MapKey copyFrom(FCDataInputStream inStream) throws IOException {
+    public static MapKey copyFrom(DataInputStream inStream) throws IOException {
         long version = inStream.readLong();
         if (version != CURRENT_VERSION) {
             throw new IOException("Unsupported MapKey version: " + version);

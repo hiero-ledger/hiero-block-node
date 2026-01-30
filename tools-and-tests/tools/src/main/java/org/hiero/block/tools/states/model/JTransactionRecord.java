@@ -2,7 +2,7 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.IOException;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public record JTransactionRecord(
         JTransactionReceipt txReceipt,
@@ -21,7 +21,7 @@ public record JTransactionRecord(
     private static final long LEGACY_VERSION_2 = 2;
     private static final long CURRENT_VERSION = 3;
 
-    public static JTransactionRecord copyFrom(final FCDataInputStream inStream) {
+    public static JTransactionRecord copyFrom(final DataInputStream inStream) {
         try {
             JTransactionReceipt txReceipt;
             byte[] txHash;

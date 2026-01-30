@@ -6,13 +6,13 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.HexFormat;
-import org.hiero.block.tools.states.utils.Utilities;
+import org.hiero.block.tools.states.utils.Utils;
 
 // com.swirlds.platform.Hash
 public record Hash(byte[] hash, int hashMapSeed) {
     public static Hash readHash(DataInputStream dis) throws IOException {
         int hashMapSeed = dis.readInt();
-        byte[] hash = Utilities.readByteArray(dis);
+        byte[] hash = Utils.readByteArray(dis);
         return new Hash(hash, hashMapSeed);
     }
 

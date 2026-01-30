@@ -14,10 +14,10 @@ import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.zip.GZIPInputStream;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
-import org.hiero.block.tools.states.utils.FCDataOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import org.hiero.block.tools.states.utils.HashingOutputStream;
-import org.hiero.block.tools.states.utils.Utilities;
+import org.hiero.block.tools.states.utils.Utils;
 
 @SuppressWarnings({"CallToPrintStackTrace", "unused"})
 public final class SignedState {
@@ -48,7 +48,7 @@ public final class SignedState {
      */
     public static SignedState load(URL stateFileUrl) throws IOException {
         SignedState signedState = new SignedState();
-        try (FCDataInputStream fin = new FCDataInputStream(
+        try (DataInputStream fin = new DataInputStream(
                 stateFileUrl.toString().endsWith(".gz")
                         ? new GZIPInputStream(new BufferedInputStream(stateFileUrl.openStream(), 1024 * 1024))
                         : new BufferedInputStream(stateFileUrl.openStream(), 1024 * 1024))) {
@@ -67,7 +67,7 @@ public final class SignedState {
      */
     public static SignedState load(Path stateFile) throws IOException {
         SignedState signedState = new SignedState();
-        try (FCDataInputStream fin = new FCDataInputStream(
+        try (DataInputStream fin = new DataInputStream(
                 stateFile.getFileName().toString().endsWith(".gz")
                         ? new GZIPInputStream(new BufferedInputStream(Files.newInputStream(stateFile), 1024 * 1024))
                         : new BufferedInputStream(Files.newInputStream(stateFile), 1024 * 1024))) {
@@ -109,13 +109,13 @@ public final class SignedState {
         return consensusTimestamp;
     }
 
-    public void copyFrom(FCDataInputStream inStream) throws IOException {
+    public void copyFrom(DataInputStream inStream) throws IOException {
         instanceVersion = inStream.readLong(); // classVersion
         if (instanceVersion != CLASS_VERSION) {
             throw new IOException(
                     "SignedState version mismatch: expected " + CLASS_VERSION + ", got " + instanceVersion);
         }
-        readHash = Utilities.readByteArray(inStream);
+        readHash = Utils.readByteArray(inStream);
         state.copyFrom(inStream);
         round = inStream.readLong();
         System.out.println("    round = " + round);
@@ -125,8 +125,8 @@ public final class SignedState {
         //        }
         numEventsCons = inStream.readLong();
         addressBook.copyFrom(inStream);
-        hashEventsCons = Utilities.readByteArray(inStream);
-        consensusTimestamp = Utilities.readInstant(inStream);
+        hashEventsCons = Utils.readByteArray(inStream);
+        consensusTimestamp = Utils.readInstant(inStream);
         System.out.println("    consensusTimestamp = " + consensusTimestamp);
         shouldSaveToDisk = inStream.readBoolean();
 
@@ -141,7 +141,7 @@ public final class SignedState {
 
         // from version 2 we store the minGen info
         if (instanceVersion >= 2) {
-            minGenInfo = Utilities.readList(inStream, LinkedList::new, (stream) -> {
+            minGenInfo = Utils.readList(inStream, LinkedList::new, (stream) -> {
                 long key = stream.readLong();
                 long value = stream.readLong();
                 return new Pair<>(key, value);
@@ -155,7 +155,7 @@ public final class SignedState {
         sigSet.copyFrom(inStream);
     }
 
-    public void copyFromExtra(FCDataInputStream inStream) throws IOException {
+    public void copyFromExtra(DataInputStream inStream) throws IOException {
         state.copyFromExtra(inStream);
     }
 
@@ -181,7 +181,7 @@ public final class SignedState {
         // the streams are closed automatically
         try (HashingOutputStream hashOut = new HashingOutputStream(digest);
                 BufferedOutputStream bufOut = new BufferedOutputStream(hashOut);
-                FCDataOutputStream fcOut = new FCDataOutputStream(bufOut)) {
+                DataOutputStream fcOut = new DataOutputStream(bufOut)) {
             state.copyTo(fcOut);
             fcOut.flush();
             return digest.digest();

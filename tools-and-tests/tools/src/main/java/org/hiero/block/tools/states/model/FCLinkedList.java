@@ -7,7 +7,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.function.Function;
-import org.hiero.block.tools.states.utils.FCDataInputStream;
+import java.io.DataInputStream;
 
 public class FCLinkedList<T> extends ArrayList<T> {
     private static final int BEGIN_LIST_MARKER = 275624369;
@@ -19,7 +19,7 @@ public class FCLinkedList<T> extends ArrayList<T> {
     static final long OBJECT_ID = 695029169L;
 
     public static <T> FCLinkedList<T> copyFrom(
-            FCDataInputStream dis, Function<FCDataInputStream, T> elementDeserializer) throws IOException {
+            DataInputStream dis, Function<DataInputStream, T> elementDeserializer) throws IOException {
         readValidLong(dis, "VERSION", VERSION);
         readValidLong(dis, "OBJECT_ID", OBJECT_ID);
 
