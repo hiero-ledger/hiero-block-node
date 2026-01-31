@@ -12,6 +12,7 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
@@ -445,18 +446,18 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             try (final BlockAccessor nextBlockAccessor =
                     blockNodeContext.historicalBlockProvider().block(nextBlockToSend.get())) {
                 if (nextBlockAccessor != null) {
-                    final BlockUnparsed block = nextBlockAccessor.blockUnparsed();
-                    if (block == null) {
-                        // the retrieval of the block failed.
+                    // Get raw bytes first - this gives us O(1) size check
+                    final Bytes blockBytes = nextBlockAccessor.blockBytes(BlockAccessor.Format.PROTOBUF);
+                    if (blockBytes == null) {
                         final String message = "Unable to retrieve historical block {0} for client {1}.";
-                        // throwing here will result in the session being closed exceptionally.
                         throw new IllegalStateException(message);
-                    } else {
-                        // We have retrieved the block to send, so send it.
-                        sendOneFullBlock(block);
-                        // Trim the queue if necessary, also increment the next block to send.
-                        trimBlockItemQueue(nextBlockToSend.incrementAndGet());
                     }
+                    final int blockByteSize = (int) blockBytes.length();
+                    final BlockUnparsed block = BlockUnparsed.PROTOBUF.parse(blockBytes);
+                    // We have retrieved the block to send, so send it.
+                    sendOneFullBlock(block, blockByteSize);
+                    // Trim the queue if necessary, also increment the next block to send.
+                    trimBlockItemQueue(nextBlockToSend.incrementAndGet());
                 } else {
                     // Only give up if this is an historical block, otherwise just
                     // go back up and see if live has the block.
@@ -739,12 +740,19 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         interruptedStream.set(true);
     }
 
-    private void sendOneFullBlock(final BlockUnparsed nextBlock) throws ParseException {
+    private void sendOneFullBlock(final BlockUnparsed nextBlock, final int blockByteSize) throws ParseException {
         if (nextBlock.blockItems().getFirst().hasBlockHeader()) {
             final BlockHeader header =
                     BlockHeader.PROTOBUF.parse(nextBlock.blockItems().getFirst().blockHeader());
             if (header.number() == nextBlockToSend.get()) {
-                sendBlockItemsChunked(nextBlock.blockItems());
+                final int maxChunkBytes = sessionContext.subscriberConfig.maxChunkSizeBytes();
+                if (blockByteSize <= maxChunkBytes) {
+                    // Fast path: block fits in one chunk, send directly without measuring items
+                    sendOneBlockItemSet(nextBlock.blockItems(), true);
+                } else {
+                    // Slow path: block needs chunking
+                    sendBlockItemsChunked(nextBlock.blockItems());
+                }
             } else {
                 final String message = "Block {0} should be sent, but we are trying to send block {1}.";
                 LOGGER.log(Level.WARNING, message, nextBlockToSend.get(), header.number());
@@ -758,6 +766,9 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     /**
      * Sends block items in chunks that respect the configured max chunk size.
      * The last chunk triggers sendEndOfBlock().
+     * <p>
+     * This method is only called for blocks that exceed the max chunk size.
+     * Small blocks are sent directly via the fast path in sendOneFullBlock().
      * <p>
      * Algorithm follows Consensus Node approach:
      * <ul>
@@ -790,9 +801,8 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             }
 
             // subList creates a view - no copying needed
-            final List<BlockItemUnparsed> chunk = allItems.subList(startIndex, currentIndex);
             final boolean isLastChunk = currentIndex >= allItems.size();
-            sendOneBlockItemSet(chunk, isLastChunk);
+            sendOneBlockItemSet(allItems.subList(startIndex, currentIndex), isLastChunk);
 
             // If session was closed during send, stop
             if (interruptedStream.get()) {
