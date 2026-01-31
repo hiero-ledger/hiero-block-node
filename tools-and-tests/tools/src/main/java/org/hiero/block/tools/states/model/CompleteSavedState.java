@@ -148,8 +148,8 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
             boolean valid = verifySignature(addr != null ? addr.sigPublicKey() : null, hashToVerify, sigInfo.sig());
             if (valid) {
                 validCount++;
-                System.out.println(Ansi.AUTO.string(String.format(
-                        "    @|green ✓|@ Node %d (@|cyan %s|@)", i, addr != null ? addr.nickname() : "unknown")));
+                System.out.println(
+                        Ansi.AUTO.string(String.format("    @|green ✓|@ Node %d (@|cyan %s|@)", i, addr.nickname())));
             } else {
                 invalidCount++;
                 System.out.println(Ansi.AUTO.string(String.format(
@@ -193,12 +193,12 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
                 String.format("  @|%s %s|@ %s", passed ? "bold,green" : "bold,red", passed ? "✓" : "✗", label)));
     }
 
-    private static String truncateHex(String hex) {
+    static String truncateHex(String hex) {
         if (hex.length() <= 32) return hex;
         return hex.substring(0, 16) + "..." + hex.substring(hex.length() - 16);
     }
 
-    private static boolean verifySignature(PublicKey publicKey, byte[] hash, byte[] sig) {
+    static boolean verifySignature(PublicKey publicKey, byte[] hash, byte[] sig) {
         if (publicKey == null || hash == null || sig == null) return false;
         try {
             Signature signature = Signature.getInstance("SHA384withRSA");

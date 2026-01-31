@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.postgres;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -70,8 +71,9 @@ public record BinaryObjectCsvRow(long id, long refCount, byte[] hash, int fileId
      * @return a map of hex hash strings to BinaryObjectCsvRow objects
      */
     public static Map<String, BinaryObjectCsvRow> loadBinaryObjectsMap(Path csvPath) {
-        try (var lines = Files.lines(csvPath)) {
-            return parseLineToRow(lines).collect(Collectors.toMap(BinaryObjectCsvRow::hexHash, Function.identity()));
+        try (BufferedReader reader = newReaderForPath(csvPath)) {
+            return parseLineToRow(reader.lines())
+                    .collect(Collectors.toMap(BinaryObjectCsvRow::hexHash, Function.identity()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load binary objects from CSV", e);
         }
@@ -84,11 +86,23 @@ public record BinaryObjectCsvRow(long id, long refCount, byte[] hash, int fileId
      * @return a list of BinaryObjectCsvRow objects representing the rows in the CSV file
      */
     public static List<BinaryObjectCsvRow> loadBinaryObjects(Path csvPath) {
-        try (var lines = Files.lines(csvPath)) {
-            return parseLineToRow(lines).toList();
+        try (BufferedReader reader = newReaderForPath(csvPath)) {
+            return parseLineToRow(reader.lines()).toList();
         } catch (Exception e) {
             throw new RuntimeException("Failed to load binary objects from CSV", e);
         }
+    }
+
+    /**
+     * Creates a BufferedReader for the given path, automatically decompressing if the file ends with .gz.
+     */
+    private static BufferedReader newReaderForPath(Path csvPath) throws IOException {
+        if (csvPath.toString().endsWith(".gz")) {
+            return new BufferedReader(new InputStreamReader(
+                    new GZIPInputStream(new BufferedInputStream(Files.newInputStream(csvPath))),
+                    StandardCharsets.UTF_8));
+        }
+        return Files.newBufferedReader(csvPath, StandardCharsets.UTF_8);
     }
 
     /**
