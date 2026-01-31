@@ -16,6 +16,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -744,8 +745,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             final BlockHeader header =
                     BlockHeader.PROTOBUF.parse(nextBlock.blockItems().getFirst().blockHeader());
             if (header.number() == nextBlockToSend.get()) {
-                // We're sending a whole block, so this block is complete
-                sendOneBlockItemSet(nextBlock.blockItems(), true);
+                sendBlockItemsChunked(nextBlock.blockItems());
             } else {
                 final String message = "Block {0} should be sent, but we are trying to send block {1}.";
                 LOGGER.log(Level.WARNING, message, nextBlockToSend.get(), header.number());
@@ -753,6 +753,53 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         } else {
             final String message = "Block {0} should be sent, but the block does not start with a block header.";
             LOGGER.log(Level.WARNING, message, nextBlockToSend.get());
+        }
+    }
+
+    /**
+     * Sends block items in chunks that respect the configured max chunk size.
+     * The last chunk triggers sendEndOfBlock().
+     * <p>
+     * Algorithm follows Consensus Node approach:
+     * <ul>
+     *   <li>Soft limit: aim for chunks of maxChunkSizeBytes (~1MB default)</li>
+     *   <li>If an item exceeds the soft limit but is under the hard limit (4MB PBJ buffer), it ships by itself</li>
+     * </ul>
+     *
+     * @param allItems the list of all block items to send
+     */
+    private void sendBlockItemsChunked(final List<BlockItemUnparsed> allItems) {
+        final int maxChunkBytes = sessionContext.subscriberConfig.maxChunkSizeBytes();
+        int currentIndex = 0;
+
+        while (currentIndex < allItems.size()) {
+            final List<BlockItemUnparsed> chunk = new ArrayList<>();
+            long currentChunkSize = 0;
+
+            // Build chunk until we approach max size
+            while (currentIndex < allItems.size()) {
+                final BlockItemUnparsed item = allItems.get(currentIndex);
+                final int itemSize = BlockItemUnparsed.PROTOBUF.measureRecord(item);
+
+                // If adding this item would exceed max and chunk is not empty, break
+                // (item will ship by itself in the next iteration)
+                if (!chunk.isEmpty() && currentChunkSize + itemSize > maxChunkBytes) {
+                    break;
+                }
+
+                chunk.add(item);
+                currentChunkSize += itemSize;
+                currentIndex++;
+            }
+
+            // Send chunk - last chunk is marked as block complete
+            final boolean isLastChunk = currentIndex >= allItems.size();
+            sendOneBlockItemSet(chunk, isLastChunk);
+
+            // If session was closed during send, stop
+            if (interruptedStream.get()) {
+                return;
+            }
         }
     }
 
