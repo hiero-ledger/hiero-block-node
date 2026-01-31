@@ -8,7 +8,7 @@ import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.re
 import static org.hiero.block.tools.records.model.parsed.SerializationV5Utils.writeV5HashObject;
 import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 
-import com.hedera.hapi.block.stream.experimental.RecordFileSignature;
+import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.streams.HashAlgorithm;
 import com.hedera.hapi.streams.HashObject;
@@ -322,7 +322,7 @@ public class ParsedSignatureFile {
      * @return a RecordFileSignature containing the raw signature bytes and the resolved node id
      */
     public RecordFileSignature toRecordFileSignature(NodeAddressBook addressBook) {
-        return new RecordFileSignature(Bytes.wrap(signatureBytes), getNodeId(addressBook));
+        return new RecordFileSignature(Bytes.wrap(signatureBytes), (int) getNodeId(addressBook));
     }
 
     /** @return the SHA-384 file hash extracted from the signature file */

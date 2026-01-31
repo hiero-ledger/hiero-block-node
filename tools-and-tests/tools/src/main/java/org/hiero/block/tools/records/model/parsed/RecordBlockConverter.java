@@ -3,15 +3,15 @@ package org.hiero.block.tools.records.model.parsed;
 
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 
-import com.hedera.hapi.block.stream.experimental.Block;
-import com.hedera.hapi.block.stream.experimental.BlockFooter;
-import com.hedera.hapi.block.stream.experimental.BlockItem;
-import com.hedera.hapi.block.stream.experimental.BlockItem.ItemOneOfType;
-import com.hedera.hapi.block.stream.experimental.BlockProof;
-import com.hedera.hapi.block.stream.experimental.BlockProof.ProofOneOfType;
-import com.hedera.hapi.block.stream.experimental.RecordFileItem;
-import com.hedera.hapi.block.stream.experimental.RecordFileSignature;
-import com.hedera.hapi.block.stream.experimental.SignedRecordFileProof;
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.BlockItem.ItemOneOfType;
+import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.BlockProof.ProofOneOfType;
+import com.hedera.hapi.block.stream.RecordFileItem;
+import com.hedera.hapi.block.stream.RecordFileSignature;
+import com.hedera.hapi.block.stream.SignedRecordFileProof;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.NodeAddressBook;
@@ -21,7 +21,9 @@ import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import org.hiero.block.tools.blocks.AmendmentProvider;
 
 /**
  * Converter for converting Hedera record file format blocks into Hedera block stream format blocks and back. The
@@ -46,7 +48,8 @@ public class RecordBlockConverter {
             final long blockNumber,
             final byte[] previousBlockStreamBlockHash,
             final byte[] rootHashOfBlockHashesMerkleTree,
-            final NodeAddressBook addressBook) {
+            final NodeAddressBook addressBook,
+            final AmendmentProvider amendmentProvider) {
         // read the record file into UniversalRecordFile
         final ParsedRecordFile universalRecordFile = recordBlock.recordFile();
         // convert signatures into block proof
@@ -56,9 +59,11 @@ public class RecordBlockConverter {
                 .filter(psf -> psf.isValid(universalRecordFile.signedHash(), addressBook))
                 .map(psf -> psf.toRecordFileSignature(addressBook))
                 .toList();
-        final BlockProof blockProof = new BlockProof(new OneOf<>(
-                ProofOneOfType.SIGNED_RECORD_FILE_PROOF,
-                new SignedRecordFileProof(universalRecordFile.recordFormatVersion(), signatures)));
+        final BlockProof blockProof = new BlockProof(
+                blockNumber,
+                new OneOf<>(
+                        ProofOneOfType.SIGNED_RECORD_FILE_PROOF,
+                        new SignedRecordFileProof(universalRecordFile.recordFormatVersion(), signatures)));
         // create a block header
         final Instant blockTime = recordBlock.recordFile().blockTime();
         final Timestamp recordFileTimestamp = new Timestamp(blockTime.getEpochSecond(), blockTime.getNano());
@@ -94,12 +99,23 @@ public class RecordBlockConverter {
                 Bytes.wrap(previousBlockStreamBlockHash),
                 Bytes.wrap(rootHashOfBlockHashesMerkleTree),
                 Bytes.wrap(stateRootHash));
-        // create and return the Block
-        return new Block(List.of(
-                new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, blockHeader)),
-                new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordFileItem)),
-                new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)),
-                new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof))));
+        // Build the block items list
+        // Structure: [HEADER, GENESIS_STATE_CHANGES (if block 0), RECORD_FILE, FOOTER, PROOF]
+        // Genesis STATE_CHANGES are inserted after HEADER and before RECORD_FILE so they
+        // represent the initial state before any transactions are processed
+        final List<BlockItem> blockItems = new ArrayList<>();
+        blockItems.add(new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, blockHeader)));
+
+        // Insert genesis amendments (STATE_CHANGES for block 0) after BLOCK_HEADER
+        if (amendmentProvider.hasGenesisAmendments(blockNumber)) {
+            blockItems.addAll(amendmentProvider.getGenesisAmendments(blockNumber));
+        }
+
+        blockItems.add(new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordFileItem)));
+        blockItems.add(new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)));
+        blockItems.add(new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof)));
+
+        return new Block(blockItems);
     }
 
     /**
