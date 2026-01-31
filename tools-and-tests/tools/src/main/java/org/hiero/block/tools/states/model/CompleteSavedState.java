@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.states.model;
 
+import com.hedera.hapi.node.base.NodeAddress;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import java.security.PublicKey;
 import java.security.Signature;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.states.postgres.BinaryObjectCsvRow;
 import org.hiero.block.tools.states.utils.CryptoUtils;
 import picocli.CommandLine.Help.Ansi;
@@ -60,6 +64,59 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
                 System.out.println(Ansi.AUTO.string(String.format(
                         "    Node %d: @|cyan %s|@ (stake: @|yellow %d|@)", i, addr.nickname(), addr.stake())));
             }
+        }
+
+        // === 2b. Compare state address book against genesis address book ===
+        boolean genesisKeyMatch = true;
+        try {
+            NodeAddressBook genesisBook = AddressBookRegistry.loadGenesisAddressBook();
+            System.out.println(Ansi.AUTO.string(String.format(
+                    "\n@|bold,blue ▶ Genesis Address Book Comparison|@ (genesis has @|yellow %d|@ nodes)",
+                    genesisBook.nodeAddress().size())));
+            System.out.println(Ansi.AUTO.string("@|blue ──────────────────────────────────────────────|@"));
+
+            // Build map of genesis public keys by hex string for matching
+            Map<String, Long> genesisPubKeyToAccountId = new HashMap<>();
+            for (NodeAddress na : genesisBook.nodeAddress()) {
+                String pubKeyHex = na.rsaPubKey().toLowerCase();
+                genesisPubKeyToAccountId.put(pubKeyHex, AddressBookRegistry.getNodeAccountId(na));
+            }
+
+            int matched = 0;
+            int unmatched = 0;
+            for (int i = 0; i < stateAddressBook.getSize(); i++) {
+                Address addr = stateAddressBook.getAddress(i);
+                if (addr == null || addr.sigPublicKey() == null) continue;
+                String stateKeyHex =
+                        HexFormat.of().formatHex(addr.sigPublicKey().getEncoded()).toLowerCase();
+                Long genesisAccountId = genesisPubKeyToAccountId.remove(stateKeyHex);
+                if (genesisAccountId != null) {
+                    matched++;
+                    System.out.println(Ansi.AUTO.string(String.format(
+                            "    @|green ✓|@ State node %d (@|cyan %s|@) matches genesis account 0.0.%d",
+                            i, addr.nickname(), genesisAccountId)));
+                } else {
+                    unmatched++;
+                    genesisKeyMatch = false;
+                    System.out.println(Ansi.AUTO.string(String.format(
+                            "    @|red ✗|@ State node %d (@|cyan %s|@) - @|red no matching key in genesis|@",
+                            i, addr.nickname())));
+                }
+            }
+            if (!genesisPubKeyToAccountId.isEmpty()) {
+                for (Long accountId : genesisPubKeyToAccountId.values()) {
+                    System.out.println(Ansi.AUTO.string(String.format(
+                            "    @|yellow ○|@ Genesis account 0.0.%d has no match in state (superset ok)",
+                            accountId)));
+                }
+            }
+            System.out.println(Ansi.AUTO.string(String.format(
+                    "  Matched: @|yellow %d|@, Unmatched: @|yellow %d|@, Extra in genesis: @|yellow %d|@",
+                    matched, unmatched, genesisPubKeyToAccountId.size())));
+        } catch (Exception e) {
+            genesisKeyMatch = false;
+            System.out.println(Ansi.AUTO.string(
+                    "  @|red ✗ Failed to load genesis address book: " + e.getMessage() + "|@"));
         }
 
         // === 3. Signature verification ===
@@ -127,6 +184,7 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
         printCheck("Supermajority achieved", sigSet.complete());
         printCheck("Signatures valid: " + validCount + "/" + (validCount + invalidCount), invalidCount == 0);
         printCheck("All sig hashes match stored hash", allSigHashesMatchRead);
+        printCheck("All state node keys found in genesis address book", genesisKeyMatch);
         System.out.println(Ansi.AUTO.string("@|blue ────────────────────────────────────────────────────────────|@"));
     }
 
