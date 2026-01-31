@@ -6,10 +6,10 @@ representations or validate block zero state.
 
 ### Available Subcommands
 
-|    Command    |                                     Description                                      |
-|---------------|--------------------------------------------------------------------------------------|
-| `state-to-json` | Convert saved state directories to JSON block stream representation               |
-| `block-zero`    | Load and validate the state at the start of Hedera Mainnet Block Zero             |
+|     Command     |                              Description                              |
+|-----------------|-----------------------------------------------------------------------|
+| `state-to-json` | Convert saved state directories to JSON block stream representation   |
+| `block-zero`    | Load and validate the state at the start of Hedera Mainnet Block Zero |
 
 ---
 
@@ -26,8 +26,8 @@ states state-to-json [<savedStateDirectories>...]
 
 #### Options
 
-|         Option          |                          Description                           |
-|-------------------------|----------------------------------------------------------------|
+|            Option            |                                                             Description                                                              |
+|------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | `<savedStateDirectories>...` | One or more saved state directories to process. Each directory should contain `SignedState.swh` and related files (CSV/gzipped CSV). |
 
 #### Example
@@ -47,6 +47,7 @@ states state-to-json /path/to/state1 /path/to/state2
 - The output is a JSON-serialized `Block` protobuf containing `BlockItem` entries for each state change (accounts,
   files, contract bytecodes, contract storage).
 - Output is printed to stdout, so redirect to a file if needed:
+
   ```bash
   states state-to-json /path/to/state > state.json
   ```
