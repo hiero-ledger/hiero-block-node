@@ -5,6 +5,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+/** A serializable Hedera account identifier consisting of shard, realm, and account numbers. */
 @SuppressWarnings("unused")
 public record JAccountID(long shardNum, long realmNum, long accountNum) {
     private static final long VERSION = 2;

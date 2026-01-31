@@ -9,6 +9,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.function.Function;
 
+/** A serializable linked list used in the Hedera state with marker-delimited binary format. */
 public class FCLinkedList<T> extends ArrayList<T> {
     private static final int BEGIN_LIST_MARKER = 275624369;
     private static final int END_LIST_MARKER = 275654143;

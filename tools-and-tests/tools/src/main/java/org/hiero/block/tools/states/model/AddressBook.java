@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import org.hiero.block.tools.states.utils.CryptoUtils;
 
+/** A serializable collection of network addresses representing all nodes in the network. */
 @SuppressWarnings("ForLoopReplaceableByForEach")
 public class AddressBook {
     /** This version number should be used to handle compatibility issues that may arise from any future changes */

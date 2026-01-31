@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.Map;
 import org.hiero.block.tools.states.utils.Utils;
 
+/** A serializable hashgraph event containing creator info, parent links, consensus data, and a hash. */
 public record Event(
         long creatorId,
         long creatorSeq,

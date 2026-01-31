@@ -8,7 +8,7 @@ import java.time.Instant;
 import java.util.HexFormat;
 import org.hiero.block.tools.states.utils.Utils;
 
-// com.swirlds.platform.Hash
+/** A serializable SHA-384 hash with a hash-map seed, replacing {@code com.swirlds.platform.Hash}. */
 public record Hash(byte[] hash, int hashMapSeed) {
     public static Hash readHash(DataInputStream dis) throws IOException {
         int hashMapSeed = dis.readInt();

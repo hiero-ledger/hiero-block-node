@@ -5,6 +5,7 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.List;
 
+/** A serializable list of account-amount pairs representing HBAR transfers. */
 public record JTransferList(List<JAccountAmount> jAccountAmountsList) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;

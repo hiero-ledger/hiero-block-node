@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 
+/** A serializable smart contract log entry with bloom filter, data, and topics. */
 public record JContractLogInfo(JAccountID contractID, byte[] bloom, byte[] data, List<byte[]> topic) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;

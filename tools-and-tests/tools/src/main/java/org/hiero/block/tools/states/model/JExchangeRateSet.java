@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.io.DataInputStream;
 import java.io.IOException;
 
+/** A serializable pair of current and next exchange rates. */
 public record JExchangeRateSet(JExchangeRate currentRate, JExchangeRate nextRate) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;

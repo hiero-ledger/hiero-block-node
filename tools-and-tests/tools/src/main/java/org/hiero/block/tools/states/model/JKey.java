@@ -12,6 +12,7 @@ import java.util.HexFormat;
 import java.util.LinkedList;
 import java.util.List;
 
+/** Base class for serializable Hedera keys with BPACK format support and multiple key type subtypes. */
 public class JKey {
     private static final long LEGACY_VERSION = 1;
     private static final long BPACK_VERSION = 2;
@@ -155,6 +156,7 @@ public class JKey {
         }
     }
 
+    /** An Ed25519 public key. */
     public static class JEd25519Key extends JKey {
         private byte[] ed25519 = null;
 
@@ -182,6 +184,7 @@ public class JKey {
         }
     }
 
+    /** An ordered list of keys. */
     public static class JKeyList extends JKey {
 
         private final List<JKey> keys;
@@ -209,6 +212,7 @@ public class JKey {
         }
     }
 
+    /** An RSA-3072 public key. */
     public static class JRSA_3072Key extends JKey {
 
         private final byte[] RSA_3072Key;
@@ -233,6 +237,7 @@ public class JKey {
         }
     }
 
+    /** A key referencing a smart contract by its shard, realm, and contract number. */
     public static class JContractIDKey extends JKey {
         private final long shardNum; // the shard number (nonnegative)
         private final long realmNum; // the realm number (nonnegative)
@@ -275,6 +280,7 @@ public class JKey {
         }
     }
 
+    /** An ECDSA secp384r1 public key. */
     public static class JECDSA_384Key extends JKey {
 
         private final byte[] ECDSA_384Key;
@@ -299,6 +305,7 @@ public class JKey {
         }
     }
 
+    /** A threshold key requiring a minimum number of signatures from a key list. */
     public static class JThresholdKey extends JKey {
 
         private final int threshold;

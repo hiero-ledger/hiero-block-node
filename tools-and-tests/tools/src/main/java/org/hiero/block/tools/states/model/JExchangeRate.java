@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.io.DataInputStream;
 import java.io.IOException;
 
+/** A serializable exchange rate entry with HBAR and cent equivalents and an expiration time. */
 public record JExchangeRate(int hbarEquiv, int centEquiv, long expirationTime) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;

@@ -87,8 +87,9 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
             for (int i = 0; i < stateAddressBook.getSize(); i++) {
                 Address addr = stateAddressBook.getAddress(i);
                 if (addr == null || addr.sigPublicKey() == null) continue;
-                String stateKeyHex =
-                        HexFormat.of().formatHex(addr.sigPublicKey().getEncoded()).toLowerCase();
+                String stateKeyHex = HexFormat.of()
+                        .formatHex(addr.sigPublicKey().getEncoded())
+                        .toLowerCase();
                 Long genesisAccountId = genesisPubKeyToAccountId.remove(stateKeyHex);
                 if (genesisAccountId != null) {
                     matched++;
@@ -106,8 +107,7 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
             if (!genesisPubKeyToAccountId.isEmpty()) {
                 for (Long accountId : genesisPubKeyToAccountId.values()) {
                     System.out.println(Ansi.AUTO.string(String.format(
-                            "    @|yellow ○|@ Genesis account 0.0.%d has no match in state (superset ok)",
-                            accountId)));
+                            "    @|yellow ○|@ Genesis account 0.0.%d has no match in state (superset ok)", accountId)));
                 }
             }
             System.out.println(Ansi.AUTO.string(String.format(
@@ -115,8 +115,8 @@ public record CompleteSavedState(SignedState signedState, Map<String, BinaryObje
                     matched, unmatched, genesisPubKeyToAccountId.size())));
         } catch (Exception e) {
             genesisKeyMatch = false;
-            System.out.println(Ansi.AUTO.string(
-                    "  @|red ✗ Failed to load genesis address book: " + e.getMessage() + "|@"));
+            System.out.println(
+                    Ansi.AUTO.string("  @|red ✗ Failed to load genesis address book: " + e.getMessage() + "|@"));
         }
 
         // === 3. Signature verification ===

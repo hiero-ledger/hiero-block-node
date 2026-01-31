@@ -7,6 +7,7 @@ import java.io.UncheckedIOException;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import org.hiero.block.tools.states.utils.Utils;
 
+/** A set of member signatures collected for a signed state, tracking stake-weighted supermajority. */
 public final class SigSet {
     private long classVersion;
     private int count;

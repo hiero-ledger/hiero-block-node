@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.postgres;
 import java.util.ArrayList;
 import java.util.List;
 
+/** Utility for deserializing smart contract key-value pairs from a raw byte array. */
 public class SmartContractKVPairs {
     private static final int DWORD_BYTES = 32;
 

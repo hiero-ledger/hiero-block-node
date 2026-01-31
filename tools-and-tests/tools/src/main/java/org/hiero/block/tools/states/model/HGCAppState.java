@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.time.Instant;
 import org.hiero.block.tools.states.utils.Utils;
 
+/** The top-level Hedera application state containing account map, storage map, and exchange rates. */
 public class HGCAppState {
     /** since version4, ExchangeRateSetWrapper is saved in state */
     private static final long VERSION_WITH_EXCHANGE_RATE = 4;

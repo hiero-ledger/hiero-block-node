@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import org.hiero.block.tools.states.utils.Utils;
 
+/** A serializable fast-copyable map backed by a Merkle tree for verifiable key-value storage. */
 public class FCMap<K, V> extends HashMap<K, V> {
     /** Expected length of root hash byte array */
     public static final int HASH_LENGTH = 48;

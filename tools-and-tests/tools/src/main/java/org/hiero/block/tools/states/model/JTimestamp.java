@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.io.DataInputStream;
 import java.io.IOException;
 
+/** A serializable timestamp consisting of epoch seconds and nanosecond offset. */
 public record JTimestamp(long seconds, int nano) {
     private static final long LEGACY_VERSION_1 = 1;
     private static final long CURRENT_VERSION = 2;

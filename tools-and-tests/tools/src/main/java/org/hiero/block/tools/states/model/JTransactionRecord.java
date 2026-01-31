@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.io.DataInputStream;
 import java.io.IOException;
 
+/** A serializable transaction record containing receipt, hash, transfers, and contract results. */
 public record JTransactionRecord(
         JTransactionReceipt txReceipt,
         byte[] txHash,

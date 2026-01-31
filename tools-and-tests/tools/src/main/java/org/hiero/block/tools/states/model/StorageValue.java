@@ -5,6 +5,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+/** A serializable value for the storage FCMap, wrapping an optional {@link BinaryObject}. */
 public record StorageValue(BinaryObject data) {
     private static final long LEGACY_VERSION = 1;
     private static final long CURRENT_VERSION = 2;

@@ -7,6 +7,7 @@ import java.io.IOException;
 import org.hiero.block.tools.states.postgres.BlobType;
 import org.hiero.block.tools.states.utils.Utils;
 
+/** A serializable key for the storage FCMap, wrapping a normalized path string. */
 public record StorageKey(String path) {
     private static final long CURRENT_VERSION = 1;
     private static final long OBJECT_ID = 15487002;

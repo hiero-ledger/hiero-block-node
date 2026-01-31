@@ -338,10 +338,10 @@ public class MainnetBlockZeroState implements Runnable {
         System.out.println(
                 Ansi.AUTO.string(String.format("  Total Balance:        @|yellow %,d|@ tinybars", totalBalance)));
         System.out.println(Ansi.AUTO.string(String.format("  Files:                @|yellow %,d|@", numFiles)));
-        System.out.println(Ansi.AUTO.string(
-                String.format("  Contract Bytecodes:   @|yellow %,d|@", numContractBytecodes)));
-        System.out.println(Ansi.AUTO.string(
-                String.format("  Contract Storage:     @|yellow %,d|@", numContractStorageEntries)));
+        System.out.println(
+                Ansi.AUTO.string(String.format("  Contract Bytecodes:   @|yellow %,d|@", numContractBytecodes)));
+        System.out.println(
+                Ansi.AUTO.string(String.format("  Contract Storage:     @|yellow %,d|@", numContractStorageEntries)));
         System.out.println(Ansi.AUTO.string(String.format("  Binary Objects:       @|yellow %,d|@", numBinaryObjects)));
         System.out.println(
                 Ansi.AUTO.string(String.format("  Storage KV Pairs:     @|yellow %,d|@", numStorageEntries)));

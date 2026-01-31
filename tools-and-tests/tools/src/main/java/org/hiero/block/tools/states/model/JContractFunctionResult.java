@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
+/** A serializable result of a smart contract function call or creation. */
 public record JContractFunctionResult(
         JAccountID contractID,
         byte[] result,

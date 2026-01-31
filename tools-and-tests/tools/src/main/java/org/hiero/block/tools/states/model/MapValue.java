@@ -5,6 +5,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+/** A serializable value for the account FCMap, containing all account properties. */
 @SuppressWarnings({"ConstantValue", "DuplicatedCode"})
 public record MapValue(
         long balance,

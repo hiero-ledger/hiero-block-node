@@ -5,6 +5,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+/** A serializable sequence number used for ordering within the Hedera state. */
 public record SequenceNumber(long sequenceNum) {
 
     public static SequenceNumber copyFrom(DataInputStream inStream) throws IOException {

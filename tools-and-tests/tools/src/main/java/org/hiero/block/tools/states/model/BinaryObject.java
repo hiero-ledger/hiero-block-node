@@ -6,6 +6,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.HexFormat;
 
+/** A serializable binary data object with a SHA-384 hash, used for blob storage references. */
 public final class BinaryObject {
     private static final long VERSION = 1L;
     private static final long OBJECT_ID = 1231553L;

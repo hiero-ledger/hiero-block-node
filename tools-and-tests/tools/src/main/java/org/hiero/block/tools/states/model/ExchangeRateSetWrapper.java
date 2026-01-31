@@ -5,6 +5,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+/** A flat serializable wrapper for exchange rate data stored directly in the HGC application state. */
 public record ExchangeRateSetWrapper(
         int currentHbarEquiv,
         int currentCentEquiv,

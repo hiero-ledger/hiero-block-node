@@ -21,6 +21,7 @@ package org.hiero.block.tools.states.model;
 import java.io.DataInputStream;
 import java.io.IOException;
 
+/** A function that deserializes an object from a {@link DataInputStream}. */
 public interface Deserializer<T> {
     T deserialize(DataInputStream stream) throws IOException;
 }

@@ -19,6 +19,7 @@ import java.util.zip.GZIPInputStream;
 import org.hiero.block.tools.states.utils.HashingOutputStream;
 import org.hiero.block.tools.states.utils.Utils;
 
+/** A complete signed state snapshot including the application state, events, address book, and signatures. */
 @SuppressWarnings({"CallToPrintStackTrace", "unused"})
 public final class SignedState {
     /** This version number should be used to handle compatibility issues that may arise from any future changes */

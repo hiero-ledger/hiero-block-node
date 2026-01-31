@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.io.DataInputStream;
 import java.io.IOException;
 
+/** A serializable transaction receipt containing the result status and created entity IDs. */
 public record JTransactionReceipt(
         String status, JAccountID accountID, JAccountID fileID, JAccountID contractID, JExchangeRateSet exchangeRate) {
     private static final long LEGACY_VERSION_1 = 1;

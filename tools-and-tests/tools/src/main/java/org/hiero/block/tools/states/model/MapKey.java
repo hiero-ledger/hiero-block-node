@@ -5,6 +5,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
+/** A serializable key for the account FCMap, consisting of realm, shard, and account IDs. */
 public record MapKey(long realmId, long shardId, long accountId) {
     private static final long CURRENT_VERSION = 1;
     private static final long OBJECT_ID = 15486487;

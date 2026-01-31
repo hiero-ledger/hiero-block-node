@@ -61,10 +61,12 @@ public enum JObjectType {
         REV_LOOKUP_TABLE.put(value, type);
     }
 
+    /** Returns the JObjectType for the given serialization ID, or {@code null} if not found. */
     public static JObjectType valueOf(final long value) {
         return REV_LOOKUP_TABLE.get(value);
     }
 
+    /** Returns the serialization ID for this JObjectType. */
     public long longValue() {
         return LOOKUP_TABLE.get(this);
     }

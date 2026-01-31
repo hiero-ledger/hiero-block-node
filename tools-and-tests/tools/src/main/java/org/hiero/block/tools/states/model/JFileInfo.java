@@ -5,6 +5,7 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 
+/** A serializable file metadata record containing deletion status, WACL key, and expiration time. */
 public record JFileInfo(boolean deleted, JKey wacl, long expirationTimeInSec) {
     private static final long BPACK_VERSION = 1;
 

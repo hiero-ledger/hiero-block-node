@@ -9,6 +9,7 @@ import java.security.PublicKey;
 import org.hiero.block.tools.states.utils.CryptoUtils;
 import org.hiero.block.tools.states.utils.Utils;
 
+/** A serializable network address entry with IP endpoints, cryptographic keys, and stake. */
 public record Address(
         long id,
         String nickname,

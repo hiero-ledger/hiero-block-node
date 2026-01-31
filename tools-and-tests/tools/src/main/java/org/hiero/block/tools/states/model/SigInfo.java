@@ -7,6 +7,7 @@ import java.util.HexFormat;
 import org.hiero.block.tools.states.utils.Utils;
 import org.jspecify.annotations.NonNull;
 
+/** A serializable signature info record containing round, member ID, hash, and signature bytes. */
 public record SigInfo(long classVersion, long round, long memberId, byte[] hash, byte[] sig) {
 
     public static SigInfo copyFrom(DataInputStream inStream) throws IOException {
