@@ -2,6 +2,7 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import org.hiero.block.tools.states.postgres.BlobType;
 import org.hiero.block.tools.states.utils.Utils;
@@ -22,6 +23,12 @@ public record StorageKey(String path) {
 
         String path = Utils.readNormalisedString(inStream);
         return new StorageKey(path);
+    }
+
+    public void copyTo(DataOutputStream out) throws IOException {
+        out.writeLong(CURRENT_VERSION);
+        out.writeLong(OBJECT_ID);
+        Utils.writeNormalisedString(out, path);
     }
 
     /**

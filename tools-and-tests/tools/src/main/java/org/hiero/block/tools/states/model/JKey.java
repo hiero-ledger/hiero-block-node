@@ -2,7 +2,9 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectInputStream;
@@ -14,8 +16,36 @@ public class JKey {
     private static final long LEGACY_VERSION = 1;
     private static final long BPACK_VERSION = 2;
 
+    private static final long BPACK_VERSION_WRITE = 2;
+
     public boolean hasContractID() {
         return false;
+    }
+
+    /**
+     * Serializes this JKey in the BPACK format matching the original JKeySerializer.serialize().
+     * Format: version(8) + objectType(8) + contentLength(8) + content(variable)
+     */
+    public byte[] serialize() throws IOException {
+        ByteArrayOutputStream contentBos = new ByteArrayOutputStream();
+        DataOutputStream contentDos = new DataOutputStream(contentBos);
+        JObjectType type = packTo(contentDos);
+        contentDos.flush();
+        byte[] content = contentBos.toByteArray();
+
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(bos);
+        dos.writeLong(BPACK_VERSION_WRITE);
+        dos.writeLong(type.longValue());
+        dos.writeLong(content.length);
+        dos.write(content);
+        dos.flush();
+        return bos.toByteArray();
+    }
+
+    /** Packs the key-specific content and returns the JObjectType. Subclasses override. */
+    protected JObjectType packTo(DataOutputStream out) throws IOException {
+        throw new UnsupportedOperationException("Base JKey cannot be serialized");
     }
 
     public byte[] getEd25519() {
@@ -77,6 +107,7 @@ public class JKey {
             }
 
             in.close();
+            //noinspection unchecked
             return (T) var3;
         } catch (IOException | ClassNotFoundException ex) {
             throw new RuntimeException(ex);
@@ -125,11 +156,16 @@ public class JKey {
     }
 
     public static class JEd25519Key extends JKey {
-        private static final long serialVersionUID = 1L;
         private byte[] ed25519 = null;
 
         public JEd25519Key(byte[] ed25519) {
             this.ed25519 = ed25519;
+        }
+
+        @Override
+        protected JObjectType packTo(DataOutputStream out) throws IOException {
+            out.write(ed25519);
+            return JObjectType.JEd25519Key;
         }
 
         @Override
@@ -155,6 +191,15 @@ public class JKey {
         }
 
         @Override
+        protected JObjectType packTo(DataOutputStream out) throws IOException {
+            out.writeInt(keys.size());
+            for (JKey key : keys) {
+                out.write(key.serialize());
+            }
+            return JObjectType.JKeyList;
+        }
+
+        @Override
         public String toString() {
             return "<JKeyList: keys=" + keys.toString() + ">";
         }
@@ -170,6 +215,12 @@ public class JKey {
 
         public JRSA_3072Key(byte[] RSA_3072Key) {
             this.RSA_3072Key = RSA_3072Key;
+        }
+
+        @Override
+        protected JObjectType packTo(DataOutputStream out) throws IOException {
+            out.write(RSA_3072Key);
+            return JObjectType.JRSA_3072Key;
         }
 
         @Override
@@ -196,6 +247,14 @@ public class JKey {
             this.shardNum = shardNum;
             this.realmNum = realmNum;
             this.contractNum = contractNum;
+        }
+
+        @Override
+        protected JObjectType packTo(DataOutputStream out) throws IOException {
+            out.writeLong(shardNum);
+            out.writeLong(realmNum);
+            out.writeLong(contractNum);
+            return JObjectType.JContractIDKey;
         }
 
         public long getShardNum() {
@@ -225,6 +284,12 @@ public class JKey {
         }
 
         @Override
+        protected JObjectType packTo(DataOutputStream out) throws IOException {
+            out.write(ECDSA_384Key);
+            return JObjectType.JECDSA_384Key;
+        }
+
+        @Override
         public String toString() {
             return "<JECDSA_384Key: ECDSA_384Key hex=" + HexFormat.of().formatHex(ECDSA_384Key) + ">";
         }
@@ -242,6 +307,13 @@ public class JKey {
         public JThresholdKey(JKeyList keys, int threshold) {
             this.keys = keys;
             this.threshold = threshold;
+        }
+
+        @Override
+        protected JObjectType packTo(DataOutputStream out) throws IOException {
+            out.writeInt(threshold);
+            out.write(keys.serialize());
+            return JObjectType.JThresholdKey;
         }
 
         @Override

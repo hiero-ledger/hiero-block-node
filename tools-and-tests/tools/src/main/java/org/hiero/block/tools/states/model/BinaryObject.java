@@ -2,6 +2,7 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.HexFormat;
 
@@ -46,6 +47,13 @@ public final class BinaryObject {
         hash = new Hash(hashValue, 0);
 
         // BinaryObjectStore.getInstance().registerForRecovery(this);
+    }
+
+    /** Serializes this BinaryObject (copyTo + copyToExtra, since copyToExtra is empty). */
+    public void copyTo(DataOutputStream out) throws IOException {
+        out.writeLong(VERSION);
+        out.writeLong(OBJECT_ID);
+        out.write(hash.hash());
     }
 
     @Override

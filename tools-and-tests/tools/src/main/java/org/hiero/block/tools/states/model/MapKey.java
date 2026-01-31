@@ -2,6 +2,7 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 
 public record MapKey(long realmId, long shardId, long accountId) {
@@ -22,5 +23,13 @@ public record MapKey(long realmId, long shardId, long accountId) {
         long accountId = inStream.readLong();
 
         return new MapKey(realmId, shardId, accountId);
+    }
+
+    public void copyTo(DataOutputStream out) throws IOException {
+        out.writeLong(CURRENT_VERSION);
+        out.writeLong(OBJECT_ID);
+        out.writeLong(realmId);
+        out.writeLong(shardId);
+        out.writeLong(accountId);
     }
 }

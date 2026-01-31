@@ -2,6 +2,7 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 
 @SuppressWarnings({"ConstantValue", "DuplicatedCode"})
@@ -90,7 +91,7 @@ public record MapValue(
             if (accountKeys != null && accountKeys.hasContractID()) {
                 isSmartContract = true;
             }
-            FCLinkedList.copyFrom(inStream, JTransactionRecord::copyFrom);
+            recordLinkedList = FCLinkedList.copyFrom(inStream, JTransactionRecord::copyFrom);
         } else if (version == CURRENT_VERSION) {
             balance = inStream.readLong();
             senderThreshold = inStream.readLong();
@@ -105,7 +106,7 @@ public record MapValue(
             expirationTime = inStream.readLong();
             memo = inStream.readUTF();
             isSmartContract = inStream.readByte() == 1;
-            FCLinkedList.copyFrom(inStream, JTransactionRecord::copyFrom);
+            recordLinkedList = FCLinkedList.copyFrom(inStream, JTransactionRecord::copyFrom);
         }
         return new MapValue(
                 balance,
@@ -120,5 +121,28 @@ public record MapValue(
                 expirationTime,
                 memo,
                 isSmartContract);
+    }
+
+    /** Serializes this MapValue matching the original serialize() + recordLinkedList.copyTo(). */
+    public void copyTo(DataOutputStream out) throws IOException {
+        out.writeLong(CURRENT_VERSION);
+        out.writeLong(OBJECT_ID);
+        out.writeLong(balance);
+        out.writeLong(senderThreshold);
+        out.writeLong(receiverThreshold);
+        out.writeByte(receiverSigRequired ? 1 : 0);
+        out.write(accountKeys.serialize());
+        if (proxyAccount != null) {
+            out.writeChar(ApplicationConstants.P);
+            proxyAccount.copyTo(out);
+        } else {
+            out.writeChar(ApplicationConstants.N);
+        }
+        out.writeLong(autoRenewPeriod);
+        out.writeByte(deleted ? 1 : 0);
+        out.writeLong(expirationTime);
+        out.writeUTF(memo == null ? "" : memo);
+        out.writeByte(isSmartContract ? 1 : 0);
+        recordLinkedList.copyTo(out);
     }
 }

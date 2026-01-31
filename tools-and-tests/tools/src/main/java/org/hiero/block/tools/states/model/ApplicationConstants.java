@@ -2,8 +2,8 @@
 package org.hiero.block.tools.states.model;
 
 public class ApplicationConstants {
-    /**
-     * constant char used to serialize and deserialize empty objects
-     */
-    public static char P = 'p';
+    /** Constant char indicating a present (non-null) proxy account. */
+    public static final char P = 'p';
+    /** Constant char indicating a null proxy account. */
+    public static final char N = 'n';
 }

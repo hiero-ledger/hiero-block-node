@@ -2,6 +2,7 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -16,6 +17,8 @@ public class FCLinkedList<T> extends ArrayList<T> {
     private static final String HASH_ALGORITHM = "SHA-384";
     static final long VERSION = 1L;
     static final long OBJECT_ID = 695029169L;
+
+    private byte[] hash;
 
     public static <T> FCLinkedList<T> copyFrom(DataInputStream dis, Function<DataInputStream, T> elementDeserializer)
             throws IOException {
@@ -57,17 +60,19 @@ public class FCLinkedList<T> extends ArrayList<T> {
 
         readValidInt(dis, "END_LIST_MARKER", END_LIST_MARKER);
 
-        //        if (recoveredHash != null && recoveredHash.length > 0) {
-        //            if (!Arrays.equals(hash, recoveredHash)) {
-        //                throw new ListDigestException(String.format(
-        //                        "FCLinkedList: Invalid list signature detected during deserialization (Actual: %s,
-        // Expected: " +
-        //                                "%s for list of size %d)",
-        //                        hex(hash), hex(recoveredHash), listSize));
-        //            }
-        //        }
-        // TODO deal with hashes
+        list.hash = recoveredHash;
         return list;
+    }
+
+    /** Writes the FCLinkedList hash header (version + objectId + 48-byte hash). */
+    public void copyTo(DataOutputStream out) throws IOException {
+        out.writeLong(VERSION);
+        out.writeLong(OBJECT_ID);
+        if (hash != null) {
+            out.write(hash);
+        } else {
+            out.write(new byte[48]);
+        }
     }
 
     private static void readValidInt(final DataInputStream dis, final String markerName, final int expectedValue)

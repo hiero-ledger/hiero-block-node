@@ -56,6 +56,7 @@ public class FCMap<K, V> extends HashMap<K, V> {
         }
     }
 
+    @SuppressWarnings("unused")
     public void copyFromExtra(DataInputStream inStream) throws IOException {
 
         final int beginMarker = inStream.readInt();
@@ -71,43 +72,10 @@ public class FCMap<K, V> extends HashMap<K, V> {
 
         final byte[] rootHash = deserializeRootHash(inStream);
         final List<FCMLeaf<K, V>> leaves = copyTreeFrom(inStream);
-        //        final FCMNode<K, V> rootNode;
-        //        { // inlined copyTreeFrom() as multiple returns
-        ////            copyTreeFrom(inStream, keyDeserializer, valueDeserializer);
-        //            // Discard the version number
-        //            long treeVersion = inStream.readLong();
-        //            leaves = deserializeLeaves(inStream, keyDeserializer, valueDeserializer);
-        //            int size = leaves.size();
-        //            if (size == 0) {
-        //                rootNode = new FCMInternalNode<>(null, null);
-        //            } else {
-        //                List<FCMNode<K,V>> internalNodes = generateInitialInternalNodes(leaves);
-        //                while (internalNodes.size() > 1) {
-        //                    internalNodes = generateInternalLevel(internalNodes);
-        //                }
-        //
-        //                rootNode = internalNodes.get(0);
-        ////                this.setRightMostLeaf(); // TODO not sure if this is needed
-        //            }
-        //        }
         final int endMarker = inStream.readInt();
         if (END_MARKER_VALUE != endMarker) {
             throw new IOException("The serialized FCMap stream ends unexpectedly");
         }
-
-        // old code to recompute the root hash
-        //        final MerkleHash<K, V> merkleHashWorker = new MerkleHash<>();
-        //        merkleHashWorker.computeByLevels(this.tree);
-        //        final byte[] treeRootHash = this.tree.getHash();
-        //        if (this.copyCheckEnabled && !Arrays.equals(rootHash, treeRootHash)) {
-        //            throw new IllegalStateException("The root hash serialized doesn't match the tree root hash");
-        //        }
-
-        // old code to create the internal map
-        //        this.internalMap = new HashMap<>(leaves.size());
-        //        for (FCMLeaf<K, V> leaf : leaves) {
-        //            this.internalMap.put(leaf.getKey(), leaf);
-        //        }
         for (FCMLeaf<K, V> leaf : leaves) {
             put(leaf.key(), leaf.value());
         }
@@ -129,7 +97,7 @@ public class FCMap<K, V> extends HashMap<K, V> {
                 internalNodes = generateInternalLevel(internalNodes);
             }
 
-            this.root = (FCMInternalNode<K, V>) internalNodes.get(0);
+            this.root = (FCMInternalNode<K, V>) internalNodes.getFirst();
             //            this.setRightMostLeaf(); TODO not sure if this is needed
             return leaves;
         } catch (IOException ioException) {
@@ -165,7 +133,7 @@ public class FCMap<K, V> extends HashMap<K, V> {
     private static <K, V> List<FCMNode<K, V>> generateInternalLevel(List<? extends FCMNode<K, V>> nodes) {
         List<FCMNode<K, V>> internalNodes = new ArrayList<>(nodes.size() / 2);
         if (nodes.size() == 1) {
-            final FCMNode<K, V> rightChild = nodes.get(0);
+            final FCMNode<K, V> rightChild = nodes.getFirst();
             FCMInternalNode<K, V> internalNode = new FCMInternalNode<>(rightChild, null);
             //            internalNode.setRightChild(rightChild);
             //            rightChild.setParent(internalNode);
@@ -236,27 +204,19 @@ public class FCMap<K, V> extends HashMap<K, V> {
     }
 
     public void copyTo(DataOutputStream outStream) throws IOException {
+        byte[] computedRootHash = root.getHash();
         outStream.write(BEGIN_MARKER);
-        outStream.write(rootHash);
+        outStream.write(computedRootHash);
         outStream.write(END_MARKER);
     }
 
-    private byte[] computeByLevels() throws IOException {
-        byte[] computedHash;
-        // TODO assume that the tree is not empty
-        //        if (root == null) {
-        //            computedHash = EMPTY_HASH;
-        //        } else if (tree.size() == 1) {
-        //            this.computeTreeWithOneLeaf(tree);
-        //            return;
-        //        }
+    /** Returns the stored root hash from deserialization. */
+    public byte[] getStoredRootHash() {
+        return rootHash;
+    }
 
-        //        final Stack<Collection<FCMNode<K, V>>> levels = tree.retrieveLevels(forceHash);
-        //
-        //        while (!levels.isEmpty()) {
-        //            this.computeHashForLevel(levels.pop().iterator(), forceHash);
-        //        }
-        //        byte[] readRootHash = root.getHash();
+    /** Returns the computed root hash from the Merkle tree. */
+    public byte[] getComputedRootHash() {
         return root.getHash();
     }
 }

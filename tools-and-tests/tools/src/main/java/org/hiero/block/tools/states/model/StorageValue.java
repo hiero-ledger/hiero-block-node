@@ -2,6 +2,7 @@
 package org.hiero.block.tools.states.model;
 
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 
 public record StorageValue(BinaryObject data) {
@@ -36,5 +37,16 @@ public record StorageValue(BinaryObject data) {
         }
 
         return new StorageValue(data);
+    }
+
+    public void copyTo(DataOutputStream out) throws IOException {
+        out.writeLong(CURRENT_VERSION);
+        out.writeLong(OBJECT_ID);
+        if (data != null) {
+            out.writeBoolean(true);
+            data.copyTo(out);
+        } else {
+            out.writeBoolean(false);
+        }
     }
 }
