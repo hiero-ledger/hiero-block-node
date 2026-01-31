@@ -1313,6 +1313,32 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
+
+            /**
+             * Regression test for issue #2101.
+             * After backfill fills a gap, a publisher sending the next block should
+             * be accepted (not rejected with SEND_BEHIND).
+             */
+            @Test
+            @DisplayName("handlePersisted() updates nextUnstreamedBlockNumber when backfill advances past it")
+            void testBackfillAdvancesNextUnstreamedBlockNumber() {
+                // GIVEN: Initial state - blocks 0-2 persisted, next expected is 3
+                final long initialLastPersisted = 2L;
+                final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
+                availableBlocks.add(0L, initialLastPersisted);
+                historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
+                toTest.handlePersisted(new PersistedNotification(initialLastPersisted, true, 0, BlockSource.UNKNOWN));
+
+                // WHEN: Backfill fills blocks 3-5
+                final long backfilledBlock = 5L;
+                toTest.handlePersisted(new PersistedNotification(backfilledBlock, true, 0, BlockSource.BACKFILL));
+
+                // THEN: Publisher sending block 6 should be ACCEPTED (not SEND_BEHIND)
+                BlockAction action = toTest.getActionForBlock(6L, null, publisherHandlerId);
+                assertThat(action)
+                        .describedAs("After backfill to block 5, block 6 should be ACCEPT not SEND_BEHIND")
+                        .isEqualTo(BlockAction.ACCEPT);
+            }
         }
 
         /**
