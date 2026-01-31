@@ -41,18 +41,18 @@ RUN repro-sources-list.sh && \
 ####    Java Setup    ####
 ##########################
 
-# Find versions here: https://github.com/adoptium/temurin21-binaries/releases
+# Find versions here: https://github.com/adoptium/temurin25-binaries/releases
 # ESUMs found in the .sha256.txt file for each version
 RUN set -eux; \
         ARCH="$(dpkg --print-architecture)"; \
         case "${ARCH}" in \
            aarch64|arm64) \
-            ESUM='31dba70ba928c78c20d62049ac000f79f7a7ab11f9d9c11e703f52d60aa64f93'; \
-            BINARY_URL='https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.7%2B6/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.7_6.tar.gz' \
+            ESUM='a9d73e711d967dc44896d4f430f73a68fd33590dabc29a7f2fb9f593425b854c'; \
+            BINARY_URL='https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.2%2B10/OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.2_10.tar.gz' \
             ;; \
           amd64|i386:x86-64) \
-            ESUM='974d3acef0b7193f541acb61b76e81670890551366625d4f6ca01b91ac152ce0'; \
-            BINARY_URL='https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.7%2B6/OpenJDK21U-jdk_x64_linux_hotspot_21.0.7_6.tar.gz' \
+            ESUM='987387933b64b9833846dee373b640440d3e1fd48a04804ec01a6dbf718e8ab8'; \
+            BINARY_URL='https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.2%2B10/OpenJDK25U-jdk_x64_linux_hotspot_25.0.2_10.tar.gz' \
             ;; \
            *) \
             echo "Unsupported arch: ${ARCH}"; \
@@ -137,7 +137,7 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV DEBIAN_FRONTEND=noninteractive
 
-ENV JAVA_VERSION="jdk-21.0.7+6"
+ENV JAVA_VERSION="jdk-25.0.2+10"
 ENV JAVA_HOME=/usr/local/java
 ENV PATH=${JAVA_HOME}/bin:${PATH}
 ENV BN_WORKDIR=/opt/hiero/block-node

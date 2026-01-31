@@ -31,7 +31,7 @@ The Block Node will also expose additional targeted value adding APIs to the Hie
 
 ## Prerequisites
 
-- Java 21 (temurin recommended)
+- Java 25 (temurin recommended)
 - Gradle (using the wrapper `./gradlew` is highly recommended)
 - Docker (recommended for running the projects)
 - IntelliJ IDEA (recommended for development)

@@ -43,8 +43,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.Spec;
 
-/***
- *
+/*
  * Each block has 30 signatures (n signatures)
  * How many signatures are valid?
  *
