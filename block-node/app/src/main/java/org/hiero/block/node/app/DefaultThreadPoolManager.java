@@ -118,4 +118,18 @@ final class DefaultThreadPoolManager implements ThreadPoolManager {
             return Executors.newScheduledThreadPool(corePoolSize, factory);
         }
     }
+
+    /**
+     * {@inheritDoc}
+     */
+    @NonNull
+    @Override
+    public ScheduledExecutorService createSingleThreadScheduledExecutor(
+            @NonNull final String threadName, @NonNull final Thread.UncaughtExceptionHandler uncaughtExceptionHandler) {
+        Preconditions.requireNotBlank(threadName);
+        final OfPlatform factoryBuilder = Thread.ofPlatform();
+        factoryBuilder.name(threadName);
+        factoryBuilder.uncaughtExceptionHandler(uncaughtExceptionHandler);
+        return Executors.newSingleThreadScheduledExecutor(factoryBuilder.factory());
+    }
 }

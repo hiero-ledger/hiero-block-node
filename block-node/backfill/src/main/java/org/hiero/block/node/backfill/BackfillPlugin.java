@@ -56,8 +56,8 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     // Two independent schedulers with dedicated executors: historical never blocks live-tail
     private BackfillTaskScheduler historicalScheduler;
     private BackfillTaskScheduler liveTailScheduler;
-    private ExecutorService historicalExecutor;
-    private ExecutorService liveTailExecutor;
+    private ScheduledExecutorService historicalExecutor;
+    private ScheduledExecutorService liveTailExecutor;
 
     // State touched by multiple threads
     private final AtomicLong pendingBackfillBlocks = new AtomicLong(0);
@@ -158,12 +158,13 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         final String schedulingMsg = "Scheduling backfill process to start in [{0}] milliseconds";
         LOGGER.log(TRACE, schedulingMsg, backfillConfiguration.initialDelay());
 
-        // Create the autonomous executor
-        autonomousExecutor = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(
-                        1, // single scheduler thread for scans
-                        "BackfillPluginRunner",
-                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
+        // Create platform thread executors via threadPoolManager.
+        // Platform threads required because Helidon WebClient HTTP/2 has issues with virtual threads in containers.
+        Thread.UncaughtExceptionHandler handler =
+                (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
+
+        autonomousExecutor =
+                context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillPluginRunner", handler);
 
         // Schedule periodic gap detection task using autonomous executor
         autonomousExecutor.scheduleAtFixedRate(
@@ -172,17 +173,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 backfillConfiguration.scanInterval(),
                 TimeUnit.MILLISECONDS);
 
-        // Create two independent schedulers with dedicated executors for full isolation
-        historicalExecutor = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(
-                        1,
-                        "BackfillHistoricalExecutor",
-                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
-        liveTailExecutor = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(
-                        1,
-                        "BackfillLiveTailExecutor",
-                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + t.getName(), e));
+        // Create dedicated platform thread executors for backfill tasks
+        historicalExecutor =
+                context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillHistoricalExecutor", handler);
+        liveTailExecutor =
+                context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillLiveTailExecutor", handler);
 
         historicalScheduler =
                 createScheduler(historicalExecutor, backfillConfiguration.historicalQueueCapacity(), "Historical");

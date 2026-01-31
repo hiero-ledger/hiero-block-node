@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.assertj.core.api.InstanceOfAssertFactories;
@@ -100,6 +101,42 @@ class DefaultThreadPoolManagerTest {
                             .newThread(() -> {})
                             .getUncaughtExceptionHandler())
                     .isNotSameAs(actual);
+        }
+
+        /**
+         * This test aims to verify that the
+         * {@link DefaultThreadPoolManager#createSingleThreadScheduledExecutor(String, UncaughtExceptionHandler)}
+         * creates a single thread scheduled executor correctly using platform threads.
+         */
+        @Test
+        @DisplayName(
+                "Test createSingleThreadScheduledExecutor creates platform thread scheduled executor with correct configuration")
+        void testCreateSingleThreadScheduledExecutor() throws Exception {
+            final UncaughtExceptionHandler expectedHandler = (t, e) -> {
+                // Handle the exception
+            };
+            final ScheduledExecutorService actual =
+                    toTest.createSingleThreadScheduledExecutor("testScheduledThread", expectedHandler);
+            assertThat(actual).isNotNull().isInstanceOf(ScheduledExecutorService.class);
+
+            // Submit a task to verify the thread configuration
+            actual.submit(() -> {
+                        Thread currentThread = Thread.currentThread();
+                        assertThat(currentThread.getName()).isEqualTo("testScheduledThread");
+                        assertThat(currentThread.getUncaughtExceptionHandler()).isSameAs(expectedHandler);
+                        assertThat(currentThread.isVirtual()).isFalse();
+                    })
+                    .get(5, TimeUnit.SECONDS);
+
+            final ScheduledExecutorService actual2 =
+                    toTest.createSingleThreadScheduledExecutor("testScheduledThread2", expectedHandler);
+            assertThat(actual2)
+                    .isNotNull()
+                    .isInstanceOf(ScheduledExecutorService.class)
+                    .isNotSameAs(actual);
+
+            actual.shutdownNow();
+            actual2.shutdownNow();
         }
     }
 }
