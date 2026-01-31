@@ -15,6 +15,9 @@ import org.hiero.block.tools.states.model.CompleteSavedState;
 import org.hiero.block.tools.states.model.FCMap;
 import org.hiero.block.tools.states.model.MapKey;
 import org.hiero.block.tools.states.model.MapValue;
+import org.hiero.block.tools.states.model.StorageKey;
+import org.hiero.block.tools.states.model.StorageValue;
+import org.hiero.block.tools.states.postgres.BlobType;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 
@@ -304,12 +307,21 @@ public class MainnetBlockZeroState implements Runnable {
     public static void printCompleteSavedStateSummary(CompleteSavedState state, String stateName) {
         final var signedState = state.signedState();
         final var accountMap = signedState.state().accountMap();
-        final var storageMap = signedState.state().storageMap();
+        final FCMap<StorageKey, StorageValue> storageMap = signedState.state().storageMap();
         final long totalBalance =
                 accountMap.values().stream().mapToLong(MapValue::balance).sum();
         final long numAccounts = accountMap.size();
+        final long numSmartContracts =
+                accountMap.values().stream().filter(MapValue::isSmartContract).count();
         final long numBinaryObjects = state.binaryObjectByHexHashMap().size();
         final long numStorageEntries = storageMap.size();
+
+        // Count storage entries by blob type
+        Map<BlobType, Long> blobTypeCounts = storageMap.keySet().stream()
+                .collect(Collectors.groupingBy(StorageKey::getBlobType, Collectors.counting()));
+        final long numFiles = blobTypeCounts.getOrDefault(BlobType.FILE_METADATA, 0L);
+        final long numContractBytecodes = blobTypeCounts.getOrDefault(BlobType.CONTRACT_BYTECODE, 0L);
+        final long numContractStorageEntries = blobTypeCounts.getOrDefault(BlobType.CONTRACT_STORAGE, 0L);
 
         System.out.println(
                 Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
@@ -320,9 +332,16 @@ public class MainnetBlockZeroState implements Runnable {
                 Ansi.AUTO.string(String.format("  Round:                @|yellow %,d|@", signedState.round())));
         System.out.println(Ansi.AUTO.string(
                 String.format("  Consensus Timestamp:  @|cyan %s|@", signedState.consensusTimestamp())));
-        System.out.println(Ansi.AUTO.string(String.format("  Accounts:             @|yellow %,d|@", numAccounts)));
+        System.out.println(Ansi.AUTO.string(String.format(
+                "  Accounts:             @|yellow %,d|@ (@|yellow %,d|@ normal + @|yellow %,d|@ smart contracts)",
+                numAccounts, numAccounts - numSmartContracts, numSmartContracts)));
         System.out.println(
                 Ansi.AUTO.string(String.format("  Total Balance:        @|yellow %,d|@ tinybars", totalBalance)));
+        System.out.println(Ansi.AUTO.string(String.format("  Files:                @|yellow %,d|@", numFiles)));
+        System.out.println(Ansi.AUTO.string(
+                String.format("  Contract Bytecodes:   @|yellow %,d|@", numContractBytecodes)));
+        System.out.println(Ansi.AUTO.string(
+                String.format("  Contract Storage:     @|yellow %,d|@", numContractStorageEntries)));
         System.out.println(Ansi.AUTO.string(String.format("  Binary Objects:       @|yellow %,d|@", numBinaryObjects)));
         System.out.println(
                 Ansi.AUTO.string(String.format("  Storage KV Pairs:     @|yellow %,d|@", numStorageEntries)));
