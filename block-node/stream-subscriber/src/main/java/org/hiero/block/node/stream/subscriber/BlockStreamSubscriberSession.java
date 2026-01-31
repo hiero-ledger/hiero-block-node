@@ -767,7 +767,7 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
      *
      * @param allItems the list of all block items to send
      */
-    private void sendBlockItemsChunked(final List<BlockItemUnparsed> allItems) {
+    void sendBlockItemsChunked(final List<BlockItemUnparsed> allItems) {
         final int maxChunkBytes = sessionContext.subscriberConfig.maxChunkSizeBytes();
         int currentIndex = 0;
 
