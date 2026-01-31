@@ -16,7 +16,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -773,26 +772,25 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
         int currentIndex = 0;
 
         while (currentIndex < allItems.size()) {
-            final List<BlockItemUnparsed> chunk = new ArrayList<>();
+            final int startIndex = currentIndex;
             long currentChunkSize = 0;
 
             // Build chunk until we approach max size
             while (currentIndex < allItems.size()) {
-                final BlockItemUnparsed item = allItems.get(currentIndex);
-                final int itemSize = BlockItemUnparsed.PROTOBUF.measureRecord(item);
+                final int itemSize = BlockItemUnparsed.PROTOBUF.measureRecord(allItems.get(currentIndex));
 
                 // If adding this item would exceed max and chunk is not empty, break
                 // (item will ship by itself in the next iteration)
-                if (!chunk.isEmpty() && currentChunkSize + itemSize > maxChunkBytes) {
+                if (currentIndex > startIndex && currentChunkSize + itemSize > maxChunkBytes) {
                     break;
                 }
 
-                chunk.add(item);
                 currentChunkSize += itemSize;
                 currentIndex++;
             }
 
-            // Send chunk - last chunk is marked as block complete
+            // subList creates a view - no copying needed
+            final List<BlockItemUnparsed> chunk = allItems.subList(startIndex, currentIndex);
             final boolean isLastChunk = currentIndex >= allItems.size();
             sendOneBlockItemSet(chunk, isLastChunk);
 
