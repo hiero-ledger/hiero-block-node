@@ -17,13 +17,26 @@ public class AddressBook {
     /** This version number should be used to handle compatibility issues that may arise from any future changes */
     private static final long VERSION = 1;
 
+    /** the list of network addresses */
     List<Address> addresses;
+    /** the cached total stake across all addresses */
     long totalStake;
+    /** the cached per-member stakes array */
     long[] stakes;
+    /** mapping from public key nickname to node ID */
     Map<String, Long> publicKeyToId;
 
+    /** Creates an empty address book. */
     public AddressBook() {}
 
+    /**
+     * Creates an address book with the given data.
+     *
+     * @param addresses the list of network addresses
+     * @param totalStake the cached total stake across all addresses
+     * @param stakes the cached per-member stakes array
+     * @param publicKeyToId mapping from public key nickname to node ID
+     */
     public AddressBook(List<Address> addresses, long totalStake, long[] stakes, Map<String, Long> publicKeyToId) {
         this.addresses = addresses;
         this.totalStake = totalStake;
@@ -31,6 +44,12 @@ public class AddressBook {
         this.publicKeyToId = publicKeyToId;
     }
 
+    /**
+     * Retrieves the address for a given node ID.
+     *
+     * @param id the node ID
+     * @return the address, or {@code null} if the ID is out of range
+     */
     public Address getAddress(long id) {
         if (id < 0 || id >= addresses.size()) {
             return null;
@@ -38,15 +57,31 @@ public class AddressBook {
         return addresses.get((int) id);
     }
 
+    /**
+     * Gets the number of addresses in this book.
+     *
+     * @return the number of addresses in this book
+     */
     public int getSize() {
         return addresses.size();
     }
 
+    /**
+     * Gets the stake weight for a given node ID.
+     *
+     * @param id the node ID
+     * @return the node's stake, or 0 if not found
+     */
     public long getStake(long id) {
         Address addr = getAddress((int) id);
         return addr == null ? 0 : addr.stake();
     }
 
+    /**
+     * Gets the total stake across all nodes.
+     *
+     * @return the total stake across all nodes
+     */
     public long getTotalStake() {
         if (totalStake == 0 && addresses != null) {
             long tmpTotalStake = 0;
@@ -58,6 +93,12 @@ public class AddressBook {
         return totalStake;
     }
 
+    /**
+     * Deserializes this address book from the given stream.
+     *
+     * @param inStream the stream to read from
+     * @throws IOException if an I/O error occurs or the version is incompatible
+     */
     public void copyFrom(DataInputStream inStream) throws IOException {
         // Discard the version number
         long version = inStream.readLong();
@@ -76,6 +117,12 @@ public class AddressBook {
         stakes = null; // force recalculation on the next getStakes() call
     }
 
+    /**
+     * Serializes this address book to the given stream.
+     *
+     * @param outStream the stream to write to
+     * @throws IOException if an I/O error occurs
+     */
     public void copyTo(DataOutputStream outStream) throws IOException {
         // Write the version number
         outStream.writeLong(VERSION);
@@ -95,6 +142,11 @@ public class AddressBook {
         return publicKeyToId;
     }
 
+    /**
+     * Computes a SHA-384 hash over all addresses.
+     *
+     * @return the hash bytes
+     */
     public byte[] getHash() {
         MessageDigest md = CryptoUtils.getMessageDigest();
         for (int i = 0; i < addresses.size(); i++) {

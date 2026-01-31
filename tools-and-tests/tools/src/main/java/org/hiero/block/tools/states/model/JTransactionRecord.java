@@ -4,7 +4,21 @@ package org.hiero.block.tools.states.model;
 import java.io.DataInputStream;
 import java.io.IOException;
 
-/** A serializable transaction record containing receipt, hash, transfers, and contract results. */
+/**
+ * A serializable transaction record containing receipt, hash, transfers, and contract results.
+ *
+ * @param txReceipt the transaction receipt, or {@code null}
+ * @param txHash the transaction hash bytes, or {@code null}
+ * @param transactionID the transaction identifier, or {@code null}
+ * @param consensusTimestamp the consensus timestamp, or {@code null}
+ * @param memo the transaction memo string, or {@code null}
+ * @param transactionFee the transaction fee in tinybars
+ * @param contractCallResult the result of a contract call, or {@code null}
+ * @param contractCreateResult the result of contract creation, or {@code null}
+ * @param jTransferList the list of HBAR transfers, or {@code null}
+ * @param expirationTime the record expiration time in seconds since epoch
+ * @param deserializedVersion the version this record was deserialized from, or {@code null} for current version
+ */
 public record JTransactionRecord(
         JTransactionReceipt txReceipt,
         byte[] txHash,
@@ -16,11 +30,18 @@ public record JTransactionRecord(
         JContractFunctionResult contractCreateResult,
         JTransferList jTransferList,
         long expirationTime,
-        // track deserialize version to ensure hash matches
         Long deserializedVersion) {
+    /** The legacy serialization version identifier (version 1). */
     private static final long LEGACY_VERSION_1 = 1;
+    /** The current serialization version identifier (version 3). */
     private static final long CURRENT_VERSION = 3;
 
+    /**
+     * Deserializes a JTransactionRecord from the given input stream.
+     *
+     * @param inStream the input stream to read from
+     * @return the deserialized JTransactionRecord instance
+     */
     public static JTransactionRecord copyFrom(final DataInputStream inStream) {
         try {
             JTransactionReceipt txReceipt;

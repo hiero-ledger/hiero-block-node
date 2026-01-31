@@ -5,10 +5,25 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 
-/** A serializable file metadata record containing deletion status, WACL key, and expiration time. */
+/**
+ * A serializable file metadata record containing deletion status, WACL key, and expiration time.
+ *
+ * @param deleted whether the file has been deleted
+ * @param wacl the write-access control list key
+ * @param expirationTimeInSec the file expiration time in seconds since epoch
+ */
 public record JFileInfo(boolean deleted, JKey wacl, long expirationTimeInSec) {
+    /** The binary pack serialization version identifier. */
     private static final long BPACK_VERSION = 1;
 
+    /**
+     * Deserializes a JFileInfo from the given byte array.
+     *
+     * <p>Wraps any IOException in a RuntimeException.
+     *
+     * @param bytes the serialized byte array
+     * @return the deserialized JFileInfo instance
+     */
     @SuppressWarnings("unused")
     public static JFileInfo deserialize(byte[] bytes) {
         try (DataInputStream stream = new DataInputStream(new ByteArrayInputStream(bytes))) {

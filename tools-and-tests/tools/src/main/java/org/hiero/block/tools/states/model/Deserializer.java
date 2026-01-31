@@ -23,5 +23,12 @@ import java.io.IOException;
 
 /** A function that deserializes an object from a {@link DataInputStream}. */
 public interface Deserializer<T> {
+    /**
+     * Deserializes an object from the given stream.
+     *
+     * @param stream the stream to read from
+     * @return the deserialized object
+     * @throws IOException if an I/O error occurs
+     */
     T deserialize(DataInputStream stream) throws IOException;
 }

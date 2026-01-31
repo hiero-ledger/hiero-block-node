@@ -4,11 +4,26 @@ package org.hiero.block.tools.states.model;
 import java.io.DataInputStream;
 import java.io.IOException;
 
-/** A serializable exchange rate entry with HBAR and cent equivalents and an expiration time. */
+/**
+ * A serializable exchange rate entry with HBAR and cent equivalents and an expiration time.
+ *
+ * @param hbarEquiv the HBAR equivalent value
+ * @param centEquiv the cent equivalent value
+ * @param expirationTime the expiration time in seconds since epoch
+ */
 public record JExchangeRate(int hbarEquiv, int centEquiv, long expirationTime) {
+    /** The legacy serialization version identifier (version 1). */
     private static final long LEGACY_VERSION_1 = 1;
+    /** The current serialization version identifier (version 2). */
     private static final long CURRENT_VERSION = 2;
 
+    /**
+     * Deserializes a JExchangeRate from the given input stream.
+     *
+     * @param inStream the input stream to read from
+     * @return the deserialized JExchangeRate instance
+     * @throws IOException if an I/O error occurs during deserialization
+     */
     public static JExchangeRate copyFrom(final DataInputStream inStream) throws IOException {
         int hbarEquiv;
         int centEquiv;

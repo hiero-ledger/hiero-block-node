@@ -7,11 +7,24 @@ import java.io.IOException;
 import org.hiero.block.tools.states.postgres.BlobType;
 import org.hiero.block.tools.states.utils.Utils;
 
-/** A serializable key for the storage FCMap, wrapping a normalized path string. */
+/**
+ * A serializable key for the storage FCMap, wrapping a normalized path string.
+ *
+ * @param path the normalized storage path string
+ */
 public record StorageKey(String path) {
+    /** The current serialization version. */
     private static final long CURRENT_VERSION = 1;
+    /** The unique object identifier for serialization. */
     private static final long OBJECT_ID = 15487002;
 
+    /**
+     * Deserializes a StorageKey from the given stream.
+     *
+     * @param inStream the stream to read from
+     * @return the deserialized StorageKey
+     * @throws IOException if an I/O error occurs or if the version or object ID is invalid
+     */
     public static StorageKey copyFrom(DataInputStream inStream) throws IOException {
         long version = inStream.readLong();
         if (version != CURRENT_VERSION) {
@@ -26,6 +39,12 @@ public record StorageKey(String path) {
         return new StorageKey(path);
     }
 
+    /**
+     * Serializes this StorageKey to the given stream.
+     *
+     * @param out the stream to write to
+     * @throws IOException if an I/O error occurs
+     */
     public void copyTo(DataOutputStream out) throws IOException {
         out.writeLong(CURRENT_VERSION);
         out.writeLong(OBJECT_ID);

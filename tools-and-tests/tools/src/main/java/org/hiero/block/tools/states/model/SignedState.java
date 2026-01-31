@@ -25,17 +25,29 @@ public final class SignedState {
     /** This version number should be used to handle compatibility issues that may arise from any future changes */
     private static final long CLASS_VERSION = 2;
 
+    /** the version number read from the serialized state */
     private long instanceVersion;
+    /** the hash read from the serialized state */
     private byte[] readHash;
+    /** the application state containing accounts and storage */
     private final HGCAppState state = new HGCAppState();
+    /** the consensus round number */
     private long round;
+    /** the number of consensus events */
     private long numEventsCons = 0;
+    /** the network address book at this state */
     private final AddressBook addressBook = new AddressBook();
+    /** the hash of consensus events */
     private byte[] hashEventsCons;
+    /** the consensus timestamp */
     private Instant consensusTimestamp;
+    /** whether this state should be saved to disk */
     private boolean shouldSaveToDisk;
+    /** the array of events */
     private Event[] events;
+    /** the minimum generation info per round */
     private List<Pair<Long, Long>> minGenInfo;
+    /** the signature set for this state */
     private SigSet sigSet;
 
     public SignedState() {}
@@ -78,42 +90,93 @@ public final class SignedState {
         return signedState;
     }
 
+    /**
+     * Gets the hash read from the serialized state.
+     *
+     * @return the hash read from the serialized state
+     */
     public byte[] readHash() {
         return readHash;
     }
 
+    /**
+     * Gets the version number read from the serialized state.
+     *
+     * @return the version number read from the serialized state
+     */
     public long instanceVersion() {
         return instanceVersion;
     }
 
+    /**
+     * Gets the consensus round number.
+     *
+     * @return the consensus round number
+     */
     public long round() {
         return round;
     }
 
+    /**
+     * Gets the number of consensus events.
+     *
+     * @return the number of consensus events
+     */
     public long numEventsCons() {
         return numEventsCons;
     }
 
+    /**
+     * Gets the network address book at this state.
+     *
+     * @return the network address book at this state
+     */
     public AddressBook addressBook() {
         return addressBook;
     }
 
+    /**
+     * Gets whether this state should be saved to disk.
+     *
+     * @return whether this state should be saved to disk
+     */
     public boolean shouldSaveToDisk() {
         return shouldSaveToDisk;
     }
 
+    /**
+     * Gets the application state containing accounts and storage.
+     *
+     * @return the application state containing accounts and storage
+     */
     public HGCAppState state() {
         return state;
     }
 
+    /**
+     * Gets the consensus timestamp.
+     *
+     * @return the consensus timestamp
+     */
     public Instant consensusTimestamp() {
         return consensusTimestamp;
     }
 
+    /**
+     * Gets the signature set for this state.
+     *
+     * @return the signature set for this state
+     */
     public SigSet sigSet() {
         return sigSet;
     }
 
+    /**
+     * Deserializes the SignedState header from the given stream.
+     *
+     * @param inStream the stream to read from
+     * @throws IOException if an I/O error occurs or the version is incompatible
+     */
     public void copyFrom(DataInputStream inStream) throws IOException {
         instanceVersion = inStream.readLong(); // classVersion
         if (instanceVersion != CLASS_VERSION) {
@@ -152,6 +215,12 @@ public final class SignedState {
         sigSet.copyFrom(inStream);
     }
 
+    /**
+     * Deserializes the SignedState contents from the given stream.
+     *
+     * @param inStream the stream to read from
+     * @throws IOException if an I/O error occurs
+     */
     public void copyFromExtra(DataInputStream inStream) throws IOException {
         state.copyFromExtra(inStream);
     }

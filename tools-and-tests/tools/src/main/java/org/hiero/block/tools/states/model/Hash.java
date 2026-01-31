@@ -8,8 +8,20 @@ import java.time.Instant;
 import java.util.HexFormat;
 import org.hiero.block.tools.states.utils.Utils;
 
-/** A serializable SHA-384 hash with a hash-map seed, replacing {@code com.swirlds.platform.Hash}. */
+/**
+ * A serializable SHA-384 hash with a hash-map seed, replacing {@code com.swirlds.platform.Hash}.
+ *
+ * @param hash the raw hash bytes
+ * @param hashMapSeed the seed value used for hash map bucketing
+ */
 public record Hash(byte[] hash, int hashMapSeed) {
+    /**
+     * Deserializes a Hash from the given stream.
+     *
+     * @param dis the stream to read from
+     * @return the deserialized Hash
+     * @throws IOException if an I/O error occurs
+     */
     public static Hash readHash(DataInputStream dis) throws IOException {
         int hashMapSeed = dis.readInt();
         byte[] hash = Utils.readByteArray(dis);
@@ -36,6 +48,11 @@ public record Hash(byte[] hash, int hashMapSeed) {
         }
     }
 
+    /**
+     * Returns the hash bytes formatted as a lowercase hex string.
+     *
+     * @return the hash in hexadecimal format
+     */
     public String hex() {
         return HexFormat.of().formatHex(hash);
     }

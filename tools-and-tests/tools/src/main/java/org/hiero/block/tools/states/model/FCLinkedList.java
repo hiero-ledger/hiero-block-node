@@ -11,16 +11,33 @@ import java.util.function.Function;
 
 /** A serializable linked list used in the Hedera state with marker-delimited binary format. */
 public class FCLinkedList<T> extends ArrayList<T> {
+    /** marker value indicating the beginning of a serialized list */
     private static final int BEGIN_LIST_MARKER = 275624369;
+    /** marker value indicating the end of a serialized list */
     private static final int END_LIST_MARKER = 275654143;
+    /** marker value indicating the beginning of a list element */
     private static final int BEGIN_ELEMENT_MARKER = 282113441;
+    /** marker value indicating the end of a list element */
     private static final int END_ELEMENT_MARKER = 282124951;
+    /** hash algorithm used for computing the list hash */
     private static final String HASH_ALGORITHM = "SHA-384";
+    /** serialization version number */
     static final long VERSION = 1L;
+    /** unique object identifier for serialization */
     static final long OBJECT_ID = 695029169L;
 
+    /** the recovered hash from deserialization */
     private byte[] hash;
 
+    /**
+     * Deserializes an FCLinkedList from the given stream.
+     *
+     * @param dis the stream to read from
+     * @param elementDeserializer function to deserialize each element
+     * @param <T> the element type
+     * @return the deserialized list
+     * @throws IOException if an I/O error occurs or markers are invalid
+     */
     public static <T> FCLinkedList<T> copyFrom(DataInputStream dis, Function<DataInputStream, T> elementDeserializer)
             throws IOException {
         readValidLong(dis, "VERSION", VERSION);

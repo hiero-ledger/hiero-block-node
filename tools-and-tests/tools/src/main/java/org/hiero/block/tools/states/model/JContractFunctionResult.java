@@ -7,7 +7,16 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
-/** A serializable result of a smart contract function call or creation. */
+/**
+ * A serializable result of a smart contract function call or creation.
+ *
+ * @param contractID the contract identifier, or {@code null}
+ * @param result the contract execution result bytes, or {@code null}
+ * @param error the error message if execution failed, or {@code null}
+ * @param bloom the bloom filter bytes for event logs, or {@code null}
+ * @param gasUsed the amount of gas consumed during execution
+ * @param jContractLogInfo the list of contract log entries
+ */
 public record JContractFunctionResult(
         JAccountID contractID,
         byte[] result,
@@ -15,9 +24,18 @@ public record JContractFunctionResult(
         byte[] bloom,
         long gasUsed,
         List<JContractLogInfo> jContractLogInfo) {
+    /** The legacy serialization version identifier (version 1). */
     private static final long LEGACY_VERSION_1 = 1;
+    /** The current serialization version identifier (version 2). */
     private static final long CURRENT_VERSION = 2;
 
+    /**
+     * Deserializes a JContractFunctionResult from the given input stream.
+     *
+     * @param inStream the input stream to read from
+     * @return the deserialized JContractFunctionResult instance
+     * @throws IOException if an I/O error occurs during deserialization
+     */
     public static JContractFunctionResult deserialize(final DataInputStream inStream) throws IOException {
         final long version = inStream.readLong();
         if (version < LEGACY_VERSION_1 || version > CURRENT_VERSION) {

@@ -6,11 +6,27 @@ import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
 
-/** A serializable smart contract log entry with bloom filter, data, and topics. */
+/**
+ * A serializable smart contract log entry with bloom filter, data, and topics.
+ *
+ * @param contractID the contract identifier that emitted this log, or {@code null}
+ * @param bloom the bloom filter bytes for this log entry, or {@code null}
+ * @param data the log data bytes, or {@code null}
+ * @param topic the list of indexed topic byte arrays for event filtering
+ */
 public record JContractLogInfo(JAccountID contractID, byte[] bloom, byte[] data, List<byte[]> topic) {
+    /** The legacy serialization version identifier (version 1). */
     private static final long LEGACY_VERSION_1 = 1;
+    /** The current serialization version identifier (version 2). */
     private static final long CURRENT_VERSION = 2;
 
+    /**
+     * Deserializes a JContractLogInfo from the given input stream.
+     *
+     * @param inStream the input stream to read from
+     * @return the deserialized JContractLogInfo instance
+     * @throws IOException if an I/O error occurs during deserialization
+     */
     public static JContractLogInfo copyFrom(DataInputStream inStream) throws IOException {
         JAccountID contractID;
         byte[] bloom;

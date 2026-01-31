@@ -5,7 +5,16 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-/** A flat serializable wrapper for exchange rate data stored directly in the HGC application state. */
+/**
+ * A flat serializable wrapper for exchange rate data stored directly in the HGC application state.
+ *
+ * @param currentHbarEquiv the current HBAR equivalent value
+ * @param currentCentEquiv the current cent equivalent value
+ * @param currentExpirationTime the current rate expiration time in seconds since epoch
+ * @param nextHbarEquiv the next HBAR equivalent value
+ * @param nextCentEquiv the next cent equivalent value
+ * @param nextExpirationTime the next rate expiration time in seconds since epoch
+ */
 public record ExchangeRateSetWrapper(
         int currentHbarEquiv,
         int currentCentEquiv,
@@ -13,9 +22,18 @@ public record ExchangeRateSetWrapper(
         int nextHbarEquiv,
         int nextCentEquiv,
         long nextExpirationTime) {
+    /** The serialization version identifier. */
     private static final long VERSION = 1L;
+    /** The unique object identifier for this type. */
     private static final long OBJECT_ID = 10000121L;
 
+    /**
+     * Deserializes an ExchangeRateSetWrapper from the given input stream.
+     *
+     * @param DataInputStream the input stream to read from
+     * @return the deserialized ExchangeRateSetWrapper instance
+     * @throws IOException if an I/O error occurs or version/object ID mismatch is detected
+     */
     public static ExchangeRateSetWrapper copyFrom(DataInputStream DataInputStream) throws IOException {
         // version number
         long version = DataInputStream.readLong();
@@ -42,6 +60,12 @@ public record ExchangeRateSetWrapper(
                 nextExpirationTime);
     }
 
+    /**
+     * Serializes this ExchangeRateSetWrapper to the given output stream.
+     *
+     * @param DataOutputStream the output stream to write to
+     * @throws IOException if an I/O error occurs during serialization
+     */
     public void copyTo(DataOutputStream DataOutputStream) throws IOException {
         DataOutputStream.writeLong(VERSION);
         DataOutputStream.writeLong(OBJECT_ID);

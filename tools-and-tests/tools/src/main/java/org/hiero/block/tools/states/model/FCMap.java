@@ -33,17 +33,33 @@ public class FCMap<K, V> extends HashMap<K, V> {
     /** End delimiter for leaf values */
     private static final int VALUE_E = 1_986_096_229; // 'v', 'a', 'l', 's'
 
+    /** the root hash stored during deserialization */
     private byte[] rootHash;
+    /** the root node of the internal Merkle tree */
     private FCMInternalNode<K, V> root;
+    /** function to deserialize map keys */
     private final ParseFunction<K> keyDeserializer;
+    /** function to deserialize map values */
     private final ParseFunction<V> valueDeserializer;
 
+    /**
+     * Creates a new FCMap with the given key and value deserializers.
+     *
+     * @param keyDeserializer function to deserialize keys
+     * @param valueDeserializer function to deserialize values
+     */
     public FCMap(ParseFunction<K> keyDeserializer, ParseFunction<V> valueDeserializer) {
         super();
         this.keyDeserializer = keyDeserializer;
         this.valueDeserializer = valueDeserializer;
     }
 
+    /**
+     * Deserializes the FCMap header from the given stream.
+     *
+     * @param inStream the stream to read from
+     * @throws IOException if an I/O error occurs or markers are invalid
+     */
     public void copyFrom(DataInputStream inStream) throws IOException {
         final int beginMarker = inStream.readInt();
         if (BEGIN_MARKER_VALUE != beginMarker) {
@@ -57,6 +73,12 @@ public class FCMap<K, V> extends HashMap<K, V> {
         }
     }
 
+    /**
+     * Deserializes the FCMap contents from the given stream.
+     *
+     * @param inStream the stream to read from
+     * @throws IOException if an I/O error occurs or the version is unsupported
+     */
     @SuppressWarnings("unused")
     public void copyFromExtra(DataInputStream inStream) throws IOException {
 
@@ -82,6 +104,13 @@ public class FCMap<K, V> extends HashMap<K, V> {
         }
     }
 
+    /**
+     * Deserializes the Merkle tree structure from the stream.
+     *
+     * @param inputStream the stream to read from
+     * @return the list of deserialized leaves
+     * @throws IOException if an I/O error occurs
+     */
     public List<FCMLeaf<K, V>> copyTreeFrom(DataInputStream inputStream) throws IOException {
         try {
             // Discard the version number
@@ -204,6 +233,12 @@ public class FCMap<K, V> extends HashMap<K, V> {
         return leaves;
     }
 
+    /**
+     * Serializes the FCMap to the given stream.
+     *
+     * @param outStream the stream to write to
+     * @throws IOException if an I/O error occurs
+     */
     public void copyTo(DataOutputStream outStream) throws IOException {
         byte[] computedRootHash = root.getHash();
         outStream.write(BEGIN_MARKER);
