@@ -79,5 +79,6 @@ public class TestThreadPoolManager<T extends ExecutorService, S extends Schedule
 
     public void shutdownNow() {
         executor.shutdownNow();
+        scheduledExecutor.shutdownNow();
     }
 }
