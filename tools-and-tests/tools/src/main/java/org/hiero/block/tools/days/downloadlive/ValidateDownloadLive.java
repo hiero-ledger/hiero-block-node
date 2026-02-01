@@ -261,12 +261,6 @@ public class ValidateDownloadLive {
             final List<InMemoryFile> signatures = findSignatures(result);
             final List<InMemoryFile> sidecars = findSidecars(result, primaryRecord);
 
-            System.out.println("[download] fullBlockValidate detected " + sidecars.size()
-                    + " sidecar file(s) for block " + result.blockNumber);
-
-            logFilesForBlock(result);
-            logValidationInput(startRunningHash, recordFileTime, result, primaryRecord, signatures, sidecars);
-
             if (primaryRecord == null) {
                 System.err.println("[download] No primary record found for block " + result.blockNumber
                         + "; skipping full validation.");
