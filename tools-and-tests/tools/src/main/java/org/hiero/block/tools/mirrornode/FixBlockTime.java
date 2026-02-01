@@ -5,6 +5,7 @@ import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NO
 import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
 import static org.hiero.block.tools.records.RecordFileDates.instantToBlockTimeLong;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -217,96 +218,118 @@ public class FixBlockTime implements Runnable {
      */
     public static int fixBlockTimeRange(Path blockTimesFile, long fromBlock, long toBlock) {
         try {
-            if (!Files.exists(blockTimesFile)) {
-                System.err.println("[fixBlockTime] Error: block_times.bin does not exist");
+            long effectiveToBlock = validateAndAdjustRange(blockTimesFile, fromBlock, toBlock);
+            if (effectiveToBlock < 0) {
                 return 0;
             }
 
-            long fileSize = Files.size(blockTimesFile);
-            long maxBlockInFile = (fileSize / Long.BYTES) - 1;
-
-            if (toBlock > maxBlockInFile) {
-                // Extend file if needed - just fix up to what we have
-                toBlock = maxBlockInFile;
-            }
-
-            if (fromBlock > toBlock) {
-                return 0;
-            }
-
-            long totalBlocks = toBlock - fromBlock + 1;
+            long totalBlocks = effectiveToBlock - fromBlock + 1;
             System.out.println("[fixBlockTime] Fixing block times for " + totalBlocks + " blocks (" + fromBlock + " to "
-                    + toBlock + ") using batch queries...");
+                    + effectiveToBlock + ") using batch queries...");
 
-            try (RandomAccessFile raf = new RandomAccessFile(blockTimesFile.toFile(), "rw");
-                    BlockTimeReader reader = new BlockTimeReader(blockTimesFile)) {
-
-                int fixedCount = 0;
-                int checkedCount = 0;
-                long currentFrom = fromBlock;
-
-                // Process in batches of 100 (mirror node limit)
-                while (currentFrom <= toBlock) {
-                    long currentTo = Math.min(currentFrom + 99, toBlock);
-
-                    // Build batch query URL
-                    String url = MAINNET_MIRROR_NODE_API_URL + "blocks"
-                            + "?block.number=gte:" + currentFrom
-                            + "&block.number=lte:" + currentTo
-                            + "&limit=100&order=asc";
-
-                    com.google.gson.JsonObject response = MirrorNodeUtils.readUrl(url);
-
-                    if (response != null && response.has("blocks")) {
-                        com.google.gson.JsonArray blocks = response.getAsJsonArray("blocks");
-
-                        for (int i = 0; i < blocks.size(); i++) {
-                            com.google.gson.JsonObject blockData = blocks.get(i).getAsJsonObject();
-
-                            if (!blockData.has("number") || !blockData.has("name")) {
-                                continue;
-                            }
-
-                            long blockNumber = blockData.get("number").getAsLong();
-                            String recordFileName = blockData.get("name").getAsString();
-
-                            try {
-                                Instant currentTime = reader.getBlockInstant(blockNumber);
-                                Instant correctTime = extractRecordFileTime(recordFileName);
-
-                                if (!currentTime.equals(correctTime)) {
-                                    // Write the correct value
-                                    long blockTimeLong = instantToBlockTimeLong(correctTime);
-                                    long position = blockNumber * Long.BYTES;
-                                    raf.seek(position);
-                                    raf.writeLong(blockTimeLong);
-                                    fixedCount++;
-                                }
-                                checkedCount++;
-                            } catch (Exception e) {
-                                // Skip this block on error
-                            }
-                        }
-                    }
-
-                    currentFrom = currentTo + 1;
-
-                    // Progress update every 10 batches (1000 blocks)
-                    if (checkedCount % 1000 == 0 && checkedCount > 0) {
-                        double percent = (100.0 * checkedCount) / totalBlocks;
-                        System.out.printf(
-                                "[fixBlockTime] Progress: %d/%d blocks (%.1f%%), %d fixed%n",
-                                checkedCount, totalBlocks, percent, fixedCount);
-                    }
-                }
-
-                System.out.println(
-                        "[fixBlockTime] Completed: checked " + checkedCount + " blocks, fixed " + fixedCount);
-                return fixedCount;
-            }
+            return processBatches(blockTimesFile, fromBlock, effectiveToBlock, totalBlocks);
         } catch (IOException e) {
             System.err.println("[fixBlockTime] Error: " + e.getMessage());
             return 0;
         }
+    }
+
+    private static long validateAndAdjustRange(Path blockTimesFile, long fromBlock, long toBlock) throws IOException {
+        if (!Files.exists(blockTimesFile)) {
+            System.err.println("[fixBlockTime] Error: block_times.bin does not exist");
+            return -1;
+        }
+
+        long fileSize = Files.size(blockTimesFile);
+        long maxBlockInFile = (fileSize / Long.BYTES) - 1;
+        long effectiveToBlock = Math.min(toBlock, maxBlockInFile);
+
+        if (fromBlock > effectiveToBlock) {
+            return -1;
+        }
+        return effectiveToBlock;
+    }
+
+    private static int processBatches(Path blockTimesFile, long fromBlock, long toBlock, long totalBlocks)
+            throws IOException {
+        try (RandomAccessFile raf = new RandomAccessFile(blockTimesFile.toFile(), "rw");
+                BlockTimeReader reader = new BlockTimeReader(blockTimesFile)) {
+
+            int fixedCount = 0;
+            int checkedCount = 0;
+            long currentFrom = fromBlock;
+
+            while (currentFrom <= toBlock) {
+                long currentTo = Math.min(currentFrom + 99, toBlock);
+                int[] counts = processBatch(currentFrom, currentTo, raf, reader);
+                fixedCount += counts[0];
+                checkedCount += counts[1];
+                currentFrom = currentTo + 1;
+
+                if (checkedCount % 1000 == 0 && checkedCount > 0) {
+                    printProgress(checkedCount, totalBlocks, fixedCount);
+                }
+            }
+
+            System.out.println("[fixBlockTime] Completed: checked " + checkedCount + " blocks, fixed " + fixedCount);
+            return fixedCount;
+        }
+    }
+
+    private static int[] processBatch(long fromBlock, long toBlock, RandomAccessFile raf, BlockTimeReader reader) {
+        String url = MAINNET_MIRROR_NODE_API_URL + "blocks"
+                + "?block.number=gte:" + fromBlock
+                + "&block.number=lte:" + toBlock
+                + "&limit=100&order=asc";
+
+        JsonObject response = MirrorNodeUtils.readUrl(url);
+        if (response == null || !response.has("blocks")) {
+            return new int[] {0, 0};
+        }
+
+        int fixedCount = 0;
+        int checkedCount = 0;
+        JsonArray blocks = response.getAsJsonArray("blocks");
+
+        for (int i = 0; i < blocks.size(); i++) {
+            JsonObject blockData = blocks.get(i).getAsJsonObject();
+            if (!blockData.has("number") || !blockData.has("name")) {
+                continue;
+            }
+
+            int fixed = processBlockEntry(blockData, raf, reader);
+            if (fixed >= 0) {
+                fixedCount += fixed;
+                checkedCount++;
+            }
+        }
+        return new int[] {fixedCount, checkedCount};
+    }
+
+    private static int processBlockEntry(JsonObject blockData, RandomAccessFile raf, BlockTimeReader reader) {
+        try {
+            long blockNumber = blockData.get("number").getAsLong();
+            String recordFileName = blockData.get("name").getAsString();
+            Instant currentTime = reader.getBlockInstant(blockNumber);
+            Instant correctTime = extractRecordFileTime(recordFileName);
+
+            if (!currentTime.equals(correctTime)) {
+                long blockTimeLong = instantToBlockTimeLong(correctTime);
+                long position = blockNumber * Long.BYTES;
+                raf.seek(position);
+                raf.writeLong(blockTimeLong);
+                return 1;
+            }
+            return 0;
+        } catch (Exception e) {
+            return -1; // Skip this block on error
+        }
+    }
+
+    private static void printProgress(int checkedCount, long totalBlocks, int fixedCount) {
+        double percent = (100.0 * checkedCount) / totalBlocks;
+        System.out.printf(
+                "[fixBlockTime] Progress: %d/%d blocks (%.1f%%), %d fixed%n",
+                checkedCount, totalBlocks, percent, fixedCount);
     }
 }

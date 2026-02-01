@@ -352,10 +352,8 @@ public class DownloadDayImplV2 {
                                             + ", retrying download...");
                                     // Retry download with built-in retry logic
                                     downloadedFile = downloadFileWithRetry(downloadManager, lr);
-                                    // If still null after retries (signature file with persistent MD5 mismatch), skip
-                                    // this file
                                     if (downloadedFile == null) {
-                                        continue; // Skip this file and move to next
+                                        throw new IOException("MD5 mismatch persists after retries for: " + lr.path());
                                     }
                                 }
 
