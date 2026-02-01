@@ -141,6 +141,17 @@ function kctl {
     kubectl --context "${CONTEXT}" "$@"
 }
 
+# Validates that PROTO_PATH is set and points to a valid directory
+# Returns: 0 if valid, 1 if invalid (with error message to stdout)
+function validate_proto_path {
+    local context="${1:-}"
+    if [[ -z "${PROTO_PATH}" || ! -d "${PROTO_PATH}" ]]; then
+        [[ -n "$context" ]] && echo "${context}: PROTO_PATH not set or invalid" || echo "PROTO_PATH not set or invalid"
+        return 1
+    fi
+    return 0
+}
+
 # ============================================================================
 # Event Execution Functions
 # ============================================================================
@@ -581,8 +592,7 @@ function assert_block_available_single {
     local port
     port=$(get_bn_grpc_port "$target")
 
-    if [[ -z "${PROTO_PATH}" || ! -d "${PROTO_PATH}" ]]; then
-        echo "${target}: PROTO_PATH not set or invalid"
+    if ! validate_proto_path "${target}"; then
         return 1
     fi
 
@@ -742,7 +752,7 @@ function get_block_count {
     local port
     port=$(get_bn_grpc_port "$target")
 
-    if [[ -z "${PROTO_PATH}" || ! -d "${PROTO_PATH}" ]]; then
+    if ! validate_proto_path >/dev/null 2>&1; then
         echo ""
         return 1
     fi
@@ -775,8 +785,7 @@ function assert_blocks_increasing_single {
     local wait_seconds="${2:-60}"
     local max_attempts="${3:-3}"
 
-    if [[ -z "${PROTO_PATH}" || ! -d "${PROTO_PATH}" ]]; then
-        echo "${target}: PROTO_PATH not set"
+    if ! validate_proto_path "${target}"; then
         return 1
     fi
 

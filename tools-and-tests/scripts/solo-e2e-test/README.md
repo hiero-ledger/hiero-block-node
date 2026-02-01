@@ -450,25 +450,34 @@ assertions:                      # Validations to run after all events
 
 ### Event Types
 
-|       Type       |       Description        |                      Arguments                      |
-|------------------|--------------------------|-----------------------------------------------------|
-| `command`        | Run arbitrary script     | `script`                                            |
-| `node-down`      | Scale node to 0 replicas | `target`                                            |
-| `node-up`        | Scale node to 1 replica  | `target`                                            |
-| `restart`        | Rollout restart node     | `target`                                            |
-| `load-start`     | Start NLG load           | `test_class`, `concurrency`, `accounts`, `duration` |
-| `load-stop`      | Stop NLG load            | `test_class`                                        |
-| `print-metrics`  | Print metrics summary    | `target` (node name or "all")                       |
-| `network-status` | Print network status     | (none)                                              |
-| `sleep`          | Pause execution          | `seconds`                                           |
+|          Type              |           Description            |                        Arguments                         |
+|----------------------------|----------------------------------|----------------------------------------------------------|
+| `command`                  | Run arbitrary script             | `script`                                                 |
+| `node-down`                | Scale node to 0 replicas         | `target`                                                 |
+| `node-up`                  | Scale node to 1 replica          | `target`                                                 |
+| `scale-down`               | Scale down (alias for node-down) | `target`                                                 |
+| `scale-up`                 | Scale up (alias for node-up)     | `target`                                                 |
+| `restart`                  | Rollout restart node             | `target`                                                 |
+| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`      |
+| `load-stop`                | Stop NLG load                    | `test_class`                                             |
+| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                            |
+| `network-status`           | Print network status             | (none)                                                   |
+| `sleep`                    | Pause execution                  | `seconds`                                                |
+| `port-forward`             | Refresh port forwards            | (none)                                                   |
+| `clear-block-storage`      | Clear all block data on node     | `target`                                                 |
+| `deploy-block-node`        | Deploy new block node            | `name`, `backfill_sources`, `greedy`, `chart_version`    |
+| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                          |
 
 ### Assertion Types
 
-|       Type        |          Description          |          Arguments           |
-|-------------------|-------------------------------|------------------------------|
-| `block-available` | Verify BN has blocks          | `min_block`, `max_block_gte` |
-| `node-healthy`    | Verify pod is Running         | `target`                     |
-| `no-errors`       | Verify no verification errors | `target`                     |
+|        Type         |             Description             |              Arguments               |
+|---------------------|-------------------------------------|--------------------------------------|
+| `block-available`   | Verify BN has blocks in range       | `min_block`, `max_block_gte`         |
+| `node-healthy`      | Verify pod is Running               | `target`                             |
+| `no-errors`         | Verify no verification errors       | `target`                             |
+| `blocks-increasing` | Verify blocks are actively flowing  | `wait_seconds`, `max_attempts`       |
+
+**Note:** The `blocks-increasing` assertion is useful for verifying that a Block Node is actively receiving and processing new blocks. It takes a baseline measurement, waits `wait_seconds` (default: 60), and verifies the block count has increased. It retries up to `max_attempts` (default: 3) times to handle transient failures.
 
 ### CI Integration
 

@@ -69,8 +69,11 @@ echo "Waiting for server to start..."
 sleep 5
 
 # Set up environment for TCK client
-export OPERATOR_ACCOUNT_ID="0.0.2"
-export OPERATOR_ACCOUNT_PRIVATE_KEY="302e020100300506032b65700422042091132178e72057a1d7528025956fe39b0b847f200ab59b2fdd367017f3087137"
+# NOTE: These are well-known TEST-ONLY credentials for Solo/local development networks.
+# Account 0.0.2 with this private key is pre-configured in Solo deployments.
+# DO NOT use these credentials in production or with real funds.
+export OPERATOR_ACCOUNT_ID="${OPERATOR_ACCOUNT_ID:-0.0.2}"
+export OPERATOR_ACCOUNT_PRIVATE_KEY="${OPERATOR_ACCOUNT_PRIVATE_KEY:-302e020100300506032b65700422042091132178e72057a1d7528025956fe39b0b847f200ab59b2fdd367017f3087137}"
 export JSON_RPC_SERVER_URL="http://127.0.0.1:8544"
 export NODE_IP="127.0.0.1:50211"
 export MIRROR_NODE_REST_URL="http://127.0.0.1:5551"
