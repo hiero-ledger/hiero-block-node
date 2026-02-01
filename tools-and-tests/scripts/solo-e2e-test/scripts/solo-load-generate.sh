@@ -64,7 +64,8 @@ generate_nlg_values() {
         echo "WARNING: No Consensus Node services found with label solo.hedera.com/type=network-node-svc" >&2
         echo "NLG will use default network discovery" >&2
         # Return empty string - no values file to use
-        return
+        # Note: This is not an error - NLG can discover nodes via other means
+        return 0
     fi
 
     # Generate the values file with network properties

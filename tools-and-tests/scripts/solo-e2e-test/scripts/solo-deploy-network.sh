@@ -76,6 +76,7 @@ Options:
   --mn-version VERSION       Mirror Node version
   --bn-version VERSION       Block Node version (used for Helm chart version)
   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
+  --verbose, -v              Print detailed output including generated overlay file contents
   --help                     Show this help message
 
 Available Topologies:
@@ -107,6 +108,7 @@ CN_VERSION=""
 MN_VERSION=""
 BN_VERSION=""
 ENABLE_METRICS="false"
+VERBOSE="false"
 
 # Values loaded from topology
 CN_COUNT="1"
@@ -155,6 +157,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --enable-metrics)
       ENABLE_METRICS="true"
+      shift
+      ;;
+    --verbose|-v)
+      VERBOSE="true"
       shift
       ;;
     --help|-h)
@@ -280,17 +286,23 @@ function deploy_block_nodes {
     --output-dir "${overlay_dir}" || fail "ERROR: Failed to generate Helm overlays" 1
   end_task
 
-  # Print all generated overlay files for troubleshooting
-  log_line ""
-  log_line "Generated overlay files:"
-  for overlay_file in "${overlay_dir}"/*.yaml "${overlay_dir}"/*.json "${overlay_dir}"/*.txt; do
-    if [[ -f "${overlay_file}" ]]; then
-      log_line "--- %s ---" "$(basename "${overlay_file}")"
-      cat "${overlay_file}"
-      log_line "--- End %s ---" "$(basename "${overlay_file}")"
-      log_line ""
-    fi
-  done
+  # Print all generated overlay files for troubleshooting (verbose mode only)
+  if [[ "${VERBOSE}" == "true" ]]; then
+    log_line ""
+    log_line "Generated overlay files:"
+    for overlay_file in "${overlay_dir}"/*.yaml "${overlay_dir}"/*.json "${overlay_dir}"/*.txt; do
+      if [[ -f "${overlay_file}" ]]; then
+        log_line "--- %s ---" "$(basename "${overlay_file}")"
+        cat "${overlay_file}"
+        log_line "--- End %s ---" "$(basename "${overlay_file}")"
+        log_line ""
+      fi
+    done
+  else
+    local overlay_count
+    overlay_count=$(find "${overlay_dir}" -maxdepth 1 \( -name "*.yaml" -o -name "*.json" -o -name "*.txt" \) -type f 2>/dev/null | wc -l | tr -d ' ')
+    log_line "  Generated ${overlay_count} overlay files (use --verbose to see contents)"
+  fi
 
   # Path to observability overlay (relative to scripts dir)
   local observability_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/enable-observability.yaml"

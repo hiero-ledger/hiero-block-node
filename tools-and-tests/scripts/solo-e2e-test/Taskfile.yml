@@ -110,19 +110,31 @@ tasks:
     cmds:
       - |
         echo "Cleaning up Solo local config..."
-        solo deployment config delete -d "{{.DEPLOYMENT}}" -q 2>/dev/null || true
-        solo cluster-ref config disconnect -c "{{.CLUSTER_REF}}" -q 2>/dev/null || true
+        if solo deployment config delete -d "{{.DEPLOYMENT}}" -q 2>/dev/null; then
+          echo "  Solo deployment config deleted"
+        else
+          echo "  Solo deployment config not found or already deleted"
+        fi
+        if solo cluster-ref config disconnect -c "{{.CLUSTER_REF}}" -q 2>/dev/null; then
+          echo "  Solo cluster-ref disconnected"
+        else
+          echo "  Solo cluster-ref not found or already disconnected"
+        fi
 
         # Fallback: if Solo CLI failed, clean config directly with yq
         if yq -e '.deployments[] | select(.name == "{{.DEPLOYMENT}}")' ~/.solo/local-config.yaml >/dev/null 2>&1; then
-          echo "Solo CLI cleanup incomplete, removing stale config entry..."
+          echo "  Solo CLI cleanup incomplete, removing stale config entry..."
           yq -i 'del(.deployments[] | select(.name == "{{.DEPLOYMENT}}"))' ~/.solo/local-config.yaml 2>/dev/null || true
           yq -i 'del(.clusterRefs["{{.CLUSTER_REF}}"])' ~/.solo/local-config.yaml 2>/dev/null || true
         fi
 
         echo "Destroying Kind cluster '{{.CLUSTER_NAME}}'..."
-        kind delete cluster -n "{{.CLUSTER_NAME}}" || true
-        echo "Cluster and Solo config cleaned up."
+        if kind delete cluster -n "{{.CLUSTER_NAME}}" 2>/dev/null; then
+          echo "  Kind cluster deleted"
+        else
+          echo "  Kind cluster not found or already deleted"
+        fi
+        echo "Cleanup complete."
 
   cluster:init:
     desc: Initialize Solo for an existing external cluster (no Kind creation)
@@ -182,7 +194,11 @@ tasks:
     cmds:
       - |
         echo "Stopping port forwards..."
-        pkill -f "kubectl port-forward" 2>/dev/null || true
+        if pkill -f "kubectl port-forward" 2>/dev/null; then
+          echo "  Port forward processes terminated"
+        else
+          echo "  No port forward processes found"
+        fi
         echo "Port forwards stopped."
 
   # ============================================================================

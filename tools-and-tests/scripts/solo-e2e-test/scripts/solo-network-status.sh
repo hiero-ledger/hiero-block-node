@@ -132,7 +132,9 @@ output_line "|------|------|--------|---------|"
 
 # Extract block node names from topology file
 # Use grep to find lines like "  block-node-1:" under block_nodes section
-BLOCK_NODES=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "${TOPOLOGY_FILE}" | sed 's/://g' | awk '{print $1}' || true)
+BLOCK_NODES=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "${TOPOLOGY_FILE}" | sed 's/://g' | awk '{print $1}')
+# Fallback to block-node-1 if no block nodes found in topology
+[[ -z "${BLOCK_NODES}" ]] && BLOCK_NODES="block-node-1"
 
 # Query each block node
 BN_INDEX=0

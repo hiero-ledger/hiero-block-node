@@ -27,7 +27,8 @@ readonly BN_REPO="hiero-ledger/hiero-block-node"
 
 # WORKAROUND: CN v0.68.x and v0.69.x have compatibility issues with Block Node.
 # When these versions are resolved, we override with the latest v0.70.x RC.
-# TODO: Remove this workaround once v0.70.0 GA or higher is available.
+# TODO(#1890): Remove this workaround once v0.70.0 GA or higher is available.
+# Tracking: https://github.com/hiero-ledger/hiero-block-node/issues/1890
 readonly CN_BROKEN_VERSION_PATTERN="^v?0\.(68|69)\."
 readonly CN_FALLBACK_VERSION_PATTERN="v0\.70\."
 
