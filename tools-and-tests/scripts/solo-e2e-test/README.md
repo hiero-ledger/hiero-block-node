@@ -319,6 +319,7 @@ Topologies define network configuration. Located in `./topologies/`.
 | `fan-out-3cn-2bn`     | 3  | 2  | Redundancy testing, all CNs->all BNs                |
 | `3cn-1bn`             | 3  | 1  | Single BN receiving from multiple CNs               |
 | `minimal`             | 1  | 1  | CN+BN only, no mirror/relay/explorer                |
+| `2cn-2bn-backfill`    | 2  | 2  | Backfill testing, BN recovery after data loss       |
 | `7cn-3bn-distributed` | 7  | 3  | Distributed streaming, grouped CN->BN with backfill |
 
 See `../network-topology-tool/README.md` for topology schema details.
@@ -411,11 +412,12 @@ task test:validate TEST_FILE=tests/basic-load.yaml
 
 ### Available Tests
 
-|              Test File               |                Description                |
-|--------------------------------------|-------------------------------------------|
-| `tests/smoke-test.yaml`              | Quick validation of network functionality |
-| `tests/basic-load.yaml`              | Basic load test with metrics validation   |
-| `tests/node-restart-resilience.yaml` | BN recovery after restart during load     |
+|              Test File               |                   Description                   |
+|--------------------------------------|-------------------------------------------------|
+| `tests/smoke-test.yaml`              | Quick validation of network functionality       |
+| `tests/basic-load.yaml`              | Basic load test with metrics validation         |
+| `tests/node-restart-resilience.yaml` | BN recovery after restart during load           |
+| `tests/full-history-backfill.yaml`   | BN recovery via backfill after simulated outage |
 
 ### Test Definition Schema
 
@@ -580,12 +582,14 @@ The `solo-e2e-scheduler.yml` workflow runs tests automatically:
 
 Tests are validated against topologies before execution. The matrix defines which tests run on each topology:
 
-|     Topology      |                         Tests                         |
-|-------------------|-------------------------------------------------------|
-| `single`          | `smoke-test`, `basic-load`, `node-restart-resilience` |
-| `paired-3`        | `smoke-test`, `basic-load`                            |
-| `3cn-1bn`         | `smoke-test`                                          |
-| `fan-out-3cn-2bn` | `smoke-test`                                          |
+|       Topology        |                         Tests                         |
+|-----------------------|-------------------------------------------------------|
+| `single`              | `smoke-test`, `basic-load`, `node-restart-resilience` |
+| `paired-3`            | `smoke-test`, `basic-load`                            |
+| `3cn-1bn`             | `smoke-test`                                          |
+| `fan-out-3cn-2bn`     | `smoke-test`                                          |
+| `2cn-2bn-backfill`    | `full-history-backfill`                               |
+| `7cn-3bn-distributed` | `smoke-test`                                          |
 
 Multiple tests run sequentially on the same deployment, reducing CI time.
 
