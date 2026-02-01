@@ -4,14 +4,19 @@ package org.hiero.block.node.stream.subscriber;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockHeaderUnparsed;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockProofUnparsed;
+import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleRoundHeaderUnparsed;
 
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -1195,6 +1200,222 @@ class BlockStreamSubscriberSessionTest {
             final BlockStreamSubscriberSession toTest = generateSession(request);
             // Assert that the client id is correctly retrieved
             assertThat(toTest.clientId()).isEqualTo(clientId);
+        }
+    }
+
+    /**
+     * Tests for block item chunking functionality.
+     */
+    @Nested
+    @DisplayName("Block Item Chunking Tests")
+    class BlockItemChunkingTests {
+        /** Small chunk size to force chunking in tests (100KB - minimum allowed). */
+        private static final int TEST_CHUNK_SIZE_BYTES = 100_000;
+
+        /** Response pipeline for chunking tests. */
+        private TestResponsePipeline<SubscribeStreamResponseUnparsed> chunkingPipeline;
+        /** Block node context with custom chunk size config. */
+        private BlockNodeContext chunkingContext;
+
+        @BeforeEach
+        void setupChunkingTests() {
+            chunkingPipeline = new TestResponsePipeline<>();
+            final Configuration chunkingConfig = ConfigurationBuilder.create()
+                    .withConfigDataType(SubscriberConfig.class)
+                    .withValue("subscriber.maxChunkSizeBytes", String.valueOf(TEST_CHUNK_SIZE_BYTES))
+                    .build();
+            final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+            chunkingContext = generateContext(chunkingConfig, messagingFacility, historicalBlockFacility);
+        }
+
+        /**
+         * This test verifies that when block items fit within a single chunk,
+         * only one BLOCK_ITEMS response is sent followed by END_OF_BLOCK.
+         */
+        @Test
+        @DisplayName("should send small block in single chunk")
+        void testSmallBlockSingleChunk() {
+            // Create a small block that fits in one chunk (3 items, ~200 bytes total)
+            // 100KB chunk size easily fits these small items
+            final List<BlockItemUnparsed> smallBlock =
+                    List.of(sampleBlockHeaderUnparsed(0), sampleRoundHeaderUnparsed(0), sampleBlockProofUnparsed(0));
+
+            // Create session with chunking config
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, chunkingContext),
+                    chunkingPipeline,
+                    chunkingContext,
+                    sessionReadyLatch);
+
+            // Call the chunking method directly
+            session.sendBlockItemsChunked(smallBlock);
+
+            // Verify: should have exactly 2 responses (1 BLOCK_ITEMS + 1 END_OF_BLOCK)
+            assertThat(chunkingPipeline.getOnNextCalls()).hasSize(2);
+
+            // First response should be BLOCK_ITEMS with all 3 items
+            final SubscribeStreamResponseUnparsed firstResponse =
+                    chunkingPipeline.getOnNextCalls().get(0);
+            assertThat(firstResponse.response().kind()).isEqualTo(ResponseOneOfType.BLOCK_ITEMS);
+            assertThat(firstResponse.blockItems().blockItems()).hasSize(3);
+
+            // Second response should be END_OF_BLOCK
+            final SubscribeStreamResponseUnparsed secondResponse =
+                    chunkingPipeline.getOnNextCalls().get(1);
+            assertThat(secondResponse.response().kind()).isEqualTo(ResponseOneOfType.END_OF_BLOCK);
+        }
+
+        /**
+         * This test verifies that when block items exceed the chunk size,
+         * they are split into multiple BLOCK_ITEMS responses with a single END_OF_BLOCK at the end.
+         */
+        @Test
+        @DisplayName("should split large block into multiple chunks")
+        void testLargeBlockMultipleChunks() {
+            // Create a block with large items that will exceed the 100KB chunk size
+            // Each item is ~50KB, so 3 items should require at least 2 chunks
+            final List<BlockItemUnparsed> largeBlock = new java.util.ArrayList<>();
+            largeBlock.add(sampleBlockHeaderUnparsed(0));
+            largeBlock.add(createLargeBlockItem(50_000)); // ~50KB
+            largeBlock.add(createLargeBlockItem(50_000)); // ~50KB
+            largeBlock.add(createLargeBlockItem(50_000)); // ~50KB
+            largeBlock.add(sampleBlockProofUnparsed(0));
+
+            // Create session with chunking config
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, chunkingContext),
+                    chunkingPipeline,
+                    chunkingContext,
+                    sessionReadyLatch);
+
+            // Call the chunking method directly
+            session.sendBlockItemsChunked(largeBlock);
+
+            // Verify: should have multiple responses
+            final var responses = chunkingPipeline.getOnNextCalls();
+            assertThat(responses.size()).isGreaterThan(2);
+
+            // Count BLOCK_ITEMS and END_OF_BLOCK responses
+            long blockItemsCount = responses.stream()
+                    .filter(r -> r.response().kind() == ResponseOneOfType.BLOCK_ITEMS)
+                    .count();
+            long endOfBlockCount = responses.stream()
+                    .filter(r -> r.response().kind() == ResponseOneOfType.END_OF_BLOCK)
+                    .count();
+
+            // Should have multiple BLOCK_ITEMS chunks
+            assertThat(blockItemsCount).isGreaterThan(1);
+            // Should have exactly one END_OF_BLOCK
+            assertThat(endOfBlockCount).isEqualTo(1);
+
+            // The last response should be END_OF_BLOCK
+            assertThat(responses.getLast().response().kind()).isEqualTo(ResponseOneOfType.END_OF_BLOCK);
+
+            // Verify total items sent equals input items
+            int totalItemsSent = responses.stream()
+                    .filter(r -> r.response().kind() == ResponseOneOfType.BLOCK_ITEMS)
+                    .mapToInt(r -> r.blockItems().blockItems().size())
+                    .sum();
+            assertThat(totalItemsSent).isEqualTo(largeBlock.size());
+        }
+
+        /**
+         * This test verifies that an item larger than the chunk size is sent by itself.
+         */
+        @Test
+        @DisplayName("should send oversized item alone")
+        void testOversizedItemShipsAlone() {
+            // Create a block with one small item and one large item that exceeds chunk size (100KB)
+            final BlockItemUnparsed smallItem = sampleBlockHeaderUnparsed(0);
+            final BlockItemUnparsed largeItem = createLargeBlockItem(TEST_CHUNK_SIZE_BYTES + 1000);
+            final BlockItemUnparsed anotherSmallItem = sampleBlockProofUnparsed(0);
+
+            final List<BlockItemUnparsed> mixedBlock = List.of(smallItem, largeItem, anotherSmallItem);
+
+            // Create session with chunking config
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, chunkingContext),
+                    chunkingPipeline,
+                    chunkingContext,
+                    sessionReadyLatch);
+
+            // Call the chunking method directly
+            session.sendBlockItemsChunked(mixedBlock);
+
+            // Verify responses
+            final var responses = chunkingPipeline.getOnNextCalls();
+
+            // Should have multiple BLOCK_ITEMS responses due to the oversized item
+            long blockItemsCount = responses.stream()
+                    .filter(r -> r.response().kind() == ResponseOneOfType.BLOCK_ITEMS)
+                    .count();
+            assertThat(blockItemsCount).isGreaterThanOrEqualTo(2);
+
+            // Find the response containing the large item (should have exactly 1 item)
+            boolean foundLargeItemAlone = responses.stream()
+                    .filter(r -> r.response().kind() == ResponseOneOfType.BLOCK_ITEMS)
+                    .anyMatch(r -> {
+                        final var items = r.blockItems().blockItems();
+                        return items.size() == 1
+                                && BlockItemUnparsed.PROTOBUF.measureRecord(items.getFirst()) > TEST_CHUNK_SIZE_BYTES;
+                    });
+            assertThat(foundLargeItemAlone).isTrue();
+
+            // Verify exactly one END_OF_BLOCK
+            long endOfBlockCount = responses.stream()
+                    .filter(r -> r.response().kind() == ResponseOneOfType.END_OF_BLOCK)
+                    .count();
+            assertThat(endOfBlockCount).isEqualTo(1);
+        }
+
+        /**
+         * This test verifies that an empty block list results in no responses.
+         */
+        @Test
+        @DisplayName("should handle empty block gracefully")
+        void testEmptyBlockNoResponses() {
+            final List<BlockItemUnparsed> emptyBlock = List.of();
+
+            // Create session with chunking config
+            final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                    .startBlockNumber(0L)
+                    .endBlockNumber(0L)
+                    .build();
+            final BlockStreamSubscriberSession session = new BlockStreamSubscriberSession(
+                    SessionContext.create(clientId, request, chunkingContext),
+                    chunkingPipeline,
+                    chunkingContext,
+                    sessionReadyLatch);
+
+            // Call the chunking method directly
+            session.sendBlockItemsChunked(emptyBlock);
+
+            // Verify: no responses for empty input
+            assertThat(chunkingPipeline.getOnNextCalls()).isEmpty();
+        }
+
+        /**
+         * Creates a block item with padding to reach approximately the target size.
+         */
+        private BlockItemUnparsed createLargeBlockItem(final int targetSizeBytes) {
+            // Create padding bytes to reach the target size
+            final byte[] padding = new byte[targetSizeBytes];
+            java.util.Arrays.fill(padding, (byte) 'X');
+            return BlockItemUnparsed.newBuilder()
+                    .roundHeader(com.hedera.pbj.runtime.io.buffer.Bytes.wrap(padding))
+                    .build();
         }
     }
 
