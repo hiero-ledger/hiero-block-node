@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Node Restart Resilience Test
+#
+# Validates that all Block Nodes recover correctly after one is restarted.
+# Tests resilience, data integrity, and backfill capability.
+#
+# Prerequisites:
+#   - Any topology deployed (task up)
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/node-restart-resilience.yaml
+
+name: node-restart-resilience
+description: "Test BN recovery after restart"
+
+events:
+  - id: early-metrics
+    type: print-metrics
+    description: "Print early metrics"
+    delay: 10
+    args:
+      target: all
+
+  - id: pre-restart-metrics
+    type: print-metrics
+    description: "Print metrics before restart"
+    delay: 30
+    args:
+      target: all
+
+  - id: restart-bn
+    type: restart
+    description: "Restart Block Node 1"
+    delay: 60
+    target: block-node-1
+    timeout: 300
+
+  - id: refresh-ports
+    type: port-forward
+    description: "Refresh port forwards after restart"
+    delay: 90
+
+  - id: post-restart-status
+    type: network-status
+    description: "Check network status after restart"
+    delay: 120
+
+  - id: post-restart-metrics
+    type: print-metrics
+    description: "Print metrics after restart recovery"
+    delay: 150
+    args:
+      target: all
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Print final metrics"
+    delay: 180
+    args:
+      target: all
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy after restart"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks after recovery"
+    target: all
+    args:
+      min_block: 0
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors after restart"
+    target: all
+
+  - id: all-blocks-increasing
+    type: blocks-increasing
+    description: "All Block Nodes are receiving new blocks after restart"
+    target: all

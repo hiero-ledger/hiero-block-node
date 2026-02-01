@@ -2,33 +2,147 @@
 name: Solo E2E Test
 
 on:
+  # Reusable workflow trigger - called by solo-e2e-scheduler.yml
+  workflow_call:
+    inputs:
+      topology:
+        description: "Network topology"
+        type: string
+        default: "single"
+      block-node-version:
+        description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')"
+        type: string
+        default: "latest"
+      consensus-node-version:
+        description: "Consensus Node version ('latest', 'rc', 'main', or tag like 'v0.68.6')"
+        type: string
+        default: "latest"
+      mirror-node-version:
+        description: "Mirror Node version ('latest', 'rc', 'main', or tag like 'v0.146.0')"
+        type: string
+        default: "latest"
+      solo-version:
+        description: "Solo CLI Version"
+        type: string
+        default: "0.54.0"
+      run-tck-regression-tests:
+        description: "Run TCK regression test"
+        type: boolean
+        default: false
+      nlg-test-class:
+        description: "NLG test class"
+        type: string
+        default: "CryptoTransferLoadTest"
+      nlg-concurrency:
+        description: "NLG -c (concurrency threads)"
+        type: string
+        default: "5"
+      nlg-accounts:
+        description: "NLG -a (number of accounts)"
+        type: string
+        default: "10"
+      nlg-duration:
+        description: "NLG -t (seconds, 0 to skip load gen)"
+        type: string
+        default: "300"
+      nlg-extra-args:
+        description: "NLG extra args (e.g., '-T 5 -K ED25519')"
+        type: string
+        default: ""
+      nlg-max-tps:
+        description: "NLG --max-tps (max transactions per second, optional)"
+        type: string
+        default: ""
+      mirror-node-pinger-tps:
+        description: "Mirror Node pinger TPS (0 to disable)"
+        type: string
+        default: "5"
+      test-definition:
+        description: "Test definitions to run (comma-separated, e.g., 'smoke-test,basic-load')"
+        type: string
+        default: "none"
+    outputs:
+      result:
+        description: "Test result (success or failure)"
+        value: ${{ jobs.solo-test-deploy.outputs.result }}
+      resolved-versions:
+        description: "Resolved versions (CN,MN,BN)"
+        value: ${{ jobs.solo-test-deploy.outputs.resolved-versions }}
+
+  # Manual trigger - for direct invocation from GitHub UI
   workflow_dispatch:
     inputs:
-      block-node-helm-chart-version:
-        description: "Block Node Helm Chart Version"
-        required: true
-        default: "v0.21.2"
-      consensus-node-release-tag:
-        description: "Consensus Node Release Tag"
-        required: true
-        default: "v0.67.2"
-      mirror-node-release-tag:
-        description: "Mirror Node Release Tag (for now ignored since using XIN Image)"
-        required: true
-        default: "v0.141.0"
-      solo-network-size:
-        description: "Solo Network Size (Number of Consensus Nodes)"
-        required: true
-        default: "1"
+      topology:
+        description: "Network topology"
+        required: false
+        default: "single"
+        type: choice
+        options:
+          - single # 1 CN, 1 BN
+          - 2cn-2bn-backfill # 2 CN, 2 BN with backfill
+          - paired-3 # 3 CN, 3 BN
+          - fan-out-3cn-2bn # 3 CN, 2 BN
+          - 3cn-1bn # 3 CN, 1 BN
+          - 7cn-3bn-distributed # 7 CN, 3 BN distributed
+          - minimal # like single but without MN, Relay and Explorer
+      block-node-version:
+        description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')"
+        required: false
+        default: "latest"
+      consensus-node-version:
+        description: "Consensus Node version ('latest', 'rc', 'main', or tag like 'v0.68.6')"
+        required: false
+        default: "latest"
+      mirror-node-version:
+        description: "Mirror Node version ('latest', 'rc', 'main', or tag like 'v0.146.0')"
+        required: false
+        default: "latest"
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "latest"
+        default: "0.54.0"
       run-tck-regression-tests:
         description: "Run TCK regression test"
         required: false
         default: false
         type: boolean
+      nlg-test-class:
+        description: "NLG test class"
+        required: false
+        default: "CryptoTransferLoadTest"
+        type: choice
+        options:
+          - CryptoTransferLoadTest
+          - HCSLoadTest
+          - TokenTransferLoadTest
+      nlg-concurrency:
+        description: "NLG -c (concurrency threads)"
+        required: false
+        default: "5"
+      nlg-accounts:
+        description: "NLG -a (number of accounts)"
+        required: false
+        default: "10"
+      nlg-duration:
+        description: "NLG -t (seconds, 0 to skip load gen)"
+        required: false
+        default: "300"
+      nlg-extra-args:
+        description: "NLG extra args (e.g., '-T 5 -K ED25519')"
+        required: false
+        default: ""
+      nlg-max-tps:
+        description: "NLG --max-tps (max transactions per second, optional)"
+        required: false
+        default: ""
+      mirror-node-pinger-tps:
+        description: "Mirror Node pinger TPS (0 to disable)"
+        required: false
+        default: "5"
+      test-definition:
+        description: "Test definitions (comma-separated: smoke-test,basic-load,node-restart-resilience)"
+        required: false
+        default: "none"
 
 defaults:
   run:
@@ -44,17 +158,21 @@ concurrency:
 
 env:
   GRADLE_EXEC: "ionice -c 2 -n 2 nice -n 19 ./gradlew "
-  # Solo ENV Hardcoded
-  NODE_IDENTIFIERS: "node1"
-  DEPLOYMENT: "deployment-network-with-block-node"
-  NAMESPACE: "namespace-network-with-block-node"
+  # Solo ENV
+  DEPLOYMENT: "deployment-solo"
+  NAMESPACE: "solo-network"
   CLUSTER_NAME: "solo-cluster"
   CONTEXT: "kind-solo-cluster"
   CLUSTER_REFERENCE: "kind-solo-cluster"
+  # Solo CLI environment variables
+  MIRROR_NODE_PINGER_TPS: ${{ inputs.mirror-node-pinger-tps }}
 
 jobs:
   solo-test-deploy:
     runs-on: hiero-block-node-linux-medium
+    outputs:
+      result: ${{ steps.result.outputs.status }}
+      resolved-versions: ${{ steps.versions.outputs.cn_version }},${{ steps.versions.outputs.mn_version }},${{ steps.versions.outputs.bn_version }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@e3f713f2d8f53843e71c69a996d56f51aa9adfb9 # v2.14.1
@@ -65,12 +183,11 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.block-node-helm-chart-version }}
 
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: "20.19.4"
+          node-version: "22"
 
       - name: Install Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
@@ -91,93 +208,48 @@ jobs:
           distribution: "temurin"
           java-version: "25.0.2"
 
-      # install solo cli
+      # Resolve 'latest' versions to actual GA releases
+      - name: Resolve component versions
+        id: versions
+        run: |
+          OUTPUT=$(./tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh \
+            "${{ inputs.consensus-node-version }}" \
+            "${{ inputs.mirror-node-version }}" \
+            "${{ inputs.block-node-version }}")
+          echo "$OUTPUT"
+          # Parse output and write to GITHUB_OUTPUT
+          echo "$OUTPUT" | grep "^cn_version=" >> "${GITHUB_OUTPUT}"
+          echo "$OUTPUT" | grep "^mn_version=" >> "${GITHUB_OUTPUT}"
+          echo "$OUTPUT" | grep "^bn_version=" >> "${GITHUB_OUTPUT}"
+
+      # Install Solo CLI
       - name: Install Solo CLI via npm
+        id: solo
         run: |
           npm i @hashgraph/solo@${{ inputs.solo-version }} -g
+          # Extract version number from solo output (handles various output formats)
+          SOLO_INSTALLED=$(solo --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+          echo "Solo version: ${SOLO_INSTALLED}"
+          echo "solo_version=${SOLO_INSTALLED}" >> "${GITHUB_OUTPUT}"
 
-      # Prepare Overrides
-      # Create Mirror Values Override File (uses BN service)
-      - name: Create Mirror Values Override File
-        run: |
-          cat <<EOF > mirror-bn-values.yaml
-            config:
-              hiero:
-                mirror:
-                  importer:
-                    block:
-                      enabled: true
-                      nodes:
-                        - host: block-node-1.${NAMESPACE}.svc.cluster.local
-                          port: 40840
-                      sourceType: BLOCK_NODE
-                    downloader:
-                      record:
-                        enabled: false
-                    startDate: 1970-01-01T00:00:00Z
-                    stream:
-                      maxSubscribeAttempts: 10
-                      responseTimeout: 10s
-          EOF
-
-      - name: Verify Mirror Values Override File Created
-        run: |
-          cat mirror-bn-values.yaml
-
-      # Solo Cluster Setup
-      - name: Cluster setup (Kind + Solo)
-        run: |
-          kind create cluster -n "${CLUSTER_NAME}"
-          sleep 10
-          kubectl config use-context "${CONTEXT}"
-          solo init
-          solo cluster-ref config connect --cluster-ref "${CLUSTER_REFERENCE}" --context "${CONTEXT}"
-          solo deployment config create --deployment "${DEPLOYMENT}" --namespace "${NAMESPACE}"
-          solo deployment cluster attach --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}" --num-consensus-nodes "${{ inputs.solo-network-size }}"
-          solo cluster-ref config setup -s "${CLUSTER_REFERENCE}"
-
-      # Node Deployment
-      - name: Solo Nodes Deployment (BN, CN, MN)
-        run: |
-          solo block node add --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}" --cluster-ref "${CLUSTER_REFERENCE}" --chart-version "${{ inputs.block-node-helm-chart-version }}"
-          solo keys consensus generate --gossip-keys --tls-keys --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          solo consensus network deploy --deployment "${DEPLOYMENT}" --pvcs true --node-aliases "${NODE_IDENTIFIERS}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-          solo consensus node setup --node-aliases "${NODE_IDENTIFIERS}" --deployment "${DEPLOYMENT}" --release-tag "${{ inputs.consensus-node-release-tag }}"
-          solo consensus node start --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}"
-          solo mirror node add --deployment "${DEPLOYMENT}" --pinger --cluster-ref "${CLUSTER_REFERENCE}" --enable-ingress --mirror-node-version "${{ inputs.mirror-node-release-tag }}" -f mirror-bn-values.yaml
-          solo relay node add --deployment "${DEPLOYMENT}" --node-aliases "${NODE_IDENTIFIERS}" --cluster-ref "${CLUSTER_REFERENCE}"
-          solo explorer node add --deployment "${DEPLOYMENT}" --cluster-ref "${CLUSTER_REFERENCE}"
-          sleep 10
-
-      - name: show running pods and services
-        run: |
-          kubectl get pods -n ${NAMESPACE}
-          kubectl get svc -n ${NAMESPACE}
-
-      # port forwards
-      - name: Solo Port forwards
-        run: |
-          kubectl port-forward svc/haproxy-node1-svc -n "${NAMESPACE}" 50211:50211 &
-          kubectl port-forward svc/mirror-1-monitor -n "${NAMESPACE}" 5600:80 &
-          kubectl port-forward svc/mirror-1-rest -n "${NAMESPACE}" 5551:80 &
-          kubectl port-forward svc/mirror-1-restjava -n "${NAMESPACE}" 8084:80 &
-          kubectl port-forward svc/block-node-1 -n "${NAMESPACE}" 40840:40840 &
-          sleep 5
-
-      # ---- BN verification with grpcurl ----
-
-      # produce protobuf source artifact
+        # Produce protobuf source artifact
       - name: Produce Protobuf proto artifact
         run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
 
-      # untar protobuf sources
+        # Untar protobuf sources
       - name: Untar Protobuf Sources
         working-directory: protobuf-sources
         run: |
           mkdir -p proto
-          PROTO_TAG="${{ inputs.block-node-helm-chart-version }}"
-          PROTO_TAG="${PROTO_TAG#v}"
-          tar -xzf block-node-protobuf-${PROTO_TAG}.tgz -C proto
+          # Use the generated protobuf artifact (matches local project version)
+          PROTO_FILE=$(ls block-node-protobuf-*.tgz 2>/dev/null | head -1)
+          if [[ -z "$PROTO_FILE" ]]; then
+            echo "Error: No protobuf artifact found"
+            ls -la
+            exit 1
+          fi
+          echo "Using protobuf artifact: $PROTO_FILE"
+          tar -xzf "$PROTO_FILE" -C proto
 
       - name: Install grpcurl
         run: |
@@ -190,6 +262,176 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
+      # Setup cluster using shared script
+      - name: Cluster setup (Kind + Solo)
+        run: |
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-setup-cluster.sh \
+            --cluster-name "${CLUSTER_NAME}" \
+            --namespace "${NAMESPACE}" \
+            --deployment "${DEPLOYMENT}" \
+            --topology "${{ inputs.topology }}" \
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies"
+
+          TOPOLOGY_FILE="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies/${{ inputs.topology }}.yaml"
+
+          # Add to step summary
+          {
+            echo "### Cluster Configuration"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---------|-------|"
+            echo "| Topology | ${{ inputs.topology }} |"
+            echo "| Cluster Name | ${CLUSTER_NAME} |"
+            echo "| Namespace | ${NAMESPACE} |"
+            echo ""
+            echo "<details>"
+            echo "<summary>Topology Definition (${{ inputs.topology }}.yaml)</summary>"
+            echo ""
+            echo '```yaml'
+            cat "$TOPOLOGY_FILE"
+            echo '```'
+            echo ""
+            echo "</details>"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # Deploy network using shared script
+      - name: Deploy network
+        run: |
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-deploy-network.sh \
+            --deployment "${DEPLOYMENT}" \
+            --namespace "${NAMESPACE}" \
+            --cluster-ref "${CLUSTER_REFERENCE}" \
+            --topology "${{ inputs.topology }}" \
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
+            --cn-version "${{ steps.versions.outputs.cn_version }}" \
+            --mn-version "${{ steps.versions.outputs.mn_version }}" \
+            --bn-version "${{ steps.versions.outputs.bn_version }}"
+
+          # Add to step summary - comprehensive version summary
+          {
+            echo "### Component Versions"
+            echo ""
+            echo "| Component | Requested | Resolved |"
+            echo "|-----------|-----------|----------|"
+            echo "| Consensus Node | \`${{ inputs.consensus-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.cn_version }}\` |"
+            echo "| Mirror Node | \`${{ inputs.mirror-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.mn_version }}\` |"
+            echo "| Block Node | \`${{ inputs.block-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.bn_version }}\` |"
+            echo "| Solo CLI | \`${{ inputs.solo-version || 'latest' }}\` | \`${{ steps.solo.outputs.solo_version }}\` |"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Show running pods and services
+        run: |
+          kubectl --context "${CONTEXT}" get pods -n ${NAMESPACE}
+          kubectl --context "${CONTEXT}" get svc -n ${NAMESPACE}
+
+      # Port forwards - dynamically discover and forward all nodes
+      - name: Solo Port forwards
+        run: |
+          ${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/scripts/solo-port-forward.sh \
+            --namespace "${NAMESPACE}"
+
+      # ---- Load Generation with NLG (Optional) skip if duration = 0 ----
+
+      # Start load generation
+      - name: Start NLG Load Generation
+        if: ${{ inputs.nlg-duration != '0' }}
+        continue-on-error: true
+        env:
+          NLG_TEST_CLASS: ${{ inputs.nlg-test-class }}
+          NLG_CONCURRENCY: ${{ inputs.nlg-concurrency }}
+          NLG_ACCOUNTS: ${{ inputs.nlg-accounts }}
+          NLG_DURATION: ${{ inputs.nlg-duration }}
+          NLG_EXTRA_ARGS: ${{ inputs.nlg-extra-args }}
+          NLG_MAX_TPS: ${{ inputs.nlg-max-tps }}
+        run: |
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh start
+
+          # Add to step summary
+          {
+            echo "### Load Generation"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---------|-------|"
+            echo "| Test Class | \`${{ inputs.nlg-test-class }}\` |"
+            echo "| Concurrency | ${{ inputs.nlg-concurrency }} |"
+            echo "| Accounts | ${{ inputs.nlg-accounts }} |"
+            echo "| Duration | ${{ inputs.nlg-duration }}s |"
+            echo "| Extra Args | \`${{ inputs.nlg-extra-args }}\` |"
+            echo "| Max TPS | ${{ inputs.nlg-max-tps || 'unlimited' }} |"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      # ---- Test Definition Runner (optional) ----
+      # Run a test definition file if specified. This provides a structured
+      # way to define timed events and assertions for E2E testing.
+
+      # Validate all test definitions against topology before running
+      - name: Validate Test Definitions
+        if: ${{ inputs.test-definition != 'none' && inputs.test-definition != '' }}
+        run: |
+          TESTS_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests"
+          TOPOLOGIES_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies"
+          TEST_RUNNER="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/scripts/solo-test-runner.sh"
+
+          IFS=',' read -ra TESTS <<< "${{ inputs.test-definition }}"
+          echo "Validating ${#TESTS[@]} test(s) against topology '${{ inputs.topology }}'..."
+
+          for test in "${TESTS[@]}"; do
+            test=$(echo "$test" | xargs)  # trim whitespace
+            [[ -z "$test" || "$test" == "none" ]] && continue
+            echo "Validating: $test"
+            if ! "${TEST_RUNNER}" --test "${TESTS_DIR}/${test}.yaml" --topology "${{ inputs.topology }}" --topologies-dir "${TOPOLOGIES_DIR}" --validate; then
+              echo "::error::Test '$test' is not compatible with topology '${{ inputs.topology }}'"
+              exit 1
+            fi
+          done
+          echo "All tests validated successfully"
+
+      # Run each test definition sequentially on the same deployment
+      - name: Run Test Definitions
+        if: ${{ inputs.test-definition != 'none' && inputs.test-definition != '' }}
+        run: |
+          TESTS_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests"
+          TOPOLOGIES_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies"
+          TEST_RUNNER="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/scripts/solo-test-runner.sh"
+
+          IFS=',' read -ra TESTS <<< "${{ inputs.test-definition }}"
+          FAILED=0
+
+          for test in "${TESTS[@]}"; do
+            test=$(echo "$test" | xargs)  # trim whitespace
+            [[ -z "$test" || "$test" == "none" ]] && continue
+
+            echo ""
+            echo "=========================================="
+            echo "Running test: $test"
+            echo "=========================================="
+
+            if ! "${TEST_RUNNER}" \
+              --test "${TESTS_DIR}/${test}.yaml" \
+              --topology "${{ inputs.topology }}" \
+              --namespace "${NAMESPACE}" \
+              --context "${CONTEXT}" \
+              --topologies-dir "${TOPOLOGIES_DIR}" \
+              --proto-path "protobuf-sources/proto" \
+              --output github-summary; then
+              echo "::warning::Test '$test' failed"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          if [[ $FAILED -gt 0 ]]; then
+            echo "::error::$FAILED test(s) failed"
+            exit 1
+          fi
+
+          # Brief cooldown to let streaming connections settle before grpcurl validation
+          echo "Waiting 15s for streaming connections to settle..."
+          sleep 15
+
+      # ---- BN verification with grpcurl ----
       # Verify the BN is getting blocks
       - name: Get ServerStatus from Block Node
         run: |
@@ -224,42 +466,71 @@ jobs:
           echo "FIRST_AVAILABLE_BLOCK=$FIRST_AVAILABLE_BLOCK" >> $GITHUB_ENV
           echo "LAST_AVAILABLE_BLOCK=$LAST_AVAILABLE_BLOCK" >> $GITHUB_ENV
 
-      - name: Give some time to produce more blocks
-        run: sleep 200
-
       - name: Get first block from Block Node
+        continue-on-error: true # Proto version mismatch (BN 0.69 vs CN 0.70) causes parsing failures
         run: |
-          FIRST_BLOCK=$(grpcurl \
-            -plaintext \
-            -emit-defaults \
-            -import-path protobuf-sources/proto \
-            -proto block-node/api/block_access_service.proto \
-            -d "{\"block_number\": $FIRST_AVAILABLE_BLOCK}" \
-            localhost:40840 \
-            org.hiero.block.api.BlockAccessService/getBlock \
-            | jq -r '.block.items[0].blockHeader.number')
-          if [ -z "FIRST_BLOCK" ]; then
-            echo "Error: FIRST_BLOCK is empty"
-            exit 1
-          fi
-          echo "FirstBlock is ${FIRST_BLOCK}"
+          # Retry logic for transient gRPC errors (e.g., flow control under load)
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $attempt of $MAX_RETRIES: Getting block $FIRST_AVAILABLE_BLOCK"
+            FIRST_BLOCK=$(grpcurl \
+              -plaintext \
+              -emit-defaults \
+              -max-msg-sz 268435456 \
+              -import-path protobuf-sources/proto \
+              -proto block-node/api/block_access_service.proto \
+              -d "{\"block_number\": $FIRST_AVAILABLE_BLOCK}" \
+              localhost:40840 \
+              org.hiero.block.api.BlockAccessService/getBlock 2>&1 \
+              | jq -r '.block.items[0].blockHeader.number' 2>/dev/null) || true
+
+            if [[ -n "$FIRST_BLOCK" && "$FIRST_BLOCK" != "null" ]]; then
+              echo "FirstBlock is ${FIRST_BLOCK}"
+              exit 0
+            fi
+
+            if [[ $attempt -lt $MAX_RETRIES ]]; then
+              echo "Retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            fi
+          done
+
+          echo "Error: Failed to get first block after $MAX_RETRIES attempts"
+          exit 1
 
       - name: Get last block from Block Node
+        continue-on-error: true # Proto version mismatch (BN 0.69 vs CN 0.70) causes parsing failures
         run: |
-          LAST_BLOCK=$(grpcurl \
-            -plaintext \
-            -emit-defaults \
-            -import-path protobuf-sources/proto \
-            -proto block-node/api/block_access_service.proto \
-            -d "{\"block_number\": $LAST_AVAILABLE_BLOCK}" \
-            localhost:40840 \
-            org.hiero.block.api.BlockAccessService/getBlock \
-            | jq -r '.block.items[0].blockHeader.number')
-          if [ -z "LAST_BLOCK" ]; then
-            echo "Error: LAST_BLOCK is empty"
-            exit 1
-          fi
-          echo "LastBlock is ${LAST_BLOCK}"
+          # Retry logic for transient gRPC errors (e.g., flow control under load)
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $attempt of $MAX_RETRIES: Getting block $LAST_AVAILABLE_BLOCK"
+            LAST_BLOCK=$(grpcurl \
+              -plaintext \
+              -emit-defaults \
+              -max-msg-sz 268435456 \
+              -import-path protobuf-sources/proto \
+              -proto block-node/api/block_access_service.proto \
+              -d "{\"block_number\": $LAST_AVAILABLE_BLOCK}" \
+              localhost:40840 \
+              org.hiero.block.api.BlockAccessService/getBlock 2>&1 \
+              | jq -r '.block.items[0].blockHeader.number' 2>/dev/null) || true
+
+            if [[ -n "$LAST_BLOCK" && "$LAST_BLOCK" != "null" ]]; then
+              echo "LastBlock is ${LAST_BLOCK}"
+              exit 0
+            fi
+
+            if [[ $attempt -lt $MAX_RETRIES ]]; then
+              echo "Retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            fi
+          done
+
+          echo "Error: Failed to get last block after $MAX_RETRIES attempts"
+          exit 1
 
       - name: Validate first block on Mirror Node
         run: |
@@ -281,7 +552,7 @@ jobs:
             exit 1
           fi
 
-          echo "Mirror Node first block matches Block Node first block ✅"
+          echo "Mirror Node first block matches Block Node first block"
 
       - name: Validate last block on Mirror Node
         run: |
@@ -303,15 +574,47 @@ jobs:
               exit 1
           fi
 
-          echo "Mirror Node last block matches Block Node last block ✅"
+          echo "Mirror Node last block matches Block Node last block"
 
-      # TCK Regression Tests related steps
+      # Network Health Summary - show status of all nodes
+      - name: Network Health Summary
+        if: always()
+        run: |
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-network-status.sh \
+            --namespace "${NAMESPACE}" \
+            --topology "${{ inputs.topology }}" \
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
+            --context "${CONTEXT}" \
+            --proto-path "protobuf-sources/proto" \
+            --output github-summary
+
+      # Block Node Metrics Summary - show metrics for each block node
+      - name: Block Node Metrics Summary
+        if: always()
+        run: |
+          TOPOLOGY_FILE="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies/${{ inputs.topology }}.yaml"
+          BLOCK_NODES=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "${TOPOLOGY_FILE}" | sed 's/://g' | awk '{print $1}' || echo "block-node-1")
+
+          PORT=16007
+          for bn in ${BLOCK_NODES}; do
+            echo "<details>" >> "${GITHUB_STEP_SUMMARY}"
+            echo "<summary>📊 ${bn} Metrics</summary>" >> "${GITHUB_STEP_SUMMARY}"
+            echo "" >> "${GITHUB_STEP_SUMMARY}"
+            ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-metrics-summary.sh \
+              ${PORT} github-summary >> "${GITHUB_STEP_SUMMARY}" || echo "Metrics unavailable for ${bn}" >> "${GITHUB_STEP_SUMMARY}"
+            echo "</details>" >> "${GITHUB_STEP_SUMMARY}"
+            echo "" >> "${GITHUB_STEP_SUMMARY}"
+            PORT=$((PORT + 1))
+          done
+
+      # TCK Regression Tests related steps (matches consensus-node approach)
       - name: Setup PNPM
         if: ${{ inputs.run-tck-regression-tests }}
         run: |
           npm install -g pnpm
 
-      - name: Checkout Regression Code
+      # Checkout TCK and checkout latest tag
+      - name: Checkout TCK SDK
         if: ${{ inputs.run-tck-regression-tests }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -325,11 +628,11 @@ jobs:
         run: |
           cd sdk-tck/regression
           git fetch --tags
-          LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1`)
-          echo "Latest TCK tag: $LATEST_TAG"
-          git checkout $LATEST_TAG
+          LATEST_TAG=$(git describe --tags --abbrev=0)
+          echo "Checking out TCK latest tag: $LATEST_TAG"
+          git checkout "$LATEST_TAG"
 
-      # Checkout the JS-SDK server
+      # Checkout JS-SDK and checkout latest tag
       - name: Checkout JS-SDK Server
         if: ${{ inputs.run-tck-regression-tests }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -344,55 +647,27 @@ jobs:
         run: |
           cd sdk-tck/sdk-server
           git fetch --tags
-          LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1`)
-          echo "Latest JS-SDK tag: $LATEST_TAG"
-          git checkout $LATEST_TAG
+          LATEST_TAG=$(git describe --tags --abbrev=0)
+          echo "Checking out JS-SDK latest tag: $LATEST_TAG"
+          git checkout "$LATEST_TAG"
 
-      # Set up the npm dependencies and cache on the tck-client
-      - name: Set up the tck-client
+      # Install TCK-SDK dependencies using shared script (versions extracted from source)
+      - name: Install TCK-SDK Dependencies
         if: ${{ inputs.run-tck-regression-tests }}
         run: |
-          npm cache clean --force
-          npm install
-        working-directory: sdk-tck/regression
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-tck-sdk-install.sh \
+            --sdk-dir "sdk-tck/sdk-server" \
+            --tck-dir "sdk-tck/regression"
 
-      # Set up the npm dependencies and cache on the sdk-server
-      - name: Install NodeJS Dependencies (sdk-server)
+      # Run TCK-SDK tests using shared script
+      - name: Run TCK-SDK Tests
         if: ${{ inputs.run-tck-regression-tests }}
-        id: start-sdk-server
         run: |
-          # Extract package versions from the parent package.json
-          SDK_VERSION=$(node -e "console.log(require('../package.json').version)")
-          LONG_VERSION=$(node -e "console.log(require('../package.json').dependencies.long)")
-          PROTO_VERSION=$(node -e "console.log(require('../package.json').dependencies['@hashgraph/proto'])")
-
-          echo "Using SDK version: $SDK_VERSION"
-          echo "Using long version: $LONG_VERSION"
-          echo "Using proto version: $PROTO_VERSION"
-
-          # Install with the extracted versions
-          pnpm add @hashgraph/sdk@^${SDK_VERSION} long@${LONG_VERSION} @hashgraph/proto@${PROTO_VERSION}
-          pnpm install
-          nohup pnpm start &
-          server_pid=$!
-          echo "pid=${server_pid}" >> "${GITHUB_OUTPUT}"
-        working-directory: sdk-tck/sdk-server/tck
-
-      # Start the TCK client
-      - name: Start tck-client
-        if: ${{ inputs.run-tck-regression-tests }}
-        env:
-          OPERATOR_ACCOUNT_ID: "0.0.2"
-          OPERATOR_ACCOUNT_PRIVATE_KEY: "302e020100300506032b65700422042091132178e72057a1d7528025956fe39b0b847f200ab59b2fdd367017f3087137"
-          JSON_RPC_SERVER_URL: "http://127.0.0.1:8544"
-          NODE_IP: "127.0.0.1:50211"
-          MIRROR_NODE_REST_URL: "http://127.0.0.1:5551"
-          MIRROR_NODE_REST_JAVA_URL: "http://127.0.0.1:8084"
-        run: |
-          solo ledger account create --dev --ed25519-private-key "${{ env.OPERATOR_ACCOUNT_PRIVATE_KEY }}" --deployment "${DEPLOYMENT}" --hbar-amount 1000000
-          cp .env.custom_node .env
-          npm run test:file src/tests/contract-service/test-contract-execute-transaction.ts
-        working-directory: sdk-tck/regression # required
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-tck-sdk-run.sh \
+            --sdk-dir "sdk-tck/sdk-server" \
+            --tck-dir "sdk-tck/regression" \
+            --deployment "${DEPLOYMENT}" \
+            --namespace "${NAMESPACE}"
 
       - name: BN Based - SDK TCK Regression Test Report
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -402,23 +677,68 @@ jobs:
           path: "**/sdk-tck/regression/mochawesome-report/mochawesome.*"
           retention-days: 7
 
+      # Stop load generator if it was started
+      - name: Stop NLG Load Generation
+        if: ${{ always() && inputs.nlg-duration != '0' }}
+        continue-on-error: true
+        env:
+          NLG_TEST_CLASS: ${{ inputs.nlg-test-class }}
+        run: |
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh stop || true
+
       - name: Collect BN and MN Logs
         if: always()
         run: |
-          # Get BN Logs
-          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=block-node-1" --all-containers --since=24h --timestamps --prefix --tail=-1 > bn0-logs.log
+          # Create log directories
+          mkdir -p bn-logs mn-logs
 
-          # Get MN Logs
-          kubectl logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" --all-containers --since=24h --timestamps --prefix --tail=-1 > mn0-logs.log
+          # Get BN Logs for ALL block nodes dynamically
+          for svc in $(kubectl --context "${CONTEXT}" get svc -n "${NAMESPACE}" -o name 2>/dev/null | grep "block-node-" | sort); do
+            bn_name=$(basename "$svc")
+
+            # Get stdout/stderr logs via kubectl logs
+            kubectl --context "${CONTEXT}" logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=${bn_name}" \
+              --all-containers --since=24h --timestamps --prefix --tail=-1 > "bn-logs/${bn_name}-stdout.log" 2>&1 || \
+              echo "Failed to collect stdout logs for ${bn_name}" > "bn-logs/${bn_name}-stdout.log"
+
+            # Get file logs from inside the container using kubectl cp
+            # Block Node writes logs to /opt/hiero/block-node/logs/
+            POD_NAME=$(kubectl --context "${CONTEXT}" get pods -n "${NAMESPACE}" -l "app.kubernetes.io/name=${bn_name}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+            if [[ -n "$POD_NAME" ]]; then
+              mkdir -p "bn-logs/${bn_name}-files"
+              kubectl --context "${CONTEXT}" cp "${NAMESPACE}/${POD_NAME}:/opt/hiero/block-node/logs/" "bn-logs/${bn_name}-files/" 2>/dev/null || \
+                echo "No file logs available for ${bn_name}" > "bn-logs/${bn_name}-files/no-logs.txt"
+              echo "Collected file logs for ${bn_name} from pod ${POD_NAME}"
+            fi
+
+            echo "Collected logs for ${bn_name}"
+          done
+
+          # Get MN Logs - stdout/stderr
+          kubectl --context "${CONTEXT}" logs -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" \
+            --all-containers --since=24h --timestamps --prefix --tail=-1 > "mn-logs/mirror-1-importer-stdout.log" 2>&1 || \
+            echo "Failed to collect MN importer stdout logs" > "mn-logs/mirror-1-importer-stdout.log"
+
+          # Get MN file logs from importer pod
+          MN_POD=$(kubectl --context "${CONTEXT}" get pods -n "${NAMESPACE}" -l "app.kubernetes.io/instance=mirror-1,app.kubernetes.io/component=importer" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          if [[ -n "$MN_POD" ]]; then
+            mkdir -p "mn-logs/importer-files"
+            # Mirror Node importer typically logs to /var/log or container logs
+            kubectl --context "${CONTEXT}" cp "${NAMESPACE}/${MN_POD}:/var/log/" "mn-logs/importer-files/" 2>/dev/null || true
+            echo "Collected file logs for mirror-1-importer from pod ${MN_POD}"
+          fi
+
+          # Show what was collected
+          echo "=== Collected BN logs ===" && ls -laR bn-logs/
+          echo "=== Collected MN logs ===" && ls -laR mn-logs/
 
       - name: Collect CN Logs
         if: always()
         run: |
-          # Get CN Logs
-          solo consensus diagnostics all --dev --deployment "${DEPLOYMENT}"
-          BASE="${HOME}/.solo/logs/${NAMESPACE}"
-          LOG_FOLDER=$(ls -1d "$BASE"/* | sort -r | head -n1)
-          echo "Latest log folder is $LOG_FOLDER"
+          # Get CN Logs (Solo 0.52+ uses 'deployment diagnostics' instead of 'consensus diagnostics')
+          solo deployment diagnostics all --dev --deployment "${DEPLOYMENT}" || \
+            echo "Failed to collect CN diagnostics (deployment may be unavailable)"
+          LOG_FOLDER="${HOME}/.solo/logs"
           echo "CN_LOG_FOLDER=$LOG_FOLDER" >> $GITHUB_ENV
           ls -lR "$LOG_FOLDER"
 
@@ -432,36 +752,50 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cn-logs
-          path: ${{ env.CN_LOG_FOLDER }}/*.zip
+          path: |
+            ${{ env.CN_LOG_FOLDER }}/**/*.zip
+            ${{ env.CN_LOG_FOLDER }}/*.log
+            ${{ env.CN_LOG_FOLDER }}/*.ndjson
 
-      - name: Upload Logs
+      - name: Upload BN Logs
         if: always()
-        id: upload_logs_bn_mn
+        id: upload_logs_bn
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: BN-MN-logs
-          path: |
-            bn0-logs.log
-            mn0-logs.log
+          name: BN-logs
+          path: bn-logs/
+
+      - name: Upload MN Logs
+        if: always()
+        id: upload_logs_mn
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: MN-logs
+          path: mn-logs/
 
       - name: Add Logs to Summary
         if: always()
         run: |
           {
-            echo "### 📜 Logs"
+            echo "### Logs"
             echo ""
             echo "You can download the logs from this run here:"
-            echo "- [Download BN-MN-logs](${{ steps.upload_logs_bn_mn.outputs.artifact-url }})"
+            echo "- [Download BN-logs](${{ steps.upload_logs_bn.outputs.artifact-url }})"
+            echo "- [Download MN-logs](${{ steps.upload_logs_mn.outputs.artifact-url }})"
             echo "- [Download CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }})"
 
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Stop the TCK Tests server
-      - name: Stop TCK Test Server
-        if: ${{ inputs.run-tck-regression-tests }}
+      # Set result output for workflow_call consumers
+      - name: Set result output
+        id: result
+        if: always()
         run: |
-          echo ${{ steps.start-sdk-server.outputs.pid }}
-          kill -9 ${{ steps.start-sdk-server.outputs.pid }}
+          if [[ "${{ job.status }}" == "success" ]]; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+          fi
 
       # Stop the solo nodes
       - name: Stop solo

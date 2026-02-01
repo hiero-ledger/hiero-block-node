@@ -1,0 +1,130 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Full History Backfill Test (Issue #1712)
+#
+# Tests that a block node can recover via greedy backfill from a peer
+# after losing all local data.
+#
+# Scenario:
+#   1. Verify BN1 and BN2 are receiving blocks
+#   2. Clear all block storage on BN1 (simulate data loss)
+#   3. Scale down BN1
+#   4. Wait for gap to form (BN2 continues receiving from CN2)
+#   5. Scale up BN1
+#   6. Verify BN1 backfills all historical blocks from BN2
+#   7. Verify all BNs resume receiving live blocks
+#
+# Prerequisites:
+#   - Topology with 2+ BNs and mutual backfill configured
+#
+# Usage:
+#   task test:run TEST_FILE=tests/full-history-backfill.yaml
+
+name: full-history-backfill
+description: "Test BN recovery via backfill after data loss (Issue #1712)"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Verify initial network status"
+    delay: 5
+
+  - id: initial-metrics
+    type: print-metrics
+    description: "Print initial metrics for all block nodes"
+    delay: 10
+    args:
+      target: all
+
+  - id: clear-bn1-storage
+    type: clear-block-storage
+    description: "Clear all block storage on BN1 (simulate data loss)"
+    delay: 15
+    target: block-node-1
+
+  - id: scale-down-bn1
+    type: scale-down
+    description: "Scale down BN1"
+    delay: 20
+    target: block-node-1
+
+  - id: gap-period
+    type: sleep
+    description: "Allow gap to form (BN2 continues receiving from CN2)"
+    delay: 25
+    args:
+      seconds: 60
+
+  - id: pre-recovery-metrics
+    type: print-metrics
+    description: "Print BN2 metrics showing blocks accumulated during gap"
+    delay: 90
+    args:
+      target: block-node-2
+
+  - id: scale-up-bn1
+    type: scale-up
+    description: "Scale up BN1 - should trigger backfill from BN2"
+    delay: 95
+    target: block-node-1
+
+  - id: refresh-ports
+    type: port-forward
+    description: "Refresh port forwards after BN1 restart"
+    delay: 110
+
+  - id: backfill-wait
+    type: sleep
+    description: "Wait for BN1 to backfill historical blocks from BN2"
+    delay: 120
+    args:
+      seconds: 90
+
+  - id: post-backfill-status
+    type: network-status
+    description: "Network status after backfill"
+    delay: 215
+
+  - id: post-backfill-metrics
+    type: print-metrics
+    description: "Print all metrics after backfill"
+    delay: 220
+    args:
+      target: all
+
+  - id: live-streaming-wait
+    type: sleep
+    description: "Wait to verify BN1 receives live blocks"
+    delay: 230
+    args:
+      seconds: 30
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Final metrics summary"
+    delay: 265
+    args:
+      target: all
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy after backfill"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: no-errors
+    type: no-errors
+    description: "No verification errors on any Block Node"
+    target: all
+
+  - id: all-blocks-increasing
+    type: blocks-increasing
+    description: "All Block Nodes receiving live blocks after recovery"
+    target: all

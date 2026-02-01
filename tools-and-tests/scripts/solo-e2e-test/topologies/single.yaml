@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# Minimal topology: 1 Consensus Node, 1 Block Node, 1 Mirror Node
+#
+# This is the simplest configuration for testing Block Node functionality.
+# The Consensus Node streams blocks directly to the Block Node.
+# Mirror Node receives blocks from the Block Node.
+#
+# CN1 → BN1 → MN → Relay, Explorer
+
+name: single
+description: "1 Consensus Node, 1 Block Node, 1 Mirror Node (default)"
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1]
+
+mirror_nodes:
+  mirror-1:
+    block_nodes: [block-node-1]
+
+relay_nodes:
+  relay-1:
+    mirror_nodes: [mirror-1]
+
+explorer_nodes:
+  explorer-1:
+    mirror_nodes: [mirror-1]

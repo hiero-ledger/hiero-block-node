@@ -1,0 +1,373 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Solo E2E Scheduler
+
+# Orchestrator workflow for scheduled, release, and manual test runs
+# Calls solo-e2e-test.yml with various topology/test combinations
+
+on:
+  schedule:
+    # Daily: 6 AM UTC, Monday-Friday
+    - cron: "0 6 * * 1-5"
+    # Weekend: 2 AM UTC, Saturday (full matrix, SNAPSHOT versions)
+    - cron: "0 2 * * 6"
+    # RC: 2 AM UTC, Sunday (full matrix, RC versions of CN/MN)
+    - cron: "0 2 * * 0"
+
+  push:
+    tags:
+      - "v*" # TAG releases trigger full matrix tests
+
+  workflow_dispatch:
+    inputs:
+      run-type:
+        description: "Run type"
+        type: choice
+        default: "daily"
+        options:
+          - daily # Quick smoke test, SNAPSHOT versions
+          - weekend # Full matrix, SNAPSHOT versions
+          - rc # Full matrix, RC versions of CN/MN
+      notify-slack:
+        description: "Send Slack notification"
+        type: boolean
+        default: true
+      block-node-version:
+        description: "Block Node version (default: main for scheduled, tag for releases)"
+        type: string
+        default: ""
+      consensus-node-version:
+        description: "Consensus Node version (use 'rc' for latest RC)"
+        type: string
+        default: ""
+      mirror-node-version:
+        description: "Mirror Node version (use 'rc' for latest RC)"
+        type: string
+        default: ""
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+# Prevent overlapping scheduler runs, but allow full runs to complete
+concurrency:
+  group: solo-e2e-scheduler-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================================
+  # CONFIGURE: Determine run type and build test matrix
+  # ============================================================================
+  configure:
+    runs-on: hiero-block-node-linux-medium
+    outputs:
+      run-type: ${{ steps.config.outputs.run_type }}
+      matrix: ${{ steps.config.outputs.matrix }}
+      bn-version: ${{ steps.config.outputs.bn_version }}
+      cn-version: ${{ steps.config.outputs.cn_version }}
+      mn-version: ${{ steps.config.outputs.mn_version }}
+      solo-version: ${{ steps.config.outputs.solo_version }}
+      notify-slack: ${{ steps.config.outputs.notify_slack }}
+      matrix-count: ${{ steps.config.outputs.matrix_count }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: Determine run configuration
+        id: config
+        run: |
+          # Determine run type from trigger
+          RUN_TYPE=""
+          NOTIFY_SLACK="true"
+
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            # Check which schedule triggered this
+            CRON="${{ github.event.schedule }}"
+            if [[ "$CRON" == "0 6 * * 1-5" ]]; then
+              RUN_TYPE="daily"
+            elif [[ "$CRON" == "0 2 * * 6" ]]; then
+              RUN_TYPE="weekend"
+            elif [[ "$CRON" == "0 2 * * 0" ]]; then
+              RUN_TYPE="rc"
+            else
+              RUN_TYPE="daily"  # Default fallback
+            fi
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            # TAG push - full matrix tests (same as weekend)
+            RUN_TYPE="weekend"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            RUN_TYPE="${{ inputs.run-type }}"
+            NOTIFY_SLACK="${{ inputs.notify-slack }}"
+          fi
+
+          echo "Run type: ${RUN_TYPE}"
+          echo "run_type=${RUN_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "notify_slack=${NOTIFY_SLACK}" >> "$GITHUB_OUTPUT"
+
+          # Configure test matrix based on run type
+          # Each entry defines a topology and which tests are valid for it
+          case "${RUN_TYPE}" in
+            daily)
+              # Quick validation - single topology smoke test + backfill test
+              MATRIX='[
+                {"topology":"single","tests":"smoke-test"},
+                {"topology":"2cn-2bn-backfill","tests":"full-history-backfill"}
+              ]'
+              ;;
+            weekend|rc)
+              # Full matrix - explicit valid combinations per topology
+              MATRIX='[
+                {"topology":"single","tests":"smoke-test,basic-load,node-restart-resilience"},
+                {"topology":"paired-3","tests":"smoke-test,basic-load"},
+                {"topology":"3cn-1bn","tests":"smoke-test"},
+                {"topology":"fan-out-3cn-2bn","tests":"smoke-test"},
+                {"topology":"2cn-2bn-backfill","tests":"full-history-backfill"},
+                {"topology":"7cn-3bn-distributed","tests":"smoke-test"}
+              ]'
+              ;;
+            *)
+              MATRIX='[{"topology":"single","tests":"smoke-test"}]'
+              ;;
+          esac
+
+          # Compact JSON for output
+          MATRIX_JSON=$(echo "${MATRIX}" | jq -c '.')
+          echo "matrix=${MATRIX_JSON}" >> "$GITHUB_OUTPUT"
+
+          # Calculate matrix count for reporting
+          MATRIX_COUNT=$(echo "${MATRIX_JSON}" | jq '. | length')
+          echo "matrix_count=${MATRIX_COUNT}" >> "$GITHUB_OUTPUT"
+
+          # Configure versions based on run type and trigger
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
+            # TAG release: use the tag for BN, latest GA for CN/MN
+            BN_VERSION="${{ github.ref_name }}"
+            CN_VERSION="latest"
+            MN_VERSION="latest"
+          elif [[ "${RUN_TYPE}" == "rc" ]]; then
+            # RC run: use SNAPSHOT BN against RC versions of CN/MN
+            BN_VERSION="${{ inputs.block-node-version }}"
+            BN_VERSION="${BN_VERSION:-main}"
+            CN_VERSION="${{ inputs.consensus-node-version }}"
+            CN_VERSION="${CN_VERSION:-rc}"
+            MN_VERSION="${{ inputs.mirror-node-version }}"
+            MN_VERSION="${MN_VERSION:-rc}"
+          elif [[ -n "${{ inputs.block-node-version }}" ]]; then
+            # Manual override with explicit versions
+            BN_VERSION="${{ inputs.block-node-version }}"
+            CN_VERSION="${{ inputs.consensus-node-version }}"
+            CN_VERSION="${CN_VERSION:-main}"
+            MN_VERSION="${{ inputs.mirror-node-version }}"
+            MN_VERSION="${MN_VERSION:-main}"
+          else
+            # Scheduled runs (daily/weekend): use SNAPSHOT BN against GA stable CN/MN
+            BN_VERSION="main"
+            CN_VERSION="latest"
+            MN_VERSION="latest"
+          fi
+
+          # Solo CLI version: use latest for RC runs to test with newest Solo features
+          if [[ "${RUN_TYPE}" == "rc" ]]; then
+            SOLO_VERSION="latest"
+          else
+            SOLO_VERSION="0.54.0"
+          fi
+
+          echo "bn_version=${BN_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "cn_version=${CN_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "mn_version=${MN_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "solo_version=${SOLO_VERSION}" >> "$GITHUB_OUTPUT"
+
+          # Summary
+          {
+            echo "### Configuration"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---------|-------|"
+            echo "| Run Type | ${RUN_TYPE} |"
+            echo "| Deployments | ${MATRIX_COUNT} |"
+            echo "| BN Version | ${BN_VERSION} |"
+            echo "| CN Version | ${CN_VERSION} |"
+            echo "| MN Version | ${MN_VERSION} |"
+            echo "| Solo Version | ${SOLO_VERSION} |"
+            echo "| Slack Notify | ${NOTIFY_SLACK} |"
+            echo ""
+            echo "### Test Matrix"
+            echo ""
+            echo "| Topology | Tests |"
+            echo "|----------|-------|"
+            echo "${MATRIX_JSON}" | jq -r '.[] | "| \(.topology) | \(.tests) |"'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ============================================================================
+  # RUN-TESTS: Execute test matrix
+  # ============================================================================
+  run-tests:
+    needs: configure
+    strategy:
+      fail-fast: false
+      max-parallel: 2 # Control resource usage
+      matrix:
+        include: ${{ fromJson(needs.configure.outputs.matrix) }}
+    uses: ./.github/workflows/solo-e2e-test.yml
+    with:
+      topology: ${{ matrix.topology }}
+      test-definition: ${{ matrix.tests }}
+      block-node-version: ${{ needs.configure.outputs.bn-version }}
+      consensus-node-version: ${{ needs.configure.outputs.cn-version }}
+      mirror-node-version: ${{ needs.configure.outputs.mn-version }}
+      solo-version: ${{ needs.configure.outputs.solo-version }}
+    secrets: inherit
+
+  # ============================================================================
+  # REPORT-SUCCESS: Slack notification on success
+  # ============================================================================
+  report-success:
+    needs: [configure, run-tests]
+    if: success() && needs.configure.outputs.notify-slack == 'true'
+    runs-on: hiero-block-node-linux-medium
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: Send Slack notification (success)
+        uses: slackapi/slack-github-action@fcffd5b93dc0f91bb66274bad5a3a0c32b7d31e5 # v2.1.0
+        continue-on-error: true
+        with:
+          webhook: ${{ secrets.SOLO_E2E_SLACK_WEBHOOK }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": ":white_check_mark: Solo E2E Tests Passed",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Run Type:*\n${{ needs.configure.outputs.run-type }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n${{ github.ref_name }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n*Status:* All passed"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Run",
+                        "emoji": true
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+
+  # ============================================================================
+  # REPORT-FAILURE: Slack notification on failure
+  # ============================================================================
+  report-failure:
+    needs: [configure, run-tests]
+    if: failure() && needs.configure.outputs.notify-slack == 'true'
+    runs-on: hiero-block-node-linux-medium
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
+      - name: Send Slack notification (failure)
+        uses: slackapi/slack-github-action@fcffd5b93dc0f91bb66274bad5a3a0c32b7d31e5 # v2.1.0
+        continue-on-error: true
+        with:
+          webhook: ${{ secrets.SOLO_E2E_SLACK_WEBHOOK }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": ":x: Solo E2E Tests Failed",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Run Type:*\n${{ needs.configure.outputs.run-type }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Branch:*\n${{ github.ref_name }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n*Status:* Some tests failed - check the run for details"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Failed Run",
+                        "emoji": true
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                      "style": "danger"
+                    }
+                  ]
+                }
+              ]
+            }
