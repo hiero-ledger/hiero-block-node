@@ -125,7 +125,8 @@ jobs:
                 {"topology":"paired-3","tests":"smoke-test,basic-load"},
                 {"topology":"3cn-1bn","tests":"smoke-test"},
                 {"topology":"fan-out-3cn-2bn","tests":"smoke-test"},
-                {"topology":"2cn-2bn-backfill","tests":"full-history-backfill"}
+                {"topology":"2cn-2bn-backfill","tests":"full-history-backfill"},
+                {"topology":"7cn-3bn-distributed","tests":"smoke-test"}
               ]'
               ;;
             *)
