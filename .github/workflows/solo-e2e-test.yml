@@ -773,15 +773,41 @@ jobs:
           echo "=== Collected BN logs ===" && ls -laR bn-logs/
           echo "=== Collected MN logs ===" && ls -laR mn-logs/
 
-      - name: Collect CN Logs
+      - name: Collect CN Logs (BN-focused)
         if: always()
         run: |
           # Get CN Logs (Solo 0.52+ uses 'deployment diagnostics' instead of 'consensus diagnostics')
           solo deployment diagnostics all --dev --deployment "${DEPLOYMENT}" || \
             echo "Failed to collect CN diagnostics (deployment may be unavailable)"
           LOG_FOLDER="${HOME}/.solo/logs"
-          echo "CN_LOG_FOLDER=$LOG_FOLDER" >> $GITHUB_ENV
-          ls -lR "$LOG_FOLDER"
+
+          # Create filtered CN logs directory - extract only BN-relevant files
+          # This reduces artifact size from GB to MB by excluding:
+          # - solo.log/solo.ndjson (1.5+ TB of Solo CLI operations)
+          # - Most CN zip contents (consensus internals, state logs)
+          mkdir -p cn-logs-filtered
+
+          # Extract only BN-relevant files from each CN diagnostic zip
+          for zip in "${LOG_FOLDER}/${NAMESPACE}"/*.zip; do
+            [[ -f "$zip" ]] || continue
+            node_name=$(basename "$zip" .zip)
+            mkdir -p "cn-logs-filtered/${node_name}"
+
+            # blocknode-comms.log - Block stream communication to BNs
+            unzip -j -o "$zip" "*/blocknode-comms.log" -d "cn-logs-filtered/${node_name}/" 2>/dev/null || true
+            # settingsUsed.txt - CN config including BN routing
+            unzip -j -o "$zip" "*/settingsUsed.txt" -d "cn-logs-filtered/${node_name}/" 2>/dev/null || true
+            # grpc-access.log - gRPC access logs (may include BN connections)
+            unzip -j -o "$zip" "*/grpc-access.log" -d "cn-logs-filtered/${node_name}/" 2>/dev/null || true
+          done
+
+          # Capture last 1000 lines of solo.log (recent activity only, not full history)
+          tail -1000 "${LOG_FOLDER}/solo.log" > "cn-logs-filtered/solo-tail.log" 2>/dev/null || true
+
+          echo "CN_LOG_FOLDER=cn-logs-filtered" >> $GITHUB_ENV
+
+          # Show what was collected
+          echo "=== Collected CN logs (BN-relevant only) ===" && ls -laR cn-logs-filtered/
 
       - name: Upload CN Logs
         if: always()
@@ -789,10 +815,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: cn-logs
-          path: |
-            ${{ env.CN_LOG_FOLDER }}/**/*.zip
-            ${{ env.CN_LOG_FOLDER }}/*.log
-            ${{ env.CN_LOG_FOLDER }}/*.ndjson
+          path: ${{ env.CN_LOG_FOLDER }}/
 
       - name: Upload BN Logs
         if: always()
