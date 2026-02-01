@@ -29,6 +29,14 @@ import org.hiero.block.node.base.Loggable;
  *     within PBJ's buffer allocation limit (4MB). The default of 1MB provides
  *     headroom for protobuf overhead. If a single item exceeds this limit but is
  *     under 4MB, it will be sent by itself.
+ * @param maxConcurrentSessions Maximum number of concurrent subscriber sessions allowed.
+ *     When this limit is reached, new connection attempts will be rejected with
+ *     NOT_AVAILABLE status. This protects against reconnect storms from
+ *     misbehaving clients. Set to 0 for unlimited (not recommended in production).
+ * @param sessionRateLimitPerSecond Maximum number of new sessions that can be created
+ *     per second. This rate limit helps prevent thundering herd problems when many
+ *     clients reconnect simultaneously. Excess requests are rejected with
+ *     NOT_AVAILABLE status. Set to 0 to disable rate limiting.
  */
 @ConfigData("subscriber")
 public record SubscriberConfig(
@@ -42,4 +50,10 @@ public record SubscriberConfig(
         int minimumLiveQueueCapacity,
 
         @Loggable @ConfigProperty(defaultValue = "1_048_576") @Min(100_000)
-        int maxChunkSizeBytes) {}
+        int maxChunkSizeBytes,
+
+        @Loggable @ConfigProperty(defaultValue = "50") @Min(0)
+        int maxConcurrentSessions,
+
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(0)
+        int sessionRateLimitPerSecond) {}
