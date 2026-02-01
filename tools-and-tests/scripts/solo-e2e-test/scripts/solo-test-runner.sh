@@ -162,14 +162,14 @@ function execute_load_start {
     local duration="${4:-300}"
     local extra_args="${5:-}"
 
-    echo "Starting NLG (async): class=$test_class concurrency=$concurrency accounts=$accounts duration=${duration}s"
+    # Construct NLG_ARGS from test definition parameters
+    local nlg_args="-c $concurrency -a $accounts -tt $duration"
+    [[ -n "$extra_args" ]] && nlg_args="$nlg_args $extra_args"
+
+    echo "Starting NLG (async): class=$test_class args='$nlg_args'"
 
     export DEPLOYMENT NAMESPACE
-    export NLG_TEST_CLASS="$test_class"
-    export NLG_CONCURRENCY="$concurrency"
-    export NLG_ACCOUNTS="$accounts"
-    export NLG_DURATION="$duration"
-    export NLG_EXTRA_ARGS="$extra_args"
+    export NLG_ARGS="$nlg_args"
 
     # Run in background so test can continue
     "${SCRIPT_DIR}/solo-load-generate.sh" start &
@@ -184,7 +184,7 @@ function execute_load_stop {
     local test_class="${1:-CryptoTransferLoadTest}"
     echo "Stopping NLG: class=$test_class"
 
-    export DEPLOYMENT NAMESPACE NLG_TEST_CLASS="$test_class"
+    export DEPLOYMENT NAMESPACE
     "${SCRIPT_DIR}/solo-load-generate.sh" stop
 }
 

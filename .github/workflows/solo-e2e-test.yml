@@ -14,11 +14,11 @@ on:
         type: string
         default: "latest"
       consensus-node-version:
-        description: "Consensus Node version ('latest', 'rc', 'main', or tag like 'v0.68.6')"
+        description: "Consensus Node version ('latest', 'rc', or tag like 'v0.68.6')"
         type: string
         default: "latest"
       mirror-node-version:
-        description: "Mirror Node version ('latest', 'rc', 'main', or tag like 'v0.146.0')"
+        description: "Mirror Node version ('latest', 'rc', or tag like 'v0.146.0')"
         type: string
         default: "latest"
       solo-version:
@@ -29,28 +29,20 @@ on:
         description: "Run TCK regression test"
         type: boolean
         default: false
-      nlg-test-class:
-        description: "NLG test class"
+      nlg-enabled:
+        description: "Enable NLG load generation"
+        type: boolean
+        default: false
+      nlg-test-type:
+        description: "NLG test class: CryptoTransferLoadTest, HCSLoadTest, TokenTransferLoadTest, NftTransferLoadTest"
         type: string
         default: "CryptoTransferLoadTest"
-      nlg-concurrency:
-        description: "NLG -c (concurrency threads)"
+      nlg-args:
+        description: "NLG args: -c <clients> -a <accounts> -tt <duration>, e.g., '-c 5 -a 10 -tt 300'"
         type: string
-        default: "5"
-      nlg-accounts:
-        description: "NLG -a (number of accounts)"
-        type: string
-        default: "10"
-      nlg-duration:
-        description: "NLG -t (seconds, 0 to skip load gen)"
-        type: string
-        default: "300"
-      nlg-extra-args:
-        description: "NLG extra args (e.g., '-T 5 -K ED25519')"
-        type: string
-        default: ""
+        default: "-c 5 -a 10 -tt 300"
       nlg-max-tps:
-        description: "NLG --max-tps (max transactions per second, optional)"
+        description: "NLG rate limit (optional, uses RateLimitedQueue)"
         type: string
         default: ""
       mirror-node-pinger-tps:
@@ -58,7 +50,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions to run (comma-separated, e.g., 'smoke-test,basic-load')"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill"
         type: string
         default: "none"
     outputs:
@@ -106,7 +98,12 @@ on:
         required: false
         default: false
         type: boolean
-      nlg-test-class:
+      nlg-enabled:
+        description: "Enable NLG load generation"
+        required: false
+        default: false
+        type: boolean
+      nlg-test-type:
         description: "NLG test class"
         required: false
         default: "CryptoTransferLoadTest"
@@ -115,24 +112,13 @@ on:
           - CryptoTransferLoadTest
           - HCSLoadTest
           - TokenTransferLoadTest
-      nlg-concurrency:
-        description: "NLG -c (concurrency threads)"
+          - NftTransferLoadTest
+      nlg-args:
+        description: "NLG args: -c <clients> -a <accounts> -tt <duration>, e.g., '-c 5 -a 10 -tt 300'"
         required: false
-        default: "5"
-      nlg-accounts:
-        description: "NLG -a (number of accounts)"
-        required: false
-        default: "10"
-      nlg-duration:
-        description: "NLG -t (seconds, 0 to skip load gen)"
-        required: false
-        default: "300"
-      nlg-extra-args:
-        description: "NLG extra args (e.g., '-T 5 -K ED25519')"
-        required: false
-        default: ""
+        default: "-c 5 -a 10 -tt 300"
       nlg-max-tps:
-        description: "NLG --max-tps (max transactions per second, optional)"
+        description: "NLG rate limit (optional, uses RateLimitedQueue)"
         required: false
         default: ""
       mirror-node-pinger-tps:
@@ -140,7 +126,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated: smoke-test,basic-load,node-restart-resilience)"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill"
         required: false
         default: "none"
 
@@ -183,6 +169,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+
+      # Capture workflow start time for duration summary
+      - name: Capture Start Time
+        id: timing
+        run: |
+          echo "workflow_start=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -328,46 +320,17 @@ jobs:
 
       # Port forwards - dynamically discover and forward all nodes
       - name: Solo Port forwards
+        id: deploy_end
         run: |
           ${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/scripts/solo-port-forward.sh \
             --namespace "${NAMESPACE}"
-
-      # ---- Load Generation with NLG (Optional) skip if duration = 0 ----
-
-      # Start load generation
-      - name: Start NLG Load Generation
-        if: ${{ inputs.nlg-duration != '0' }}
-        continue-on-error: true
-        env:
-          NLG_TEST_CLASS: ${{ inputs.nlg-test-class }}
-          NLG_CONCURRENCY: ${{ inputs.nlg-concurrency }}
-          NLG_ACCOUNTS: ${{ inputs.nlg-accounts }}
-          NLG_DURATION: ${{ inputs.nlg-duration }}
-          NLG_EXTRA_ARGS: ${{ inputs.nlg-extra-args }}
-          NLG_MAX_TPS: ${{ inputs.nlg-max-tps }}
-        run: |
-          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh start
-
-          # Add to step summary
-          {
-            echo "### Load Generation"
-            echo ""
-            echo "| Setting | Value |"
-            echo "|---------|-------|"
-            echo "| Test Class | \`${{ inputs.nlg-test-class }}\` |"
-            echo "| Concurrency | ${{ inputs.nlg-concurrency }} |"
-            echo "| Accounts | ${{ inputs.nlg-accounts }} |"
-            echo "| Duration | ${{ inputs.nlg-duration }}s |"
-            echo "| Extra Args | \`${{ inputs.nlg-extra-args }}\` |"
-            echo "| Max TPS | ${{ inputs.nlg-max-tps || 'unlimited' }} |"
-            echo ""
-          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "deploy_end=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       # ---- Test Definition Runner (optional) ----
       # Run a test definition file if specified. This provides a structured
       # way to define timed events and assertions for E2E testing.
 
-      # Validate all test definitions against topology before running
+      # Validate all test definitions against topology before running (fail fast)
       - name: Validate Test Definitions
         if: ${{ inputs.test-definition != 'none' && inputs.test-definition != '' }}
         run: |
@@ -389,8 +352,37 @@ jobs:
           done
           echo "All tests validated successfully"
 
+      # ---- Load Generation with NLG (Optional) ----
+      # NLG is synchronous - runs for the specified duration then completes
+
+      - name: Run Rapid-Fire (NLG) Load Test
+        if: ${{ inputs.nlg-enabled }}
+        env:
+          NLG_TEST_TYPE: ${{ inputs.nlg-test-type }}
+          NLG_ARGS: ${{ inputs.nlg-args }}
+          NLG_MAX_TPS: ${{ inputs.nlg-max-tps }}
+        run: |
+          # Add to step summary
+          {
+            echo "### Load Generation"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---------|-------|"
+            echo "| Test Type | \`${{ inputs.nlg-test-type }}\` |"
+            echo "| NLG Args | \`${{ inputs.nlg-args }}\` |"
+            echo "| Max TPS | ${{ inputs.nlg-max-tps || 'unlimited' }} |"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          # Run load test (synchronous - runs for duration specified in args)
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh start
+
+          # Cleanup
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh stop || true
+
       # Run each test definition sequentially on the same deployment
       - name: Run Test Definitions
+        id: tests_end
         if: ${{ inputs.test-definition != 'none' && inputs.test-definition != '' }}
         run: |
           TESTS_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests"
@@ -431,9 +423,13 @@ jobs:
           echo "Waiting 15s for streaming connections to settle..."
           sleep 15
 
+          # Capture tests end time
+          echo "tests_end=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       # ---- BN verification with grpcurl ----
-      # Verify the BN is getting blocks
+      # Skip grpcurl validation when test definitions ran (they include assertions)
       - name: Get ServerStatus from Block Node
+        if: ${{ inputs.test-definition == 'none' || inputs.test-definition == '' }}
         run: |
           # Call serverStatus once
           STATUS_JSON=$(grpcurl \
@@ -467,6 +463,7 @@ jobs:
           echo "LAST_AVAILABLE_BLOCK=$LAST_AVAILABLE_BLOCK" >> $GITHUB_ENV
 
       - name: Get first block from Block Node
+        if: ${{ inputs.test-definition == 'none' || inputs.test-definition == '' }}
         continue-on-error: true # Proto version mismatch (BN 0.69 vs CN 0.70) causes parsing failures
         run: |
           # Retry logic for transient gRPC errors (e.g., flow control under load)
@@ -500,6 +497,7 @@ jobs:
           exit 1
 
       - name: Get last block from Block Node
+        if: ${{ inputs.test-definition == 'none' || inputs.test-definition == '' }}
         continue-on-error: true # Proto version mismatch (BN 0.69 vs CN 0.70) causes parsing failures
         run: |
           # Retry logic for transient gRPC errors (e.g., flow control under load)
@@ -532,7 +530,9 @@ jobs:
           echo "Error: Failed to get last block after $MAX_RETRIES attempts"
           exit 1
 
+      # Skip MN validation when tests ran or topology has no Mirror Node (minimal)
       - name: Validate first block on Mirror Node
+        if: ${{ (inputs.test-definition == 'none' || inputs.test-definition == '') && !contains(inputs.topology, 'minimal') }}
         run: |
           # Fetch the block number from Mirror Node
           FIRST_BLOCK_MIRROR=$(curl -s "http://127.0.0.1:5551/api/v1/blocks/$FIRST_AVAILABLE_BLOCK" | jq -r '.number')
@@ -555,6 +555,7 @@ jobs:
           echo "Mirror Node first block matches Block Node first block"
 
       - name: Validate last block on Mirror Node
+        if: ${{ (inputs.test-definition == 'none' || inputs.test-definition == '') && !contains(inputs.topology, 'minimal') }}
         run: |
           # Fetch the block number from Mirror Node
           LAST_BLOCK_MIRROR=$(curl -s "http://127.0.0.1:5551/api/v1/blocks/$LAST_AVAILABLE_BLOCK" | jq -r '.number')
@@ -606,6 +607,55 @@ jobs:
             echo "" >> "${GITHUB_STEP_SUMMARY}"
             PORT=$((PORT + 1))
           done
+
+      # Test Duration Summary - shows timing breakdown
+      - name: Test Duration Summary
+        if: always()
+        run: |
+          END_TIME=$(date +%s)
+          START_TIME="${{ steps.timing.outputs.workflow_start }}"
+          DEPLOY_END="${{ steps.deploy_end.outputs.deploy_end }}"
+          TESTS_END="${{ steps.tests_end.outputs.tests_end }}"
+
+          # Calculate durations (with fallbacks for missing timestamps)
+          SETUP_DURATION=0
+          DEPLOY_DURATION=0
+          TEST_DURATION=0
+
+          if [[ -n "$START_TIME" && -n "$DEPLOY_END" ]]; then
+            SETUP_DURATION=$((DEPLOY_END - START_TIME))
+          fi
+
+          if [[ -n "$TESTS_END" && -n "$DEPLOY_END" ]]; then
+            TEST_DURATION=$((TESTS_END - DEPLOY_END))
+          fi
+
+          if [[ -n "$START_TIME" ]]; then
+            TOTAL_DURATION=$((END_TIME - START_TIME))
+          else
+            TOTAL_DURATION=0
+          fi
+
+          # Format as minutes:seconds
+          format_duration() {
+            local seconds=$1
+            local minutes=$((seconds / 60))
+            local secs=$((seconds % 60))
+            printf "%dm %02ds" "$minutes" "$secs"
+          }
+
+          {
+            echo "### Test Duration"
+            echo ""
+            echo "| Phase | Duration |"
+            echo "|-------|----------|"
+            echo "| Setup & Deploy | $(format_duration $SETUP_DURATION) |"
+            if [[ -n "$TESTS_END" ]]; then
+              echo "| Tests | $(format_duration $TEST_DURATION) |"
+            fi
+            echo "| **Total** | **$(format_duration $TOTAL_DURATION)** |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # TCK Regression Tests related steps (matches consensus-node approach)
       - name: Setup PNPM
@@ -677,15 +727,6 @@ jobs:
           path: "**/sdk-tck/regression/mochawesome-report/mochawesome.*"
           retention-days: 7
 
-      # Stop load generator if it was started
-      - name: Stop NLG Load Generation
-        if: ${{ always() && inputs.nlg-duration != '0' }}
-        continue-on-error: true
-        env:
-          NLG_TEST_CLASS: ${{ inputs.nlg-test-class }}
-        run: |
-          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh stop || true
-
       - name: Collect BN and MN Logs
         if: always()
         run: |
@@ -741,10 +782,6 @@ jobs:
           LOG_FOLDER="${HOME}/.solo/logs"
           echo "CN_LOG_FOLDER=$LOG_FOLDER" >> $GITHUB_ENV
           ls -lR "$LOG_FOLDER"
-
-      - name: List CN logs
-        if: always()
-        run: ls -lR "${{ env.CN_LOG_FOLDER }}"
 
       - name: Upload CN Logs
         if: always()

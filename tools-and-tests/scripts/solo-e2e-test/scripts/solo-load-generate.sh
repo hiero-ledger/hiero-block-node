@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 #
-# Solo E2E Test - NLG Load Generation Script (Simplified)
+# Solo E2E Test - NLG Load Generation Script
 #
 # Usage: solo-load-generate.sh [start|stop]
 #
 # Environment variables:
 #   DEPLOYMENT       Solo deployment name (required)
 #   NAMESPACE        Kubernetes namespace (default: solo-network)
-#   NLG_TEST_CLASS   NLG test class (default: CryptoTransferLoadTest)
-#   NLG_CONCURRENCY  -c parameter (default: 5)
-#   NLG_ACCOUNTS     -a parameter (default: 10)
-#   NLG_DURATION     -tt parameter in seconds (default: 300)
-#   NLG_MAX_TPS      --max-tps parameter (optional, no default)
-#   NLG_EXTRA_ARGS   Extra args for test class (e.g., "-T 5 -K ED25519")
+#   NLG_TEST_TYPE    Test class (default: CryptoTransferLoadTest)
+#                    Options: CryptoTransferLoadTest, HCSLoadTest, TokenTransferLoadTest, NftTransferLoadTest
+#   NLG_ARGS         NLG arguments string (e.g., "-c 5 -a 10 -tt 300")
+#   NLG_MAX_TPS      --max-tps parameter (optional)
 #
 # Examples:
 #   DEPLOYMENT=my-deploy ./solo-load-generate.sh start
-#   DEPLOYMENT=my-deploy NLG_DURATION=60 ./solo-load-generate.sh start
+#   DEPLOYMENT=my-deploy NLG_TEST_TYPE=HCSLoadTest NLG_ARGS="-c 10 -a 20 -tt 60" ./solo-load-generate.sh start
 #   DEPLOYMENT=my-deploy ./solo-load-generate.sh stop
 
 set -euo pipefail
@@ -30,13 +28,8 @@ DEPLOYMENT="${DEPLOYMENT:?DEPLOYMENT environment variable is required}"
 
 # Defaults
 NAMESPACE="${NAMESPACE:-solo-network}"
-TEST_CLASS="${NLG_TEST_CLASS:-CryptoTransferLoadTest}"
-
-# Direct NLG parameters (no TPS abstraction)
-CONCURRENCY="${NLG_CONCURRENCY:-5}"
-ACCOUNTS="${NLG_ACCOUNTS:-10}"
-DURATION="${NLG_DURATION:-300}"
-EXTRA_ARGS="${NLG_EXTRA_ARGS:-}"
+TEST_CLASS="${NLG_TEST_TYPE:-CryptoTransferLoadTest}"
+NLG_ARGS="${NLG_ARGS:--c 5 -a 10 -tt 300}"
 MAX_TPS="${NLG_MAX_TPS:-}"
 
 # Temporary directory for generated files
@@ -150,19 +143,11 @@ if [[ "$ACTION" != "start" ]]; then
     exit 1
 fi
 
-# Build args string
-ARGS="-c $CONCURRENCY -a $ACCOUNTS -tt $DURATION"
-[[ -n "$EXTRA_ARGS" ]] && ARGS="$ARGS $EXTRA_ARGS"
-
 echo "Starting NLG load generation..."
 echo "  Deployment:  $DEPLOYMENT"
 echo "  Test class:  $TEST_CLASS"
-echo "  Concurrency: $CONCURRENCY"
-echo "  Accounts:    $ACCOUNTS"
-echo "  Duration:    ${DURATION}s"
+echo "  NLG args:    $NLG_ARGS"
 [[ -n "$MAX_TPS" ]] && echo "  Max TPS:     $MAX_TPS"
-[[ -n "$EXTRA_ARGS" ]] && echo "  Extra args:  $EXTRA_ARGS"
-echo "  Full args:   $ARGS"
 
 # Generate values file with CN network properties
 VALUES_FILE=$(generate_nlg_values)
@@ -172,7 +157,7 @@ SOLO_CMD=(
     solo rapid-fire load start
     --deployment "$DEPLOYMENT"
     --test "$TEST_CLASS"
-    --args "\"$ARGS\""
+    --args "\"$NLG_ARGS\""
 )
 
 # Add --max-tps if specified

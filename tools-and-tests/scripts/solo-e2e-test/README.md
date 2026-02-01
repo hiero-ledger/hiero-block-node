@@ -112,10 +112,9 @@ task logs:bn               # Stream Block Node logs (NODE=n for specific node)
 ### Load Generation
 
 ```bash
-task load:up               # Start NLG with defaults (5 concurrency, 10 accounts, 300s)
-task load:up NLG_CONCURRENCY=10 NLG_ACCOUNTS=20 NLG_DURATION=600  # Custom settings
-task load:up NLG_TEST_CLASS=HCSLoadTest  # Use different test class
-task load:down             # Stop load generation
+task load:up                              # Run NLG with defaults (-c 5 -a 10 -tt 300)
+task load:up NLG_ARGS="-c 10 -a 20 -tt 600"  # Custom settings
+task load:down                            # Stop/cleanup load generation
 ```
 
 ### Utilities
@@ -186,21 +185,18 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-|     Variable      |         Default          |               Description                |
-|-------------------|--------------------------|------------------------------------------|
-| `TOPOLOGY`        | `single`                 | Network topology to deploy               |
-| `CLUSTER_NAME`    | `solo-cluster`           | Kind cluster name                        |
-| `NAMESPACE`       | `solo-network`           | Kubernetes namespace                     |
-| `DEPLOYMENT`      | `deployment-solo`        | Solo deployment name                     |
-| `CN_VERSION`      | `latest`                 | Consensus Node version                   |
-| `MN_VERSION`      | `latest`                 | Mirror Node version                      |
-| `BN_VERSION`      | `latest`                 | Block Node version                       |
-| `NLG_TEST_CLASS`  | `CryptoTransferLoadTest` | NLG test class                           |
-| `NLG_CONCURRENCY` | `5`                      | NLG -c: concurrent threads               |
-| `NLG_ACCOUNTS`    | `10`                     | NLG -a: number of accounts               |
-| `NLG_DURATION`    | `300`                    | NLG -t: duration in seconds              |
-| `NLG_EXTRA_ARGS`  | (empty)                  | Extra NLG arguments                      |
-| `TEST_FILE`       | `none`                   | Test definition file for `task test:run` |
+|    Variable    |       Default        |                        Description                        |
+|----------------|----------------------|-----------------------------------------------------------|
+| `TOPOLOGY`     | `single`             | Network topology to deploy                                |
+| `CLUSTER_NAME` | `solo-cluster`       | Kind cluster name                                         |
+| `NAMESPACE`    | `solo-network`       | Kubernetes namespace                                      |
+| `DEPLOYMENT`   | `deployment-solo`    | Solo deployment name                                      |
+| `CN_VERSION`   | `latest`             | Consensus Node version                                    |
+| `MN_VERSION`   | `latest`             | Mirror Node version                                       |
+| `BN_VERSION`   | `latest`             | Block Node version                                        |
+| `NLG_ARGS`     | `-c 5 -a 10 -tt 300` | NLG arguments (-c concurrency, -a accounts, -tt duration) |
+| `NLG_MAX_TPS`  | (empty)              | Optional max transactions per second                      |
+| `TEST_FILE`    | `none`               | Test definition file for `task test:run`                  |
 
 ### Version Keywords
 
@@ -217,7 +213,7 @@ Variables can be overridden on the command line for one-off runs. Command-line v
 
 ```bash
 task up TOPOLOGY=paired-3 BN_VERSION=v0.24.0
-task load:up NLG_CONCURRENCY=10 NLG_ACCOUNTS=20 NLG_DURATION=600
+task load:up NLG_ARGS="-c 10 -a 20 -tt 600"
 ```
 
 ## Load Generation
@@ -229,7 +225,7 @@ Both the CI workflow and local Taskfile support configurable transaction load ge
 ```bash
 # Deploy first, then start load separately
 task up
-task load:up NLG_CONCURRENCY=10 NLG_ACCOUNTS=20 NLG_DURATION=600
+task load:up NLG_ARGS="-c 10 -a 20 -tt 600"
 
 # Stop load generation
 task load:down
@@ -237,16 +233,26 @@ task load:down
 
 ### CI Workflow Inputs
 
-|       Input       |         Default          |                                   Description                                    |
-|-------------------|--------------------------|----------------------------------------------------------------------------------|
-| `nlg-test-class`  | `CryptoTransferLoadTest` | NLG test class to run                                                            |
-| `nlg-concurrency` | `5`                      | NLG -c: concurrent threads                                                       |
-| `nlg-accounts`    | `10`                     | NLG -a: number of test accounts                                                  |
-| `nlg-duration`    | `300`                    | NLG -t: duration in seconds (0 to skip load)                                     |
-| `nlg-extra-args`  | (empty)                  | Extra NLG arguments (e.g., `-T 5 -K ED25519`)                                    |
-| `test-definition` | `none`                   | Test definition dropdown (none, smoke-test, basic-load, node-restart-resilience) |
+|       Input       |         Default          |                                       Description                                        |
+|-------------------|--------------------------|------------------------------------------------------------------------------------------|
+| `nlg-enabled`     | `false`                  | Enable NLG load generation                                                               |
+| `nlg-test-type`   | `CryptoTransferLoadTest` | Test class (dropdown in UI)                                                              |
+| `nlg-args`        | `-c 5 -a 10 -tt 300`     | NLG args: `-c <clients>` `-a <accounts>` `-tt <duration>`                                |
+| `nlg-max-tps`     | (empty)                  | Rate limit TPS (optional, uses RateLimitedQueue)                                         |
+| `test-definition` | `none`                   | Test definitions: smoke-test, basic-load, node-restart-resilience, full-history-backfill |
 
-> **Note:** NLG doesn't have direct TPS control. Concurrency and accounts determine actual throughput, which depends on network capacity and test class.
+### NLG Parameters Reference
+
+| Parameter  |                         Description                          |        Used By        |
+|------------|--------------------------------------------------------------|-----------------------|
+| `-c <num>` | Concurrent clients/threads                                   | All tests             |
+| `-a <num>` | Number of test accounts to create                            | All tests             |
+| `-t/-tt`   | Duration: seconds (300), minutes (5m), or hours (1h)         | All tests             |
+| `-n <num>` | Topics (HCSLoadTest) or NFTs per token (NftTransferLoadTest) | HCS, NFT tests        |
+| `-T <num>` | Number of tokens to create                                   | NFT, Token tests      |
+| `-A <num>` | Associations per account                                     | TokenTransferLoadTest |
+
+> **Note:** NLG doesn't have direct TPS control. Use `nlg-max-tps` to rate limit, otherwise concurrency and accounts determine actual throughput.
 
 ### Available Test Classes
 
@@ -254,7 +260,8 @@ task load:down
 |--------------------------|----------------------------------------------|
 | `CryptoTransferLoadTest` | HBAR transfers between accounts (default)    |
 | `HCSLoadTest`            | Hedera Consensus Service message submissions |
-| `TokenTransferLoadTest`  | HTS token transfers                          |
+| `TokenTransferLoadTest`  | HTS fungible token transfers                 |
+| `NftTransferLoadTest`    | NFT minting and transfers                    |
 
 ### Example: Running High Load Test
 
@@ -450,32 +457,32 @@ assertions:                      # Validations to run after all events
 
 ### Event Types
 
-|          Type              |           Description            |                        Arguments                         |
-|----------------------------|----------------------------------|----------------------------------------------------------|
-| `command`                  | Run arbitrary script             | `script`                                                 |
-| `node-down`                | Scale node to 0 replicas         | `target`                                                 |
-| `node-up`                  | Scale node to 1 replica          | `target`                                                 |
-| `scale-down`               | Scale down (alias for node-down) | `target`                                                 |
-| `scale-up`                 | Scale up (alias for node-up)     | `target`                                                 |
-| `restart`                  | Rollout restart node             | `target`                                                 |
-| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`      |
-| `load-stop`                | Stop NLG load                    | `test_class`                                             |
-| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                            |
-| `network-status`           | Print network status             | (none)                                                   |
-| `sleep`                    | Pause execution                  | `seconds`                                                |
-| `port-forward`             | Refresh port forwards            | (none)                                                   |
-| `clear-block-storage`      | Clear all block data on node     | `target`                                                 |
-| `deploy-block-node`        | Deploy new block node            | `name`, `backfill_sources`, `greedy`, `chart_version`    |
-| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                          |
+|            Type            |           Description            |                       Arguments                       |
+|----------------------------|----------------------------------|-------------------------------------------------------|
+| `command`                  | Run arbitrary script             | `script`                                              |
+| `node-down`                | Scale node to 0 replicas         | `target`                                              |
+| `node-up`                  | Scale node to 1 replica          | `target`                                              |
+| `scale-down`               | Scale down (alias for node-down) | `target`                                              |
+| `scale-up`                 | Scale up (alias for node-up)     | `target`                                              |
+| `restart`                  | Rollout restart node             | `target`                                              |
+| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`   |
+| `load-stop`                | Stop NLG load                    | `test_class`                                          |
+| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                         |
+| `network-status`           | Print network status             | (none)                                                |
+| `sleep`                    | Pause execution                  | `seconds`                                             |
+| `port-forward`             | Refresh port forwards            | (none)                                                |
+| `clear-block-storage`      | Clear all block data on node     | `target`                                              |
+| `deploy-block-node`        | Deploy new block node            | `name`, `backfill_sources`, `greedy`, `chart_version` |
+| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                       |
 
 ### Assertion Types
 
-|        Type         |             Description             |              Arguments               |
-|---------------------|-------------------------------------|--------------------------------------|
-| `block-available`   | Verify BN has blocks in range       | `min_block`, `max_block_gte`         |
-| `node-healthy`      | Verify pod is Running               | `target`                             |
-| `no-errors`         | Verify no verification errors       | `target`                             |
-| `blocks-increasing` | Verify blocks are actively flowing  | `wait_seconds`, `max_attempts`       |
+|        Type         |            Description             |           Arguments            |
+|---------------------|------------------------------------|--------------------------------|
+| `block-available`   | Verify BN has blocks in range      | `min_block`, `max_block_gte`   |
+| `node-healthy`      | Verify pod is Running              | `target`                       |
+| `no-errors`         | Verify no verification errors      | `target`                       |
+| `blocks-increasing` | Verify blocks are actively flowing | `wait_seconds`, `max_attempts` |
 
 **Note:** The `blocks-increasing` assertion is useful for verifying that a Block Node is actively receiving and processing new blocks. It takes a baseline measurement, waits `wait_seconds` (default: 60), and verifies the block count has increased. It retries up to `max_attempts` (default: 3) times to handle transient failures.
 

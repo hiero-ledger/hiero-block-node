@@ -51,12 +51,9 @@ vars:
   MN_VERSION: '{{.MN_VERSION | default "latest"}}'
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
 
-  # NLG load generation parameters (direct, no TPS abstraction)
-  NLG_TEST_CLASS: '{{.NLG_TEST_CLASS | default "CryptoTransferLoadTest"}}'
-  NLG_CONCURRENCY: '{{.NLG_CONCURRENCY | default "5"}}'
-  NLG_ACCOUNTS: '{{.NLG_ACCOUNTS | default "10"}}'
-  NLG_DURATION: '{{.NLG_DURATION | default "300"}}'
-  NLG_EXTRA_ARGS: '{{.NLG_EXTRA_ARGS | default ""}}'
+  # NLG load generation parameters
+  NLG_TEST_TYPE: '{{.NLG_TEST_TYPE | default "CryptoTransferLoadTest"}}'
+  NLG_ARGS: '{{.NLG_ARGS | default "-c 5 -a 10 -tt 300"}}'
   NLG_MAX_TPS: '{{.NLG_MAX_TPS | default ""}}'
 
   # Metrics/Observability
@@ -298,25 +295,22 @@ tasks:
   # Load Generation
   # ============================================================================
   load:up:
-    desc: "Start NLG (NLG_CONCURRENCY, NLG_ACCOUNTS, NLG_DURATION, NLG_EXTRA_ARGS)"
+    desc: "Run NLG load test (NLG_TEST_TYPE, NLG_ARGS, NLG_MAX_TPS)"
     env:
       DEPLOYMENT: "{{.DEPLOYMENT}}"
       NAMESPACE: "{{.NAMESPACE}}"
-      NLG_TEST_CLASS: "{{.NLG_TEST_CLASS}}"
-      NLG_CONCURRENCY: "{{.NLG_CONCURRENCY}}"
-      NLG_ACCOUNTS: "{{.NLG_ACCOUNTS}}"
-      NLG_DURATION: "{{.NLG_DURATION}}"
-      NLG_EXTRA_ARGS: "{{.NLG_EXTRA_ARGS}}"
+      NLG_TEST_TYPE: "{{.NLG_TEST_TYPE}}"
+      NLG_ARGS: "{{.NLG_ARGS}}"
       NLG_MAX_TPS: "{{.NLG_MAX_TPS}}"
     cmds:
       - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" start'
+      - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" stop'
 
   load:down:
-    desc: Stop NLG load generation
+    desc: Stop/cleanup NLG load generation
     env:
       DEPLOYMENT: "{{.DEPLOYMENT}}"
       NAMESPACE: "{{.NAMESPACE}}"
-      NLG_TEST_CLASS: "{{.NLG_TEST_CLASS}}"
     cmds:
       - '"{{.SCRIPTS_DIR}}/solo-load-generate.sh" stop'
 
