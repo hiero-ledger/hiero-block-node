@@ -144,6 +144,7 @@ for BN in ${BLOCK_NODES}; do
 
   # Check if grpcurl is available
   if command -v grpcurl >/dev/null 2>&1; then
+    # shellcheck disable=SC2086  # Intentional word splitting for grpcurl arguments
     STATUS_JSON=$(grpcurl ${GRPCURL_ARGS} \
       -d '{}' \
       "localhost:${PORT}" \

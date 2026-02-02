@@ -355,7 +355,6 @@ function generate_bn_priority_mappings {
       bn_list=$(yq -r ".consensus_nodes[\"${cn_name}\"].block_nodes[]" "${TOPOLOGY_FILE}" 2>/dev/null)
 
       local priority=1
-      local found=false
       while IFS= read -r bn_ref; do
         [[ -z "${bn_ref}" ]] && continue
 
@@ -363,7 +362,6 @@ function generate_bn_priority_mappings {
           # This CN routes to this BN with this priority
           [[ -n "${mapping_entries}" ]] && mapping_entries="${mapping_entries},"
           mapping_entries="${mapping_entries}${cn_name}=${priority}"
-          found=true
           break
         fi
         priority=$((priority + 1))

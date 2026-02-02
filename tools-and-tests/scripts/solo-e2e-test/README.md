@@ -6,7 +6,7 @@ Deploy Hiero networks locally for development and testing using [Solo CLI](https
 
 The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks for end-to-end testing. This directory is **self-contained** with all scripts and topologies needed for both local development and CI.
 
-```
+```text
 +---------------------------------------------------------------------+
 |                     solo-e2e-test/                                  |
 |  (Self-contained test environment)                                  |
@@ -18,7 +18,7 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks f
 |  |   +-- solo-load-generate.sh  (NLG load generation)               |
 |  |   +-- solo-port-forward.sh   (kubectl port forwards)             |
 |  |   +-- solo-network-status.sh (network health summary)            |
-|  |   +-- solo-metrics-summary.sh(block node metrics)                |
+|  |   +-- solo-metrics-summary.sh(Block Node metrics)                |
 |  |   +-- solo-test-runner.sh    (YAML test framework runner)        |
 |  |                                                                  |
 |  +-- topologies/                                                    |
@@ -310,7 +310,7 @@ CNs not listing a BN will not stream to that BN.
 ### How It Works
 
 The deploy script generates BN-centric priority mappings from the topology using `--priority-mapping`
-on `block node add`. This specifies which CNs should route to each BN with their priorities.
+on `Block Node add`. This specifies which CNs should route to each BN with their priorities.
 
 Example for BN-1: `node1=1,node2=2,node3=1` means node1 and node3 have priority 1 (primary),
 and node2 has priority 2 (fallback).
@@ -472,7 +472,7 @@ assertions:                      # Validations to run after all events
 | `sleep`                    | Pause execution                  | `seconds`                                             |
 | `port-forward`             | Refresh port forwards            | (none)                                                |
 | `clear-block-storage`      | Clear all block data on node     | `target`                                              |
-| `deploy-block-node`        | Deploy new block node            | `name`, `backfill_sources`, `greedy`, `chart_version` |
+| `deploy-block-node`        | Deploy new Block Node            | `name`, `backfill_sources`, `greedy`, `chart_version` |
 | `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                       |
 
 ### Assertion Types
@@ -484,7 +484,7 @@ assertions:                      # Validations to run after all events
 | `no-errors`         | Verify no verification errors      | `target`                       |
 | `blocks-increasing` | Verify blocks are actively flowing | `wait_seconds`, `max_attempts` |
 
-**Note:** The `blocks-increasing` assertion is useful for verifying that a Block Node is actively receiving and processing new blocks. It takes a baseline measurement, waits `wait_seconds` (default: 60), and verifies the block count has increased. It retries up to `max_attempts` (default: 3) times to handle transient failures.
+**Note:** The `blocks-increasing` assertion verifies a Block Node is actively receiving blocks. It measures baseline, waits `wait_seconds` (default: 60), verifies increase, retrying up to `max_attempts` (default: 3) times.
 
 ### CI Integration
 

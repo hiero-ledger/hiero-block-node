@@ -599,6 +599,7 @@ function assert_block_available_single {
     local import_args="-import-path ${PROTO_PATH}"
 
     local status_json
+    # shellcheck disable=SC2086  # Intentional word splitting for import path argument
     status_json=$(grpcurl -plaintext -emit-defaults \
         ${import_args} \
         -proto block-node/api/node_service.proto \
@@ -814,7 +815,7 @@ function assert_blocks_increasing_single {
 
         # Get current block count (retry up to 3 times if needed)
         current_block=""
-        for retry in 1 2 3; do
+        for _ in 1 2 3; do
             current_block=$(get_block_count "$target")
             if [[ -n "$current_block" ]]; then
                 break
@@ -823,7 +824,6 @@ function assert_blocks_increasing_single {
         done
 
         if [[ -z "$current_block" ]]; then
-            last_error="${target}: Could not get block count on attempt $attempt"
             attempt=$((attempt + 1))
             continue
         fi
@@ -835,7 +835,6 @@ function assert_blocks_increasing_single {
             return 0
         fi
 
-        last_error="${target}: $baseline_block -> $current_block (no increase after ${wait_seconds}s, attempt $attempt/$max_attempts)"
         attempt=$((attempt + 1))
     done
 

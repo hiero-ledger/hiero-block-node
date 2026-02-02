@@ -137,7 +137,7 @@ blockNode:
 
 ### Mirror Node Overlay
 
-Generated for all mirror nodes with their configured block node connections:
+Generated for all Mirror Nodes with their configured Block Node connections:
 
 ```yaml
 config:
