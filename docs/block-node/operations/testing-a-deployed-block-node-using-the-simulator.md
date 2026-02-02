@@ -50,7 +50,7 @@ Before you begin, ensure you have:
          - GENERATOR_END_BLOCK_NUMBER=100
    ```
 
-- Replace `host.docker.internal` with the actual service IP or hostname for your Block Node.
+- Replace `<BLOCK_NODE_HOST>` with the actual service IP or hostname for your Block Node.
 - Replace `40840` with the gRPC port exposed by your Block Node service.
 - Replace `<BLOCK_NODE_VERSION_TAG>` with the Block Node version you are testing (for example, `0.27.0`). Always use a simulator image tag that matches your Block Node version. See the [package registry](https://github.com/hiero-ledger/hiero-block-node/pkgs/container/hiero-block-node%2Fsimulator-image) for available tags.
 
