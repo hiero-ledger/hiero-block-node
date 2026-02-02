@@ -43,7 +43,7 @@ public record BinaryObjectCsvRow(long id, long refCount, byte[] hash, int fileId
             byte[] hash = digest.digest(fileContents);
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+            throw new IllegalStateException("SHA-384 algorithm not available", e);
         }
     }
 
@@ -74,8 +74,8 @@ public record BinaryObjectCsvRow(long id, long refCount, byte[] hash, int fileId
         try (BufferedReader reader = newReaderForPath(csvPath)) {
             return parseLineToRow(reader.lines())
                     .collect(Collectors.toMap(BinaryObjectCsvRow::hexHash, Function.identity()));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load binary objects from CSV", e);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to load binary objects from CSV", e);
         }
     }
 
@@ -88,8 +88,8 @@ public record BinaryObjectCsvRow(long id, long refCount, byte[] hash, int fileId
     public static List<BinaryObjectCsvRow> loadBinaryObjects(Path csvPath) {
         try (BufferedReader reader = newReaderForPath(csvPath)) {
             return parseLineToRow(reader.lines()).toList();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load binary objects from CSV", e);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to load binary objects from CSV", e);
         }
     }
 
@@ -142,7 +142,7 @@ public record BinaryObjectCsvRow(long id, long refCount, byte[] hash, int fileId
                                 char c = parts[4].charAt(i);
                                 sb.append(String.format("Character '%c' at index %d: %02X%n", c, i, (int) c));
                             }
-                            throw new RuntimeException(sb.toString(), e);
+                            throw new IllegalArgumentException(sb.toString(), e);
                         }
                     }
                     return new BinaryObjectCsvRow(id, refCount, hash, fileId, fileContents);

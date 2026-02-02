@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.balances;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -33,7 +34,7 @@ public class CsvAccountBalances {
                             parts -> parseLong(parts[3]) // Balance
                             ));
         } catch (IOException e) {
-            throw new RuntimeException("Failed to load balances from " + csvUrl, e);
+            throw new UncheckedIOException("Failed to load balances from " + csvUrl, e);
         }
     }
 

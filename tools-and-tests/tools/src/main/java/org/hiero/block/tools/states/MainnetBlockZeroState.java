@@ -4,6 +4,7 @@ package org.hiero.block.tools.states;
 import static org.hiero.block.tools.states.SavedStateConverter.loadState;
 
 import com.hedera.hapi.block.stream.BlockItem;
+import java.io.UncheckedIOException;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.List;
@@ -76,7 +77,7 @@ public class MainnetBlockZeroState implements Runnable {
     }
 
     /** Holds balances from the CSV file for the date 2019-09-13T22:00:00.000081Z */
-    public static Map<Long, Long> loadAccountBalancesCsv2019_09_13T22() {
+    public static Map<Long, Long> loadAccountBalancesCsv2019Sep13() {
         return CsvAccountBalances.loadCsvBalances(BALANCES_CSV_2019_09_13T22_URL);
     }
 
@@ -378,7 +379,7 @@ public class MainnetBlockZeroState implements Runnable {
             final Map<Long, Long> computedStateEndBlockTwoBalances =
                     getBalancesFromSignedState(computedStateEndBlockTwo);
             // load the balances CSV at 2019-09-13T22:00:00.000081Z which is end of block two
-            final Map<Long, Long> csvBalances2019_09_13T22 = loadAccountBalancesCsv2019_09_13T22();
+            final Map<Long, Long> csvBalances2019_09_13T22 = loadAccountBalancesCsv2019Sep13();
             // compare with CSV balances at 2019-09-13T22:00:00.000081Z
             compareAccounts(
                     csvBalances2019_09_13T22,
@@ -386,7 +387,8 @@ public class MainnetBlockZeroState implements Runnable {
                     computedStateEndBlockTwoBalances,
                     "Computed end of block two after applying tx2 & tx3");
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(
+                    new java.io.IOException("Failed to construct and validate block zero state", e));
         }
     }
 }

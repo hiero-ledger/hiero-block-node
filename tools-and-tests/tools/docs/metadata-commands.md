@@ -2,7 +2,7 @@
 
 The `metadata` command works with metadata files in the `metadata` directory. These files are used by the record-to-block conversion pipeline and other tools.
 
-### Available Subcommands
+## Available Subcommands
 
 | Command  |                                 Description                                 |
 |----------|-----------------------------------------------------------------------------|
@@ -29,7 +29,7 @@ Display summary information about metadata files. Shows status, date ranges, and
 
 #### Usage
 
-```
+```bash
 metadata ls [-d=<metadataDir>]
 ```
 

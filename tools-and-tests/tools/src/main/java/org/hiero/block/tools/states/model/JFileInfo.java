@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 
 /**
  * A serializable file metadata record containing deletion status, WACL key, and expiration time.
@@ -44,7 +45,7 @@ public record JFileInfo(boolean deleted, JKey wacl, long expirationTimeInSec) {
             final JKey wacl = JKey.copyFrom(new DataInputStream(new ByteArrayInputStream(key)));
             return new JFileInfo(deleted, wacl, expirationTime);
         } catch (IOException e) {
-            throw new RuntimeException("Error in deserialization of JFileInfo!", e);
+            throw new UncheckedIOException("Error in deserialization of JFileInfo", e);
         }
     }
 }

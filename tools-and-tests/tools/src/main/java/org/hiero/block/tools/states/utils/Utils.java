@@ -353,7 +353,7 @@ public class Utils {
      */
     private static void checkArrayLength(int len, int maxArrayLength) {
         if (len > maxArrayLength) {
-            throw new RuntimeException(
+            throw new IllegalArgumentException(
                     String.format("Array length (%d) is larger than maxArrayLength (%d)", len, maxArrayLength));
         }
     }

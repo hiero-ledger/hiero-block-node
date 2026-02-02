@@ -156,7 +156,7 @@ public class JKey {
             //noinspection unchecked
             return (T) var3;
         } catch (IOException | ClassNotFoundException ex) {
-            throw new RuntimeException(ex);
+            throw new IllegalStateException("Failed to deserialize JKey", ex);
         }
     }
 

@@ -4,6 +4,7 @@ package org.hiero.block.tools.states.model;
 import java.io.BufferedOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import org.hiero.block.tools.states.utils.CryptoUtils;
 import org.hiero.block.tools.states.utils.HashingOutputStream;
 
@@ -58,7 +59,7 @@ public final class FCMLeaf<K, V> implements FCMNode<K, V> {
                 return digest.digest();
             }
         } catch (IOException e) {
-            throw new RuntimeException("Failed to compute leaf hash", e);
+            throw new UncheckedIOException("Failed to compute leaf hash", e);
         }
     }
 

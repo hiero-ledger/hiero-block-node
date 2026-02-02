@@ -24,6 +24,8 @@ import org.hiero.block.tools.states.utils.Utils;
 public final class SignedState {
     /** This version number should be used to handle compatibility issues that may arise from any future changes */
     private static final long CLASS_VERSION = 2;
+    /** number of rounds considered stale for minimum generation calculation */
+    private static final long ROUNDS_STALE = 25;
 
     /** the version number read from the serialized state */
     private long instanceVersion;
@@ -49,8 +51,6 @@ public final class SignedState {
     private List<Pair<Long, Long>> minGenInfo;
     /** the signature set for this state */
     private SigSet sigSet;
-
-    public SignedState() {}
 
     /**
      * Load a SignedState from a URL, can be compressed (.gz) or uncompressed
@@ -225,12 +225,10 @@ public final class SignedState {
         state.copyFromExtra(inStream);
     }
 
-    private static final long roundsStale = 25;
-
     private List<Pair<Long, Long>> produceMinGenFromEvents() {
         long minGen = events[0].generation();
         List<Pair<Long, Long>> list = new LinkedList<>();
-        for (long i = round - roundsStale; i <= round; i++) {
+        for (long i = round - ROUNDS_STALE; i <= round; i++) {
             list.add(new Pair<>(i, minGen));
         }
         return list;

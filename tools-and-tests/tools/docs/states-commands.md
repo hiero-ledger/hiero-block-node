@@ -1,10 +1,10 @@
 # States Subcommands
 
 The `states` command contains utilities for working with saved state directories (`SignedState.swh` and related
-files). These tools load historical Hedera consensus node state snapshots and can convert them to JSON block stream
+files). These tools load historical Hedera Consensus Node state snapshots and can convert them to JSON Block Stream
 representations or validate block zero state.
 
-### Available Subcommands
+## Available Subcommands
 
 |     Command     |                              Description                              |
 |-----------------|-----------------------------------------------------------------------|
@@ -15,12 +15,12 @@ representations or validate block zero state.
 
 ### The `state-to-json` Subcommand
 
-Reads one or more saved state directories and prints a JSON representation of the state as a block stream `Block`
+Reads one or more saved state directories and prints a JSON representation of the state as a Block Stream `Block`
 containing state change `BlockItem` entries. The output is written to stdout.
 
 #### Usage
 
-```
+```bash
 states state-to-json [<savedStateDirectories>...]
 ```
 

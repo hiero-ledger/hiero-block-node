@@ -133,7 +133,7 @@ public class FCMap<K, V> extends HashMap<K, V> {
         } catch (IOException ioException) {
             throw ioException;
         } catch (Exception exception) {
-            throw new RuntimeException(exception);
+            throw new IllegalStateException("Failed to load FCMap leaves", exception);
         }
     }
 

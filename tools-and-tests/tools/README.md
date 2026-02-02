@@ -104,7 +104,7 @@ subcommands
 ├── networkCapacity           # Network capacity testing (gRPC/HTTP2)
 │
 └── states                   # Tools for saved state directories
-    ├── state-to-json        # Convert saved state to JSON block stream
+    ├── state-to-json        # Convert saved state to JSON Block Stream
     └── block-zero           # Load and validate Mainnet Block Zero state
 ```
 

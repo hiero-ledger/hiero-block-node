@@ -72,8 +72,8 @@ class MainnetBlockZeroStateTest {
     }
 
     @Test
-    void loadAccountBalancesCsv2019_09_13T22() {
-        Map<Long, Long> balances = MainnetBlockZeroState.loadAccountBalancesCsv2019_09_13T22();
+    void loadAccountBalancesCsv2019Sep13() {
+        Map<Long, Long> balances = MainnetBlockZeroState.loadAccountBalancesCsv2019Sep13();
         assertNotNull(balances);
         assertFalse(balances.isEmpty());
     }

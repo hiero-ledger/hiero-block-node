@@ -47,7 +47,7 @@ public class FCLinkedList<T> extends ArrayList<T> {
         try {
             digest = MessageDigest.getInstance(HASH_ALGORITHM);
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+            throw new IllegalStateException("SHA-384 algorithm not available", e);
         }
         //        byte[] hash = new byte[digest.getDigestLength()];
         byte[] recoveredHash = new byte[digest.getDigestLength()];

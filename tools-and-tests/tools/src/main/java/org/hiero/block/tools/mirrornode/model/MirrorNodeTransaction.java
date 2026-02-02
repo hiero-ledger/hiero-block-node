@@ -103,7 +103,8 @@ public final class MirrorNodeTransaction {
                             + responseBody + " : " + e.getMessage(),
                     e);
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while downloading transaction " + transactionId, e);
         }
     }
 

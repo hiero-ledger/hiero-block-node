@@ -3,6 +3,7 @@ package org.hiero.block.tools.states.model;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 
 /**
  * A serializable transaction record containing receipt, hash, transfers, and contract results.
@@ -186,7 +187,7 @@ public record JTransactionRecord(
                     expirationTime,
                     deserializedVersion);
         } catch (IOException e) {
-            throw new RuntimeException("Failed to copy JTransactionRecord from input stream", e);
+            throw new UncheckedIOException("Failed to copy JTransactionRecord from input stream", e);
         }
     }
 }
