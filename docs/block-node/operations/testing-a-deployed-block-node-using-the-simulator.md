@@ -14,8 +14,8 @@ This container streams blocks to your deployed Block Node, verifying connectivit
 Before you begin, ensure you have:
 
 - A running Block Node deployment on your system using one of the following methods:
-  - [**Manual Single-Node Kubernetes Deployment**](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/single-node-k8s-deployment.md)
-  - [**Solo Weaver Single-Node Kubernetes Deployment**](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/operations/solo-weaver-single-node-k8s-deployment.md)
+  - [**Manual Single-Node Kubernetes Deployment**](./single-node-k8s-deployment.md)
+  - [**Solo Weaver Single-Node Kubernetes Deployment**](./solo-weaver-single-node-k8s-deployment.md)
 - **[Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose** installed and available on your machine where you will run the simulator.
 - The **gRPC** service address and port for your Block Node:
   - For Local deployment: `localhost:40840`
@@ -41,10 +41,10 @@ Before you begin, ensure you have:
    services:
      simulator-publisher:
        container_name: simulator-publisher
-       image:  ghcr.io/hiero-ledger/hiero-block-node/simulator-image:<BLOCK_NODE_VERSION_TAG>
+       image: ghcr.io/hiero-ledger/hiero-block-node/simulator-image:<BLOCK_NODE_VERSION_TAG>
        environment:
          - BLOCK_STREAM_SIMULATOR_MODE=PUBLISHER_CLIENT
-         - GRPC_SERVER_ADDRESS=host.docker.internal
+         - GRPC_SERVER_ADDRESS=<BLOCK_NODE_HOST>
          - GRPC_PORT=40840
          - GENERATOR_START_BLOCK_NUMBER=0
          - GENERATOR_END_BLOCK_NUMBER=100
@@ -52,7 +52,8 @@ Before you begin, ensure you have:
 
 - Replace `<BLOCK_NODE_HOST>` with the actual service IP or hostname for your Block Node.
 - Replace `40840` with the gRPC port exposed by your Block Node service.
-- Replace `<BLOCK_NODE_VERSION_TAG>` with the Block Node version you are testing (for example, `0.27.0`). Always use a simulator image tag that matches your Block Node version. See the [package registry](https://github.com/hiero-ledger/hiero-block-node/pkgs/container/hiero-block-node%2Fsimulator-image) for available tags.
+- Replace `<BLOCK_NODE_VERSION_TAG>` with the Block Node version you are testing (for example, `0.27.0`). Always use a simulator image tag that matches your Block Node version.
+  See the [package registry](https://github.com/hiero-ledger/hiero-block-node/pkgs/container/hiero-block-node%2Fsimulator-image) for available tags.
 
 ### **Choose the Correct Block Node Address:**
 
@@ -70,7 +71,7 @@ The following variables are the minimum required to run the simulator publisher 
 - **GRPC_SERVER_ADDRESS**: The Kubernetes service IP of your Block Node (e.g., **`10.96.0.15`**).
 - **GRPC_PORT**: The gRPC port exposed by the Block Node service (e.g., **`40840`**).
 - **GENERATOR_START_BLOCK_NUMBER**: First block number the simulator will generate (for example, **`0`**).
-- **GENERATOR_END_BLOCK_NUMBER**: Last block number the simulator will generate, the simulator stops after publishing up to this block number.
+- **GENERATOR_END_BLOCK_NUMBER**: Last block number the simulator will generate (for example, **`100`**).
 
 For the complete and official Block Node configuration reference, see the [Block Node configuration document](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/configuration.md).
 
