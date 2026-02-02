@@ -303,7 +303,9 @@ If the pods are running and healthy, your Block Node is successfully installed a
 2. **Download and extract the latest protobuf files** from the official release:
 
    ```bash
-   export VERSION=0.24.0; curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VERSION/block-node-protobuf-$VERSION.tgz -o block-node-protobuf-$VERSION.tgz
+export VERSION=<VERSION>
+
+curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VERSION/block-node-protobuf-$VERSION.tgz -o block-node-protobuf-$VERSION.tgz
 
    tar -xzf block-node-protobuf-0.24.0.tgz
    ```
