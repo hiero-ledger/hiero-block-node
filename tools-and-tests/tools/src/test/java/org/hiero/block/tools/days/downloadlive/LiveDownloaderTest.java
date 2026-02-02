@@ -166,9 +166,9 @@ public class LiveDownloaderTest {
                     Files.createDirectories(path.getParent());
                 }
                 String json = "{\n"
-                        + "  \"dayDate\": \"" + status.getDayDate() + "\",\n"
-                        + "  \"recordFileTime\": \"" + status.getRecordFileTime() + "\",\n"
-                        + "  \"endRunningHashHex\": \"" + status.getEndRunningHashHex() + "\"\n"
+                        + "  \"dayDate\": \"" + status.dayDate() + "\",\n"
+                        + "  \"recordFileTime\": \"" + status.recordFileTime() + "\",\n"
+                        + "  \"endRunningHashHex\": \"" + status.endRunningHashHex() + "\"\n"
                         + "}\n";
                 Files.writeString(path, json, StandardCharsets.UTF_8);
             } catch (IOException e) {
@@ -189,11 +189,11 @@ public class LiveDownloaderTest {
             batch.add(new BlockDescriptor(100L, "file1.rcd", "2025-12-01T01:00:00Z", null));
             batch.add(new BlockDescriptor(200L, "file2.rcd", "2025-12-01T02:00:00Z", null));
 
-            batch.sort(Comparator.comparingLong(BlockDescriptor::getBlockNumber));
+            batch.sort(Comparator.comparingLong(BlockDescriptor::blockNumber));
 
-            assertEquals(100L, batch.get(0).getBlockNumber());
-            assertEquals(200L, batch.get(1).getBlockNumber());
-            assertEquals(300L, batch.get(2).getBlockNumber());
+            assertEquals(100L, batch.get(0).blockNumber());
+            assertEquals(200L, batch.get(1).blockNumber());
+            assertEquals(300L, batch.get(2).blockNumber());
         }
 
         @Test
@@ -201,7 +201,7 @@ public class LiveDownloaderTest {
         void testEmptyBatch() {
             List<BlockDescriptor> batch = new ArrayList<>();
 
-            batch.sort(Comparator.comparingLong(BlockDescriptor::getBlockNumber));
+            batch.sort(Comparator.comparingLong(BlockDescriptor::blockNumber));
 
             assertTrue(batch.isEmpty());
         }
@@ -212,10 +212,10 @@ public class LiveDownloaderTest {
             List<BlockDescriptor> batch = new ArrayList<>();
             batch.add(new BlockDescriptor(100L, "file.rcd", "2025-12-01T00:00:00Z", null));
 
-            batch.sort(Comparator.comparingLong(BlockDescriptor::getBlockNumber));
+            batch.sort(Comparator.comparingLong(BlockDescriptor::blockNumber));
 
             assertEquals(1, batch.size());
-            assertEquals(100L, batch.get(0).getBlockNumber());
+            assertEquals(100L, batch.get(0).blockNumber());
         }
 
         @Test
@@ -226,11 +226,11 @@ public class LiveDownloaderTest {
             batch.add(new BlockDescriptor(200L, "file2.rcd", "2025-12-01T02:00:00Z", null));
             batch.add(new BlockDescriptor(300L, "file3.rcd", "2025-12-01T03:00:00Z", null));
 
-            batch.sort(Comparator.comparingLong(BlockDescriptor::getBlockNumber));
+            batch.sort(Comparator.comparingLong(BlockDescriptor::blockNumber));
 
-            assertEquals(100L, batch.get(0).getBlockNumber());
-            assertEquals(200L, batch.get(1).getBlockNumber());
-            assertEquals(300L, batch.get(2).getBlockNumber());
+            assertEquals(100L, batch.get(0).blockNumber());
+            assertEquals(200L, batch.get(1).blockNumber());
+            assertEquals(300L, batch.get(2).blockNumber());
         }
 
         @Test
@@ -241,11 +241,11 @@ public class LiveDownloaderTest {
             batch.add(new BlockDescriptor(100L, "file2.rcd", "2025-12-01T01:00:01Z", null));
             batch.add(new BlockDescriptor(200L, "file3.rcd", "2025-12-01T02:00:00Z", null));
 
-            batch.sort(Comparator.comparingLong(BlockDescriptor::getBlockNumber));
+            batch.sort(Comparator.comparingLong(BlockDescriptor::blockNumber));
 
-            assertEquals(100L, batch.get(0).getBlockNumber());
-            assertEquals(100L, batch.get(1).getBlockNumber());
-            assertEquals(200L, batch.get(2).getBlockNumber());
+            assertEquals(100L, batch.get(0).blockNumber());
+            assertEquals(100L, batch.get(1).blockNumber());
+            assertEquals(200L, batch.get(2).blockNumber());
         }
     }
 

@@ -62,7 +62,6 @@ public class DownloadLive2 implements Runnable {
     private static final Duration LIVE_POLL_INTERVAL = Duration.ofSeconds(2);
     private static final int MAX_VALIDATION_RETRIES = 3;
     private static final int PROGRESS_LOG_INTERVAL = 100;
-
     private static final File CACHE_DIR = new File("metadata/gcp-cache");
     private static final int MIN_NODE_ACCOUNT_ID = 3;
     private static final int MAX_NODE_ACCOUNT_ID = 37;

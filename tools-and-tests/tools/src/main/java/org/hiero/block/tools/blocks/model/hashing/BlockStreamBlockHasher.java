@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.model.hashing;
 
-import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.*;
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
+import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 
 import com.hedera.hapi.block.stream.experimental.Block;
 import com.hedera.hapi.block.stream.experimental.BlockFooter;

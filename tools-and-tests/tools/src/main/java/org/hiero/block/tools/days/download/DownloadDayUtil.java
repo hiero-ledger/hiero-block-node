@@ -7,7 +7,18 @@ import java.util.List;
 import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 
-public class DownloadDayUtil {
+/**
+ * Utility class for validating block hashes during download operations.
+ *
+ * <p>Provides methods for verifying block hash consistency between downloaded
+ * record files and expected values from the mirror node.
+ */
+public final class DownloadDayUtil {
+
+    /** Private constructor to prevent instantiation of this utility class. */
+    private DownloadDayUtil() {
+        // Utility class - do not instantiate
+    }
 
     /**
      * Validate block hashes for the given block's record files.

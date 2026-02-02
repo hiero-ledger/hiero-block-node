@@ -95,7 +95,7 @@ public class BlockTimeReader implements AutoCloseable {
         int low = 0;
         int high = mappedLongBuffer.limit() - 1;
         while (low < high) {
-            int mid = (low + high) / 2;
+            int mid = low + (high - low) / 2;
             long midVal = mappedLongBuffer.get(mid);
             if (midVal < targetTime) {
                 low = mid + 1;

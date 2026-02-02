@@ -379,7 +379,7 @@ public class LiveDownloader {
         }
 
         // Ensure deterministic order
-        sortedBatch.sort(Comparator.comparingLong(BlockDescriptor::getBlockNumber));
+        sortedBatch.sort(Comparator.comparingLong(BlockDescriptor::blockNumber));
 
         final LocalDate day = LocalDate.parse(dayKey);
         final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
@@ -445,12 +445,12 @@ public class LiveDownloader {
                     context.day.getYear(),
                     context.day.getMonthValue(),
                     context.day.getDayOfMonth(),
-                    descriptor.getBlockNumber(),
+                    descriptor.blockNumber(),
                     previousRecordFileHash);
 
             // Perform full block validation (record + signatures + sidecars) using the
             // files already downloaded for this block.
-            final Instant recordFileTime = Instant.parse(descriptor.getTimestampIso());
+            final Instant recordFileTime = Instant.parse(descriptor.timestampIso());
             final boolean fullyValid = fullBlockValidate(
                     addressBookRegistry,
                     previousRecordFileHash,
@@ -459,7 +459,7 @@ public class LiveDownloader {
                     null); // no temp file for now; quarantine will no-op on null
 
             if (!fullyValid) {
-                System.err.println("[download] Blocking advancement at block " + descriptor.getBlockNumber()
+                System.err.println("[download] Blocking advancement at block " + descriptor.blockNumber()
                         + " due to full block validation failure; will retry on a later tick.");
                 // Do not process subsequent blocks in this batch; preserve contiguous prefix.
                 return false;
@@ -473,7 +473,7 @@ public class LiveDownloader {
 
             return true;
         } catch (Exception e) {
-            System.err.println("[download] Failed live block download for block " + descriptor.getBlockNumber() + ": "
+            System.err.println("[download] Failed live block download for block " + descriptor.blockNumber() + ": "
                     + e.getMessage() + " (will retry on a later tick).");
             // Treat any failure as a boundary for the contiguous prefix; stop here.
             return false;
@@ -501,14 +501,13 @@ public class LiveDownloader {
                 if (!processBlock(dayKey, descriptor, context, blockTimeReader)) {
                     break;
                 }
-                highest = descriptor.getBlockNumber();
+                highest = descriptor.blockNumber();
 
                 // Print progress with ETA
                 long elapsed = System.currentTimeMillis() - startTime;
                 double percent = ((i + 1) * 100.0) / totalBlocks;
                 long remaining = PrettyPrint.computeRemainingMilliseconds(i + 1, totalBlocks, elapsed);
-                PrettyPrint.printProgressWithEta(
-                        percent, "Downloading block " + descriptor.getBlockNumber(), remaining);
+                PrettyPrint.printProgressWithEta(percent, "Downloading block " + descriptor.blockNumber(), remaining);
             }
 
             PrettyPrint.clearProgress();
@@ -549,9 +548,9 @@ public class LiveDownloader {
                 Files.createDirectories(path.getParent());
             }
             String json = "{\n"
-                    + "  \"dayDate\": \"" + status.getDayDate() + "\",\n"
-                    + "  \"recordFileTime\": \"" + status.getRecordFileTime() + "\",\n"
-                    + "  \"endRunningHashHex\": \"" + status.getEndRunningHashHex() + "\"\n"
+                    + "  \"dayDate\": \"" + status.dayDate() + "\",\n"
+                    + "  \"recordFileTime\": \"" + status.recordFileTime() + "\",\n"
+                    + "  \"endRunningHashHex\": \"" + status.endRunningHashHex() + "\"\n"
                     + "}\n";
             Files.writeString(path, json, StandardCharsets.UTF_8);
         } catch (IOException e) {

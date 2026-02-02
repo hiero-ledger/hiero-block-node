@@ -15,7 +15,12 @@ import picocli.CommandLine;
  *   <li>Converting mirror node timestamp strings to Java Instant objects</li>
  * </ul>
  */
-public class DateUtil {
+public final class DateUtil {
+
+    /** Private constructor to prevent instantiation of this utility class. */
+    private DateUtil() {
+        // Utility class - do not instantiate
+    }
 
     /**
      * Parses a human-readable duration string into a Duration object.
