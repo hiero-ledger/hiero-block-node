@@ -362,23 +362,58 @@ jobs:
           NLG_ARGS: ${{ inputs.nlg-args }}
           NLG_MAX_TPS: ${{ inputs.nlg-max-tps }}
         run: |
+          NLG_START_TIME=$(date +%s)
+          NLG_OUTPUT_FILE=$(mktemp)
+
+          # Run load test (synchronous - runs for duration specified in args)
+          # Capture output for summary while also displaying it
+          NLG_EXIT_CODE=0
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh start 2>&1 | tee "$NLG_OUTPUT_FILE" || NLG_EXIT_CODE=$?
+
+          # Cleanup
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh stop 2>&1 | tee -a "$NLG_OUTPUT_FILE" || true
+
+          NLG_END_TIME=$(date +%s)
+          NLG_DURATION=$((NLG_END_TIME - NLG_START_TIME))
+
+          # Format duration
+          NLG_MINS=$((NLG_DURATION / 60))
+          NLG_SECS=$((NLG_DURATION % 60))
+
+          # Determine result
+          if [[ $NLG_EXIT_CODE -eq 0 ]]; then
+            NLG_RESULT=":white_check_mark: Completed"
+          else
+            NLG_RESULT=":x: Failed (exit code: $NLG_EXIT_CODE)"
+          fi
+
           # Add to step summary
           {
-            echo "### Load Generation"
+            echo "### NLG Load Test Results"
             echo ""
-            echo "| Setting | Value |"
-            echo "|---------|-------|"
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| **Result** | $NLG_RESULT |"
             echo "| Test Type | \`${{ inputs.nlg-test-type }}\` |"
             echo "| NLG Args | \`${{ inputs.nlg-args }}\` |"
             echo "| Max TPS | ${{ inputs.nlg-max-tps || 'unlimited' }} |"
+            echo "| Duration | ${NLG_MINS}m ${NLG_SECS}s |"
+            echo ""
+            echo "<details>"
+            echo "<summary>NLG Output</summary>"
+            echo ""
+            echo '```'
+            cat "$NLG_OUTPUT_FILE"
+            echo '```'
+            echo ""
+            echo "</details>"
             echo ""
           } >> "${GITHUB_STEP_SUMMARY}"
 
-          # Run load test (synchronous - runs for duration specified in args)
-          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh start
+          rm -f "$NLG_OUTPUT_FILE"
 
-          # Cleanup
-          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-load-generate.sh stop || true
+          # Fail the step if NLG failed
+          exit $NLG_EXIT_CODE
 
       # Run each test definition sequentially on the same deployment
       - name: Run Test Definitions
@@ -733,6 +768,71 @@ jobs:
             --tck-dir "sdk-tck/regression" \
             --deployment "${DEPLOYMENT}" \
             --namespace "${NAMESPACE}"
+
+      # Add TCK-SDK Results to Summary
+      - name: TCK-SDK Results Summary
+        if: ${{ !cancelled() && inputs.run-tck-regression-tests }}
+        run: |
+          REPORT_FILE="sdk-tck/regression/mochawesome-report/mochawesome.json"
+
+          if [[ ! -f "$REPORT_FILE" ]]; then
+            echo "::warning::TCK-SDK report not found at $REPORT_FILE"
+            {
+              echo "### TCK-SDK Test Results"
+              echo ""
+              echo ":warning: Report not found - tests may not have run"
+              echo ""
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          # Parse mochawesome.json for test results
+          TOTAL=$(jq -r '.stats.tests // 0' "$REPORT_FILE")
+          PASSED=$(jq -r '.stats.passes // 0' "$REPORT_FILE")
+          FAILED=$(jq -r '.stats.failures // 0' "$REPORT_FILE")
+          PENDING=$(jq -r '.stats.pending // 0' "$REPORT_FILE")
+          DURATION_MS=$(jq -r '.stats.duration // 0' "$REPORT_FILE")
+          DURATION_S=$((DURATION_MS / 1000))
+
+          # Determine overall result
+          if [[ $FAILED -eq 0 && $TOTAL -gt 0 ]]; then
+            TCK_RESULT=":white_check_mark: All tests passed"
+          elif [[ $FAILED -gt 0 ]]; then
+            TCK_RESULT=":x: $FAILED test(s) failed"
+          else
+            TCK_RESULT=":warning: No tests executed"
+          fi
+
+          # Add summary section
+          {
+            echo "### TCK-SDK Test Results"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| **Result** | $TCK_RESULT |"
+            echo "| Total Tests | $TOTAL |"
+            echo "| Passed | $PASSED |"
+            echo "| Failed | $FAILED |"
+            echo "| Pending/Skipped | $PENDING |"
+            echo "| Duration | ${DURATION_S}s |"
+            echo ""
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          # List failed tests if any
+          if [[ $FAILED -gt 0 ]]; then
+            {
+              echo "<details>"
+              echo "<summary>Failed Tests</summary>"
+              echo ""
+              echo '```'
+              # Extract failed test titles from the report
+              jq -r '.results[].suites[]?.tests[]? | select(.fail == true) | "- \(.fullTitle)"' "$REPORT_FILE" 2>/dev/null || echo "Unable to parse failed tests"
+              echo '```'
+              echo ""
+              echo "</details>"
+              echo ""
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
 
       - name: BN Based - SDK TCK Regression Test Report
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
