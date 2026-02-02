@@ -50,7 +50,101 @@ import org.hiero.block.tools.states.postgres.SmartContractKVPairs.DataWordPair;
 import org.hiero.block.tools.states.utils.CryptoUtils;
 
 /**
- *  Converter class to transform a SavedState (SignedState + binary objects) into block stream items
+ * Converter class that performs a <b>lossy, one-way</b> transformation of a legacy {@link CompleteSavedState}
+ * (composed of a {@link SignedState} and a Postgres binary-objects CSV export) into block stream
+ * {@link BlockItem}s containing {@link StateChanges}. The output is intended to represent the initial state of the
+ * network at block zero.
+ *
+ * <h2>Conversion is Lossy</h2>
+ *
+ * <p>This conversion is intentionally <b>not lossless</b>. The legacy saved state format contains data that either
+ * has no equivalent in the modern block stream protobuf schema, was never meaningfully used, or is not relevant when
+ * treating block zero as the genesis of the network. A round-trip (convert to block stream then back to saved state)
+ * will <b>not</b> reproduce the original saved state.
+ *
+ * <h2>What is Converted</h2>
+ *
+ * <p>The following state is extracted and emitted as {@link StateChanges} block items, each tagged with the
+ * consensus timestamp from the signed state:
+ *
+ * <ul>
+ *   <li><b>Accounts</b> ({@link StateIdentifier#STATE_ID_ACCOUNTS}) &mdash; Every entry in the account FCMap is
+ *       converted to a modern {@link com.hedera.hapi.node.state.token.Account} protobuf. The fields carried over are:
+ *       {@code accountId}, {@code tinybarBalance}, {@code receiverSigRequired}, {@code key}, {@code autoRenewSeconds},
+ *       {@code deleted}, {@code expirationSecond}, {@code memo}, and {@code smartContract}.</li>
+ *   <li><b>Files</b> ({@link StateIdentifier#STATE_ID_FILES}) &mdash; File metadata ({@code FILE_METADATA} blob type)
+ *       is paired with its corresponding file data ({@code FILE_DATA} blob type) to produce a single
+ *       {@link com.hedera.hapi.node.state.file.File} per entity. Fields carried: {@code fileId}, {@code keys} (WACL),
+ *       {@code contents}, {@code expirationSecond}, and {@code deleted}.</li>
+ *   <li><b>Contract Bytecode</b> ({@link StateIdentifier#STATE_ID_BYTECODE}) &mdash; Each {@code CONTRACT_BYTECODE}
+ *       storage entry is converted to a {@link com.hedera.hapi.node.state.contract.Bytecode} keyed by
+ *       {@link ContractID}.</li>
+ *   <li><b>Contract Storage Slots</b> ({@link StateIdentifier#STATE_ID_STORAGE}) &mdash; Each
+ *       {@code CONTRACT_STORAGE} entry is deserialized into 32-byte key/value pairs and emitted as
+ *       {@link com.hedera.hapi.node.state.contract.SlotKey}/{@link com.hedera.hapi.node.state.contract.SlotValue}
+ *       state changes. Previous/next slot key linked-list pointers are derived from the ordering of pairs within each
+ *       contract's storage.</li>
+ * </ul>
+ *
+ * <h2>What is Intentionally Not Converted</h2>
+ *
+ * <h3>Account fields dropped</h3>
+ * <ul>
+ *   <li>{@code receiverThreshold} / {@code senderThreshold} &mdash; These fields do not exist in the modern Account
+ *       protobuf. They only controlled whether extra transaction records were generated for the account holder and
+ *       carry no balance or authorization significance.</li>
+ *   <li>{@code proxyAccount} &mdash; Proxy staking was never activated on mainnet. The field was always effectively
+ *       unused.</li>
+ *   <li>{@code recordLinkedList} &mdash; A linked list of recently-executed transaction records cached on the account.
+ *       Since block zero is treated as the genesis of the network, partial historical transaction records from before
+ *       block zero are not meaningful and are discarded.</li>
+ * </ul>
+ *
+ * <h3>Top-level / singleton state dropped</h3>
+ * <ul>
+ *   <li>{@code sequenceNum} (entity ID sequence counter), {@code exchangeRateSetWrapper} (current/next exchange
+ *       rates), {@code lastHandleTxConsensusTime}, and the {@code addressBook} &mdash; In the modern block stream
+ *       schema these are singleton state values. Singletons did not exist at the time of the legacy state format, so
+ *       there is no block-zero equivalent to emit. These values are expected to be established by the network through
+ *       normal operation after genesis.</li>
+ * </ul>
+ *
+ * <h3>SignedState platform-level data dropped</h3>
+ * <ul>
+ *   <li>{@code round}, {@code events}, {@code sigSet}, {@code minGenInfo}, {@code hashEventsCons} &mdash; These are
+ *       platform/consensus infrastructure fields (hashgraph events, signature collections, round metadata). They have
+ *       no representation in the block stream state change model and are not relevant to application-level genesis
+ *       state.</li>
+ * </ul>
+ *
+ * <h3>Storage blob types dropped</h3>
+ * <ul>
+ *   <li>{@code SYSTEM_DELETED_ENTITY_EXPIRY} &mdash; Records of when system-deleted entities expire. This bookkeeping
+ *       data is not needed at genesis.</li>
+ * </ul>
+ *
+ * <h2>Output Structure</h2>
+ *
+ * <p>The method {@link #signedStateToStateChanges(CompleteSavedState)} returns a list of four {@link BlockItem}s,
+ * each wrapping a {@link StateChanges} instance:
+ * <ol>
+ *   <li>Account state changes ({@code STATE_ID_ACCOUNTS})</li>
+ *   <li>File state changes ({@code STATE_ID_FILES})</li>
+ *   <li>Contract bytecode state changes ({@code STATE_ID_BYTECODE})</li>
+ *   <li>Contract storage slot state changes ({@code STATE_ID_STORAGE})</li>
+ * </ol>
+ *
+ * <h2>Input Requirements</h2>
+ *
+ * <p>Loading requires two files from the saved state directory:
+ * <ul>
+ *   <li>{@code SignedState.swh} (or {@code .swh.gz}) &mdash; The serialized signed state.</li>
+ *   <li>{@code binary_objects.csv} (or {@code .csv.gz}) &mdash; A Postgres export of binary objects (file contents,
+ *       bytecode, contract storage blobs) referenced by SHA-384 hash from the signed state's storage map.</li>
+ * </ul>
+ *
+ * <p>Binary objects are matched to storage entries by their SHA-384 hash. If any referenced hash is missing from the
+ * CSV, an {@link IllegalStateException} is thrown.
  */
 public class SavedStateConverter {
 
@@ -120,6 +214,9 @@ public class SavedStateConverter {
      * @return list of BlockItems representing state changes
      */
     public static List<BlockItem> signedStateToStateChanges(CompleteSavedState completeSavedState) {
+        // IMPORTANT: As all general state in block stream state is in singletons, and they did not exist at block zero.
+        // We are not including any of the general top-level state fields in the block stream changes. For example,
+        // `sequenceNum`,`exchangeRateSetWrapper` etc.
         final SignedState signedState = completeSavedState.signedState();
         final Map<String, BinaryObjectCsvRow> binaryObjectByHexHashMap = completeSavedState.binaryObjectByHexHashMap();
         final HGCAppState state = signedState.state();
@@ -136,13 +233,20 @@ public class SavedStateConverter {
                     MapValue mapValue = entry.getValue();
                     AccountID accountId = new AccountID(
                             key.shardId(), key.realmId(), new OneOf<>(AccountOneOfType.ACCOUNT_NUM, key.accountId()));
+                    // IMPORTANT: the long receiverThreshold and long senderThreshold fields are ignored as they do not
+                    // exist in the modern Account object we are converting to. They are only about giving user options
+                    // to get extra records about their transactions.
+                    // IMPORTANT: `recordLinkedList` is a list of records of recently executed transactions. This is not
+                    // needed, as we are treating block zero as the start of the network, we can ignore partial
+                    // information about what happened before the start of block zero.
+                    // IMPORTANT: `proxyAccount` was never used, so we can ignore it.
+                    // IMPORTANT: None of the above is critical data to retain. It does mean the conversion is not loss
+                    // less!
                     Account account = Account.newBuilder()
                             .accountId(accountId)
                             .tinybarBalance(mapValue.balance())
-                            // TODO what are long receiverThreshold and long senderThreshold
                             .receiverSigRequired(mapValue.receiverSigRequired())
                             .key(CryptoUtils.convertKey(mapValue.accountKeys()))
-                            // TODO: Handle proxyAccount if needed
                             .autoRenewSeconds(mapValue.autoRenewPeriod())
                             .deleted(mapValue.deleted())
                             .expirationSecond(mapValue.expirationTime())
@@ -159,8 +263,6 @@ public class SavedStateConverter {
                 .toList();
         blockItems.add(new BlockItem(
                 new OneOf<>(ItemOneOfType.STATE_CHANGES, new StateChanges(consensusTimestamp, accountStateChanges))));
-        System.out.println(
-                "   Converted " + accountStateChanges.size() + " accounts into state changes for block stream");
         // ============================================================================================================
         // Next is storage contents
         List<StateChange> filesStateChanges = new ArrayList<>();
@@ -177,12 +279,9 @@ public class SavedStateConverter {
                 .collect(Collectors.groupingBy(entry -> entry.getKey().getBlobType(), Collectors.toList()));
         // now loop through each blob type and convert the entries
         for (BlobType blobType : blobTypeMap.keySet()) {
-            System.out.println("=============================================================");
-            System.out.println("Blob Type: " + blobType);
             List<Entry<StorageKey, StorageValue>> entries = blobTypeMap.get(blobType).stream()
                     .sorted(Comparator.comparingLong(e -> e.getKey().getId()))
                     .toList();
-            System.out.println("   Number of entries: " + entries.size());
 
             for (Entry<StorageKey, StorageValue> entry : entries) {
                 StorageKey key = entry.getKey();
@@ -217,12 +316,15 @@ public class SavedStateConverter {
                                                         .deleted(jFileInfo.deleted()))))
                                 .build());
                     }
+                    case FILE_DATA -> {
+                        // IMPORTANT: file data is handled together with file metadata, so we can ignore it here
+                    }
                     case CONTRACT_BYTECODE -> {
                         final ContractID contractId =
                                 new ContractID(0, 0, new OneOf<>(ContractOneOfType.CONTRACT_NUM, key.getId()));
                         final Bytes bytecode = Bytes.wrap(binaryObject.fileContents());
-                        filesStateChanges.add(StateChange.newBuilder()
-                                .stateId(StateIdentifier.STATE_ID_FILES.protoOrdinal())
+                        contractByteCodeStateChanges.add(StateChange.newBuilder()
+                                .stateId(StateIdentifier.STATE_ID_BYTECODE.protoOrdinal())
                                 .mapUpdate(MapUpdateChange.newBuilder()
                                         .key(MapChangeKey.newBuilder().contractIdKey(contractId))
                                         .value(MapChangeValue.newBuilder().bytecodeValue(new Bytecode(bytecode))))
@@ -258,6 +360,9 @@ public class SavedStateConverter {
                                     .build();
                             contractByteDataStateChanges.add(stateChange);
                         }
+                    }
+                    case SYSTEM_DELETED_ENTITY_EXPIRY -> {
+                        // IMPORTANT: ignored, we do not need to convert expired data
                     }
                 }
             }
