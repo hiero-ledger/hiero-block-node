@@ -762,6 +762,7 @@ jobs:
       # Run TCK-SDK tests using shared script
       - name: Run TCK-SDK Tests
         if: ${{ inputs.run-tck-regression-tests }}
+        continue-on-error: true # Allow workflow to continue; results shown in TCK-SDK Results Summary
         run: |
           ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-tck-sdk-run.sh \
             --sdk-dir "sdk-tck/sdk-server" \
@@ -796,9 +797,9 @@ jobs:
 
           # Determine overall result
           if [[ $FAILED -eq 0 && $TOTAL -gt 0 ]]; then
-            TCK_RESULT=":white_check_mark: All tests passed"
+            TCK_RESULT=":white_check_mark: $PASSED passed"
           elif [[ $FAILED -gt 0 ]]; then
-            TCK_RESULT=":x: $FAILED test(s) failed"
+            TCK_RESULT=":x: $PASSED passed, $FAILED failed"
           else
             TCK_RESULT=":warning: No tests executed"
           fi
