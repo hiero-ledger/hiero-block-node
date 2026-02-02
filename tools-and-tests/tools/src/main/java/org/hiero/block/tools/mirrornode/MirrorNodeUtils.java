@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.io.UncheckedIOException;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
@@ -75,18 +76,18 @@ public class MirrorNodeUtils {
                         Thread.sleep(delay);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
-                        throw new RuntimeException(ie);
+                        throw new IllegalStateException("Interrupted while waiting to retry", ie);
                     }
                 } else if (!isRetryableException(e)) {
-                    throw new RuntimeException(e);
+                    throw new UncheckedIOException(e);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
+                throw new IllegalStateException("Interrupted while waiting to retry", e);
             }
         }
-        throw new RuntimeException(
-                "Failed after " + MAX_RETRIES + " retries: " + lastException.getMessage(), lastException);
+        throw new UncheckedIOException(new IOException(
+                "Failed after " + MAX_RETRIES + " retries: " + lastException.getMessage(), lastException));
     }
 
     private static boolean isRetryableException(IOException e) {
