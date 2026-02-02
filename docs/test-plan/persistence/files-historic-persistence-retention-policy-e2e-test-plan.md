@@ -41,7 +41,7 @@ Policy and the expected results it produces.
   blockNumber `0000000000000001234` resides would be same as the path for block
   with blockNumber `0000000000000001235`, as they both belong to the same batch
   (1000-1999). An example path for that zip file could be:
-  `/blocks/000/000/000/000/000/1000s.zip` if the batch size is 1000.
+  `/blocks/000/000/000/000/000/1000.zip` if the batch size is 1000.
 - **Files Historic Root Path**: This is the root path (configurable) where all
   blocks will be archived. Generally, the stored blocks are long-lived as this
   type of persistence is used for long-term storage of blocks.
@@ -63,13 +63,13 @@ Policy and the expected results it produces.
 > all the digits of a `long` (max. 19 digits). We have three digits per node
 > or directory. Based on archive size, the max. depth of directories vary. After
 > we have reached our max. depth, we will then have an arbitrary number of zip
-> files, each named with the batch's start number suffixed with `s.zip`.
+> files, each named with the batch's start number suffixed with `.zip`.
 > As an example, if we have a batch size of 1000, we will have the following
 > resolutions:
 > </br>
-> `/blocks/000/000/000/000/000/0000s.zip` (first thousand 0-999)
+> `/blocks/000/000/000/000/000/0000.zip` (first thousand 0-999)
 > </br>
-> `/blocks/000/000/000/000/000/1000s.zip` (second thousand 1000-1999)
+> `/blocks/000/000/000/000/000/1000.zip` (second thousand 1000-1999)
 > </br>
 > etc._
 >
@@ -77,8 +77,8 @@ Policy and the expected results it produces.
 > order to have a more manageable environment. An example resolution for a
 > zip would be:
 > </b>
-> `/blocks/000/000/000/000/000/00/00s.zip` (first ten 0-9)
-> `/blocks/000/000/000/000/000/00/10s.zip` (second ten 10-19)
+> `/blocks/000/000/000/000/000/00/00.zip` (first ten 0-9)
+> `/blocks/000/000/000/000/000/00/10.zip` (second ten 10-19)
 > </b>
 > etc._
 >
@@ -162,9 +162,9 @@ The `Files Historic Persistence` MUST delete the oldest archived batch(es)
 
 ##### Output
 
-- Regular file: `/blocks/000/000/000/000/000/00/00s.zip` does not exist.
+- Regular file: `/blocks/000/000/000/000/000/00/00.zip` does not exist.
 - Blocks in range `0-9` are not available.
-- Regular file: `/blocks/000/000/000/000/000/00/10s.zip` exists.
+- Regular file: `/blocks/000/000/000/000/000/00/10.zip` exists.
 - Blocks in range `10-19` are available.
 
 ##### Other

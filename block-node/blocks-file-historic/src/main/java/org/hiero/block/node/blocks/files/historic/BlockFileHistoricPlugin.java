@@ -145,6 +145,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             numberOfBlocksPerZipFile = intPowerOfTen(config.powersOfTenPerZipFileContents());
             // create the executor service for moving blocks to zip files
             zipMoveExecutorService = context.threadPoolManager().createSingleThreadExecutor("FilesHistoricZipMove");
+            renameOldFormatArchives(config.rootPath());
             zipBlockArchive = new ZipBlockArchive(context, config);
             // get the first and last block numbers from the zipBlockArchive
             final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
@@ -176,6 +177,28 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // ------------------------------------
             // DO NOT shutdown the server, handle this correctly instead.
             context.serverHealth().shutdown(name(), "Could not create root directory");
+        }
+    }
+
+    /**
+     * Renames all old format archive files in the provided path.
+     *
+     * <p>This method walks through the provided directory (recursively) and renames all zip files
+     * that end with {@code *s.zip} to remove the {@code s} suffix. For example:
+     * <ul>
+     *   <li>{@code 0000s.zip} becomes {@code 0000.zip}</li>
+     *   <li>{@code 1000s.zip} becomes {@code 1000.zip}</li>
+     * </ul>
+     */
+    void renameOldFormatArchives(final Path archivesPath) {
+        try {
+            // Only attempt renaming if the archives path exists
+            if (Files.exists(archivesPath) && Files.isDirectory(archivesPath, LinkOption.NOFOLLOW_LINKS)) {
+                LOGGER.log(INFO, "Checking for old format archive files to rename in {0}", archivesPath);
+                Files.walkFileTree(archivesPath, new OldFormatArchiveRenameVisitor());
+            }
+        } catch (final IOException e) {
+            LOGGER.log(WARNING, "Failed to rename old format archives", e);
         }
     }
 
@@ -686,6 +709,58 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 throws IOException {
             if (e == null) {
                 Files.delete(Objects.requireNonNull(dir));
+                return CONTINUE;
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * A file visitor that traverses the directory tree and renames zip files from the old format ({@code *s.zip}) to the
+     * new format ({@code *.zip}).
+     */
+    private class OldFormatArchiveRenameVisitor implements FileVisitor<Path> {
+
+        @Override
+        public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) {
+            Objects.requireNonNull(dir);
+            return CONTINUE;
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult visitFile(@NonNull final Path file, @NonNull final BasicFileAttributes attrs) {
+            Objects.requireNonNull(file);
+            final String fileName = file.getFileName().toString();
+
+            // Check if the file ends with "s.zip" (old format)
+            if (fileName.endsWith("s.zip")) {
+                try {
+                    // Remove the 's' before '.zip' to create the new name
+                    final String newFileName = fileName.substring(0, fileName.length() - 5) + ".zip";
+                    final Path newPath = file.getParent().resolve(newFileName);
+
+                    // Rename the file
+                    Files.move(file, newPath);
+                    LOGGER.log(INFO, "Renamed old format archive: {0} -> {1}", fileName, newFileName);
+                } catch (final IOException e) {
+                    LOGGER.log(INFO, "Failed to rename file: {0}", file, e);
+                }
+            }
+            return CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
+            throw Objects.requireNonNull(exc);
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult postVisitDirectory(@NonNull final Path dir, @Nullable final IOException e)
+                throws IOException {
+            if (e == null) {
                 return CONTINUE;
             } else {
                 throw e;

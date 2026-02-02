@@ -200,6 +200,55 @@ class BlockFileHistoricPluginTest {
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));
         }
+
+        /**
+         * This test aims to verify that the plugin correctly renames old format
+         * archive files ({@code *s.zip}) to the new format ({@code *.zip}) during
+         * initialization. This ensures backwards compatibility when upgrading from
+         * the old naming scheme.
+         */
+        @Test
+        @DisplayName("Test init renames old format archives (*s.zip to *.zip)")
+        void testInitRenamesOldFormatArchives(@TempDir final Path tempDir) throws IOException {
+            // Create a links directory structure with old format zip files
+            final Path subDir1 = tempDir.resolve("000").resolve("000");
+            final Path subDir2 = tempDir.resolve("000").resolve("001");
+            Files.createDirectories(subDir1);
+            Files.createDirectories(subDir2);
+
+            // Create old format zip files (ending with 's.zip')
+            final Path oldFile1 = subDir1.resolve("0000s.zip");
+            final Path oldFile2 = subDir1.resolve("1000s.zip");
+            final Path oldFile3 = subDir2.resolve("10000s.zip");
+            Files.writeString(oldFile1, "test content 1");
+            Files.writeString(oldFile2, "test content 2");
+            Files.writeString(oldFile3, "test content 3");
+
+            // Verify old format files exist before initialization
+            assertThat(oldFile1).exists();
+            assertThat(oldFile2).exists();
+            assertThat(oldFile3).exists();
+
+            // Initialize the plugin (this should trigger the rename)
+            final BlockFileHistoricPlugin plugin = new BlockFileHistoricPlugin();
+            final FilesHistoricConfig configuration = ConfigurationBuilder.create()
+                    .withConfigDataType(FilesHistoricConfig.class)
+                    .withValue("files.historic.rootPath", tempDir.toString())
+                    .build()
+                    .getConfigData(FilesHistoricConfig.class);
+
+            plugin.renameOldFormatArchives(configuration.rootPath());
+
+            // Verify old format files no longer exist
+            assertThat(oldFile1).doesNotExist();
+            assertThat(oldFile2).doesNotExist();
+            assertThat(oldFile3).doesNotExist();
+
+            // Verify new format files exist with correct content
+            assertThat(subDir1.resolve("0000.zip")).exists();
+            assertThat(subDir1.resolve("1000.zip")).exists();
+            assertThat(subDir2.resolve("10000.zip")).exists();
+        }
     }
 
     /**
