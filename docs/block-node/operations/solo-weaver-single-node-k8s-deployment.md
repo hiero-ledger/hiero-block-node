@@ -313,7 +313,7 @@ If the pods are running and healthy, your Block Node is successfully installed a
 3. **Call the `serverStatus` endpoint** to verify the node is accessible:
 
    ```bash
-   grpcurl -plaintext -emit-defaults -import-path block-node-protobuf-0.24.0 -proto block-node/api/node_service.proto -d '{}' <BLOCK_NODE_IP>:<GRPC_PORT> org.hiero.block.api.BlockNodeService/serverStatus
+   grpcurl -plaintext -emit-defaults -import-path block-node-protobuf-<VERSION> -proto block-node/api/node_service.proto -d '{}' <BLOCK_NODE_IP>:<GRPC_PORT> org.hiero.block.api.BlockNodeService/serverStatus
    ```
 
    - <BLOCK_NODE_IP> is the external IP of your Block Node VM. For GCP, you can find this on the VM’s Details page under External IP.
