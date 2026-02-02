@@ -833,17 +833,29 @@ jobs:
           name: MN-logs
           path: mn-logs/
 
-      - name: Add Logs to Summary
+      - name: Add Logs and Status to Summary
         if: always()
         run: |
           {
             echo "### Logs"
             echo ""
-            echo "You can download the logs from this run here:"
-            echo "- [Download BN-logs](${{ steps.upload_logs_bn.outputs.artifact-url }})"
-            echo "- [Download MN-logs](${{ steps.upload_logs_mn.outputs.artifact-url }})"
-            echo "- [Download CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }})"
-
+            echo "| Log | Download |"
+            echo "|-----|----------|"
+            echo "| Block Node | [BN-logs](${{ steps.upload_logs_bn.outputs.artifact-url }}) |"
+            echo "| Mirror Node | [MN-logs](${{ steps.upload_logs_mn.outputs.artifact-url }}) |"
+            echo "| Consensus Node | [CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }}) |"
+            echo ""
+            echo "---"
+            echo ""
+            echo "### Overall Result"
+            echo ""
+            if [[ "${{ job.status }}" == "success" ]]; then
+              echo "## :white_check_mark: PASSED"
+            else
+              echo "## :x: FAILED"
+            fi
+            echo ""
+            echo "[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Set result output for workflow_call consumers
