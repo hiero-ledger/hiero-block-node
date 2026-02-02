@@ -20,7 +20,7 @@ import org.hiero.block.node.base.Loggable;
  * @param maxRapidResets Maximum number of rapid resets(stream RST sent by client before any data have been sent by server). When reached within rapidResetCheckPeriod(), GOAWAY is sent to client and connection is closed. Default value is 50.
  * @param rapidResetCheckPeriod Period for counting rapid resets(stream RST sent by client before any data have been sent by server). Default value is 10,000 ms.
  */
-//spotless:off
+// spotless:off
 @ConfigData("server.http2")
 public record WebServerHttp2Config(
         @Loggable @ConfigProperty(defaultValue = "2000") int flowControlTimeout,
@@ -31,4 +31,4 @@ public record WebServerHttp2Config(
         @Loggable @ConfigProperty(defaultValue = "8192") long maxHeaderListSize,
         @Loggable @ConfigProperty(defaultValue = "200") int maxRapidResets,
         @Loggable @ConfigProperty(defaultValue = "10000") int rapidResetCheckPeriod) {}
-//spotless:on
+// spotless:on
