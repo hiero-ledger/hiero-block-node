@@ -11,6 +11,7 @@
    4. [The `mirror` Subcommand](docs/mirror-node-commands.md)
    5. [The `metadata` Subcommand](docs/metadata-commands.md)
    6. [The `networkCapacity` Subcommand](docs/network-capacity-commands.md)
+   7. [The `states` Subcommand](docs/states-commands.md)
 4. [Running from Command Line](#running-from-command-line)
 5. [Help and Discovery](#help-and-discovery)
 6. [Requirements](#requirements)
@@ -35,6 +36,7 @@ The main entry point class is `org.hiero.block.tools.BlockStreamTool`. The follo
 | [mirror](docs/mirror-node-commands.md)               | Works with Mirror Nodes to fetch data and derive auxiliary files   |
 | [metadata](docs/metadata-commands.md)                | Works with metadata files (block_times.bin, day_blocks.json, etc.) |
 | [networkCapacity](docs/network-capacity-commands.md) | Network capacity testing tool (gRPC/HTTP2 throughput)              |
+| [states](docs/states-commands.md)                    | Tools for working with saved state directories (SignedState.swh)   |
 
 A lot of these tools have been built for the process of conversion from record files to wrapped record block files. See
 [Record to Block Conversion Overview](docs/record-to-block-conversion.md) for more details on that process.
@@ -99,7 +101,11 @@ subcommands
 │   ├── ls                    # Display metadata file summary
 │   └── update                # Update all metadata files
 │
-└── networkCapacity           # Network capacity testing (gRPC/HTTP2)
+├── networkCapacity           # Network capacity testing (gRPC/HTTP2)
+│
+└── states                   # Tools for saved state directories
+    ├── state-to-json        # Convert saved state to JSON Block Stream
+    └── block-zero           # Load and validate Mainnet Block Zero state
 ```
 
 ## Running from Command Line
