@@ -64,6 +64,8 @@ Before you begin, ensure you have:
    ```bash
    gcloud compute scp ~/Downloads/weaver-linux-amd64 <INSTANCE_NAME>:/home/<USER> --zone <ZONE> --project <PROJECT_ID>
 
+   ```
+
 - **Expected output**:
 
   ```bash
@@ -157,9 +159,9 @@ Before you begin, ensure you have:
       weaver [command]
 
       Available Commands:
-      block        Commands for block node type
+      block        Commands for Block Node type
       completion   Generate the autocompletion script for the specified shell
-      consensus    Commands for consensus node type
+      consensus    Commands for Consensus Node type
       help         Help about any command
 
       Flags:
@@ -280,17 +282,17 @@ After completing the setup, confirm that your Block Node is deployed and running
 
    2. To Inspect pods, namespaces, and logs. Run:
 
-   ```bash
-   k9s
-   ```
+      ```bash
+      k9s
+      ```
 
-   To list pods across all namespaces, press 0:
-   ![Solo Weaver GCP VM K9s Pods](../../assets/block-node-solo-weaver-vm-k9s-pods.png)
+      To list pods across all namespaces, press 0:
+      ![Solo Weaver GCP VM K9s Pods](../../assets/block-node-solo-weaver-vm-k9s-pods.png)
 
-   To list instances in all namespaces, press o:
-   ![Solo Weaver GCP VM K9s Nodes](../../assets/block-node-solo-weaver-vm-k9s-pods-nodes.png)
+      To list instances in all namespaces, press o:
+      ![Solo Weaver GCP VM K9s Nodes](../../assets/block-node-solo-weaver-vm-k9s-pods-nodes.png)
 
-3. Confirm the Block Node `StatefulSet/Pods` are healthy.
+   3. Confirm the Block Node `StatefulSet/Pods` are healthy.
 
 If the pods are running and healthy, your Block Node is successfully installed and running on the Google Cloud VM.
 
@@ -303,11 +305,11 @@ If the pods are running and healthy, your Block Node is successfully installed a
 2. **Download and extract the latest protobuf files** from the official release:
 
    ```bash
-export VERSION=<VERSION>
+    export VERSION=<VERSION>
 
-curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VERSION/block-node-protobuf-$VERSION.tgz -o block-node-protobuf-$VERSION.tgz
+    curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VERSION/block-node-protobuf-$VERSION.tgz -o block-node-protobuf-$VERSION.tgz
 
-   tar -xzf block-node-protobuf-0.24.0.tgz
+       tar -xzf block-node-protobuf-0.24.0.tgz
    ```
 3. **Call the `serverStatus` endpoint** to verify the node is accessible:
 
@@ -330,6 +332,8 @@ curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VER
    }
 
    ```
+
+> Note: The value `18446744073709551615` means the node has not stored any blocks yet. After the node finishes syncing, these fields will show real block numbers.
 
 ### Step 8: Deprovisioning and Shutdown
 
