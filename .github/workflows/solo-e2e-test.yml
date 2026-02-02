@@ -388,9 +388,14 @@ jobs:
           TESTS_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/tests"
           TOPOLOGIES_DIR="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies"
           TEST_RUNNER="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/scripts/solo-test-runner.sh"
+          RESULTS_FILE="${{ github.workspace }}/test-results.txt"
 
           IFS=',' read -ra TESTS <<< "${{ inputs.test-definition }}"
           FAILED=0
+          PASSED=0
+
+          # Initialize results file
+          echo "" > "$RESULTS_FILE"
 
           for test in "${TESTS[@]}"; do
             test=$(echo "$test" | xargs)  # trim whitespace
@@ -401,7 +406,7 @@ jobs:
             echo "Running test: $test"
             echo "=========================================="
 
-            if ! "${TEST_RUNNER}" \
+            if "${TEST_RUNNER}" \
               --test "${TESTS_DIR}/${test}.yaml" \
               --topology "${{ inputs.topology }}" \
               --namespace "${NAMESPACE}" \
@@ -409,10 +414,20 @@ jobs:
               --topologies-dir "${TOPOLOGIES_DIR}" \
               --proto-path "protobuf-sources/proto" \
               --output github-summary; then
+              echo "${test}=passed" >> "$RESULTS_FILE"
+              PASSED=$((PASSED + 1))
+            else
               echo "::warning::Test '$test' failed"
+              echo "${test}=failed" >> "$RESULTS_FILE"
               FAILED=$((FAILED + 1))
             fi
           done
+
+          # Export counts for summary
+          echo "TEST_RESULTS_FILE=$RESULTS_FILE" >> "$GITHUB_ENV"
+          echo "TESTS_PASSED=$PASSED" >> "$GITHUB_ENV"
+          echo "TESTS_FAILED=$FAILED" >> "$GITHUB_ENV"
+          echo "TESTS_TOTAL=$((PASSED + FAILED))" >> "$GITHUB_ENV"
 
           if [[ $FAILED -gt 0 ]]; then
             echo "::error::$FAILED test(s) failed"
@@ -845,6 +860,28 @@ jobs:
             echo "| Mirror Node | [MN-logs](${{ steps.upload_logs_mn.outputs.artifact-url }}) |"
             echo "| Consensus Node | [CN-logs](${{ steps.upload_logs_cn.outputs.artifact-url }}) |"
             echo ""
+
+            # Test Results Matrix (if tests were run)
+            if [[ -f "$TEST_RESULTS_FILE" && -s "$TEST_RESULTS_FILE" ]]; then
+              echo "---"
+              echo ""
+              echo "### Test Results"
+              echo ""
+              echo "| Test | Result |"
+              echo "|------|--------|"
+              while IFS='=' read -r test_name result; do
+                [[ -z "$test_name" ]] && continue
+                if [[ "$result" == "passed" ]]; then
+                  echo "| \`${test_name}\` | :white_check_mark: Passed |"
+                else
+                  echo "| \`${test_name}\` | :x: Failed |"
+                fi
+              done < "$TEST_RESULTS_FILE"
+              echo ""
+              echo "**Summary:** ${TESTS_PASSED:-0} passed, ${TESTS_FAILED:-0} failed (${TESTS_TOTAL:-0} total)"
+              echo ""
+            fi
+
             echo "---"
             echo ""
             echo "### Overall Result"
@@ -855,7 +892,6 @@ jobs:
               echo "## :x: FAILED"
             fi
             echo ""
-            echo "[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Set result output for workflow_call consumers

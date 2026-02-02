@@ -459,23 +459,23 @@ assertions:                      # Validations to run after all events
 
 ### Event Types
 
-|            Type            |           Description            |                       Arguments                       |
-|----------------------------|----------------------------------|-------------------------------------------------------|
-| `command`                  | Run arbitrary script             | `script`                                              |
-| `node-down`                | Scale node to 0 replicas         | `target`                                              |
-| `node-up`                  | Scale node to 1 replica          | `target`                                              |
-| `scale-down`               | Scale down (alias for node-down) | `target`                                              |
-| `scale-up`                 | Scale up (alias for node-up)     | `target`                                              |
-| `restart`                  | Rollout restart node             | `target`                                              |
+|            Type            |           Description            |                           Arguments                            |
+|----------------------------|----------------------------------|----------------------------------------------------------------|
+| `command`                  | Run arbitrary script             | `script`                                                       |
+| `node-down`                | Scale node to 0 replicas         | `target`                                                       |
+| `node-up`                  | Scale node to 1 replica          | `target`                                                       |
+| `scale-down`               | Scale down (alias for node-down) | `target`                                                       |
+| `scale-up`                 | Scale up (alias for node-up)     | `target`                                                       |
+| `restart`                  | Rollout restart node             | `target`                                                       |
 | `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`, `max_tps` |
-| `load-stop`                | Stop NLG load                    | `test_class`                                          |
-| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                         |
-| `network-status`           | Print network status             | (none)                                                |
-| `sleep`                    | Pause execution                  | `seconds`                                             |
-| `port-forward`             | Refresh port forwards            | (none)                                                |
-| `clear-block-storage`      | Clear all block data on node     | `target`                                              |
-| `deploy-block-node`        | Deploy new Block Node            | `name`, `backfill_sources`, `greedy`, `chart_version` |
-| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                       |
+| `load-stop`                | Stop NLG load                    | `test_class`                                                   |
+| `print-metrics`            | Print metrics summary            | `target` (node name or "all")                                  |
+| `network-status`           | Print network status             | (none)                                                         |
+| `sleep`                    | Pause execution                  | `seconds`                                                      |
+| `port-forward`             | Refresh port forwards            | (none)                                                         |
+| `clear-block-storage`      | Clear all block data on node     | `target`                                                       |
+| `deploy-block-node`        | Deploy new Block Node            | `name`, `backfill_sources`, `greedy`, `chart_version`          |
+| `reconfigure-cn-streaming` | Update CN block-nodes.json       | `consensus_node`, `block_nodes`                                |
 
 ### Assertion Types
 
