@@ -233,7 +233,7 @@ services:
 
 ## Requirements
 
-* **Java JDK 21** or later
+* **Java JDK 25** or later
 * For GCP-related commands (downloading from buckets):
   * Google Cloud SDK with authentication configured
   * A GCP project with billing enabled for requester-pays access
@@ -278,4 +278,4 @@ gcloud auth login
 * Code is organized under the `org.hiero.block.tools` package
 * The top-level entrypoint is `BlockStreamTool` which registers all subcommands
 * Each subcommand is a Picocli command class
-* Recommended Java: 21+
+* Recommended Java: 25+
