@@ -63,9 +63,6 @@ Before you begin, ensure you have:
 
    ```bash
    gcloud compute scp ~/Downloads/weaver-linux-amd64 <INSTANCE_NAME>:/home/<USER> --zone <ZONE> --project <PROJECT_ID>
-   ```
-7. Run the command to upload the file.
-8. When complete, the Weaver binary will be available on your VM at the specified path. (e.g., at **`/home/<USER>/weaver`).**
 
 - **Expected output**:
 
