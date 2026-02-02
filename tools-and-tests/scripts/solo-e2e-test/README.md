@@ -422,7 +422,8 @@ task test:validate TEST_FILE=tests/basic-load.yaml
 |              Test File               |                   Description                   |
 |--------------------------------------|-------------------------------------------------|
 | `tests/smoke-test.yaml`              | Quick validation of network functionality       |
-| `tests/basic-load.yaml`              | Basic load test with metrics validation         |
+| `tests/basic-load.yaml`              | Basic load test (1000 TPS cap)                  |
+| `tests/high-load.yaml`               | High load test (5000 TPS cap)                   |
 | `tests/node-restart-resilience.yaml` | BN recovery after restart during load           |
 | `tests/full-history-backfill.yaml`   | BN recovery via backfill after simulated outage |
 
@@ -445,6 +446,7 @@ events:                          # Events execute sequentially by delay
       concurrency: 5
       accounts: 10
       duration: 90
+      max_tps: 1000              # Optional TPS cap
 
 assertions:                      # Validations to run after all events
   - id: bn-has-blocks
@@ -465,7 +467,7 @@ assertions:                      # Validations to run after all events
 | `scale-down`               | Scale down (alias for node-down) | `target`                                              |
 | `scale-up`                 | Scale up (alias for node-up)     | `target`                                              |
 | `restart`                  | Rollout restart node             | `target`                                              |
-| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`   |
+| `load-start`               | Start NLG load                   | `test_class`, `concurrency`, `accounts`, `duration`, `max_tps` |
 | `load-stop`                | Stop NLG load                    | `test_class`                                          |
 | `print-metrics`            | Print metrics summary            | `target` (node name or "all")                         |
 | `network-status`           | Print network status             | (none)                                                |

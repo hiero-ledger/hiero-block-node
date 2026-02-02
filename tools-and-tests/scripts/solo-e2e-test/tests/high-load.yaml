@@ -1,31 +1,31 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# Basic Load Test
+# High Load Test
 #
 # Validates that all Block Nodes correctly receive and store blocks
-# under normal load conditions.
+# under high load conditions (5000 TPS).
 #
 # Prerequisites:
 #   - Any topology deployed (task up)
 #   - Port forwards active (task port-forward)
 #
 # Usage:
-#   task test:run TEST_FILE=tests/basic-load.yaml
+#   task test:run TEST_FILE=tests/high-load.yaml
 
-name: basic-load-test
-description: "Basic load test with metrics validation"
+name: high-load-test
+description: "High load test with 5000 TPS cap"
 
 events:
   - id: start-load
     type: load-start
-    description: "Start CryptoTransfer load"
+    description: "Start CryptoTransfer high load"
     delay: 10
     args:
       test_class: CryptoTransferLoadTest
-      concurrency: 5
-      accounts: 100
+      concurrency: 10
+      accounts: 15000
       duration: 420  # 7 minutes - ends at ~430s
-      max_tps: 1000
+      max_tps: 5000
 
   - id: early-metrics
     type: print-metrics

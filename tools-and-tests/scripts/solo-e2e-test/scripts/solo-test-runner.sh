@@ -160,16 +160,19 @@ function execute_load_start {
     local concurrency="${2:-5}"
     local accounts="${3:-10}"
     local duration="${4:-300}"
-    local extra_args="${5:-}"
+    local max_tps="${5:-}"
+    local extra_args="${6:-}"
 
     # Construct NLG_ARGS from test definition parameters
     local nlg_args="-c $concurrency -a $accounts -tt $duration"
     [[ -n "$extra_args" ]] && nlg_args="$nlg_args $extra_args"
 
     echo "Starting NLG (async): class=$test_class args='$nlg_args'"
+    [[ -n "$max_tps" ]] && echo "  Max TPS: $max_tps"
 
     export DEPLOYMENT NAMESPACE
     export NLG_ARGS="$nlg_args"
+    [[ -n "$max_tps" ]] && export NLG_MAX_TPS="$max_tps"
 
     # Run in background so test can continue
     "${SCRIPT_DIR}/solo-load-generate.sh" start &
@@ -482,13 +485,14 @@ function execute_event {
 
     case "$event_type" in
         load-start)
-            local test_class concurrency accounts duration extra_args
+            local test_class concurrency accounts duration max_tps extra_args
             test_class=$(echo "$args" | yq '.test_class // "CryptoTransferLoadTest"')
             concurrency=$(echo "$args" | yq '.concurrency // 5')
             accounts=$(echo "$args" | yq '.accounts // 10')
             duration=$(echo "$args" | yq '.duration // 300')
+            max_tps=$(echo "$args" | yq '.max_tps // ""')
             extra_args=$(echo "$args" | yq '.extra_args // ""')
-            execute_load_start "$test_class" "$concurrency" "$accounts" "$duration" "$extra_args"
+            execute_load_start "$test_class" "$concurrency" "$accounts" "$duration" "$max_tps" "$extra_args"
             ;;
         load-stop)
             local test_class
