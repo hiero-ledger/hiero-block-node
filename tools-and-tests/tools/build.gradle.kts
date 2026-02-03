@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 plugins {
-    id("application")
+    id("org.hiero.gradle.module.application")
     id("org.hiero.gradle.module.library")
     id("com.hedera.pbj.pbj-compiler")
     id("org.hiero.gradle.feature.legacy-classpath") // due to 'com.google.cloud.storage'
@@ -13,6 +13,7 @@ application { mainClass = "org.hiero.block.tools.BlockStreamTool" }
 
 mainModuleInfo {
     requires("org.hiero.block.protobuf.pbj")
+    requires("org.hiero.block.node.base")
     requires("com.hedera.pbj.runtime")
     requires("com.github.luben.zstd_jni")
     requires("com.google.api.gax")
@@ -21,6 +22,8 @@ mainModuleInfo {
     requires("com.google.cloud.storage")
     requires("com.google.gson")
     requires("info.picocli")
+    requires("org.apache.commons.compress")
+    requires("com.google.common.jimfs")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.grpc.netty")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
@@ -37,7 +40,11 @@ mainModuleInfo {
     requires("org.antlr.antlr4.runtime")
 }
 
-testModuleInfo { requires("org.junit.jupiter.api") }
+testModuleInfo {
+    requires("com.google.cloud.nio")
+    requires("org.junit.jupiter.api")
+    requires("org.junit.jupiter.params")
+}
 
 pbj { generateTestClasses = false }
 

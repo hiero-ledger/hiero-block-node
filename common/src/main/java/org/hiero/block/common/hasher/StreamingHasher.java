@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.common.hasher;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.LinkedList;
@@ -26,12 +27,8 @@ public class StreamingHasher {
     private long leafCount = 0;
 
     /** Create a new StreamingHasher with an empty state. */
-    public StreamingHasher() {
-        try {
-            digest = MessageDigest.getInstance("SHA-384");
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
+    public StreamingHasher() throws NoSuchAlgorithmException {
+        digest = MessageDigest.getInstance("SHA-384");
     }
 
     /**
@@ -40,9 +37,11 @@ public class StreamingHasher {
      *
      * @param intermediateHashingState the intermediate hashing state
      */
-    public StreamingHasher(List<byte[]> intermediateHashingState) {
+    public StreamingHasher(@NonNull List<byte[]> intermediateHashingState, @NonNull long leafCount)
+            throws NoSuchAlgorithmException {
         this();
         this.hashList.addAll(intermediateHashingState);
+        this.leafCount = leafCount;
     }
 
     /**

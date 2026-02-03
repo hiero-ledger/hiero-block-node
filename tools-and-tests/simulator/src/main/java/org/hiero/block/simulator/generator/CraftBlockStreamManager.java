@@ -15,6 +15,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.lang.System.Logger;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -29,6 +30,7 @@ import java.util.regex.Pattern;
 import org.hiero.block.common.hasher.Hashes;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
+import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.simulator.config.data.BlockGeneratorConfig;
@@ -83,6 +85,9 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final BlockGeneratorConfig blockGeneratorConfig;
     private final SimulatorStartupData simulatorStartupData;
 
+    StreamingHasher rootHashOfAllBlockHashesTreeHasher;
+    Bytes ZERO_BLOCK_HASH = Bytes.wrap(new byte[48]);
+
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
      *
@@ -112,14 +117,38 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         this.stateChangesHasher = new NaiveStreamingTreeHasher();
         this.traceDataHasher = new NaiveStreamingTreeHasher();
         this.simulatorStartupData = simulatorStartupData;
-        this.currentBlockNumber = simulatorStartupData.getLatestAckBlockNumber() + 1L;
-        this.previousBlockHash = simulatorStartupData.getLatestAckBlockHash();
+        // currently we are not supporting startup saved data due to the calculation of the
+        // root hash of all block hashes tree hasher
+        this.currentBlockNumber = 0;
+        this.previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
         LOGGER.log(INFO, "Block Stream Simulator will use Craft mode for block management");
 
         // Unordered streaming
         unorderedStreamingEnabled = unorderedStreamConfig.enabled();
         if (unorderedStreamingEnabled) {
             initUnorderedStreaming(simulatorStartupData, unorderedStreamConfig);
+        }
+
+        // init root hash of all block hashes tree hasher
+        initRootHashOfAllBlockHashesTreeHasher();
+
+        if (simulatorStartupData.getLatestAckBlockNumber() >= 0) {
+            final long targetBlock = simulatorStartupData.getLatestAckBlockNumber() + 1L;
+            resetToBlock(targetBlock);
+        }
+    }
+
+    /***
+     * Initializes the hasher for the root hash of all block hashes tree.
+     * currently only supports from genesis, in the future we might consider
+     * initializing from saved state on file.
+     */
+    private void initRootHashOfAllBlockHashesTreeHasher() {
+        try {
+            this.rootHashOfAllBlockHashesTreeHasher = new StreamingHasher();
+            this.rootHashOfAllBlockHashesTreeHasher.addLeaf(ZERO_BLOCK_HASH.toByteArray());
+        } catch (NoSuchAlgorithmException e) {
+            LOGGER.log(ERROR, "Error initializing rootHashOfAllBlockHashesTreeHasher", e);
         }
     }
 
@@ -187,13 +216,39 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
     @Override
     public void resetToBlock(final long block) {
-        currentBlockNumber = block;
+        try {
+            LOGGER.log(DEBUG, "Resetting to block number {0}. current block number = {1}", block, currentBlockNumber);
+            // if current block is bigger, we reset state and start from 0 up to block
+            if (currentBlockNumber > block) {
+                LOGGER.log(
+                        DEBUG,
+                        "Current block number {0} is greater than target block number {1}. Resetting state and starting from block 0.",
+                        currentBlockNumber,
+                        block);
+                resetState();
+                currentBlockNumber = 0;
+                previousBlockHash = ZERO_BLOCK_HASH.toByteArray();
+                initRootHashOfAllBlockHashesTreeHasher();
+            }
+
+            while (currentBlockNumber < block) {
+                createNextBlock();
+            }
+            LOGGER.log(
+                    DEBUG,
+                    "Reset to block number {0} completed. current block number = {1}",
+                    block,
+                    currentBlockNumber);
+        } catch (BlockSimulatorParsingException | ParseException e) {
+            LOGGER.log(ERROR, "Error while resetting to block " + block, e);
+            throw new RuntimeException(e);
+        }
     }
 
     private Block createNextBlock() throws BlockSimulatorParsingException, ParseException {
-        LOGGER.log(DEBUG, "Started creation of block number %s.".formatted(currentBlockNumber));
-        // todo(683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of keeping
-        // and unparsing.
+        LOGGER.log(DEBUG, "Started creation of block number {0}.", currentBlockNumber);
+        // @todo(#683) Refactor common hasher to accept protoc types, in order to avoid the additional overhead of
+        // keeping and unparsing.
         final List<BlockItemUnparsed> blockItemsUnparsed = new ArrayList<>();
         final List<ItemHandler> items = new ArrayList<>();
 
@@ -201,14 +256,12 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         items.add(headerItemHandler);
         blockItemsUnparsed.add(headerItemHandler.unparseBlockItem());
         currentBlockHeader = headerItemHandler.getItem().getBlockHeader();
-
-        final int eventsNumber = random.nextInt(minEventsPerBlock, maxEventsPerBlock);
+        final int eventsNumber = minEventsPerBlock; // for deterministic testing
         for (int i = 0; i < eventsNumber; i++) {
             final ItemHandler eventHeaderHandler = new EventHeaderHandler();
             items.add(eventHeaderHandler);
             blockItemsUnparsed.add(eventHeaderHandler.unparseBlockItem());
-
-            final int transactionsNumber = random.nextInt(minTransactionsPerEvent, maxTransactionsPerEvent);
+            final int transactionsNumber = minTransactionsPerEvent; // for deterministic testing
             for (int j = 0; j < transactionsNumber; j++) {
                 final ItemHandler eventTransactionHandler = new SignedTransactionHandler();
                 items.add(eventTransactionHandler);
@@ -220,11 +273,15 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             }
         }
 
-        LOGGER.log(DEBUG, "Appending %s number of block items in this block.".formatted(items.size()));
+        LOGGER.log(DEBUG, "Appending {0} number of block items in this block.", items.size());
 
         processBlockItems(blockItemsUnparsed);
 
-        ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash);
+        byte[] rootHashOfAllBlockHashesTree = null;
+        if (rootHashOfAllBlockHashesTreeHasher != null) {
+            rootHashOfAllBlockHashesTree = rootHashOfAllBlockHashesTreeHasher.computeRootHash();
+        }
+        ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash, rootHashOfAllBlockHashesTree);
         items.add(footerItemHandler);
         currentBlockFooter = footerItemHandler.getItem().getBlockFooter();
 
@@ -239,7 +296,14 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         ItemHandler proofItemHandler = new BlockProofHandler(currentBlockHash, currentBlockNumber);
         items.add(proofItemHandler);
+        LOGGER.log(DEBUG, "Created block number {0} with hash {1}", currentBlockNumber, Bytes.wrap(currentBlockHash));
+
+        if (rootHashOfAllBlockHashesTreeHasher != null) {
+            rootHashOfAllBlockHashesTreeHasher.addLeaf(currentBlockHash);
+        }
+
         resetState();
+
         return Block.newBuilder()
                 .addAllItems(items.stream().map(ItemHandler::getItem).toList())
                 .build();
@@ -254,14 +318,15 @@ public class CraftBlockStreamManager implements BlockStreamManager {
                         Bytes.wrap(currentBlockFooter.toByteArray()));
 
         currentBlockHash = HashingUtilities.computeFinalBlockHash(
-                        blockHeader,
-                        blockFooter,
+                        blockHeader.blockTimestamp(),
+                        blockFooter.previousBlockRootHash(),
+                        blockFooter.rootHashOfAllBlockHashesTree(),
+                        blockFooter.startOfBlockStateRootHash(),
                         inputTreeHasher,
                         outputTreeHasher,
                         consensusHeaderHasher,
                         stateChangesHasher,
-                        traceDataHasher,
-                        Bytes.EMPTY)
+                        traceDataHasher)
                 .toByteArray();
     }
 
@@ -352,7 +417,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             // this condition is not supposed to be met when valid configurations are provided
             // maxAttempts variable serves for endless loop prevention in case of inaccurate config inputs
             if (list.equals(originalList)) {
-                LOGGER.log(WARNING, "Scramble unsuccessful after " + maxAttempts + " attempts");
+                LOGGER.log(WARNING, "Scramble unsuccessful after {0} attempts", maxAttempts);
             }
         }
     }

@@ -79,3 +79,30 @@ spec:
     requests:
       storage: 5Gi
   volumeName: logging-storage-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: verification-storage-pv
+  namespace: <NAMESPACE>
+spec:
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 1Gi
+  hostPath:
+    path: /mnt/fast-storage/verification
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: verification-storage-pvc
+  namespace: <NAMESPACE>
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  volumeName: verification-storage-pv

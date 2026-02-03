@@ -32,6 +32,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
@@ -54,6 +55,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private Counter blockBackfilledNotificationsCounter;
     /** Counter for notifications issued after the newest block known to network */
     private Counter newestBlockKnownToNetworkNotificationsCounter;
+    /** Counter for publisher status update notifications sent */
+    private Counter publisherStatusUpdateNotificationsCounter;
 
     /** Gauge for active item listeners */
     private LongGauge itemListenersGauge;
@@ -248,6 +251,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         new Counter.Config(METRICS_CATEGORY, "messaging_newest_block_known_to_network_notifications")
                                 .withDescription("Notifications issued after the newest block known to network"));
 
+        publisherStatusUpdateNotificationsCounter = context.metrics()
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_publisher_status_update_notifications")
+                        .withDescription("Notifications issued for publisher status updates"));
+
         // Initialize gauges
         itemListenersGauge = context.metrics()
                 .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "messaging_no_of_item_listeners")
@@ -430,7 +437,12 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBlockPersisted(PersistedNotification notification) {
         messageForwarder.submit(() -> {
-            LOGGER.log(TRACE, "Sending block persisted notification: " + notification);
+            LOGGER.log(
+                    TRACE,
+                    "Sending block persisted notification: block={0} succeeded={1} source={2}",
+                    notification.blockNumber(),
+                    notification.succeeded(),
+                    notification.blockSource());
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             blockPersistedNotificationsCounter.increment();
         });
@@ -442,7 +454,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendBackfilledBlockNotification(BackfilledBlockNotification notification) {
         messageForwarder.submit(() -> {
-            LOGGER.log(TRACE, "Sending backfilled block notification: {0}", notification);
+            LOGGER.log(TRACE, "Sending backfilled block notification: block={0}", notification.blockNumber());
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             blockBackfilledNotificationsCounter.increment();
         });
@@ -451,9 +463,18 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
         messageForwarder.submit(() -> {
-            LOGGER.log(TRACE, "Sending NewestBlockKnownToNetwork notification: " + notification);
+            LOGGER.log(TRACE, "Sending NewestBlockKnownToNetwork notification: block={0}", notification.blockNumber());
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             newestBlockKnownToNetworkNotificationsCounter.increment();
+        });
+    }
+
+    @Override
+    public void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {
+        messageForwarder.submit(() -> {
+            LOGGER.log(TRACE, "Sending publisher status update notification: {0}", notification);
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            publisherStatusUpdateNotificationsCounter.increment();
         });
     }
 
@@ -474,6 +495,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.handleBackfilled(event.getBackfilledBlockNotification());
                     } else if (event.getNewestBlockKnownToNetworkNotification() != null) {
                         handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
+                    } else if (event.getPublisherStatusUpdateNotification() != null) {
+                        handler.handlePublisherStatusUpdate(event.getPublisherStatusUpdateNotification());
                     } else {
                         LOGGER.log(Level.INFO, "Received an event with no notification set");
                     }

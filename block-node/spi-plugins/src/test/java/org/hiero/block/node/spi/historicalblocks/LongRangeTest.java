@@ -37,12 +37,8 @@ class LongRangeTest {
         assertEquals(10, range3.start());
         assertEquals(10, range3.end());
 
-        // Test special case for clean state initialization
-        final LongRange cleanStateRange = new LongRange(-1, -1);
-        assertEquals(-1, cleanStateRange.start());
-        assertEquals(-1, cleanStateRange.end());
-
         // Test validation failures
+        assertThrows(IllegalArgumentException.class, () -> new LongRange(-1, -1));
         assertThrows(IllegalArgumentException.class, () -> new LongRange(-1, 5));
         assertThrows(IllegalArgumentException.class, () -> new LongRange(5, -1));
         assertThrows(IllegalArgumentException.class, () -> new LongRange(6, 5));
@@ -229,6 +225,47 @@ class LongRangeTest {
         merged = edgeRange.merge(new LongRange(50, Long.MAX_VALUE - 1));
         assertEquals(0, merged.start());
         assertEquals(Long.MAX_VALUE - 1, merged.end());
+    }
+
+    /**
+     * Tests the mergeContiguousRanges static method.
+     */
+    @Test
+    @DisplayName("mergeContiguousRanges() should merge overlapping and adjacent ranges")
+    void testMergeContiguousRanges() {
+        // Empty list
+        assertEquals(List.of(), LongRange.mergeContiguousRanges(List.of()));
+
+        // Single range
+        List<LongRange> single = List.of(new LongRange(5, 10));
+        assertEquals(single, LongRange.mergeContiguousRanges(single));
+
+        // Overlapping ranges
+        List<LongRange> overlapping = List.of(new LongRange(0, 10), new LongRange(5, 15));
+        List<LongRange> mergedOverlapping = LongRange.mergeContiguousRanges(overlapping);
+        assertEquals(1, mergedOverlapping.size());
+        assertEquals(new LongRange(0, 15), mergedOverlapping.getFirst());
+
+        // Adjacent ranges
+        List<LongRange> adjacent = List.of(new LongRange(0, 10), new LongRange(11, 20));
+        List<LongRange> mergedAdjacent = LongRange.mergeContiguousRanges(adjacent);
+        assertEquals(1, mergedAdjacent.size());
+        assertEquals(new LongRange(0, 20), mergedAdjacent.getFirst());
+
+        // Disjoint ranges (gap between them)
+        List<LongRange> disjoint = List.of(new LongRange(0, 10), new LongRange(50, 60));
+        List<LongRange> mergedDisjoint = LongRange.mergeContiguousRanges(disjoint);
+        assertEquals(2, mergedDisjoint.size());
+        assertEquals(new LongRange(0, 10), mergedDisjoint.get(0));
+        assertEquals(new LongRange(50, 60), mergedDisjoint.get(1));
+
+        // Multiple ranges, some overlapping, some adjacent, some disjoint
+        List<LongRange> mixed =
+                List.of(new LongRange(50, 60), new LongRange(0, 10), new LongRange(5, 15), new LongRange(16, 20));
+        List<LongRange> mergedMixed = LongRange.mergeContiguousRanges(mixed);
+        assertEquals(2, mergedMixed.size());
+        assertEquals(new LongRange(0, 20), mergedMixed.get(0));
+        assertEquals(new LongRange(50, 60), mergedMixed.get(1));
     }
 
     /**

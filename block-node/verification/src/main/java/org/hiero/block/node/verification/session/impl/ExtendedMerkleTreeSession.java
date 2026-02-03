@@ -2,7 +2,6 @@
 package org.hiero.block.node.verification.session.impl;
 
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
 
@@ -15,11 +14,13 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Predicate;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.session.VerificationSession;
@@ -43,8 +44,6 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     private final StreamingTreeHasher traceDataHasher;
     /** The source of the block, used to construct the final notification. */
     private final BlockSource blockSource;
-    /** The previous block hash, initialized to empty and updated as needed. */
-    private Bytes previousBlockHash = Bytes.EMPTY;
 
     /**
      * The block items for the block this session is responsible for. We collect them here so we can provide the
@@ -58,8 +57,26 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
     private List<BlockProof> blockProofs = new ArrayList<>();
 
-    public ExtendedMerkleTreeSession(final long blockNumber, final BlockSource blockSource) {
+    private final Bytes previousBlockHash;
+
+    private final Bytes allPreviousBlockRootHash;
+
+    /**
+     * Constructor for ExtendedMerkleTreeSession.
+     *
+     * @param blockNumber the block number
+     * @param blockSource the source of the block
+     * @param previousBlockHash the previous block hash, may be null
+     * @param allPreviousBlocksRootHash the all previous blocks root hash, may be null
+     */
+    public ExtendedMerkleTreeSession(
+            final long blockNumber,
+            final BlockSource blockSource,
+            final Bytes previousBlockHash,
+            final Bytes allPreviousBlocksRootHash) {
         this.blockNumber = blockNumber;
+        this.previousBlockHash = previousBlockHash;
+        this.allPreviousBlockRootHash = allPreviousBlocksRootHash;
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
@@ -70,9 +87,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         LOGGER.log(INFO, "Created ExtendedMerkleTreeSession for block {0}", blockNumber);
     }
 
-    // todo(1661) implement the real logic here, for now just return true if last item has block proof.
     @Override
-    public VerificationNotification processBlockItems(List<BlockItemUnparsed> blockItems) throws ParseException {
+    public VerificationNotification processBlockItems(BlockItems blockItemsMessage) throws ParseException {
+        List<BlockItemUnparsed> blockItems = blockItemsMessage.blockItems();
 
         // collect block items
         this.blockItems.addAll(blockItems);
@@ -99,11 +116,36 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             }
         }
 
-        // since we are only expecting 1 block proof per block, we can finalize verification here
-        // however in the future, we might want to revisit this if we expect multiple proofs
-        // and use the EndOfBlock signal to finalize verification.
-        if (blockFooter != null && blockProofs.size() > 0) {
-            return finalizeVerification(blockProofs.get(0));
+        if (blockItemsMessage.isEndOfBlock()) {
+            return finalizeVerification(allPreviousBlockRootHash, previousBlockHash);
+        }
+        return null;
+    }
+
+    public VerificationNotification finalizeVerification(Bytes rootHashOfAllBlockHashesTree, Bytes previousBlockHash) {
+        // since we always need block footer to finalize, we check for its presence
+        if (this.blockFooter == null) {
+            // return failed verification notification
+            return new VerificationNotification(false, blockNumber, null, null, blockSource);
+        }
+
+        // if provided, use the provided root hash of all previous block hashes tree, otherwise use the one from the
+        // footer
+        Bytes rootOfAllPreviousBlockHashes = rootHashOfAllBlockHashesTree != null
+                ? rootHashOfAllBlockHashesTree
+                : this.blockFooter.rootHashOfAllBlockHashesTree();
+        // if provided, use the provided previous block hash, otherwise use the one from the footer
+        Bytes previousBlockHashToUse =
+                previousBlockHash != null ? previousBlockHash : this.blockFooter.previousBlockRootHash();
+        // while we don't have state management, we use the start of block state root hash from the footer
+        Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
+
+        // for now, we only support TSS based signature proofs, we expect only 1 of these.
+        // @todo(2019) extend to support other proof types as well
+        BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
+        if (tssBasedProof != null) {
+            return getVerificationResult(
+                    tssBasedProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
         }
 
         // was not able to finalize verification yet
@@ -117,33 +159,25 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * @param blockProof the block proof
      * @return VerificationNotification indicating the result of the verification
      */
-    protected VerificationNotification finalizeVerification(BlockProof blockProof) {
+    protected VerificationNotification getVerificationResult(
+            BlockProof blockProof,
+            Bytes previousBlockHash,
+            Bytes rootOfAllPreviousBlockHashes,
+            Bytes startOfBlockStateRootHash) {
 
-        // pre-checks
-        if (previousBlockHash != Bytes.EMPTY
-                && !blockFooter.previousBlockRootHash().equals(previousBlockHash)) {
-            LOGGER.log(WARNING, "Block {0} previous block hash does not match expected value.", blockNumber);
-            return new VerificationNotification(false, blockNumber, Bytes.EMPTY, null, blockSource);
-        }
-
-        // @todo(1906) we might want to send the rootOfAllPreviousBlockHashes that we calculate here to not rely only on
-        // the block_footer. also add the field to the pre-checks to make sure is the same.
-        // we should also include a verification.
         final Bytes blockRootHash = HashingUtilities.computeFinalBlockHash(
-                blockHeader,
-                blockFooter,
+                blockHeader.blockTimestamp(),
+                previousBlockHash,
+                rootOfAllPreviousBlockHashes,
+                startOfBlockStateRootHash,
                 inputTreeHasher,
                 outputTreeHasher,
                 consensusHeaderHasher,
                 stateChangesHasher,
-                traceDataHasher,
-                previousBlockHash);
+                traceDataHasher);
 
         final boolean verified =
                 verifySignature(blockRootHash, blockProof.signedBlockProof().blockSignature());
-
-        // set the previous block hash for the next block
-        previousBlockHash = blockRootHash;
 
         return new VerificationNotification(
                 verified, blockNumber, blockRootHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);
@@ -163,5 +197,16 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // Dummy implementation
         // signature = is Hash384( BlockHash )
         return signature.equals(noThrowSha384HashOf(hash));
+    }
+
+    public static <T> T getSingle(List<T> list, Predicate<T> predicate) {
+        List<T> filtered = list.stream().filter(predicate).toList();
+
+        if (filtered.size() != 1) {
+            throw new IllegalStateException(String.format(
+                    "Expected exactly 1 element matching predicate [%s], but found %d.", predicate, filtered.size()));
+        }
+
+        return filtered.get(0);
     }
 }

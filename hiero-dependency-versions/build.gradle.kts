@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
     api(platform("io.netty:netty-bom:4.2.9.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.73.0"))
+    api(platform("com.google.cloud:libraries-bom:26.75.0"))
 }
 
 dependencies.constraints {
-    val daggerVersion = "2.57.2"
+    val daggerVersion = "2.59"
     val grpcIoVersion = "1.78.0"
-    val helidonVersion = "4.3.3"
+    val helidonVersion = "4.3.4"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
-    val protobufVersion = "4.33.2"
+    val protobufVersion = "4.33.5"
     val swirldsVersion = "0.61.3"
     val mockitoVersion = "5.21.0"
     val testContainersVersion = "1.21.4"
@@ -66,8 +66,8 @@ dependencies.constraints {
 
     // Testing only versions
     api("com.github.docker-java:docker-java-api:3.7.0") { because("com.github.dockerjava.api") }
-    api("org.assertj:assertj-core:3.27.6") { because("org.assertj.core") }
-    api("org.junit.jupiter:junit-jupiter-api:6.0.1") { because("org.junit.jupiter.api") }
+    api("org.assertj:assertj-core:3.27.7") { because("org.assertj.core") }
+    api("org.junit.jupiter:junit-jupiter-api:6.0.2") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
         because("org.mockito.junit.jupiter")
@@ -77,9 +77,6 @@ dependencies.constraints {
     }
     api("org.testcontainers:testcontainers:${testContainersVersion}") {
         because("org.testcontainers")
-    }
-    api("com.google.auto.service:auto-service:1.1.1") {
-        because("com.google.auto.service.processor")
     }
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
     api("io.minio:minio:8.5.17") { because("io.minio") }

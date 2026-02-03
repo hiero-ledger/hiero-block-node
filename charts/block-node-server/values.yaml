@@ -113,12 +113,16 @@ blockNode:
           chmod 700 /live-pvc/live-data && \
           mkdir -p /archive-pvc/archive-data && \
           chown 2000:2000 /archive-pvc/archive-data && \
-          chmod 700 /archive-pvc/archive-data
+          chmod 700 /archive-pvc/archive-data && \
+          chown 2000:2000 /verification-pvc && \
+          chmod 700 /verification-pvc
       volumeMounts:
         - name: live-storage
           mountPath: /live-pvc
         - name: archive-storage
           mountPath: /archive-pvc
+        - name: verification-storage
+          mountPath: /verification-pvc
   # if blank will use same as AppVersion of chart.
   version: ""
   config:
@@ -172,6 +176,16 @@ blockNode:
       # storageClass: "your-storage-class"
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "my-live-pvc"
+    verification:
+      # name of the volume within the statefulset
+      volumeName: "verification-storage"
+      # should match VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH parent directory
+      mountPath: "/opt/hiero/block-node/verification"
+      size: 1Gi
+      # Optionally add a storage class name if needed
+      # storageClass: "your-storage-class"
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "my-verification-pvc"
   # For secrets, is recommended to use a secretRef to an existing secret on the cluster.
   # secretRef: secret-name-reference
   # not recommended to use this, but for testing purposes you can use the following collection for secrets auto-creation

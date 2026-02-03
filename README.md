@@ -31,7 +31,7 @@ The Block Node will also expose additional targeted value adding APIs to the Hie
 
 ## Prerequisites
 
-- Java 21 (temurin recommended)
+- Java 25 (temurin recommended)
 - Gradle (using the wrapper `./gradlew` is highly recommended)
 - Docker (recommended for running the projects)
 - IntelliJ IDEA (recommended for development)
@@ -42,7 +42,7 @@ The Block Node will also expose additional targeted value adding APIs to the Hie
 - [`simulator`](docs/simulator/README.md): A simulator for the Block Node, which can be used to test the Block Node in a local environment.
 - `common`: Module responsible for holding common literals, utilities and types used by the other modules.
 - `suites`: A set of e2e tests that can be used to verify the correctness of the Block Node.
-- `tools`: A set of command line tools for working with Block Stream files.
+- [tools](tools-and-tests/tools/README.md): A set of command line tools for working with Block Stream files.
 
 ## Getting Started
 

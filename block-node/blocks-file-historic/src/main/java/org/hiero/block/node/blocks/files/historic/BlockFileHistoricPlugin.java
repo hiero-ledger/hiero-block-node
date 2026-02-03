@@ -8,6 +8,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
+import static org.hiero.block.node.blocks.files.historic.BlockPath.computeBlockPath;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -84,7 +85,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private Path stagingPath;
     /** root path for temporary hard links to zip files */
     private Path linksRootPath;
-
+    /** Path where we create zip files before moving them to the links root path */
+    private Path zipWorkRootPath;
     // Metrics
     /** Counter for blocks written to the historic tier */
     private Counter blocksWrittenCounter;
@@ -123,6 +125,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final Path dataRootPath = config.rootPath();
             linksRootPath = dataRootPath.resolve("links");
             stagingPath = dataRootPath.resolve("staging");
+            zipWorkRootPath = dataRootPath.resolve("zipwork");
             Files.createDirectories(stagingPath);
             nestedDirectoriesAllBlockNumbers(stagingPath, config.compression()).forEach(blockNumber -> {
                 availableStagedBlocks.add(blockNumber);
@@ -131,13 +134,18 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             if (Files.isDirectory(linksRootPath, LinkOption.NOFOLLOW_LINKS)) {
                 Files.walkFileTree(linksRootPath, new RecursiveFileDeleteVisitor());
             }
+            if (Files.isDirectory(zipWorkRootPath, LinkOption.NOFOLLOW_LINKS)) {
+                Files.walkFileTree(zipWorkRootPath, new RecursiveFileDeleteVisitor());
+            }
             Files.createDirectories(dataRootPath);
             Files.createDirectories(linksRootPath);
+            Files.createDirectories(zipWorkRootPath);
             // register to listen to block notifications
             context.blockMessaging().registerBlockNotificationHandler(this, false, "Blocks Files Historic");
             numberOfBlocksPerZipFile = intPowerOfTen(config.powersOfTenPerZipFileContents());
             // create the executor service for moving blocks to zip files
             zipMoveExecutorService = context.threadPoolManager().createSingleThreadExecutor("FilesHistoricZipMove");
+            renameOldFormatArchives(config.rootPath());
             zipBlockArchive = new ZipBlockArchive(context, config);
             // get the first and last block numbers from the zipBlockArchive
             final long firstZippedBlock = zipBlockArchive.minStoredBlockNumber();
@@ -169,6 +177,28 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // ------------------------------------
             // DO NOT shutdown the server, handle this correctly instead.
             context.serverHealth().shutdown(name(), "Could not create root directory");
+        }
+    }
+
+    /**
+     * Renames all old format archive files in the provided path.
+     *
+     * <p>This method walks through the provided directory (recursively) and renames all zip files
+     * that end with {@code *s.zip} to remove the {@code s} suffix. For example:
+     * <ul>
+     *   <li>{@code 0000s.zip} becomes {@code 0000.zip}</li>
+     *   <li>{@code 1000s.zip} becomes {@code 1000.zip}</li>
+     * </ul>
+     */
+    void renameOldFormatArchives(final Path archivesPath) {
+        try {
+            // Only attempt renaming if the archives path exists
+            if (Files.exists(archivesPath) && Files.isDirectory(archivesPath, LinkOption.NOFOLLOW_LINKS)) {
+                LOGGER.log(INFO, "Checking for old format archive files to rename in {0}", archivesPath);
+                Files.walkFileTree(archivesPath, new OldFormatArchiveRenameVisitor());
+            }
+        } catch (final IOException e) {
+            LOGGER.log(WARNING, "Failed to rename old format archives", e);
         }
     }
 
@@ -343,12 +373,26 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     }
 
     private void attemptZipping() {
-        // compute the min and max block in next batch to zip
-        // since we ensure no gaps in the zip file are possible, and also we
-        // have a power of 10 number of blocks per zip file, it is safe to
-        // simply add +1 to the latest available block number and have that as
-        // the start of the next batch of blocks to zip
-        long minBlockNumber = availableBlocks.max() + 1;
+        // compute the min and max block in next batch to zip, starting from the available blocks in
+        // the staging area
+
+        // when the plugin is started, we attempt to zip whatever is there, but we need to handle the case
+        // where the staging area is empty. there we simply return
+        long minimumStaged = availableStagedBlocks.min();
+        if (minimumStaged == UNKNOWN_BLOCK_NUMBER) {
+            return;
+        }
+
+        // if there are blocks in the staging area (e.g. block was verified or staging is not empty
+        // upon plugin start), the minimum block we will try to zip is calculated by the formula:
+        // minimalBlockInStaging subtracted by minimustBlockInStaging modulo numberOfBlocksPerZipFile.
+        // if for example the number of blocks per zip is 100 (always a power of ten) and the minimum
+        // block we found in staging is 154, then: 154 % 100 = 54, then 154 - 54 = 100
+        // thus our minBlockNumber is 100.
+        // maxBlockNumber is calculated by adding the number of blocks per zip file to the minimum block number
+        // and then subtracting 1. e.g. if minBlockNumber is 100 and numberOfBlocksPerZipFile is 100,
+        // then maxBlockNumber is 100 + 100 - 1 = 199.
+        long minBlockNumber = minimumStaged - (minimumStaged % numberOfBlocksPerZipFile);
         long maxBlockNumber = minBlockNumber + numberOfBlocksPerZipFile - 1;
         // while we can zip blocks, we must keep zipping
         // we loop here because the historical block facility can have
@@ -367,15 +411,60 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // this pre-check asserts the min and max are contained however,
             // not the whole range, this will be asserted when we gather the batch
             final boolean blocksAvailablePreCheck = availableStagedBlocks.contains(minBlockNumber, maxBlockNumber);
+            // avoid zipping same batch twice
+            final boolean alreadyZipped = isRangeAlreadyZipped(minBlockNumber, maxBlockNumber);
             if (isValidStart && blocksAvailablePreCheck) {
-                final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
-                // move the batch of blocks to a zip file
-                startMovingBatchOfBlocksToZipFile(batchRange);
+                if (!config.overwriteExistingArchives() && alreadyZipped) {
+                    LOGGER.log(INFO, "Batch [{0}, {1}] already zipped, skipping", minBlockNumber, maxBlockNumber);
+                } else {
+                    final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
+                    // move the batch of blocks to a zip file
+                    startMovingBatchOfBlocksToZipFile(batchRange);
+                }
             }
             // try the next batch just in case there is more than one that became available
             minBlockNumber += numberOfBlocksPerZipFile;
             maxBlockNumber += numberOfBlocksPerZipFile;
         }
+    }
+
+    /**
+     * Checks if a range of blocks has already been archived to a zip file.
+     * This method performs a two-tier check to ensure data consistency:
+     * <ol>
+     *   <li>Fast path: Checks the in-memory {@link #availableBlocks} cache</li>
+     *   <li>Fallback: Verifies the zip file exists on disk for data integrity</li>
+     * </ol>
+     *
+     * <p>If a zip file exists on disk but is not tracked in {@code availableBlocks},
+     * the in-memory cache is automatically reconciled to reflect the actual state.
+     * This handles scenarios such as:
+     * <ul>
+     *   <li>Plugin restart where disk state was not fully loaded</li>
+     *   <li>Manual file operations that bypassed the plugin</li>
+     *   <li>Recovery from partial failures during initialization</li>
+     * </ul>
+     *
+     * @param minBlockNumber The first block number in the range to check (inclusive)
+     * @param maxBlockNumber The last block number in the range to check (inclusive)
+     * @return {@code true} if the range is already archived in a zip file,
+     *         {@code false} if the range needs to be zipped
+     */
+    private boolean isRangeAlreadyZipped(final long minBlockNumber, final long maxBlockNumber) {
+        // Check in-memory tracking first (fast)
+        if (availableBlocks.contains(minBlockNumber, maxBlockNumber)) {
+            return true;
+        }
+
+        // Additional check: verify zip file exists on disk (slower but more reliable)
+        final Path zipPath = BlockPath.computeBlockPath(config, minBlockNumber).zipFilePath();
+        if (Files.exists(zipPath)) {
+            // Update availableBlocks in-memory cache to reflect reality
+            availableBlocks.add(minBlockNumber, maxBlockNumber);
+            return true;
+        }
+
+        return false;
     }
 
     private void cleanup() {
@@ -465,8 +554,32 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // move the batch of blocks to a zip file
                 final String startMessage = "Moving batch of blocks [{0} -> {1}] to zip file.";
                 LOGGER.log(TRACE, startMessage, batchFirstBlockNumber, batchLastBlockNumber);
-                // Write the zip file and get result with file size
-                final long zipFileSize = zipBlockArchive.writeNewZipFile(blockAccessors);
+
+                // compute the exact path where we need to move the created zip file
+                final BlockPath firstBlockPath = computeBlockPath(config, blockAccessors.getFirstBlockNumber());
+
+                // Compute the file name of the work zip directory so that if zipping fails, we don't leave
+                // traces in the actual data area
+                final Path zipWorkPath =
+                        zipWorkRootPath.resolve(firstBlockPath.zipFilePath().getFileName());
+
+                // Write the zip file in the zip work area
+                zipBlockArchive.createZip(blockAccessors, zipWorkPath);
+
+                // if we have reached here, this means that the zip file was created
+                // successfully in the work zip area
+                final long zipFileSize = Files.size(zipWorkPath);
+
+                // create staging area directories if they don't exist
+                Files.createDirectories(firstBlockPath.dirPath());
+                if (config.overwriteExistingArchives()) {
+                    Files.deleteIfExists(firstBlockPath.zipFilePath());
+                }
+                // move the file from the work zip area to the data area by creating a hard link
+                // and then deleting the source file
+                Files.createLink(firstBlockPath.zipFilePath(), zipWorkPath);
+                Files.deleteIfExists(zipWorkPath);
+
                 // Metrics updates
                 // Update total bytes stored with the new zip file size
                 totalBytesStored.addAndGet(zipFileSize);
@@ -478,8 +591,14 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     Path path = BlockFile.nestedDirectoriesBlockFilePath(
                             stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
                     if (Files.exists(path)) {
-                        Files.delete(path);
-                        availableStagedBlocks.remove(blockNumber);
+                        try {
+                            Files.delete(path);
+                            availableStagedBlocks.remove(blockNumber);
+                        } catch (final IOException e) {
+                            final String message = "Failed to delete staging file for block %d located at %s"
+                                    .formatted(blockNumber, path.toFile().getAbsolutePath());
+                            LOGGER.log(INFO, message, e);
+                        }
                     }
                 }
                 // -----------------------------------------------
@@ -499,6 +618,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             final String failMessage = "Failed to move batch of blocks [%d -> %d] to zip file"
                     .formatted(batchFirstBlockNumber, batchLastBlockNumber);
             LOGGER.log(WARNING, failMessage, e);
+            cleanupZipWorkFiles();
         } finally {
             // always make sure to remove the batch of blocks from in progress ranges
             inProgressZipRanges.remove(batchRange);
@@ -538,10 +658,31 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     }
 
     /**
+     * This method deletes any remaining zip files in the work area.
+     * We know that it doesn't contain any subdirectories, so Files.delete is safe to use.
+     */
+    private void cleanupZipWorkFiles() {
+        try (var files = Files.list(zipWorkRootPath)) {
+            files.forEach(file -> {
+                try {
+                    Files.delete(file);
+                } catch (IOException e) {
+                    final String msg = "Failed to delete work zip file: %s".formatted(file);
+                    LOGGER.log(INFO, msg, e);
+                }
+            });
+        } catch (IOException e) {
+            final String msg = "Failed to list work zip files in %s".formatted(zipWorkRootPath);
+            LOGGER.log(INFO, msg, e);
+        }
+    }
+
+    /**
      * A basic file visitor to recursively delete files and directories up to
      * the provided root.
      */
     private static class RecursiveFileDeleteVisitor implements FileVisitor<Path> {
+
         @Override
         public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
             Objects.requireNonNull(dir);
@@ -567,6 +708,58 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 throws IOException {
             if (e == null) {
                 Files.delete(Objects.requireNonNull(dir));
+                return CONTINUE;
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * A file visitor that traverses the directory tree and renames zip files from the old format ({@code *s.zip}) to the
+     * new format ({@code *.zip}).
+     */
+    private class OldFormatArchiveRenameVisitor implements FileVisitor<Path> {
+
+        @Override
+        public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) {
+            Objects.requireNonNull(dir);
+            return CONTINUE;
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult visitFile(@NonNull final Path file, @NonNull final BasicFileAttributes attrs) {
+            Objects.requireNonNull(file);
+            final String fileName = file.getFileName().toString();
+
+            // Check if the file ends with "s.zip" (old format)
+            if (fileName.endsWith("s.zip")) {
+                try {
+                    // Remove the 's' before '.zip' to create the new name
+                    final String newFileName = fileName.substring(0, fileName.length() - 5) + ".zip";
+                    final Path newPath = file.getParent().resolve(newFileName);
+
+                    // Rename the file
+                    Files.move(file, newPath);
+                    LOGGER.log(INFO, "Renamed old format archive: {0} -> {1}", fileName, newFileName);
+                } catch (final IOException e) {
+                    LOGGER.log(INFO, "Failed to rename file: {0}", file, e);
+                }
+            }
+            return CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
+            throw Objects.requireNonNull(exc);
+        }
+
+        @Override
+        @NonNull
+        public FileVisitResult postVisitDirectory(@NonNull final Path dir, @Nullable final IOException e)
+                throws IOException {
+            if (e == null) {
                 return CONTINUE;
             } else {
                 throw e;

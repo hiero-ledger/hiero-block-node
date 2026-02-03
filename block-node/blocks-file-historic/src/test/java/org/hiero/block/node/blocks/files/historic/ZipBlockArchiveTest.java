@@ -64,6 +64,9 @@ class ZipBlockArchiveTest {
         Files.createDirectories(blocksRoot);
         linksTempDir = blocksRoot.resolve("links");
         Files.createDirectories(linksTempDir);
+        /** The path to the working zip root directory, where zip archives are created, used for testing. */
+        final Path zipWorkDir = blocksRoot.resolve("zipwork");
+        Files.createDirectories(zipWorkDir);
         testConfig = createTestConfiguration(blocksRoot, 1);
         // we need this test context because we need the health facility to be
         // available for the tests to run
@@ -147,9 +150,9 @@ class ZipBlockArchiveTest {
         void testMinStoredWithException() throws IOException {
             // create test environment, in this case we simply create an empty zip file which will produce
             // an exception when we attempt to look for an entry inside
-            final BlockPath computedBlockPath00s = BlockPath.computeBlockPath(testConfig, 0L);
-            Files.createDirectories(computedBlockPath00s.dirPath());
-            Files.createFile(computedBlockPath00s.zipFilePath());
+            final BlockPath computedBlockPath00 = BlockPath.computeBlockPath(testConfig, 0L);
+            Files.createDirectories(computedBlockPath00.dirPath());
+            Files.createFile(computedBlockPath00.zipFilePath());
             // assert that server is running before we call actual
             assertThat(testContext.serverHealth().isRunning()).isTrue();
             // call
@@ -334,13 +337,13 @@ class ZipBlockArchiveTest {
             assertThat(actual)
                     .isNotNull()
                     .isExactlyInstanceOf(ZipBlockAccessor.class)
-                    .extracting(BlockAccessor::block)
-                    .isEqualTo(expected.block());
+                    .extracting(BlockAccessor::blockUnparsed)
+                    .isEqualTo(expected.blockUnparsed());
         }
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#writeNewZipFile(BlockAccessorBatch)}  will successfully
+         * {@link ZipBlockArchive#createZip(BlockAccessorBatch, Path)}  will successfully
          * create the target zip file
          */
         @Test
@@ -362,8 +365,11 @@ class ZipBlockArchiveTest {
             final Path expected =
                     BlockPath.computeBlockPath(testConfig, firstBlockNumber).zipFilePath();
             assertThat(expected).doesNotExist();
+
+            Files.createDirectories(expected.getParent());
+
             // call
-            toTest.writeNewZipFile(batch);
+            toTest.createZip(batch, expected);
             // assert existing zip file
             assertThat(expected)
                     .exists()
@@ -376,7 +382,7 @@ class ZipBlockArchiveTest {
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#writeNewZipFile(BlockAccessorBatch)} will produce the right
+         * {@link ZipBlockArchive#createZip(BlockAccessorBatch, Path)} will produce the right
          * contents for the created zip file
          */
         @Test
@@ -403,8 +409,9 @@ class ZipBlockArchiveTest {
             final Path expected =
                     BlockPath.computeBlockPath(testConfig, firstBlockNumber).zipFilePath();
             assertThat(expected).doesNotExist();
+            Files.createDirectories(expected.getParent());
             // call
-            toTest.writeNewZipFile(batch);
+            toTest.createZip(batch, expected);
             // assert that each entry's contents matches what we initially intended
             // to write
             try (final FileSystem zipFs = FileSystems.newFileSystem(expected);
@@ -484,7 +491,7 @@ class ZipBlockArchiveTest {
     private FilesHistoricConfig createTestConfiguration(
             final Path blocksRoot, final int powersOfTenPerZipFileContents) {
         // for simplicity let's use no compression
-        return new FilesHistoricConfig(blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3);
+        return new FilesHistoricConfig(blocksRoot, CompressionType.NONE, powersOfTenPerZipFileContents, 0L, 3, false);
     }
 
     /**

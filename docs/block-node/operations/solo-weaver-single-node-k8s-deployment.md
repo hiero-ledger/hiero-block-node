@@ -30,15 +30,22 @@ Before you begin, ensure you have:
 4. Select a machine type appropriate for your Block Node profile:
    - **For a test or local profile**: Choose at least an **E2 standard** machine (for example, **`e2-standard-2`**) so that CPU and memory are sufficient.
    - **For production (**e.g.**, `mainnet` or `testnet`)**: Select at least ~16 CPUs (e.g., 8 physical cores / 16 vCPUs).
+
+     ![Solo Weaver GCP VM configuration](../../assets/block-node-solo-weaver-vm-create.png)
+
 5. Set the region and zone (defaults are fine unless you have a preference).
+
 6. Select the default boot disk and operating system unless your team has specific requirements.
+
 7. Leave other instance settings at defaults for a standard deployment.
+
 8. Click **Create** to launch the VM.
+
 9. Wait until the instance status is **Running** before proceeding.
 
 ### Step 2: Upload Weaver to the VM
 
-1. Download the appropriate Weaver binary to your local machine (see [Prerequisites](https://www.notion.so/Hiero-Block-Node-Cloud-Deployment-Guide-2b77c9ab259180fa9cc0e111cf9f77d0?pvs=21) for the correct file).
+1. Download the appropriate Weaver binary to your local machine (see [Prerequisites](#prerequisites) for the correct file).
 2. In the Google Cloud Console, open your VM’s details page.
 3. Select the **down arrow** next to **SSH**, then choose **View gcloud command**.
 4. Copy the suggested **`gcloud compute ssh`** command displayed.
@@ -55,10 +62,45 @@ Before you begin, ensure you have:
    Example command (update with your details):
 
    ```bash
-   gcloud compute scp ~/Downloads/weaver-linux-amd64 <INSTANCE_NAME>:/home/<USER>/weaver --zone <ZONE> --project <PROJECT_ID>
+   gcloud compute scp ~/Downloads/weaver-linux-amd64 <INSTANCE_NAME>:/home/<USER> --zone <ZONE> --project <PROJECT_ID>
+
    ```
-7. Run the command to upload the file.
-8. When complete, the Weaver binary will be available on your VM at the specified path. (e.g., at **`/home/<USER>/weaver`).**
+
+- **Expected output**:
+
+  ```bash
+
+  WARNING: The private SSH key file for gcloud does not exist.
+  WARNING: The public SSH key file for gcloud does not exist.
+  WARNING: You do not have an SSH key for gcloud.
+  WARNING: SSH keygen will be executed to generate a key.
+  Generating public/private rsa key pair.
+  Enter passphrase for "/home/local-user/.ssh/google_compute_engine" (empty for no passphrase):
+  Enter same passphrase again:
+  Your identification has been saved in /home/local-user/.ssh/google_compute_engine
+  Your public key has been saved in /home/local-user/.ssh/google_compute_engine.pub.
+  The key fingerprint is:
+  SHA256:EXAMPLEFINGERPRINTKEYSTRING local-user@example-host
+  The key's randomart image is:
+  +---[RSA 3072]----+
+  |        .o+*o    |
+  |       . =+B.o   |
+  |      . + .=* .  |
+  |       o . .o+ . |
+  |        .   .o . |
+  |             . . |
+  |              .  |
+  |                 |
+  |                 |
+  +----[SHA256]-----+
+  Updating project ssh metadata...done.
+  Updating instance ssh metadata...done.
+  Waiting for SSH key to propagate.
+  Warning: Permanently added 'compute.0000000000000000000' (ED25519) to the list of known hosts.
+  Enter passphrase for key '/home/local-user/.ssh/google_compute_engine':
+  weaver-linux-amd64                      100%   58MB   4.7MB/s   00:12
+
+  ```
 
 ### Step 3: Connect to VM and Prepare Weaver
 
@@ -69,7 +111,26 @@ Before you begin, ensure you have:
      ```bash
      gcloud compute ssh <INSTANCE_NAME> --zone=<ZONE> --project=<PROJECT_ID>
      ```
+   - **Expected output**:
+
+     ```bash
+
+     Linux block-node-solo-vm 6.1.0-41-cloud-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.158-1 (2025-11-09) x86_64
+
+     The programs included with the Debian GNU/Linux system are free software;
+     the exact distribution terms for each program are described in the
+     individual files in /usr/share/doc/*/copyright.
+
+     Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+     permitted by applicable law.
+
+     ```
    - After connecting, run **`ls`** to confirm the Weaver binary is present in your home directory.
+   - **Expected output**:
+
+     ```bash
+     weaver-linux-amd64
+     ```
 2. Make the binary executable, using the correct filename:
 
    ```bash
@@ -88,12 +149,35 @@ Before you begin, ensure you have:
 
    If the binary runs and prints usage or help text, Weaver is correctly installed on the VM.
 
+   **Expected output**:
+
+   ```bash
+
+      Solo Weaver - A user friendly tool to provision Hedera network components
+
+      Usage:
+      weaver [command]
+
+      Available Commands:
+      block        Commands for Block Node type
+      completion   Generate the autocompletion script for the specified shell
+      consensus    Commands for Consensus Node type
+      help         Help about any command
+
+      Flags:
+      -c, --config string   config file path
+      -h, --help            help for weaver
+
+      Use "weaver [command] --help" for more information about a command.
+
+   ```
+
 ### Step 4: Create the **`weaver`** User
 
 1. Run the Block Node install command with **`sudo`** and the desired profile (choose one of: **`local`**, **`previewnet`**, **`testnet`**, **`mainnet`**):
 
    ```bash
-   sudo ./weaver-linux-amd64 blocknode install -p <profile>
+   sudo ./weaver-linux-amd64 block node install -p <profile>
    ```
 
    *(Replace **`<profile>`** with the desired value. For ARM, use **`weaver-linux-arm64`** instead.)*
@@ -102,10 +186,29 @@ Before you begin, ensure you have:
 
    - Copy the **`groupadd`** and **`useradd`** commands shown in the output.
    - Run them exactly as printed, including specific user/group ID numbers.
+   - Expected Output:
+
+     ```bash
+
+     The user 'weaver' and group 'weaver' do not exist.
+
+     Please create them via the following commands:
+
+        sudo groupadd -g 2500 weaver
+        sudo useradd -u 2500 -g 2500 -m -s /bin/bash weaver
+
+     This will:
+        * Create group 'weaver' with GID 2500
+        * Create user 'weaver' with UID 2500
+        * Set bash as the user's default shell
+
+     Check error message for details or contact support
+
+     ```
 3. After creating the **`weaver`** user and group, re-run the setup command:
 
    ```bash
-   sudo ./weaver-linux-amd64 blocknode install -p <profile>
+   sudo ./weaver-linux-amd64 block node install -p <profile>
    ```
 
 Once complete, Weaver will be able to manage Kubernetes resources on your VM using the dedicated **`weaver`** system user.
@@ -115,12 +218,12 @@ Once complete, Weaver will be able to manage Kubernetes resources on your VM usi
 - **Custom Helm values**: **`-values <path-to-values.yaml>`**
 
   ```bash
-  sudo ./weaver-linux-amd64 blocknode install -p local --values my-values.yaml
+  sudo ./weaver-linux-amd64 block node install -p local --values my-values.yaml
   ```
 - **Custom configuration**: **`-config <path-to-config.yaml>`**
 
   ```bash
-  sudo ./weaver-linux-amd64 blocknode install -p local --values my-values.yaml --config config.yaml
+  sudo ./weaver-linux-amd64 block node install -p local --values my-values.yaml --config config.yaml
   ```
 
   **Example `config.yaml`:**
@@ -164,23 +267,32 @@ Once complete, Weaver will be able to manage Kubernetes resources on your VM usi
 
 After completing the setup, confirm that your Block Node is deployed and running by checking the Kubernetes cluster:
 
-1. Using **`kubectl`** (recommended)
-   1. Weaver configures local Kubernetes access on the VM. From your VM terminal, run:
+1. Verify with **`kubectl`** (recommended)
+   1. From the VM (where Weaver configured Kubernetes access), list all pods:
 
       ```bash
       kubectl get pods -A
       ```
    2. Look for Block Node pods. Ensure they show **`Running`** status and all containers are ready (e.g., **`1/1`** or **`2/2`**).
-2. Using K9s (optional)
+2. Verify with **K9s** (optional):
 
-- If you prefer a text-based Kubernetes dashboard:
-  1. [**Install `k9s`**](https://k9scli.io/) on your VM or a machine with access to the cluster.
-  2. To Inspect pods, namespaces, and logs. Run:
+   If you prefer a text-based Kubernetes dashboard:
 
-     ```bash
-     k9s
-     ```
-  3. Confirm the Block Node `StatefulSet/Pods` are healthy.
+   1. Ensure [**Install `k9s`**](https://k9scli.io/) is available on your VM or on a machine that can reach the cluster.
+
+   2. To Inspect pods, namespaces, and logs. Run:
+
+      ```bash
+      k9s
+      ```
+
+      To list pods across all namespaces, press 0:
+      ![Solo Weaver GCP VM K9s Pods](../../assets/block-node-solo-weaver-vm-k9s-pods.png)
+
+      To list instances in all namespaces, press o:
+      ![Solo Weaver GCP VM K9s Nodes](../../assets/block-node-solo-weaver-vm-k9s-pods-nodes.png)
+
+   3. Confirm the Block Node `StatefulSet/Pods` are healthy.
 
 If the pods are running and healthy, your Block Node is successfully installed and running on the Google Cloud VM.
 
@@ -190,17 +302,38 @@ If the pods are running and healthy, your Block Node is successfully installed a
    - Debian/Ubuntu: **`apt-get install grpcurl`**
    - macOS: **`brew install grpcurl`**
    - Other systems: Download from [**grpcurl releases**](https://github.com/fullstorydev/grpcurl/releases)
-2. **Download the latest protobuf files** from the official release:
+2. **Download and extract the latest protobuf files** from the official release:
 
    ```bash
-   curl -LO https://github.com/hiero-ledger/hiero-block-node/releases/latest/download/blocknode.proto
+    export VERSION=<VERSION>
+
+    curl -L https://github.com/hiero-ledger/hiero-block-node/releases/download/v$VERSION/block-node-protobuf-$VERSION.tgz -o block-node-protobuf-$VERSION.tgz
+
+       tar -xzf block-node-protobuf-0.24.0.tgz
    ```
 3. **Call the `serverStatus` endpoint** to verify the node is accessible:
 
    ```bash
-   grpcurl -plaintext -import-path . -proto blocknode.proto localhost:50211 hedera.BlockNodeService.ServerStatus
+   grpcurl -plaintext -emit-defaults -import-path block-node-protobuf-<VERSION> -proto block-node/api/node_service.proto -d '{}' <BLOCK_NODE_IP>:<GRPC_PORT> org.hiero.block.api.BlockNodeService/serverStatus
    ```
+
+   - <BLOCK_NODE_IP> is the external IP of your Block Node VM. For GCP, you can find this on the VM’s Details page under External IP.
+   - <GRPC_PORT> is the gRPC service port exposed by your Block Node (e.g., 40840).
 4. **Review the output** for status information confirming the node is running and serving requests.
+
+   Expected output:
+
+   ```bash
+   {
+      "firstAvailableBlock": "18446744073709551615",
+      "lastAvailableBlock": "18446744073709551615",
+      "onlyLatestState": false,
+      "versionInformation": null
+   }
+
+   ```
+
+> Note: The value `18446744073709551615` means the node has not stored any blocks yet. After the node finishes syncing, these fields will show real block numbers.
 
 ### Step 8: Deprovisioning and Shutdown
 
