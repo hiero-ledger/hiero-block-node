@@ -75,19 +75,19 @@ message GrpcWebClientTuning {
   bool prior_knowledge = 4;
 
   /**
-   * HTTP/2 max frame size in bytes (default: 8MB = 8388608)
+   * HTTP/2 max frame size in bytes (default: 2MB = 2097152)
    * Valid range: 16,384 bytes to 16,777,215 bytes per RFC 7540
    */
   uint32 max_frame_size = 5;
 
   /**
-   * HTTP/2 initial window size in bytes for flow control (default: 8MB = 8388608)
+   * HTTP/2 initial window size in bytes for flow control (default: 2MB = 2097152)
    * Valid range: 1 to 2,147,483,647 per RFC 7540
    */
   uint32 initial_window_size = 6;
 
   /**
-   * gRPC initial buffer size in bytes (default: 8MB = 8388608)
+   * gRPC initial buffer size in bytes (default: 2MB = 2097152)
    * Valid range: 1,024 bytes to 67,108,864 bytes
    */
   uint32 initial_buffer_size = 7;
