@@ -624,7 +624,15 @@ public class DownloadDayImplV2 {
             final List<InMemoryFile> inMemoryFilesForWriting,
             final byte[] prevRecordFileHash,
             final byte[] blockHashFromMirrorNode) {
-        final InMemoryFile mostCommonRecordFileInMem = inMemoryFilesForWriting.getFirst();
+        // Find the actual record file (not signature files)
+        final InMemoryFile mostCommonRecordFileInMem = inMemoryFilesForWriting.stream()
+                .filter(f -> {
+                    String name = f.path().getFileName().toString();
+                    return name.endsWith(".rcd") || name.endsWith(".rcd.gz");
+                })
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "No record file found for block " + blockNum + ", only signature files present"));
         final ParsedRecordFile recordFileInfo = ParsedRecordFile.parse(mostCommonRecordFileInMem);
         byte[] readPreviousBlockHash = recordFileInfo.previousBlockHash();
         byte[] computedBlockHash = recordFileInfo.blockHash();
