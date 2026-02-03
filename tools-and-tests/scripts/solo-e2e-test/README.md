@@ -2,6 +2,23 @@
 
 Deploy Hiero networks locally for development and testing using [Solo CLI](https://github.com/hashgraph/solo) and [Kind](https://kind.sigs.k8s.io/).
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Prerequisites](#prerequisites)
+- [Commands](#commands)
+- [Manual Testing](#manual-testing)
+- [Configuration](#configuration)
+- [Topologies](#topologies)
+- [Load Generation](#load-generation)
+- [TCK-SDK Tests](#tck-sdk-tests)
+- [Test Framework](#test-framework)
+- [CN-BN Priority Routing](#cn-bn-priority-routing)
+- [CI Integration](#ci-integration)
+- [Endpoints](#endpoints)
+- [Troubleshooting](#troubleshooting)
+- [Scheduled Runs](#scheduled-runs)
+
 ## Why This Exists
 
 The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks for end-to-end testing. This directory is **self-contained** with all scripts and topologies needed for both local development and CI.
@@ -87,43 +104,53 @@ task check  # Verify all installed
 
 ### Core
 
-```bash
-task up                    # Full setup (cluster + network + port-forwards)
-task down                  # Tear down everything
-```
+| Command | Description |
+|---------|-------------|
+| `task up` | Full setup (cluster + network + port-forwards) |
+| `task down` | Tear down everything |
+| `task check` | Check prerequisites are installed |
 
 ### Topologies
 
-```bash
-task up                    # single (1 CN, 1 BN) - default
-task up TOPOLOGY=paired-3  # paired-3 (3 CN, 3 BN)
-task up TOPOLOGY=fan-out-3cn-2bn  # fan-out (3 CN, 2 BN)
-task up TOPOLOGY=<name>    # any topology by name
-```
+| Command | Description |
+|---------|-------------|
+| `task up` | Deploy single topology (1 CN, 1 BN) - default |
+| `task up TOPOLOGY=paired-3` | Deploy paired-3 (3 CN, 3 BN) |
+| `task up TOPOLOGY=fan-out-3cn-2bn` | Deploy fan-out (3 CN, 2 BN) |
+| `task up TOPOLOGY=<name>` | Deploy any topology by name |
+
+### Cluster Management
+
+| Command | Description |
+|---------|-------------|
+| `task cluster:create` | Create Kind cluster with Solo initialization |
+| `task cluster:destroy` | Destroy Kind cluster and clean up Solo config |
+| `task cluster:init CONTEXT=<ctx> CLUSTER_REF=<ref>` | Initialize Solo for external cluster (no Kind) |
 
 ### Verification
 
-```bash
-task verify                # Check Block Node via gRPC (NODE=n for specific node)
-task status                # Show network status for all nodes
-task logs:bn               # Stream Block Node logs (NODE=n for specific node)
-```
+| Command | Description |
+|---------|-------------|
+| `task verify` | Check Block Node via gRPC (NODE=n for specific node) |
+| `task status` | Show network status for all nodes |
+| `task metrics` | Show Block Node metrics (NODE=n or NODE=all) |
+| `task logs:bn` | Stream Block Node logs (NODE=n for specific node) |
+| `task bn:reset` | Reset BN verification state and restart (NODE=n) |
 
 ### Load Generation
 
-```bash
-task load:up                              # Run NLG with defaults (-c 5 -a 10 -tt 300)
-task load:up NLG_ARGS="-c 10 -a 20 -tt 600"  # Custom settings
-task load:down                            # Stop/cleanup load generation
-```
+| Command | Description |
+|---------|-------------|
+| `task load:up` | Run NLG with defaults (-c 5 -a 10 -tt 300) |
+| `task load:up NLG_ARGS="-c 10 -a 20 -tt 600"` | Run with custom settings |
+| `task load:down` | Stop/cleanup load generation |
 
 ### Utilities
 
-```bash
-task check                 # Check prerequisites are installed
-task port-forward          # Restart port forwards
-task port-forward:stop     # Stop all port forwards
-```
+| Command | Description |
+|---------|-------------|
+| `task port-forward` | Set up/restart port forwards |
+| `task port-forward:stop` | Stop all port forwards |
 
 ## Manual Testing
 
@@ -185,27 +212,35 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-|    Variable    |       Default        |                        Description                        |
-|----------------|----------------------|-----------------------------------------------------------|
-| `TOPOLOGY`     | `single`             | Network topology to deploy                                |
-| `CLUSTER_NAME` | `solo-cluster`       | Kind cluster name                                         |
-| `NAMESPACE`    | `solo-network`       | Kubernetes namespace                                      |
-| `DEPLOYMENT`   | `deployment-solo`    | Solo deployment name                                      |
-| `CN_VERSION`   | `latest`             | Consensus Node version                                    |
-| `MN_VERSION`   | `latest`             | Mirror Node version                                       |
-| `BN_VERSION`   | `latest`             | Block Node version                                        |
-| `NLG_ARGS`     | `-c 5 -a 10 -tt 300` | NLG arguments (-c concurrency, -a accounts, -tt duration) |
-| `NLG_MAX_TPS`  | (empty)              | Optional max transactions per second                      |
-| `TEST_FILE`    | `none`               | Test definition file for `task test:run`                  |
+|       Variable       |         Default          |                              Description                              |
+|----------------------|--------------------------|-----------------------------------------------------------------------|
+| `TOPOLOGY`           | `single`                 | Network topology to deploy                                            |
+| `CLUSTER_NAME`       | `solo-cluster`           | Kind cluster name                                                     |
+| `NAMESPACE`          | `solo-network`           | Kubernetes namespace                                                  |
+| `DEPLOYMENT`         | `deployment-solo`        | Solo deployment name                                                  |
+| `SOLO_VERSION`       | `0.54.0`                 | Solo CLI version (CI default)                                         |
+| `CN_VERSION`         | `latest`                 | Consensus Node version                                                |
+| `MN_VERSION`         | `latest`                 | Mirror Node version                                                   |
+| `BN_VERSION`         | `latest`                 | Block Node version                                                    |
+| `NLG_TEST_TYPE`      | `CryptoTransferLoadTest` | NLG test class                                                        |
+| `NLG_ARGS`           | `-c 5 -a 10 -tt 300`     | NLG arguments (-c concurrency, -a accounts, -tt duration)             |
+| `NLG_MAX_TPS`        | (empty)                  | Optional max transactions per second                                  |
+| `MIRROR_NODE_PINGER_TPS` | `5`                  | Mirror Node pinger TPS (0 to disable, CI only)                        |
+| `ENABLE_LOCAL_METRICS` | `false`                | Enable Prometheus+Grafana stack locally                               |
+| `TEST_FILE`          | `none`                   | Test definition file for `task test:run`                              |
+| `TCK_SDK_DIR`        | `sdk-tck`                | Directory for TCK-SDK repositories                                    |
+| `TCK_TEST_FILE`      | (crypto transfer test)   | TCK test file to run                                                  |
 
 ### Version Keywords
 
-| Keyword  |                   Resolves To                   |
-|----------|-------------------------------------------------|
-| `latest` | Latest GA release from GitHub                   |
-| `main`   | Current development snapshot                    |
-| `rc`     | Latest Release Candidate (tag containing `-rc`) |
-| `v0.x.y` | Specific version tag                            |
+| Keyword  |                   Resolves To                   |          Notes           |
+|----------|-------------------------------------------------|--------------------------|
+| `latest` | Latest GA release from GitHub                   | All components           |
+| `main`   | Current development snapshot                    | **Block Node only**      |
+| `rc`     | Latest Release Candidate (tag containing `-rc`) | All components           |
+| `v0.x.y` | Specific version tag                            | All components           |
+
+> **Note:** The `main` keyword only works for Block Node. Consensus Node and Mirror Node do not publish `main` snapshots.
 
 ### Command-Line Overrides
 
@@ -269,10 +304,10 @@ Via GitHub Actions workflow dispatch:
 
 1. Go to Actions → "Solo E2E Test" → "Run workflow"
 2. Set parameters:
-   - `nlg-concurrency`: `32`
-   - `nlg-accounts`: `100`
-   - `nlg-duration`: `600`
-   - `nlg-test-class`: `CryptoTransferLoadTest`
+   - `nlg-enabled`: `true`
+   - `nlg-test-type`: `CryptoTransferLoadTest`
+   - `nlg-args`: `-c 32 -a 100 -tt 600`
+   - `nlg-max-tps`: `5000` (optional rate limit)
 
 ### How It Works
 
@@ -287,7 +322,41 @@ The load generator:
 **NLG Parameters** (passed via `--args`):
 - `-c` = concurrency (parallel clients)
 - `-a` = accounts (test accounts to create)
-- `-t` = time in seconds
+- `-tt` = time in seconds (or `-t` with units like `5m`, `1h`)
+
+## TCK-SDK Tests
+
+Run TCK-SDK regression tests against the deployed network. These tests validate SDK compatibility with the network.
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `task tck:clone` | Clone TCK and JS-SDK repos at latest tags |
+| `task tck:check` | Check if TCK-SDK dependencies are installed |
+| `task tck:install` | Install TCK-SDK dependencies (runs after clone) |
+| `task test:tck-sdk` | Run TCK-SDK regression tests |
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TCK_SDK_DIR` | `sdk-tck` | Directory for TCK/SDK repositories |
+| `TCK_TEST_FILE` | `src/tests/crypto-service/test-transfer-transaction.ts` | Test file to run |
+
+### Usage
+
+```bash
+# First time setup
+task tck:clone
+task tck:install
+
+# Run tests (auto-clones/installs if needed)
+task test:tck-sdk
+
+# Run specific test file
+task test:tck-sdk TCK_TEST_FILE="src/tests/token-service/test-token-create.ts"
+```
 
 ## CN-BN Priority Routing
 
@@ -331,7 +400,26 @@ Topologies define network configuration. Located in `./topologies/`.
 
 See `../network-topology-tool/README.md` for topology schema details.
 
-## How It Works
+## CI Integration
+
+The CI workflow (`.github/workflows/solo-e2e-test.yml`) uses the same scripts as local development.
+
+### Workflow Inputs
+
+|        Input        |         Default          |                          Description                          |
+|---------------------|--------------------------|---------------------------------------------------------------|
+| `topology`          | `single`                 | Network topology to deploy                                    |
+| `block-node-version` | `latest`                | BN version (`latest`, `main`, `rc`, or specific tag)          |
+| `consensus-node-version` | `latest`            | CN version (`latest`, `rc`, or specific tag)                  |
+| `mirror-node-version` | `latest`               | MN version (`latest`, `rc`, or specific tag)                  |
+| `solo-version`      | `0.54.0`                 | Solo CLI version                                              |
+| `nlg-enabled`       | `false`                  | Enable NLG load generation                                    |
+| `nlg-test-type`     | `CryptoTransferLoadTest` | NLG test class                                                |
+| `nlg-args`          | `-c 5 -a 10 -tt 300`     | NLG arguments (combined `-c`, `-a`, `-tt`)                    |
+| `nlg-max-tps`       | (empty)                  | Optional TPS rate limit                                       |
+| `mirror-node-pinger-tps` | `5`                 | Mirror Node pinger TPS (0 to disable)                         |
+| `test-definition`   | `none`                   | Test definitions (comma-separated)                            |
+| `run-tck-regression-tests` | `false`            | Run TCK-SDK regression tests                                  |
 
 ### Script Flow
 
@@ -364,7 +452,7 @@ task up
               +-- kubectl port-forward (multiple services)
 ```
 
-### CI Workflow Equivalence
+### Local vs CI Equivalence
 
 |         Taskfile          |                 CI Workflow                 |
 |---------------------------|---------------------------------------------|
@@ -373,7 +461,7 @@ task up
 | `CN_VERSION=v0.68.6`      | `inputs.consensus-node-version`             |
 | `.env` file               | Workflow `env:` block                       |
 
-The CI workflow calls the same scripts from this directory:
+The CI workflow calls the same scripts:
 
 ```yaml
 # CI workflow excerpt
@@ -388,13 +476,24 @@ The CI workflow calls the same scripts from this directory:
 
 After deployment with port-forwards active:
 
-|       Service       |        Endpoint         |
-|---------------------|-------------------------|
-| Consensus Node gRPC | `localhost:50211`       |
-| Block Node gRPC     | `localhost:40840`       |
-| Mirror REST API     | `http://localhost:5551` |
-| Mirror Monitor      | `http://localhost:5600` |
-| Mirror REST Java    | `http://localhost:8084` |
+|       Service       | Base Port |         Multi-Node          |
+|---------------------|-----------|------------------------------|
+| Consensus Node gRPC | 50211     | -                            |
+| Block Node gRPC     | 40840     | +1 per node (40841, 40842..) |
+| Block Node Metrics  | 16007     | +1 per node (16008, 16009..) |
+| Mirror REST API     | 5551      | +1 per node (5552, 5553..)   |
+| Mirror Monitor      | 5600      | -                            |
+| Mirror REST Java    | 8084      | -                            |
+| Relay JSON-RPC      | 7546      | +1 per node (7547, 7548..)   |
+| Grafana             | 3000      | If `ENABLE_LOCAL_METRICS=true` |
+
+**Multi-node example:**
+
+```bash
+task verify NODE=2        # Check Block Node 2 on port 40841
+task logs:bn NODE=2       # View Block Node 2 logs
+curl localhost:5552/api/v1/blocks  # Mirror Node 2
+```
 
 ## Test Framework
 
@@ -523,33 +622,29 @@ solo cluster-ref config disconnect -c kind-solo-cluster -q
 # Or nuclear option: rm -f ~/.solo/local-config.yaml
 ```
 
-### Mirror Importer CrashLoopBackOff
+### Common Issues
 
-During initial deployment, `mirror-1-importer` may show `CrashLoopBackOff` status. This is **expected** - it's waiting for Postgres to be ready. It will recover automatically within 2-3 minutes.
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Mirror Importer `CrashLoopBackOff` | Waiting for Postgres | Wait 2-3 minutes, recovers automatically |
+| "context deadline exceeded" | Helm repo timeout | Retry: `task network:deploy` |
+| Solo CLI errors | Version mismatch | `npm i @hashgraph/solo@0.54.0 -g` |
+| Port already in use | Stale port-forwards | `task port-forward:stop && task port-forward` |
 
-### Network Timeouts
-
-Helm repo operations may timeout with "context deadline exceeded". Retry the deployment:
-
-```bash
-task network:deploy
-```
-
-### Solo Version Issues
+### Debugging
 
 ```bash
-npm i @hashgraph/solo@0.54.0 -g
-```
-
-### Check What's Running
-
-```bash
+# Check pod status
 kubectl get pods -n solo-network
+
+# Describe pod for events/errors
 kubectl describe pod <pod-name> -n solo-network
+
+# View pod logs
 kubectl logs <pod-name> -n solo-network
 ```
 
-### Backfill Not Working Between Block Nodes
+### Backfill Not Working
 
 If backfill shows "Unable to reach node" errors but pods are running:
 
@@ -564,26 +659,12 @@ If backfill shows "Unable to reach node" errors but pods are running:
    # Success: "Connected to block-node-1..."
    # Failure: "Could not resolve host" or "Connection refused"
    ```
+
 2. **Check service exists**:
 
    ```bash
    kubectl get svc -n solo-network | grep block-node
    ```
-
-### Multi-Node Port Forwarding
-
-When using multi-node topologies, ports are assigned incrementally:
-
-|   Service   | Node 1 | Node 2 | Node 3 |
-|-------------|--------|--------|--------|
-| Block Node  | 40840  | 40841  | 40842  |
-| Mirror REST | 5551   | 5552   | 5553   |
-| Relay       | 7546   | 7547   | 7548   |
-
-```bash
-task verify NODE=2        # Check Block Node 2 on port 40841
-task logs:bn NODE=2       # View Block Node 2 logs
-```
 
 ## Scheduled Runs
 
@@ -591,10 +672,10 @@ The `solo-e2e-scheduler.yml` workflow runs tests automatically:
 
 |  Run Type   |      Trigger      | Deployments |         Versions          |
 |-------------|-------------------|-------------|---------------------------|
-| **Daily**   | Mon-Fri 6 AM UTC  | 1           | BN=`main`, CN/MN=`latest` |
-| **Weekend** | Saturday 2 AM UTC | 4           | BN=`main`, CN/MN=`latest` |
-| **RC**      | Sunday 2 AM UTC   | 4           | BN=`main`, CN/MN=`rc`     |
-| **TAG**     | Push `v*` tag     | 4           | BN=tag, CN/MN=`latest`    |
+| **Daily**   | Mon-Fri 6 AM UTC  | 2           | BN=`main`, CN/MN=`latest` |
+| **Weekend** | Saturday 2 AM UTC | 6           | BN=`main`, CN/MN=`latest` |
+| **RC**      | Sunday 2 AM UTC   | 6           | BN=`main`, CN/MN=`rc`     |
+| **TAG**     | Push `v*` tag     | 6           | BN=tag, CN/MN=`latest`    |
 
 ### Test Matrix
 
