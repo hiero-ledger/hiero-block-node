@@ -893,17 +893,23 @@ public class DownloadLive2 implements Runnable {
                 findAvailableBlocks(startBlockNumber, currentDay, context.blockTimeReader(), filesByBlock);
 
         if (allAvailableBlocks.size() < config.minBlocksRequired()) {
-            // Check if we're at end of day - next block is on different day
+            // Check if we're at end of day - sample blocks ahead at increasing offsets
+            // to detect day boundary even when there are gaps in listings
             boolean endOfDay = false;
             if (!allAvailableBlocks.isEmpty()) {
-                try {
-                    long nextBlock = allAvailableBlocks.getLast() + 1;
-                    LocalDateTime nextBlockTime = context.blockTimeReader().getBlockLocalDateTime(nextBlock);
-                    if (!nextBlockTime.toLocalDate().equals(currentDay)) {
-                        endOfDay = true;
+                long lastAvailable = allAvailableBlocks.getLast();
+                for (long offset : new long[] {1, 10, 50, 100, 500}) {
+                    try {
+                        LocalDateTime checkTime =
+                                context.blockTimeReader().getBlockLocalDateTime(lastAvailable + offset);
+                        if (!checkTime.toLocalDate().equals(currentDay)) {
+                            endOfDay = true;
+                            break;
+                        }
+                    } catch (Exception e) {
+                        // Block time not available yet - at live edge
+                        break;
                     }
-                } catch (Exception e) {
-                    // Next block time not available yet
                 }
             }
 
@@ -963,6 +969,8 @@ public class DownloadLive2 implements Runnable {
             BlockTimeReader blockTimeReader,
             Map<LocalDateTime, List<ListingRecordFile>> filesByBlock) {
         List<Long> availableBlocks = new java.util.ArrayList<>();
+        int consecutiveGaps = 0;
+        int maxConsecutiveGaps = 5; // Allow up to 5 consecutive missing blocks before stopping
         for (long blockNum = startBlockNumber + 1; ; blockNum++) {
             try {
                 LocalDateTime blockTime = blockTimeReader.getBlockLocalDateTime(blockNum);
@@ -976,16 +984,18 @@ public class DownloadLive2 implements Runnable {
                 }
                 if (filesByBlock.containsKey(blockTime)) {
                     availableBlocks.add(blockNum);
+                    consecutiveGaps = 0; // Reset gap counter
                 } else {
-                    if (availableBlocks.size() < 10) {
-                        System.out.println("[DEBUG] Block " + blockNum + " time " + blockTime
-                                + " not found in listings (found " + availableBlocks.size() + " so far). Sample: "
-                                + filesByBlock.keySet().stream()
-                                        .filter(t -> t.toLocalDate().equals(currentDay))
-                                        .limit(3)
-                                        .toList());
+                    consecutiveGaps++;
+                    if (consecutiveGaps >= maxConsecutiveGaps) {
+                        if (availableBlocks.size() < 10) {
+                            System.out.println("[DEBUG] Block " + blockNum + " time " + blockTime
+                                    + " not found in listings after " + maxConsecutiveGaps
+                                    + " consecutive gaps (found " + availableBlocks.size() + " so far)");
+                        }
+                        break;
                     }
-                    break;
+                    // Skip gap and continue looking
                 }
             } catch (Exception e) {
                 if (availableBlocks.size() < 10) {
