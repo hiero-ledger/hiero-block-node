@@ -77,7 +77,7 @@ class BlockFileHistoricPluginTest {
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
-        testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3);
+        testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, false);
         // build the plugin using the test environment
         toTest = new BlockFileHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
@@ -285,7 +285,14 @@ class BlockFileHistoricPluginTest {
                     String.valueOf(testConfig.powersOfTenPerZipFileContents()));
             final Entry<String, String> blockRetentionThreshold = Map.entry(
                     "files.historic.blockRetentionThreshold", String.valueOf(testConfig.blockRetentionThreshold()));
-            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
+            final Entry<String, String> overwriteExistingArchives = Map.entry(
+                    "files.historic.overwriteExistingArchives", String.valueOf(testConfig.overwriteExistingArchives()));
+            return Map.ofEntries(
+                    rootPath,
+                    compression,
+                    powersOfTenPerZipFileContents,
+                    blockRetentionThreshold,
+                    overwriteExistingArchives);
         }
 
         /**
@@ -1122,7 +1129,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("Test retention policy threshold disabled")
         void testRetentionPolicyThresholdDisabled() throws IOException {
             // change the retention policy to be disabled
-            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 0L, 3);
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 0L, 3, false);
             // override the config in the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 150 blocks from numbers 0-149 and add them to the
@@ -1220,6 +1227,69 @@ class BlockFileHistoricPluginTest {
                     BlockPath.computeExistingBlockPath(testConfig, 0).zipFilePath());
             assertThat(lastModifiedTime).isEqualTo(lastModifiedTimeSecondPass);
         }
+
+        /**
+         * This test verifies that when the plugin is configured to allow zipping multiple times,
+         * duplicate block verification notifications will result in re-archiving the batch,
+         * which updates the zip file's modification timestamp. This behavior is controlled by
+         * the {@code allowZippingMultipleTimes} configuration flag. This contrasts with the default
+         * idempotent behavior where batches are archived only once.
+         */
+        @Test
+        @DisplayName("Test configuration allows re-zipping same batch when enabled")
+        void testConfigAllowsZippingMultipleTimes() throws IOException {
+            // Configure plugin with allowZippingMultipleTimes = true (last parameter).
+            // This special configuration allows the same batch to be re-archived when
+            // duplicate notifications arrive, unlike the default idempotent behavior.
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, true);
+            start(toTest, testHistoricalBlockFacility, getConfigOverrides());
+
+            // Send the first set of block verification notifications (blocks 0-9).
+            // This represents the initial arrival of blocks that need to be archived.
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            // Execute all pending archival tasks. This should zip blocks 0-9 into a single archive.
+            pluginExecutor.executeSerially();
+
+            // Verify that the batch was successfully archived: all blocks should have zip paths
+            // and should be tracked in the plugin's available blocks range.
+            for (int i = 0; i < 10; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+                assertThat(plugin.availableBlocks().contains(i)).isTrue();
+            }
+
+            // Capture the zip file's last modified timestamp from the first archival.
+            // This will be compared against the timestamp after re-archiving to verify
+            // that the file was actually modified (not skipped).
+            final FileTime lastModifiedTime = Files.getLastModifiedTime(
+                    BlockPath.computeExistingBlockPath(testConfig, 0).zipFilePath());
+
+            // Send duplicate verification notifications for the same blocks (0-9).
+            // With allowZippingMultipleTimes enabled, this should trigger re-archiving
+            // instead of being skipped as it would be with the default configuration.
+            for (int i = 0; i < 10; i++) {
+                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+            }
+
+            // Execute pending tasks. With allowZippingMultipleTimes = true, this should
+            // re-archive the batch, creating a new zip file with an updated timestamp.
+            pluginExecutor.executeSerially();
+
+            // Capture the zip file's timestamp after the second archival attempt.
+            final FileTime lastModifiedTimeSecondPass = Files.getLastModifiedTime(
+                    BlockPath.computeExistingBlockPath(testConfig, 0).zipFilePath());
+
+            // Assert that the zip file was modified during the second pass. The newer timestamp
+            // confirms that with allowZippingMultipleTimes enabled, the plugin does re-archive
+            // batches instead of maintaining idempotent behavior.
+            assertThat(lastModifiedTime).isLessThan(lastModifiedTimeSecondPass);
+        }
     }
 
     /**
@@ -1256,7 +1326,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("init moves corrupted zip file without shutting down")
         void initMovesCorruptedZipWithoutShutdown() throws IOException {
             final Path corruptedRoot = dataRoot.resolve("corrupted-zip-root");
-            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, 3);
+            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, 3, false);
 
             final BlockPath corruptedZipLocation = BlockPath.computeBlockPath(testConfig, 0L);
             Files.createDirectories(corruptedZipLocation.dirPath());

@@ -414,12 +414,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // avoid zipping same batch twice
             final boolean alreadyZipped = isRangeAlreadyZipped(minBlockNumber, maxBlockNumber);
             if (isValidStart && blocksAvailablePreCheck) {
-                if (alreadyZipped) {
-                    LOGGER.log(
-                            INFO,
-                            "Batch [{0}, {1}] already zipped, skipping archiving it",
-                            minBlockNumber,
-                            maxBlockNumber);
+                if (!config.overwriteExistingArchives() && alreadyZipped) {
+                    LOGGER.log(INFO, "Batch [{0}, {1}] already zipped, skipping", minBlockNumber, maxBlockNumber);
                 } else {
                     final LongRange batchRange = new LongRange(minBlockNumber, maxBlockNumber);
                     // move the batch of blocks to a zip file
@@ -576,6 +572,9 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
 
                 // create staging area directories if they don't exist
                 Files.createDirectories(firstBlockPath.dirPath());
+                if (config.overwriteExistingArchives()) {
+                    Files.deleteIfExists(firstBlockPath.zipFilePath());
+                }
                 // move the file from the work zip area to the data area by creating a hard link
                 // and then deleting the source file
                 Files.createLink(firstBlockPath.zipFilePath(), zipWorkPath);
