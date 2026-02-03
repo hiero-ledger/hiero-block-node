@@ -2,12 +2,15 @@
 
 ## Overview
 
-This page is a troubleshooting runbook for [**Hiero Block Nodes**](https://github.com/hiero-ledger/hiero-block-node). It assumes you are an operator with SSH or kubectl access to both the node and the appropriate Prometheus / Grafana UI.
+This page is a troubleshooting runbook for
+[**Hiero Block Nodes**](https://github.com/hiero-ledger/hiero-block-node).
+It assumes you are an operator with SSH or kubectl access to both the node and
+the appropriate Prometheus / Grafana UI.
 
 **Use it when:**
 
 - Block ingest or backfill stalls
-- Subscribers / mirror nodes cannot connect
+- Subscribers / Mirror Nodes cannot connect
 - Disk or storage is under pressure
 - Metrics or dashboards look wrong
 
@@ -15,13 +18,19 @@ This page is a troubleshooting runbook for [**Hiero Block Nodes**](https://githu
 
 ### 1. Observability & Diagnostics
 
-<!-- trunk-ignore(markdownlint/MD013) -->
-Block Nodes are generally robust, but like any distributed system component, operators occasionally encounter issues related to networking, storage, synchronization, or configuration. The reference implementation includes comprehensive logging, CLI tools, and Prometheus / Grafana metrics to identify and resolve problems quickly.
+Block Nodes are generally robust, but like any distributed system component,
+operators occasionally encounter issues related to networking, storage,
+synchronization, or configuration. The reference implementation includes
+comprehensive logging, CLI tools, and Prometheus / Grafana metrics to identify
+and resolve problems quickly.
 
 #### 1.1 Logs & diagnostics
 
-- **Structured logs**: JSON-formatted logs are written to stdout / stderr (easily ingested by Loki, ELK, Splunk, etc.).
-- **Log levels**: Controlled via [values.yaml](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values.yaml#L187): `logs.level` (`ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF`).
+- **Structured logs**: JSON-formatted logs are written to stdout / stderr
+    (easily ingested by Loki, ELK, Splunk, etc.).
+- **Log levels**: Controlled via
+    [values.yaml](https://github.com/hiero-ledger/hiero-block-node/blob/main/charts/block-node-server/values.yaml#L187):
+    `logs.level` (`ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF`).
 - **Key log tags to grep**:
   - `BlockStreamPublishService` : incoming blocks from consensus nodes
   - `BlockVerification` : signature / proof failures
@@ -29,16 +38,21 @@ Block Nodes are generally robust, but like any distributed system component, ope
 ##### Example log lines
 
 ```text
-block-node-server 2026-02-03 21:53:01.831+0000 INFO [org.hiero.block.node.backfill.BackfillFetcher getNewAvailableRange] Unable to reach node [BackfillSourceConfig[address=rfh01.previewnet.blocknode.hashgraph-devops.com, port=40840, priority=1, nodeId=0, name=, grpcWebclientTuning=null]], skipping
+block-node-server 2026-02-03 21:53:01.831+0000 INFO [org.hiero.block.node.backfill.BackfillFetcher getNewAvailableRange] Unable to reach node [BackfillSourceConfig[address=rfh01.previewnet...]], skipping
 block-node-server 2026-02-03 21:53:01.831+0000 FINER [org.hiero.block.node.backfill.BackfillPlugin detectAndScheduleGaps] Nothing to backfill: startBound=[500] endCap=[1]
 block-node-server 2026-02-03 21:53:03.748+0000 FINER [org.hiero.block.node.health.HealthServicePlugin handleLivez] Responded code 200 (OK) to liveness check
 ```
 
 #### 1.2 Prometheus metrics & monitoring
 
-The Block Node exposes a rich set of Prometheus metrics on `/metrics` (default port 16007). Key Grafana dashboards are available in the official [Hiero Block Node `dashboards/` folder.](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/dashboards)
+The Block Node exposes a rich set of Prometheus metrics on `/metrics`
+(default port 16007). Key Grafana dashboards are available in the official
+[Hiero Block Node `dashboards/` folder.](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/dashboards)
 
-All metrics are prefixed with `hiero_block_node` (for example, `hiero_block_node_publisher_block_items_received`). See the full list in the [metrics reference](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/metrics.md#metrics-by-plugin).
+All metrics are prefixed with `hiero_block_node`
+(for example, `hiero_block_node_publisher_block_items_received`).
+See the full list in the
+[metrics reference](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/metrics.md#metrics-by-plugin).
 
 | **Category** | **Important Metrics** | **What to Watch For** |
 | --- | --- | --- |
@@ -55,7 +69,7 @@ All metrics are prefixed with `hiero_block_node` (for example, `hiero_block_node
 
 ### 2. Issue Runbooks (Observe → Diagnose → Fix → Verify)
 
-Use the toggles below to explore runbooks during incidents. Each follows a consistent pattern:
+Use the runbooks below during incidents. Each follows a consistent pattern:
 
 - **Triage** – confirm what is actually broken
 - **Logs / Metrics / Configuration** – narrow down root cause
@@ -64,8 +78,7 @@ Use the toggles below to explore runbooks during incidents. Each follows a consi
 
 ### Runbooks
 
-<details>
-<summary>🚫 **Block Node not receiving new blocks**</summary>
+#### 🚫 Block Node not receiving new blocks
 
 > **Tip:** Use this runbook when ingest appears stalled and logs show little or no publish activity for new blocks.
 
@@ -104,10 +117,7 @@ Use the toggles below to explore runbooks during incidents. Each follows a consi
     - `publisher_open_connections` is stable and non-zero.
     - Logs show continuous block publish / ingest activity.
 
-</details>
-
-<details>
-<summary>🔌 **Subscribers/mirror nodes cannot connect**</summary>
+#### 🔌 Subscribers/Mirror Nodes cannot connect
 
 1. **Triage**
     - Confirm symptoms from client side:
@@ -117,14 +127,23 @@ Use the toggles below to explore runbooks during incidents. Each follows a consi
         - Service is running and listening on the expected gRPC port.
         - No obvious CPU / memory starvation.
 2. **Network and endpoint checks**
-    - From a trusted host (for example, mirror node):
+    - From a trusted host (for example, Mirror Node):
         - `nc <IP_OF_BLOCK_NODE> <GRPC_PORT> -vz`
             - Success: TCP reachability is OK.
             - Failure: suspect firewall, security group, or local iptables.
-    - Optional gRPC sanity checks (requires `grpcurl` and proto files):
-        - `grpcurl -plaintext -proto /path/to/block_access_service.proto <IP_OF_BLOCK_NODE>:<GRPC_PORT> org.hiero.block.api.BlockAccessService/getBlock '{"retrieve_latest": true}'`
-        - `grpcurl -plaintext -proto /path/to/block_stream_subscribe_service.proto <IP_OF_BLOCK_NODE>:<GRPC_PORT> org.hiero.block.api.BlockStreamSubscribeService/subscribeBlockStream '{"start_block_number": <BLOCK>, "end_block_number": <BLOCK>}'`
-        - If TLS is enabled, replace `-plaintext` with `-insecure` or `-cacert <CA_FILE>`.
+        - Optional gRPC sanity checks (requires `grpcurl` and proto files):
+
+            ```sh
+            grpcurl -plaintext -proto /path/to/block_access_service.proto \
+                <IP_OF_BLOCK_NODE>:<GRPC_PORT> \
+                org.hiero.block.api.BlockAccessService/getBlock \
+                '{"retrieve_latest": true}'
+
+            grpcurl -plaintext -proto /path/to/block_stream_subscribe_service.proto \
+                <IP_OF_BLOCK_NODE>:<GRPC_PORT> \
+                org.hiero.block.api.BlockStreamSubscribeService/subscribeBlockStream \
+                '{"start_block_number": <BLOCK>, "end_block_number": <BLOCK>}'
+            ```
     - Verify:
         - Correct advertised hostname / IP and port in Block Node config.
         - DNS or load balancer is pointing to the active node.
@@ -147,10 +166,7 @@ Use the toggles below to explore runbooks during incidents. Each follows a consi
     - Confirm clients successfully establish long-lived gRPC streams without continuous reconnects.
     - Metrics such as `subscriber_open_connections` are stable and `subscriber_errors` do not spike.
 
-</details>
-
-<details>
-<summary>💾 **Disk full / out of space**</summary>
+#### 💾 Disk full / out of space
 
 1. **Triage**
     - Confirm symptoms:
@@ -175,10 +191,7 @@ Use the toggles below to explore runbooks during incidents. Each follows a consi
     - Confirm `files_recent_total_bytes_stored` (and/or `files_historic_total_bytes_stored`) and host `df -h` fall below alert thresholds.
     - Block ingest resumes normally and no further I/O errors appear in logs.
 
-</details>
-
-<details>
-<summary>📈 **Metrics endpoint not accessible**</summary>
+#### 📈 Metrics endpoint not accessible
 
 1. **Triage**
     - Confirm that Grafana / Prometheus cannot scrape `/metrics` for this Block Node.
@@ -208,10 +221,7 @@ Use the toggles below to explore runbooks during incidents. Each follows a consi
     - Confirm the Prometheus target is `UP` and `up\{job="block-node-metrics", instance="\<node\>"\} == 1`.
     - Grafana dashboards populate and scrape errors clear.
 
-</details>
-
-<details>
-<summary>🕳️ **Blocks are not being backfilled**</summary>
+#### 🕳️ Blocks are not being backfilled
 
 1. **Triage**
     - Confirm symptoms:
@@ -237,7 +247,6 @@ Use the toggles below to explore runbooks during incidents. Each follows a consi
     - Monitor backfill metrics until the node catches up to the desired block height.
     - Confirm local block height matches expected network height for the configured range.
 
-</details>
 
 ---
 
@@ -248,7 +257,7 @@ The table below is a **summary-only quick reference**. Use the runbooks above fo
 | **Issue** | **Symptoms** | **Diagnosis** | **Resolution** |
 | --- | --- | --- | --- |
 | Node not receiving new blocks | Ingest appears stalled, logs show no publish activity | Check firewall / TLS on ingest port (default `50211`), Consensus Node logs | Open inbound port, verify mutual TLS certs, ensure node is authorized / whitelisted by upstream CN |
-| Subscribers / mirror nodes cannot connect | gRPC connection refused or TLS handshake errors | Wrong endpoint, expired cert, or service disabled in config | Verify advertise address / port, renew TLS certs, enable `BlockStreamSubscribeService` |
+| Subscribers / Mirror Nodes cannot connect | gRPC connection refused or TLS handshake errors | Wrong endpoint, expired cert, or service disabled in config | Verify advertise address / port, renew TLS certs, enable `BlockStreamSubscribeService` |
 | Disk full / out of space | Node crashes or refuses new blocks | `df -h`, `files_recent_total_bytes_stored` nearing limit | Prune old blocks (partial-history), expand volume, or migrate to archive node |
 | Metrics endpoint not accessible | Grafana dashboards empty, Prometheus target `DOWN` | Port `16007` blocked or metrics disabled via config | Open port, enable metrics, fix Prometheus scrape job |
 | Blocks not being backfilled | Log entries show backfill warnings, missing historical ranges | Check `hiero_block_node_backfill*` metrics, `BLOCK_NODE_EARLIEST_MANAGED_BLOCK` / `BACKFILL_START_BLOCK` config | Fix earliest-block config, restart node if required, ensure healthy upstream archival source |
