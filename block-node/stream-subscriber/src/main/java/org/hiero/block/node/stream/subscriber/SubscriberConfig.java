@@ -38,22 +38,13 @@ import org.hiero.block.node.base.Loggable;
  *     clients reconnect simultaneously. Excess requests are rejected with
  *     NOT_AVAILABLE status. Set to 0 to disable rate limiting.
  */
+// spotless:off
 @ConfigData("subscriber")
 public record SubscriberConfig(
-        @Loggable @ConfigProperty(defaultValue = "4000") @Min(100)
-        int liveQueueSize,
-
-        @Loggable @ConfigProperty(defaultValue = "4000") @Min(10)
-        long maximumFutureRequest,
-
-        @Loggable @ConfigProperty(defaultValue = "400") @Min(10)
-        int minimumLiveQueueCapacity,
-
-        @Loggable @ConfigProperty(defaultValue = "1_048_576") @Min(100_000)
-        int maxChunkSizeBytes,
-
-        @Loggable @ConfigProperty(defaultValue = "50") @Min(0)
-        int maxConcurrentSessions,
-
-        @Loggable @ConfigProperty(defaultValue = "10") @Min(0)
-        int sessionRateLimitPerSecond) {}
+        @Loggable @ConfigProperty(defaultValue = "4000") @Min(100) int liveQueueSize,
+        @Loggable @ConfigProperty(defaultValue = "4000") @Min(10) long maximumFutureRequest,
+        @Loggable @ConfigProperty(defaultValue = "400") @Min(10) int minimumLiveQueueCapacity,
+        @Loggable @ConfigProperty(defaultValue = "1_048_576") @Min(100_000) int maxChunkSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "50") @Min(0) int maxConcurrentSessions,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(0) int sessionRateLimitPerSecond) {}
+// spotless:on
