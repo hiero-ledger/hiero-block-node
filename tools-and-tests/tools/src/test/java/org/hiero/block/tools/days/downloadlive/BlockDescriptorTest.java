@@ -24,10 +24,10 @@ public class BlockDescriptorTest {
 
         BlockDescriptor descriptor = new BlockDescriptor(blockNumber, filename, timestampIso, expectedHash);
 
-        assertEquals(blockNumber, descriptor.getBlockNumber());
-        assertEquals(filename, descriptor.getFilename());
-        assertEquals(timestampIso, descriptor.getTimestampIso());
-        assertEquals(expectedHash, descriptor.getExpectedHash());
+        assertEquals(blockNumber, descriptor.blockNumber());
+        assertEquals(filename, descriptor.filename());
+        assertEquals(timestampIso, descriptor.timestampIso());
+        assertEquals(expectedHash, descriptor.expectedHash());
     }
 
     @Test
@@ -39,8 +39,8 @@ public class BlockDescriptorTest {
 
         BlockDescriptor descriptor = new BlockDescriptor(blockNumber, filename, timestampIso, null);
 
-        assertNull(descriptor.getExpectedHash());
-        assertEquals(blockNumber, descriptor.getBlockNumber());
+        assertNull(descriptor.expectedHash());
+        assertEquals(blockNumber, descriptor.blockNumber());
     }
 
     @Test
@@ -66,7 +66,7 @@ public class BlockDescriptorTest {
 
         BlockDescriptor descriptor = new BlockDescriptor(largeBlockNumber, "file.rcd", "2025-12-01T00:00:00Z", "0x123");
 
-        assertEquals(largeBlockNumber, descriptor.getBlockNumber());
+        assertEquals(largeBlockNumber, descriptor.blockNumber());
     }
 
     @Test
@@ -76,6 +76,6 @@ public class BlockDescriptorTest {
 
         BlockDescriptor descriptor = new BlockDescriptor(zeroBlockNumber, "genesis.rcd", "2019-09-13T00:00:00Z", null);
 
-        assertEquals(0L, descriptor.getBlockNumber());
+        assertEquals(0L, descriptor.blockNumber());
     }
 }

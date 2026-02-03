@@ -24,9 +24,9 @@ public class ValidationStatusTest {
 
         ValidationStatus status = new ValidationStatus(dayDate, recordFileTime, endRunningHashHex);
 
-        assertEquals(dayDate, status.getDayDate());
-        assertEquals(recordFileTime, status.getRecordFileTime());
-        assertEquals(endRunningHashHex, status.getEndRunningHashHex());
+        assertEquals(dayDate, status.dayDate());
+        assertEquals(recordFileTime, status.recordFileTime());
+        assertEquals(endRunningHashHex, status.endRunningHashHex());
     }
 
     @Test
@@ -36,8 +36,8 @@ public class ValidationStatusTest {
 
         ValidationStatus status = new ValidationStatus("2025-12-01", "2025-12-01T00:00:00Z", hash);
 
-        assertEquals(hash, status.getEndRunningHashHex());
-        assertFalse(status.getEndRunningHashHex().startsWith("0x"));
+        assertEquals(hash, status.endRunningHashHex());
+        assertFalse(status.endRunningHashHex().startsWith("0x"));
     }
 
     @Test
@@ -47,8 +47,8 @@ public class ValidationStatusTest {
 
         ValidationStatus status = new ValidationStatus("2025-12-01", "2025-12-01T00:00:00Z", hash);
 
-        assertEquals(hash, status.getEndRunningHashHex());
-        assertTrue(status.getEndRunningHashHex().startsWith("0x"));
+        assertEquals(hash, status.endRunningHashHex());
+        assertTrue(status.endRunningHashHex().startsWith("0x"));
     }
 
     @Test
@@ -58,8 +58,8 @@ public class ValidationStatusTest {
 
         ValidationStatus status = new ValidationStatus("2025-12-01", timestamp, "abc123");
 
-        assertEquals(timestamp, status.getRecordFileTime());
-        assertTrue(status.getRecordFileTime().endsWith("Z"));
+        assertEquals(timestamp, status.recordFileTime());
+        assertTrue(status.recordFileTime().endsWith("Z"));
     }
 
     @Test
@@ -69,8 +69,8 @@ public class ValidationStatusTest {
 
         ValidationStatus status = new ValidationStatus(dayDate, "2025-12-31T23:59:59Z", "hash");
 
-        assertEquals(dayDate, status.getDayDate());
-        assertTrue(status.getDayDate().matches("\\d{4}-\\d{2}-\\d{2}"));
+        assertEquals(dayDate, status.dayDate());
+        assertTrue(status.dayDate().matches("\\d{4}-\\d{2}-\\d{2}"));
     }
 
     @Test
@@ -80,8 +80,8 @@ public class ValidationStatusTest {
 
         ValidationStatus status = new ValidationStatus("2025-12-01", "2025-12-01T00:00:00Z", longHash);
 
-        assertEquals(longHash, status.getEndRunningHashHex());
-        assertEquals(128, status.getEndRunningHashHex().length());
+        assertEquals(longHash, status.endRunningHashHex());
+        assertEquals(128, status.endRunningHashHex().length());
     }
 
     @Test
@@ -91,7 +91,7 @@ public class ValidationStatusTest {
 
         ValidationStatus status = new ValidationStatus("2025-12-01", "2025-12-01T00:00:00Z", emptyHash);
 
-        assertEquals("", status.getEndRunningHashHex());
+        assertEquals("", status.endRunningHashHex());
     }
 
     @Test
@@ -99,12 +99,12 @@ public class ValidationStatusTest {
     void testImmutability() {
         ValidationStatus status = new ValidationStatus("2025-12-01", "2025-12-01T00:00:00Z", "abc123");
 
-        String dayDate1 = status.getDayDate();
-        String dayDate2 = status.getDayDate();
-        String time1 = status.getRecordFileTime();
-        String time2 = status.getRecordFileTime();
-        String hash1 = status.getEndRunningHashHex();
-        String hash2 = status.getEndRunningHashHex();
+        String dayDate1 = status.dayDate();
+        String dayDate2 = status.dayDate();
+        String time1 = status.recordFileTime();
+        String time2 = status.recordFileTime();
+        String hash1 = status.endRunningHashHex();
+        String hash2 = status.endRunningHashHex();
 
         assertSame(dayDate1, dayDate2);
         assertSame(time1, time2);
@@ -118,6 +118,6 @@ public class ValidationStatusTest {
 
         ValidationStatus status = new ValidationStatus("2025-12-01", "2025-12-01T00:00:00Z", hash);
 
-        assertEquals(96, status.getEndRunningHashHex().length());
+        assertEquals(96, status.endRunningHashHex().length());
     }
 }

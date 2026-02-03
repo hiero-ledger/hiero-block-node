@@ -288,7 +288,7 @@ public class LivePoller {
                 })
                 .filter(obj -> obj[1] != Boolean.TRUE)
                 .map(obj -> (BlockDescriptor) obj[0])
-                .sorted(Comparator.comparingLong(d -> d.getBlockNumber()))
+                .sorted(Comparator.comparingLong(d -> d.blockNumber()))
                 .toList();
 
         // Re-scan to determine if we saw rollover blocks (kept separate to avoid mixing types).
@@ -321,11 +321,11 @@ public class LivePoller {
                 // Find the descriptor corresponding to the highest downloaded block so the next window
                 // starts just after this block.
                 final BlockDescriptor highestDescriptor = batch.stream()
-                        .filter(d -> d.getBlockNumber() == highestDownloaded)
+                        .filter(d -> d.blockNumber() == highestDownloaded)
                         .findFirst()
                         .orElse(batch.get(batch.size() - 1));
 
-                lastSeenTimestamp = Instant.parse(highestDescriptor.getTimestampIso());
+                lastSeenTimestamp = Instant.parse(highestDescriptor.timestampIso());
                 seekWindowStart = null;
 
                 // Persist the current state so subsequent runs can resume from the latest known cursor.
@@ -343,8 +343,8 @@ public class LivePoller {
 
             batch.stream()
                     .limit(3)
-                    .forEach(d -> System.out.println("[poller] sample -> block=" + d.getBlockNumber() + " file="
-                            + d.getFilename() + " ts=" + d.getTimestampIso()));
+                    .forEach(d -> System.out.println("[poller] sample -> block=" + d.blockNumber() + " file="
+                            + d.filename() + " ts=" + d.timestampIso()));
 
             return new PollResult(batch.size(), sawNextDay);
         } else {

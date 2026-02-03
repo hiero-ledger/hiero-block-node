@@ -182,8 +182,8 @@ public class DownloadLive implements Runnable {
         // Load any previously persisted running-hash status so we can resume validation across restarts.
         final ValidationStatus existingValidationStatus = readValidationStatus(runningHashStatusPath);
         final byte[] initialRunningHash =
-                (existingValidationStatus != null && existingValidationStatus.getEndRunningHashHex() != null)
-                        ? fromHex(existingValidationStatus.getEndRunningHashHex())
+                (existingValidationStatus != null && existingValidationStatus.endRunningHashHex() != null)
+                        ? fromHex(existingValidationStatus.endRunningHashHex())
                         : null;
 
         final LiveDownloader downloader = new LiveDownloader(
