@@ -247,7 +247,6 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
     - Monitor backfill metrics until the node catches up to the desired block height.
     - Confirm local block height matches expected network height for the configured range.
 
-
 ---
 
 ### 3. Quick Reference Table (Summary)
