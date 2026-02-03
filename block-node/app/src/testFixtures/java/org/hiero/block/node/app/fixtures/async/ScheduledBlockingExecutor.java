@@ -30,5 +30,8 @@ public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Thread was interrupted while trying to put a task into the work queue", e);
         }
+        // Must invoke superclass version to preserve ScheduledThreadPoolExecutor functionality.
+        // Tasks submitted via execute() are treated as zero-delay scheduled tasks.
+        super.execute(command);
     }
 }
