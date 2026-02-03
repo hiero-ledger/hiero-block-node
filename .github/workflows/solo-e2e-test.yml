@@ -627,37 +627,6 @@ jobs:
 
           echo "Mirror Node last block matches Block Node last block"
 
-      # Network Health Summary - show status of all nodes
-      - name: Network Health Summary
-        if: always()
-        run: |
-          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-network-status.sh \
-            --namespace "${NAMESPACE}" \
-            --topology "${{ inputs.topology }}" \
-            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
-            --context "${CONTEXT}" \
-            --proto-path "protobuf-sources/proto" \
-            --output github-summary
-
-      # Block Node Metrics Summary - show metrics for each block node
-      - name: Block Node Metrics Summary
-        if: always()
-        run: |
-          TOPOLOGY_FILE="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies/${{ inputs.topology }}.yaml"
-          BLOCK_NODES=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "${TOPOLOGY_FILE}" | sed 's/://g' | awk '{print $1}' || echo "block-node-1")
-
-          PORT=16007
-          for bn in ${BLOCK_NODES}; do
-            echo "<details>" >> "${GITHUB_STEP_SUMMARY}"
-            echo "<summary>📊 ${bn} Metrics</summary>" >> "${GITHUB_STEP_SUMMARY}"
-            echo "" >> "${GITHUB_STEP_SUMMARY}"
-            ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-metrics-summary.sh \
-              ${PORT} github-summary >> "${GITHUB_STEP_SUMMARY}" || echo "Metrics unavailable for ${bn}" >> "${GITHUB_STEP_SUMMARY}"
-            echo "</details>" >> "${GITHUB_STEP_SUMMARY}"
-            echo "" >> "${GITHUB_STEP_SUMMARY}"
-            PORT=$((PORT + 1))
-          done
-
       # Test Duration Summary - shows timing breakdown
       - name: Test Duration Summary
         if: always()
@@ -843,8 +812,42 @@ jobs:
           path: "**/sdk-tck/regression/mochawesome-report/mochawesome.*"
           retention-days: 7
 
+      # Network Health Summary - show status of all nodes (after all tests)
+      - name: Network Health Summary
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-network-status.sh \
+            --namespace "${NAMESPACE}" \
+            --topology "${{ inputs.topology }}" \
+            --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
+            --context "${CONTEXT}" \
+            --proto-path "protobuf-sources/proto" \
+            --output github-summary
+
+      # Block Node Metrics Summary - show metrics for each block node (after all tests)
+      - name: Block Node Metrics Summary
+        if: always()
+        continue-on-error: true
+        run: |
+          TOPOLOGY_FILE="${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies/${{ inputs.topology }}.yaml"
+          BLOCK_NODES=$(grep -E '^[[:space:]]+block-node-[0-9]+:' "${TOPOLOGY_FILE}" | sed 's/://g' | awk '{print $1}' || echo "block-node-1")
+
+          PORT=16007
+          for bn in ${BLOCK_NODES}; do
+            echo "<details>" >> "${GITHUB_STEP_SUMMARY}"
+            echo "<summary>📊 ${bn} Metrics</summary>" >> "${GITHUB_STEP_SUMMARY}"
+            echo "" >> "${GITHUB_STEP_SUMMARY}"
+            ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-metrics-summary.sh \
+              ${PORT} github-summary >> "${GITHUB_STEP_SUMMARY}" || echo "Metrics unavailable for ${bn}" >> "${GITHUB_STEP_SUMMARY}"
+            echo "</details>" >> "${GITHUB_STEP_SUMMARY}"
+            echo "" >> "${GITHUB_STEP_SUMMARY}"
+            PORT=$((PORT + 1))
+          done
+
       - name: Collect BN and MN Logs
         if: always()
+        continue-on-error: true
         run: |
           # Create log directories
           mkdir -p bn-logs mn-logs
@@ -935,6 +938,7 @@ jobs:
 
       - name: Upload BN Logs
         if: always()
+        continue-on-error: true
         id: upload_logs_bn
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
@@ -943,6 +947,7 @@ jobs:
 
       - name: Upload MN Logs
         if: always()
+        continue-on-error: true
         id: upload_logs_mn
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
@@ -951,6 +956,7 @@ jobs:
 
       - name: Add Logs and Status to Summary
         if: always()
+        continue-on-error: true
         run: |
           {
             echo "### Logs"
