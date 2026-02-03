@@ -35,6 +35,14 @@ blockNode:
       size: 100Mi
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "nano-verification-pvc"
+  health:
+    readiness:
+      initialDelaySeconds: 40
+      timeoutSeconds: 2
+    liveness:
+      initialDelaySeconds: 50
+      periodSeconds: 10
+      timeoutSeconds: 2
 
 kubepromstack:
   enabled: false

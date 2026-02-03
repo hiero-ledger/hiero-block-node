@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
@@ -172,12 +173,15 @@ public class BlockNodeApp implements HealthFacility {
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
         // ==== INITIALIZE PLUGINS =====================================================================================
-        // Initialize all the facilities & plugins, adding routing for each plugin
+        // Asynchronously Initialize all the facilities & plugins, adding routing for each plugin
         LOGGER.log(INFO, "Initializing plugins:");
+        final List<CompletableFuture<Void>> initFutures = new ArrayList<>();
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, GREY + "    " + plugin.name());
-            plugin.init(blockNodeContext, serviceBuilder);
+            initFutures.add(CompletableFuture.runAsync(() -> plugin.init(blockNodeContext, serviceBuilder)));
         }
+        CompletableFuture.allOf(initFutures.toArray(new CompletableFuture<?>[0]))
+                .join();
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
@@ -240,10 +244,13 @@ public class BlockNodeApp implements HealthFacility {
         metricsProvider.start();
         // Start all the facilities & plugins
         LOGGER.log(INFO, "Starting plugins:");
+        final List<CompletableFuture<Void>> startFutures = new ArrayList<>();
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, GREY + "    " + plugin.name());
-            plugin.start();
+            startFutures.add(CompletableFuture.runAsync(plugin::start));
         }
+        CompletableFuture.allOf(startFutures.toArray(new CompletableFuture<?>[0]))
+                .join();
         // mark the server as started
         state.set(State.RUNNING);
         // log the server has started
