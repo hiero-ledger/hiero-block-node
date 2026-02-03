@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Objects;
+import org.hiero.block.common.utils.ByteUtilities;
 
 /**
  * An enum that reflects the type of compression that is used to compress the blocks that are stored within the
@@ -19,24 +20,28 @@ public enum CompressionType {
      * This type of compression is used to compress the blocks using the `Zstandard` algorithm and default compression
      * level 3.
      */
-    ZSTD(".zstd"),
+    ZSTD(".zstd", ByteUtilities.intToByteArrayLittleEndian(Zstd.magicNumber())),
     /**
      * This type means no compression will be done.
      */
-    NONE("");
+    NONE("", new byte[0]);
 
     /** The default compression level for Zstandard compression. */
     private static final int DEFAULT_ZSTD_COMPRESSION_LEVEL = 3;
     /** The file extension for this compression type. */
     private final String fileExtension;
+    /** The magic bytes that identify this compression type. */
+    private final byte[] magicBytes;
 
     /**
      * Constructor.
      *
      * @param fileExtension the file extension for this compression type
+     * @param magicBytes the magic bytes that identify this compression type
      */
-    CompressionType(final String fileExtension) {
+    CompressionType(final String fileExtension, final byte[] magicBytes) {
         this.fileExtension = fileExtension;
+        this.magicBytes = magicBytes;
     }
 
     /**
@@ -46,6 +51,15 @@ public enum CompressionType {
      */
     public String extension() {
         return fileExtension;
+    }
+
+    /**
+     * Get the magic bytes that identify this compression type.
+     *
+     * @return the magic bytes for this compression type
+     */
+    public byte[] magicBytes() {
+        return magicBytes;
     }
 
     /**
