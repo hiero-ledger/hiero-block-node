@@ -67,8 +67,11 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
      * Package-private for testing.
      */
     final ConcurrentHashMap<BackfillSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
-    /** Per-source health for backoff and simple scoring. */
-    private final ConcurrentHashMap<BackfillSourceConfig, SourceHealth> healthMap = new ConcurrentHashMap<>();
+    /**
+     * Per-source health for backoff and simple scoring.
+     * Package-private for testing.
+     */
+    final ConcurrentHashMap<BackfillSourceConfig, SourceHealth> healthMap = new ConcurrentHashMap<>();
 
     /**
      * Constructor for the fetcher responsible for retrieving blocks from peer block nodes.
@@ -109,6 +112,10 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         long latestPeerBlock = Long.MIN_VALUE;
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
+            if (isInBackoff(node)) {
+                LOGGER.log(TRACE, "Node [{0}] is in backoff, skipping range discovery", node.address());
+                continue;
+            }
             BlockNodeClient currentNodeClient = getNodeClient(node);
             if (currentNodeClient == null || !currentNodeClient.isNodeReachable()) {
                 final String unableToReachNodeMsg = "Unable to reach node [{0}], skipping";
@@ -351,5 +358,6 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         nodeClientMap.clear();
     }
 
-    private record SourceHealth(int failures, long nextAllowedMillis, long successes, long totalLatencyNanos) {}
+    /** Package-private for testing. */
+    record SourceHealth(int failures, long nextAllowedMillis, long successes, long totalLatencyNanos) {}
 }
