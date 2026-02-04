@@ -16,11 +16,29 @@ on the encodinge format and rules for that version from the contents of the `Rec
 hash you can verify the signatures in the `SignedRecordFileProof` to ensure the data is valid. You will need to know the
 addressbook of nodes that made up the network at the point in time when the file was created and signed.
 
-For each historical record file block we will produce a new block stream block. It will contain:
- - A `BlockHeader` with the same consensus timestamp as the original record file block.
- - A `RecordFileItem` containing the original record file contents.
- - A `SignedRecordFileProof` containing the signatures from the nodes that signed the record file.
- - A `BlockFooter` with the same consensus timestamp as the original record file block.
+For each historical record file block we will produce a new block stream block. It will contain exactly
+four block items in this order:
+
+1. **`BlockHeader`** - Contains metadata for the block:
+   - `hapi_proto_version`: The HAPI protobuf version from the original record file
+   - `software_version`: Set to null (not available in historical record files)
+   - `number`: The block number (sequential, starting from 0)
+   - `block_timestamp`: The timestamp of the first transaction in the block
+   - `hash_algorithm`: SHA2_384
+
+2. **`RecordFileItem`** - Contains the original record file data:
+   - `creation_time`: The consensus time the record file was produced for (from the record file name)
+   - `record_file_contents`: The record file contents converted to V6 `RecordStreamFile` format
+   - `sidecar_file_contents`: Zero or more sidecar files associated with the record file
+
+3. **`BlockFooter`** - Contains hashes for blockchain integrity:
+   - `previous_block_root_hash`: The block hash of the previous wrapped block (or `sha384(0x0)` for block 0)
+   - `root_hash_of_all_block_hashes_tree`: The merkle root of all block hashes from block 0 to the previous block
+   - `start_of_block_state_root_hash`: Set to empty hash (state hashes were not included in record files)
+
+4. **`BlockProof`** - Contains a `SignedRecordFileProof` with:
+   - `version`: The original record file format version (2, 5, or 6)
+   - `record_file_signatures`: RSA signatures from consensus nodes that signed the record file
 
 ### RecordFileItem
 ```proto
