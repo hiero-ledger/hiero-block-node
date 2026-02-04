@@ -239,7 +239,7 @@ public class BlockNodeApp implements HealthFacility {
         webServer.start();
         // Start metrics
         metricsProvider.start();
-        // Start all the facilities & plugins
+        // Start all the facilities & plugins asynchronously
         LOGGER.log(INFO, "Asynchronously Starting plugins:");
         List<CompletableFuture<Void>> startFutures = new ArrayList<>();
         for (BlockNodePlugin plugin : loadedPlugins) {
