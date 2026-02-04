@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.common.utils;
+package org.hiero.block.node.base.utils;
 
 /// Utility class for byte array conversion operations.
-public class ByteUtilities {
+public final class ByteUtilities {
 
     /// Converts an integer to a 4-byte array in little-endian format.
     ///

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.common.utils;
+package org.hiero.block.node.base.utils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

@@ -9,7 +9,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Objects;
-import org.hiero.block.common.utils.ByteUtilities;
+import org.hiero.block.node.base.utils.ByteUtilities;
 
 /**
  * An enum that reflects the type of compression that is used to compress the blocks that are stored within the
