@@ -91,9 +91,9 @@ class VerificationServicePluginTest
                 "The block should be the same as the one sent");
     }
 
-    // @todo(2002): Re-enable once proper v0.69.0 verification is implemented with updated protobuf.
+    // @todo(2002): Re-enable once proper v0.71.0 verification is implemented with updated protobuf.
     // DummyVerificationSession always returns success, so failed verification cannot be tested.
-    @Disabled("Disabled until proper v0.69.0 verification is implemented - see @todo(2002)")
+    @Disabled("Disabled until proper v0.71.0 verification is implemented - see @todo(2002)")
     @Test
     void testFailedVerification() throws IOException, ParseException {
 

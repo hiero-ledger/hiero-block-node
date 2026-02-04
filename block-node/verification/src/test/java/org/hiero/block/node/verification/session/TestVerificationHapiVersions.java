@@ -65,7 +65,7 @@ class TestVerificationHapiVersions {
         assertEquals(blockNumber, note.blockNumber(), sampleName + ": Block number should match");
         assertTrue(note.success(), sampleName + ": Verification should be successful");
 
-        // @todo(2002): Enable hash verification for all sessions once proper v0.69.0 verification is implemented
+        // @todo(2002): Enable hash verification for all sessions once proper v0.71.0 verification is implemented
         // DummyVerificationSession returns a dummy hash (0x00), so skip hash comparison for it
         if (!(session instanceof DummyVerificationSession)) {
             assertEquals(sampleBlockInfo.blockRootHash(), note.blockHash(), sampleName + ": Block hash should match");

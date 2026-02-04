@@ -31,8 +31,8 @@ class ExtendedMerkleTreeSessionTest {
     /**
      * Happy path test for the BlockVerificationSession class.
      */
-    // @todo(2002): Re-enable once proper v0.69.0 verification is implemented with updated protobuf
-    @Disabled("Disabled until proper v0.69.0 verification is implemented - see @todo(2002)")
+    // @todo(2002): Re-enable once proper v0.71.0 verification is implemented with updated protobuf
+    @Disabled("Disabled until proper v0.71.0 verification is implemented - see @todo(2002)")
     @Test
     void happyPath() throws ParseException {
         BlockHeader blockHeader =

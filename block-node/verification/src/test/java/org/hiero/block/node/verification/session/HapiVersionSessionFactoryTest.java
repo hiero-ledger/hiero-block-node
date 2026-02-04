@@ -51,7 +51,7 @@ class HapiVersionSessionFactoryTest {
         return Stream.of(Arguments.of(sv(0, 69, 0)), Arguments.of(sv(0, 69, 1)));
     }
 
-    // @todo(2002): Update to expect ExtendedMerkleTreeSession once proper v0.69.0 verification is implemented
+    // @todo(2002): Update to expect ExtendedMerkleTreeSession once proper v0.71.0 verification is implemented
     @ParameterizedTest(name = ">= 0.69.0 resolves to DummyVerificationSession for {0}")
     @MethodSource("latestImplVersions")
     void selectsLatestImplFor0690AndAbove(SemanticVersion v) {
@@ -130,7 +130,7 @@ class HapiVersionSessionFactoryTest {
 
     @Nested
     class BlockNumberAgnostic {
-        // @todo(2002): Update to expect ExtendedMerkleTreeSession once proper v0.69.0 verification is implemented
+        // @todo(2002): Update to expect ExtendedMerkleTreeSession once proper v0.71.0 verification is implemented
         @Test
         @DisplayName("Uses the same impl regardless of blockNumber (0 and large)")
         void blockNumberDoesNotAffectImpl() {
