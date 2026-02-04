@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.stream.Stream;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 
@@ -147,17 +148,27 @@ record BlockPath(
 
     private static CompressionType determineCompressionByMagicBytes(
             Path blockFilePath, CompressionType[] compressionOpts) throws IOException {
+        // Find the longest magic bytes sequence to determine how many bytes we need to read
+        final int max = Stream.of(compressionOpts)
+                .map(ct -> ct.magicBytes().length)
+                .max(Integer::compare)
+                .orElse(0);
+
+        // Read the file header once with enough bytes to check all compression types
+        final byte[] fileHeader = new byte[max];
+        try (final InputStream is = Files.newInputStream(blockFilePath)) {
+            final int _ = is.read(fileHeader);
+        }
+
+        // Check each compression type's magic bytes against the file header
         for (CompressionType currentOpt : compressionOpts) {
             final byte[] magicBytes = currentOpt.magicBytes();
             if (magicBytes != null && magicBytes.length > 0) {
-                // Read first bytes of file to verify compression type
-                final byte[] fileHeader = new byte[magicBytes.length];
-                try (final InputStream is = Files.newInputStream(blockFilePath)) {
-                    final int bytesRead = is.read(fileHeader);
-                    if (bytesRead == magicBytes.length && Arrays.equals(fileHeader, magicBytes)) {
-                        // Magic bytes match, return this compression type
-                        return currentOpt;
-                    }
+                // Extract the relevant portion of the header for this compression type
+                final byte[] headerChunk = Arrays.copyOf(fileHeader, magicBytes.length);
+                if (Arrays.equals(headerChunk, magicBytes)) {
+                    // Magic bytes match, return this compression type
+                    return currentOpt;
                 }
             }
         }
