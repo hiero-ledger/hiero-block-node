@@ -48,7 +48,8 @@ public final class HapiVersionSessionFactory {
 
         // @todo(2002): Implement proper verification for v0.71.0 with updated protobuf
         if (isGreaterThanOrEqual(hapiVersion, V_0_71_0)) {
-            return new ExtendedMerkleTreeSession(blockNumber, blockSource, previousBlockHash, allPreviousBlocksRootHash);
+            return new ExtendedMerkleTreeSession(
+                    blockNumber, blockSource, previousBlockHash, allPreviousBlocksRootHash);
         }
 
         // TODO, before going live we should remove the Dummy Implementation.
