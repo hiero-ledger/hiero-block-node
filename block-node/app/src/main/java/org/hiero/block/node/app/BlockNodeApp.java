@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
@@ -239,11 +240,13 @@ public class BlockNodeApp implements HealthFacility {
         // Start metrics
         metricsProvider.start();
         // Start all the facilities & plugins
-        LOGGER.log(INFO, "Starting plugins:");
+        LOGGER.log(INFO, "Asynchronously Starting plugins:");
+        List<CompletableFuture<Void>> startFutures = new ArrayList<>();
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, GREY + "    " + plugin.name());
-            plugin.start();
+            startFutures.add(CompletableFuture.runAsync(plugin::start));
         }
+        CompletableFuture.allOf(startFutures.toArray(new CompletableFuture[0]));
         // mark the server as started
         state.set(State.RUNNING);
         // log the server has started
