@@ -131,15 +131,15 @@ spec:
           httpGet:
             path: {{ .Values.blockNode.health.liveness.endpoint }}
             port: {{ .Values.service.port }}
-          initialDelaySeconds: 50
-          periodSeconds: 10
-          timeoutSeconds: 2
+          initialDelaySeconds: {{ .Values.blockNode.health.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.blockNode.health.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.blockNode.health.liveness.timeoutSeconds }}
         readinessProbe:
           httpGet:
             path: {{ .Values.blockNode.health.readiness.endpoint }}
             port: {{ .Values.service.port }}
-          initialDelaySeconds: 40
-          timeoutSeconds: 2
+          initialDelaySeconds: {{ .Values.blockNode.health.readiness.initialDelaySeconds }}
+          timeoutSeconds: {{ .Values.blockNode.health.readiness.timeoutSeconds }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
