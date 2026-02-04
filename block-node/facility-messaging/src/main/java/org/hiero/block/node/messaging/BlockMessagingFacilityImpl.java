@@ -501,7 +501,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         LOGGER.log(Level.INFO, "Received an event with no notification set");
                     }
                 };
-        if (blockNotificationDisruptor != null && blockNotificationDisruptor.hasStarted()) {
+        if (blockNotificationDisruptor.hasStarted()) {
             // if the disruptor is already running, we need to register the handler with the disruptor
             registerHandler(
                     handler,
