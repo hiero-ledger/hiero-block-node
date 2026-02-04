@@ -173,11 +173,12 @@ public class BlockNodeApp implements HealthFacility {
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
-        LOGGER.log(INFO, "Asynchronous Initializing plugins:");
-        loadedPlugins.parallelStream().forEach(plugin -> {
+        LOGGER.log(INFO, "Initializing plugins:");
+        for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, GREY + "    " + plugin.name());
             plugin.init(blockNodeContext, serviceBuilder);
-        });
+        }
+        ;
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
