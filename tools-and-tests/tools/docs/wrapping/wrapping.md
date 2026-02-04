@@ -43,6 +43,24 @@ four block items in this order:
    - `version`: The original record file format version (2, 5, or 6)
    - `record_file_signatures`: RSA signatures from consensus nodes that signed the record file
 
+## Appending TSS Block Proofs to the wrapped Block Stream
+As well as maintaining a blockchain of all blocks through the `BlockFooter.previous_block_root_hash` chain, we also
+maintain references to previous blocks though the `BlockFooter.root_hash_of_all_block_hashes_tree` merkle tree. The
+reason for doing this is it allows for concise merkle proofs to be constructed for any block in the chain from any
+future block. Once the first new block stream block is produced after the last wrapped record file block, and it is
+signed with a [TSS](https://hips.hedera.com/hip/hip-1200) signature. We can use that TSS signature block proof and the
+block hash merkle tree to produce a `StateProof` type of `BlockProof` for every historical wrapped block. Then append
+each of those `BlockProof` items to the end of each wrapped block file. This means every historical block will have a
+two block proofs, the original SignedRecordFileProof proof for trusting the original record data at the point it was
+created and the new TSS signature block proof for trusting the new wrapped block with any amendments to the data. TSS
+proofs only need a single well-known piece of data the Ledger ID to be able to verify and trust any block. They do not
+need to know anything about address books or changes to address books over time, which greatly simplifies the
+verification. This means as long as you trust the network today and its Ledger ID, you can verify and trust any block
+new or old using a single verification method. This should make it much easier for users to read the blockchain history
+as they have a single unified format and unified signature verification method. There should be no need to use the
+SignedRecordFileProof if there is a TSS proof unless you tried the network historically and not today (which seems very
+unlikely).
+
 ### RecordFileItem
 ```proto
 /**
