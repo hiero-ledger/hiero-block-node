@@ -24,9 +24,27 @@ import org.hiero.block.node.base.Loggable;
  *     capacity available, the session will drop the oldest full blocks (at the queue head)
  *     in the queue until at least this many batches can be added without blocking.<br/>
  *     This value should typically be around 10% of the live queue size.
+ * @param maxChunkSizeBytes The maximum size in bytes for a chunk of block items
+ *     when streaming historical blocks. Large blocks are split into chunks to stay
+ *     within PBJ's buffer allocation limit (4MB). The default of 1MB provides
+ *     headroom for protobuf overhead. If a single item exceeds this limit but is
+ *     under 4MB, it will be sent by itself.
+ * @param maxConcurrentSessions Maximum number of concurrent subscriber sessions allowed.
+ *     When this limit is reached, new connection attempts will be rejected with
+ *     NOT_AVAILABLE status. This protects against reconnect storms from
+ *     misbehaving clients. Set to 0 for unlimited (not recommended in production).
+ * @param sessionRateLimitPerSecond Maximum number of new sessions that can be created
+ *     per second. This rate limit helps prevent thundering herd problems when many
+ *     clients reconnect simultaneously. Excess requests are rejected with
+ *     NOT_AVAILABLE status. Set to 0 to disable rate limiting.
  */
+// spotless:off
 @ConfigData("subscriber")
 public record SubscriberConfig(
         @Loggable @ConfigProperty(defaultValue = "4000") @Min(100) int liveQueueSize,
         @Loggable @ConfigProperty(defaultValue = "4000") @Min(10) long maximumFutureRequest,
-        @Loggable @ConfigProperty(defaultValue = "400") @Min(10) int minimumLiveQueueCapacity) {}
+        @Loggable @ConfigProperty(defaultValue = "400") @Min(10) int minimumLiveQueueCapacity,
+        @Loggable @ConfigProperty(defaultValue = "1_048_576") @Min(100_000) int maxChunkSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "50") @Min(0) int maxConcurrentSessions,
+        @Loggable @ConfigProperty(defaultValue = "10") @Min(0) int sessionRateLimitPerSecond) {}
+// spotless:on
