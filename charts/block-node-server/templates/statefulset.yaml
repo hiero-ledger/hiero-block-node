@@ -67,9 +67,32 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.blockNode.persistence.verification.existingClaim }}
         {{- end }}
-      {{- with .Values.blockNode.initContainers }}
+      {{- if or .Values.blockNode.initContainers .Values.plugins.enabled }}
       initContainers:
+        {{- with .Values.blockNode.initContainers }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.plugins.enabled }}
+        - name: download-plugins
+          image: curlimages/curl:8.5.0
+          command:
+            - sh
+            - -c
+            - |
+              {{- $pluginVersion := .Values.plugins.version | default .Chart.AppVersion }}
+              {{- range (splitList "," .Values.plugins.names) }}
+              {{- $plugin := . | trim }}
+              {{- if $plugin }}
+              mkdir -p {{ $.Values.plugins.targetDir | quote }} && \
+              curl -fL -o "{{ $.Values.plugins.targetDir }}/{{ $plugin }}.jar" \
+                "{{ $.Values.plugins.baseUrl }}/{{ $plugin }}/{{ $pluginVersion }}/{{ $plugin }}-{{ $pluginVersion }}.jar" && \
+              {{- end }}
+              {{- end }}
+              echo "Plugin download complete"
+          volumeMounts:
+            - name: {{ default "plugins" .Values.plugins.volumeName }}
+              mountPath: {{ .Values.plugins.targetDir }}
+        {{- end }}
       {{- end }}
       {{- $hostPorts := default (dict) .Values.blockNode.hostPorts }}
       containers:

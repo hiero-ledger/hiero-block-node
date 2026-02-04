@@ -133,27 +133,6 @@ blockNode:
           mountPath: /archive-pvc
         - name: verification-storage
           mountPath: /verification-pvc
-    - name: download-plugins
-      image: curlimages/curl:8.5.0
-      command:
-        - sh
-        - -c
-        - |
-            {{- if .Values.plugins.enabled }}
-            {{- $pluginVersion := .Values.plugins.version | default .Chart.AppVersion }}
-            {{- range (splitList "," .Values.plugins.names) }}
-            {{- $plugin := . | trim }}
-            {{- if $plugin }}
-            mkdir -p {{ $.Values.plugins.targetDir | quote }} && \
-            curl -fL -o "{{ $.Values.plugins.targetDir }}/{{ $plugin }}.jar" \
-            "{{ $.Values.plugins.baseUrl }}/{{ $plugin }}/{{ $pluginVersion }}/{{ $plugin }}-{{ $pluginVersion }}.jar" && \
-            {{- end }}
-            {{- end }}
-            echo "Plugin download complete"
-            {{- end }}
-      volumeMounts:
-        - name: plugins
-          mountPath: /plugins
   # if blank will use same as AppVersion of chart.
   version: ""
   config:

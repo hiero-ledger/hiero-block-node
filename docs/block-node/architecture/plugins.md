@@ -51,3 +51,12 @@ public class MyCustomPlugin implements BlockNodePlugin {
     }
 }
 ```
+
+## Deployment Configuration
+
+The Block Node OCI image is published without plugins. Plugins are downloaded during deployment
+based on Helm chart configuration. This allows operators to select exactly which plugins to load.
+
+For deployment configuration, including pre-defined profiles and custom plugin selection, see:
+- [Helm Chart Plugin Configuration](../../../charts/block-node-server/README.md#plugin-configuration)
+- [Deployment with Selected Plugins Design](../../design/deployment-with-selected-plugins.md)

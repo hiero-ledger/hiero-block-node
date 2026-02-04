@@ -56,19 +56,6 @@ tasks.withType<JavaExec>().configureEach {
         "VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH",
         "${serverDataDir}/verification/rootHashOfAllPreviousBlocks.bin",
     )
-    mainModuleInfo {
-        runtimeOnly("org.hiero.block.node.messaging")
-        runtimeOnly("org.hiero.block.node.health")
-        runtimeOnly("org.hiero.block.node.access.service")
-        runtimeOnly("org.hiero.block.node.server.status")
-        runtimeOnly("org.hiero.block.node.archive.s3cloud")
-        runtimeOnly("org.hiero.block.node.stream.publisher")
-        runtimeOnly("org.hiero.block.node.stream.subscriber")
-        runtimeOnly("org.hiero.block.node.verification")
-        runtimeOnly("org.hiero.block.node.blocks.files.historic")
-        runtimeOnly("org.hiero.block.node.blocks.files.recent")
-        runtimeOnly("org.hiero.block.node.backfill")
-    }
 }
 
 tasks.register<JavaExec>("runWithCleanStorage") {
@@ -106,6 +93,20 @@ mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    // List of all "plugin modules" we might someday need at runtime.
+    // In the future, we may get Gradle to automatically infer this block
+    //   https://github.com/gradlex-org/java-module-dependencies/issues/174
+    runtimeOnly("org.hiero.block.node.archive.s3cloud")
+    runtimeOnly("org.hiero.block.node.messaging")
+    runtimeOnly("org.hiero.block.node.health")
+    runtimeOnly("org.hiero.block.node.stream.publisher")
+    runtimeOnly("org.hiero.block.node.stream.subscriber")
+    runtimeOnly("org.hiero.block.node.verification")
+    runtimeOnly("org.hiero.block.node.blocks.files.historic")
+    runtimeOnly("org.hiero.block.node.blocks.files.recent")
+    runtimeOnly("org.hiero.block.node.access.service")
+    runtimeOnly("org.hiero.block.node.server.status")
+    runtimeOnly("org.hiero.block.node.backfill")
 }
 
 testModuleInfo {
