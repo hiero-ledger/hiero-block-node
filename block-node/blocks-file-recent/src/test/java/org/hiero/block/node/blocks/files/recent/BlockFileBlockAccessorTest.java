@@ -76,28 +76,7 @@ class BlockFileBlockAccessorTest {
         @Test
         void testNullBlockFilePath() {
             // call && assert
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(null, config.compression(), linksRoot, 0));
-        }
-
-        /**
-         * This test asserts that a {@link NullPointerException} is thrown when
-         * the input compression type is null.
-         */
-        @Test
-        void testNullCompressionType() throws IOException {
-            // resolve, create & assert existing block file path before call
-            final Path blockFilePath = config.liveRootPath().resolve("1.blk");
-            Files.createFile(blockFilePath);
-            assertThat(blockFilePath)
-                    .exists()
-                    .isRegularFile()
-                    .isEmptyFile()
-                    .isReadable()
-                    .isWritable();
-            // call && assert
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, null, linksRoot, 0));
+            assertThatNullPointerException().isThrownBy(() -> new BlockFileBlockAccessor(null, linksRoot, 0));
         }
 
         /**
@@ -107,9 +86,7 @@ class BlockFileBlockAccessorTest {
         @Test
         void testBlockFilePathNotAFile() {
             // call && assert
-            assertThatIOException()
-                    .isThrownBy(() ->
-                            new BlockFileBlockAccessor(config.liveRootPath(), config.compression(), linksRoot, 0));
+            assertThatIOException().isThrownBy(() -> new BlockFileBlockAccessor(config.liveRootPath(), linksRoot, 0));
         }
 
         /**
@@ -122,8 +99,7 @@ class BlockFileBlockAccessorTest {
             final Path blockFilePath = config.liveRootPath().resolve("1.blk");
             assertThat(blockFilePath).doesNotExist();
             // call && assert
-            assertThatIOException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, config.compression(), linksRoot, 0));
+            assertThatIOException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, linksRoot, 0));
         }
 
         /**
@@ -142,8 +118,7 @@ class BlockFileBlockAccessorTest {
                     .isReadable()
                     .isWritable();
             // call && assert
-            assertThatNullPointerException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, config.compression(), null, 0));
+            assertThatNullPointerException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, null, 0));
         }
 
         /**
@@ -164,9 +139,7 @@ class BlockFileBlockAccessorTest {
             final Path localLinksRoot = config.liveRootPath().resolve("localLinks");
             assertThat(localLinksRoot).doesNotExist();
             // call && assert
-            assertThatIOException()
-                    .isThrownBy(
-                            () -> new BlockFileBlockAccessor(blockFilePath, config.compression(), localLinksRoot, 0));
+            assertThatIOException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, localLinksRoot, 0));
         }
 
         /**
@@ -193,9 +166,7 @@ class BlockFileBlockAccessorTest {
                     .isReadable()
                     .isWritable();
             // call && assert
-            assertThatIOException()
-                    .isThrownBy(
-                            () -> new BlockFileBlockAccessor(blockFilePath, config.compression(), localLinksRoot, 0));
+            assertThatIOException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, localLinksRoot, 0));
         }
 
         /**
@@ -217,9 +188,7 @@ class BlockFileBlockAccessorTest {
             final Path localLinksRoot = config.liveRootPath().resolve("localLinks");
             assertThat(localLinksRoot).doesNotExist();
             // call && assert
-            assertThatIOException()
-                    .isThrownBy(
-                            () -> new BlockFileBlockAccessor(blockFilePath, config.compression(), localLinksRoot, 0));
+            assertThatIOException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, localLinksRoot, 0));
         }
 
         /**
@@ -247,9 +216,7 @@ class BlockFileBlockAccessorTest {
                     .isReadable()
                     .isWritable();
             // call && assert
-            assertThatIOException()
-                    .isThrownBy(
-                            () -> new BlockFileBlockAccessor(blockFilePath, config.compression(), localLinksRoot, 0));
+            assertThatIOException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, localLinksRoot, 0));
         }
 
         /**
@@ -268,8 +235,7 @@ class BlockFileBlockAccessorTest {
                     .isReadable()
                     .isWritable();
             // call && assert
-            assertThatNoException()
-                    .isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, config.compression(), linksRoot, 0));
+            assertThatNoException().isThrownBy(() -> new BlockFileBlockAccessor(blockFilePath, linksRoot, 0));
         }
     }
 
@@ -338,8 +304,7 @@ class BlockFileBlockAccessorTest {
             // assert that the accessor can no longer find the data
             assertThat(toTest.blockUnparsed()).isNull();
             // now create a new accessor
-            final BlockFileBlockAccessor toTest2 = new BlockFileBlockAccessor(
-                    blockFilePath, createConfig(compressionType, dataRoot).compression(), linksRoot, blockNumber);
+            final BlockFileBlockAccessor toTest2 = new BlockFileBlockAccessor(blockFilePath, linksRoot, blockNumber);
             // assert that the second accessor can retrieve the same data as did the first one
             final BlockUnparsed unparsed2 = toTest2.blockUnparsed();
             assertThat(unparsed2).isNotNull();
@@ -449,8 +414,7 @@ class BlockFileBlockAccessorTest {
             // assert that the accessor can no longer find the data
             assertThat(toTest.blockUnparsed()).isNull();
             // now create a new accessor
-            final BlockFileBlockAccessor toTest2 = new BlockFileBlockAccessor(
-                    blockFilePath, createConfig(compressionType, dataRoot).compression(), linksRoot, blockNumber);
+            final BlockFileBlockAccessor toTest2 = new BlockFileBlockAccessor(blockFilePath, linksRoot, blockNumber);
             // assert that the second accessor can retrieve the same data as did the first one
             assertThat(toTest2.blockUnparsed()).isEqualTo(expected);
         }
@@ -618,8 +582,7 @@ class BlockFileBlockAccessorTest {
             // assert that the accessor can no longer find the data
             assertThat(toTest.blockBytes(format)).isNull();
             // now create a new accessor
-            final BlockFileBlockAccessor toTest2 = new BlockFileBlockAccessor(
-                    blockFilePath, createConfig(compressionType, dataRoot).compression(), linksRoot, blockNumber);
+            final BlockFileBlockAccessor toTest2 = new BlockFileBlockAccessor(blockFilePath, linksRoot, blockNumber);
             // assert that the second accessor can retrieve the same data as did the first one
             assertThat(toTest2.blockBytes(format).toHex()).isEqualTo(expected);
         }
@@ -725,8 +688,7 @@ class BlockFileBlockAccessorTest {
             }
             // assert the test block file is populated
             assertThat(blockFilePath).isNotEmptyFile();
-            return new BlockFileBlockAccessor(
-                    blockFilePath, createConfig(compressionType, dataRoot).compression(), linksRoot, blockNumber);
+            return new BlockFileBlockAccessor(blockFilePath, linksRoot, blockNumber);
         }
 
         private BlockFileBlockAccessor buildAndCreateBlockAndGetAssociatedAccessor(

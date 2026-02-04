@@ -13,8 +13,10 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -47,22 +49,17 @@ final class BlockFileBlockAccessor implements BlockAccessor {
      * Constructs a BlockFileBlockAccessor with the specified block file path and compression type.
      *
      * @param blockFilePath the path to the block file, must exist
-     * @param compressionType the compression type of the block file, must not be null
      * @param linksRootPath the root path where hard links to block files will be created
      * @param blockNumber the block number of the block
      */
-    BlockFileBlockAccessor(
-            @NonNull final Path blockFilePath,
-            @NonNull final CompressionType compressionType,
-            @NonNull final Path linksRootPath,
-            final long blockNumber)
+    BlockFileBlockAccessor(@NonNull final Path blockFilePath, @NonNull final Path linksRootPath, final long blockNumber)
             throws IOException {
         if (!Files.isRegularFile(blockFilePath)) {
             final String msg = INVALID_BLOCK_FILE_PATH_MESSAGE.formatted(blockFilePath);
             throw new IOException(msg);
         }
         this.absolutePathToBlock = blockFilePath.toAbsolutePath().toString();
-        this.compressionType = Objects.requireNonNull(compressionType);
+        this.compressionType = determineCompressionType(blockFilePath);
         this.blockNumber = blockNumber;
         // create a hard link to the block file for the duration of the accessor's life
         final Path link = linksRootPath.resolve(UUID.randomUUID().toString());
@@ -75,6 +72,15 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     @Override
     public long blockNumber() {
         return blockNumber;
+    }
+
+    /**
+     * Get the compression type of the block file.
+     *
+     * @return the compression type
+     */
+    CompressionType compressionType() {
+        return compressionType;
     }
 
     /**
@@ -180,5 +186,51 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     @Override
     public boolean isClosed() {
         return !Files.exists(blockFileLink);
+    }
+
+    /**
+     * Tries to determine the compression type of a block file by examining its magic bytes.
+     * <p>
+     * This method reads the beginning of the file and compares it against the magic bytes
+     * of all known compression types. If a match is found, the corresponding compression
+     * type is returned. If no magic bytes match, the file is assumed to be uncompressed.
+     *
+     * @param verifiedBlockPath the path to the block file that has been verified to exist
+     * @return the compression type of the file, or {@link CompressionType#NONE} if the file
+     *         is not compressed or uses a compression type without magic bytes
+     * @throws IOException if an I/O error occurs while reading the file header
+     */
+    CompressionType determineCompressionType(Path verifiedBlockPath) throws IOException {
+        // Get all available compression types to check
+        final CompressionType[] compressionOpts = CompressionType.class.getEnumConstants();
+        // Find the longest magic bytes sequence to determine how many bytes we need to read
+        final int max = Stream.of(compressionOpts)
+                .map(ct -> ct.magicBytes().length)
+                .max(Integer::compare)
+                .orElse(0);
+
+        // Read the file header once with enough bytes to check all compression types
+        final byte[] fileHeader = new byte[max];
+        try (final InputStream is = Files.newInputStream(verifiedBlockPath)) {
+            final int _ = is.read(fileHeader);
+        }
+
+        // Check each compression type's magic bytes against the file header
+        for (CompressionType currentOpt : compressionOpts) {
+            final byte[] magicBytes = currentOpt.magicBytes();
+            if (magicBytes != null && magicBytes.length > 0) {
+                // Extract the relevant portion of the header for this compression type
+                final byte[] headerChunk = Arrays.copyOf(fileHeader, magicBytes.length);
+                if (Arrays.equals(headerChunk, magicBytes)) {
+                    // Magic bytes match, return this compression type
+                    return currentOpt;
+                }
+            }
+        }
+
+        // At the moment all supported actual compressions (ZSTD) have magic bytes. Not finding any
+        // means that the file is not compressed. If in the future we add a compression type without
+        // magic bytes, then we might need to fall back to file extension-based detection before returning NONE.
+        return CompressionType.NONE;
     }
 }
