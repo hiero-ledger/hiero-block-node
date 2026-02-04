@@ -569,6 +569,9 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
                 "secondStreamStatus does not contain 'duplicate_block'");
     }
 
+    // @todo(2002): Re-enable once proper verification is implemented with updated protobuf.
+    // DummyVerificationSession always returns success, so bad block proof cannot be detected.
+    @Disabled("Disabled until proper verification is implemented - see @todo(2002)")
     @Test
     @DisplayName("Verify Failed Verification Handling")
     public void testMultiPublisherBadBlockProof() throws IOException, InterruptedException {
