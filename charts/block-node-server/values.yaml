@@ -201,6 +201,8 @@ blockNode:
       initialDelaySeconds: 10
       periodSeconds: 10
       timeoutSeconds: 2
+      successThreshold: 1
+      failureThreshold: 3
     metrics:
       port: 16007
   logs:

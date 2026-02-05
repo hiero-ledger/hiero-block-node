@@ -134,6 +134,8 @@ spec:
           initialDelaySeconds: {{ .Values.blockNode.health.liveness.initialDelaySeconds }}
           periodSeconds: {{ .Values.blockNode.health.liveness.periodSeconds }}
           timeoutSeconds: {{ .Values.blockNode.health.liveness.timeoutSeconds }}
+          successThreshold: {{ .Values.blockNode.health.liveness.successThreshold }}
+          failureThreshold: {{ .Values.blockNode.health.liveness.failureThreshold }}
         readinessProbe:
           httpGet:
             path: {{ .Values.blockNode.health.readiness.endpoint }}
