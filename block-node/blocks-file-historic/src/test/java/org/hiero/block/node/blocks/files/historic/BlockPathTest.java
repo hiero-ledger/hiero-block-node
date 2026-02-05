@@ -419,7 +419,7 @@ class BlockPathTest {
             }
 
             // Try to find block number 5 from the archive
-            final BlockPath actual = BlockPath.computeExistingBlockPath(
+            final BlockPath blockPathSameConfigCompression = BlockPath.computeExistingBlockPath(
                     new FilesHistoricConfig(
                             dataRoot,
                             testConfig.compression(),
@@ -430,10 +430,26 @@ class BlockPathTest {
                     5L);
 
             // Verify that the block was found with the correct compression type
-            assertThat(actual)
+            assertThat(blockPathSameConfigCompression)
                     .isNotNull()
                     .returns("0000000000000000005", from(BlockPath::blockNumStr))
                     .returns("0000000000000000005.blk", from(BlockPath::blockFileName))
+                    .returns(CompressionType.ZSTD, from(BlockPath::compressionType))
+                    .returns(zipFilePath, from(BlockPath::zipFilePath))
+                    .returns(dirPath, from(BlockPath::dirPath));
+
+            // Try to find block number 5 from the archive when the happy path detects different compression type
+            final BlockPath blockPathDifferentConfigCompression = BlockPath.computeExistingBlockPath(
+                    new FilesHistoricConfig(
+                            dataRoot, CompressionType.NONE, testConfig.powersOfTenPerZipFileContents(), 0L, 3, true),
+                    5L);
+
+            // Verify that the block was found with the correct compression type
+            assertThat(blockPathDifferentConfigCompression)
+                    .isNotNull()
+                    .returns("0000000000000000005", from(BlockPath::blockNumStr))
+                    .returns("0000000000000000005.blk", from(BlockPath::blockFileName))
+                    .returns(CompressionType.ZSTD, from(BlockPath::compressionType))
                     .returns(zipFilePath, from(BlockPath::zipFilePath))
                     .returns(dirPath, from(BlockPath::dirPath));
         }

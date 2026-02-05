@@ -103,14 +103,31 @@ record BlockPath(
         // check if the zip file exists
         if (Files.exists(computed.zipFilePath)) {
             try (final FileSystem zipFS = FileSystems.newFileSystem(computed.zipFilePath)) {
+                final CompressionType[] compressionOpts =
+                        config.compression().getDeclaringClass().getEnumConstants();
                 // check if the block file exists
                 if (Files.exists(zipFS.getPath(computed.blockFileName))) {
-                    return computed;
+                    // Check what is the compression type based on the magic bytes
+                    final CompressionType magicBytesCT = Objects.requireNonNullElse(
+                            determineCompressionByMagicBytes(zipFS.getPath(computed.blockFileName), compressionOpts),
+                            CompressionType.NONE);
+                    if (computed.compressionType.equals(magicBytesCT)) {
+                        // If the current compression type matches the magic bytes compression type,
+                        // return the computed block path
+                        return computed;
+                    } else {
+                        // Otherwise return a new block path with the compression type computed by magic bytes
+                        return new BlockPath(
+                                computed.dirPath,
+                                computed.zipFilePath,
+                                computed.blockNumStr,
+                                computed.blockFileName,
+                                magicBytesCT);
+                    }
                 } else {
                     // if happy path not found, check if persisted with another
                     // compression extension.
-                    final CompressionType[] compressionOpts =
-                            config.compression().getDeclaringClass().getEnumConstants();
+
                     // noinspection ForLoopReplaceableByForEach
                     for (int i = 0; i < compressionOpts.length; i++) {
                         final CompressionType currentOpt = compressionOpts[i];
