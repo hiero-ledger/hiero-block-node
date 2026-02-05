@@ -38,11 +38,11 @@ blockNode:
   health:
     readiness:
       initialDelaySeconds: 30
-      timeoutSeconds: 2
+      timeoutSeconds: 3
     liveness:
       initialDelaySeconds: 35
       periodSeconds: 10
-      timeoutSeconds: 2
+      timeoutSeconds: 3
       successThreshold: 1
       failureThreshold: 3
 
