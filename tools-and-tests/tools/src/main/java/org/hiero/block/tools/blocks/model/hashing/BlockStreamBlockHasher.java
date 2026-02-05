@@ -5,10 +5,10 @@ import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 
-import com.hedera.hapi.block.stream.experimental.Block;
-import com.hedera.hapi.block.stream.experimental.BlockFooter;
-import com.hedera.hapi.block.stream.experimental.BlockItem;
-import com.hedera.hapi.block.stream.experimental.FilteredItemHash;
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.FilteredSingleItem;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -131,9 +131,9 @@ public class BlockStreamBlockHasher {
                 case BLOCK_HEADER, RECORD_FILE, TRANSACTION_RESULT, TRANSACTION_OUTPUT ->
                     outputItemsHasher.addLeaf(blockItemBytes);
                 case STATE_CHANGES -> stateChangeItemsHasher.addLeaf(blockItemBytes);
-                case FILTERED_ITEM_HASH -> {
-                    FilteredItemHash filteredItemHash = blockItem.filteredItemHashOrThrow();
-                    Bytes hash = filteredItemHash.itemHash();
+                case FILTERED_SINGLE_ITEM -> {
+                    FilteredSingleItem filteredItem = blockItem.filteredSingleItemOrThrow();
+                    Bytes hash = filteredItem.itemHash();
                     // TODO work out which tree filtered item belongs to
                     stateChangeItemsHasher.addLeaf(hash.toByteArray());
                 }

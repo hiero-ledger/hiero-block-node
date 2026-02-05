@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
+import static java.nio.file.StandardOpenOption.*;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.time.ZoneOffset.UTC;
@@ -245,7 +246,20 @@ public class ValidateWithStats implements Runnable {
         private void writeCsvHeader() {
             if (csvHeaderWritten || csvOutputFile == null) return;
             try {
-                // Determine max signature count we need to handle (up to 40 to be safe)
+                // If file exists, always append (resume case) - never overwrite existing data
+                if (Files.exists(csvOutputFile)) {
+                    long fileSize = Files.size(csvOutputFile);
+                    if (fileSize > 0) {
+                        csvHeaderWritten = true;
+                        System.out.println("[CSV] Resuming - appending to existing file (" + fileSize + " bytes): "
+                                + csvOutputFile);
+                        return;
+                    }
+                    // File exists but is empty - delete it so we can create fresh
+                    System.out.println("[CSV] Removing empty CSV file: " + csvOutputFile);
+                    Files.delete(csvOutputFile);
+                }
+                // Create new file with header
                 int maxSigCount = 40;
                 StringBuilder header = new StringBuilder();
                 header.append(
@@ -255,8 +269,10 @@ public class ValidateWithStats implements Runnable {
                 }
                 header.append("\n");
 
-                Files.writeString(csvOutputFile, header.toString(), StandardCharsets.UTF_8, CREATE, TRUNCATE_EXISTING);
+                // Use CREATE_NEW to fail if file somehow exists (safety check)
+                Files.writeString(csvOutputFile, header.toString(), StandardCharsets.UTF_8, CREATE_NEW, WRITE);
                 csvHeaderWritten = true;
+                System.out.println("[CSV] Created new CSV file: " + csvOutputFile);
             } catch (IOException e) {
                 System.err.println("Failed to write CSV header to " + csvOutputFile + ": " + e.getMessage());
             }
@@ -288,12 +304,7 @@ public class ValidateWithStats implements Runnable {
                 }
                 row.append("\n");
 
-                Files.writeString(
-                        csvOutputFile,
-                        row.toString(),
-                        StandardCharsets.UTF_8,
-                        java.nio.file.StandardOpenOption.APPEND,
-                        java.nio.file.StandardOpenOption.CREATE);
+                Files.writeString(csvOutputFile, row.toString(), StandardCharsets.UTF_8, APPEND, CREATE);
 
                 System.out.println("[CSV] Written statistics for " + dayStats.date + " to " + csvOutputFile);
             } catch (IOException e) {
