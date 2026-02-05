@@ -46,67 +46,124 @@ tasks.distTar {
     }
 }
 
-tasks.withType<JavaExec>().configureEach {
-    modularity.inferModulePath = true
-    val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
-    environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
-    environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
-    environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
-    environment(
-        "VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH",
-        "${serverDataDir}/verification/rootHashOfAllPreviousBlocks.bin",
-    )
-}
-
-tasks.register<JavaExec>("runWithCleanStorage") {
-    description = "Run the block node, deleting storage first"
-    group = "application"
-
-    mainClass = application.mainClass
-    mainModule = application.mainModule
-    classpath = sourceSets["main"].runtimeClasspath
-
-    val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
-    // delete the storage directory before starting the application
-    doFirst {
-        val storageDir = serverDataDir.asFile
-        if (storageDir.exists()) {
-            storageDir.deleteRecursively()
-        }
-    }
-    environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
-    environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
-    environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
-
-    environment(
-        "VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH",
-        "${serverDataDir}/verification/rootHashOfAllPreviousBlocks.bin",
-    )
-}
-
 application {
     mainModule = "org.hiero.block.node.app"
     mainClass = "org.hiero.block.node.app.BlockNodeApp"
 }
 
+// Core runtime dependencies only - NO plugins
+// Plugins are loaded dynamically from the plugins directory at runtime
 mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
-    // List of all "plugin modules" we might someday need at runtime.
-    // In the future, we may get Gradle to automatically infer this block
-    //   https://github.com/gradlex-org/java-module-dependencies/issues/174
-    runtimeOnly("org.hiero.block.node.archive.s3cloud")
-    runtimeOnly("org.hiero.block.node.messaging")
-    runtimeOnly("org.hiero.block.node.health")
-    runtimeOnly("org.hiero.block.node.stream.publisher")
-    runtimeOnly("org.hiero.block.node.stream.subscriber")
-    runtimeOnly("org.hiero.block.node.verification")
-    runtimeOnly("org.hiero.block.node.blocks.files.historic")
-    runtimeOnly("org.hiero.block.node.blocks.files.recent")
-    runtimeOnly("org.hiero.block.node.access.service")
-    runtimeOnly("org.hiero.block.node.server.status")
-    runtimeOnly("org.hiero.block.node.backfill")
+}
+
+// =============================================================================
+// Plugin Configuration for Dynamic Loading
+// =============================================================================
+// Plugins are NOT bundled in the OCI image - they are loaded at runtime from the
+// plugins directory, which can be populated via Helm chart, docker mount, or Gradle.
+// Profile-specific plugin selection (minimal, lfh, rfh) is handled by Helm chart
+// values-overrides and the prepare-plugins.sh script for local docker-compose.
+
+val allPlugins: Configuration by
+    configurations.creating {
+        isCanBeConsumed = false
+        isCanBeResolved = true
+        isTransitive = true
+    }
+
+dependencies {
+    allPlugins(project(":facility-messaging"))
+    allPlugins(project(":health"))
+    allPlugins(project(":server-status"))
+    allPlugins(project(":block-access-service"))
+    allPlugins(project(":stream-publisher"))
+    allPlugins(project(":stream-subscriber"))
+    allPlugins(project(":verification"))
+    allPlugins(project(":blocks-file-recent"))
+    allPlugins(project(":blocks-file-historic"))
+    allPlugins(project(":backfill"))
+    allPlugins(project(":s3-archive"))
+}
+
+// =============================================================================
+// Run Tasks with Plugin Profiles
+// =============================================================================
+// These tasks run the block node with different plugin configurations.
+// Plugins are copied to a build directory and added to the module path.
+
+// Collect names of jars in core runtime classpath to exclude when copying plugins
+val coreRuntimeJarNames: Set<String> by lazy {
+    sourceSets["main"].runtimeClasspath.files.map { it.name }.toSet()
+}
+
+// Common environment setup for all run tasks
+fun JavaExec.configureBlockNodeEnvironment(serverDataDir: Directory) {
+    environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
+    environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
+    environment("FILES_RECENT_UNVERIFIED_ROOT_PATH", "${serverDataDir}/files-unverified")
+    environment(
+        "VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH",
+        "${serverDataDir}/verification/rootHashOfAllPreviousBlocks.bin",
+    )
+}
+
+// Helper to configure a JavaExec task with plugin loading
+fun JavaExec.configureWithPlugins(
+    pluginsConfiguration: Configuration,
+    pluginsDirName: String,
+    cleanStorage: Boolean = false,
+) {
+    group = "application"
+    modularity.inferModulePath = true
+    classpath = sourceSets["main"].runtimeClasspath
+
+    val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
+    val pluginsDir = layout.buildDirectory.dir("run-plugins/$pluginsDirName")
+
+    doFirst {
+        if (cleanStorage) {
+            val storageDir = serverDataDir.asFile
+            if (storageDir.exists()) {
+                storageDir.deleteRecursively()
+            }
+        }
+
+        // Copy plugin jars (excluding jars already in core runtime) to plugins directory
+        val targetDir = pluginsDir.get().asFile
+        targetDir.deleteRecursively()
+        targetDir.mkdirs()
+
+        pluginsConfiguration
+            .resolve()
+            .filter { it.name !in coreRuntimeJarNames }
+            .forEach { jar -> jar.copyTo(File(targetDir, jar.name), overwrite = true) }
+    }
+
+    // Add plugins directory to module path via JVM args
+    jvmArgumentProviders.add(
+        CommandLineArgumentProvider {
+            listOf("--module-path", pluginsDir.get().asFile.absolutePath)
+        }
+    )
+
+    configureBlockNodeEnvironment(serverDataDir)
+}
+
+// Configure the default 'run' task from the application plugin to use all plugins
+tasks.named<JavaExec>("run") {
+    description = "Run the block node with all plugins"
+    configureWithPlugins(allPlugins, "run")
+}
+
+// Run with all plugins and clean storage
+tasks.register<JavaExec>("runWithCleanStorage") {
+    description = "Run the block node with all plugins, deleting storage first"
+    mainClass = application.mainClass
+    mainModule = application.mainModule
+    configureWithPlugins(allPlugins, "runWithCleanStorage", cleanStorage = true)
 }
 
 testModuleInfo {
@@ -117,14 +174,30 @@ testModuleInfo {
     requires("org.mockito")
     requires("org.assertj.core")
 
+    // Plugins needed for integration tests (e.g., testMain which starts the full app)
+    runtimeOnly("org.hiero.block.node.messaging")
+    runtimeOnly("org.hiero.block.node.health")
+    runtimeOnly("org.hiero.block.node.server.status")
+    runtimeOnly("org.hiero.block.node.stream.publisher")
+    runtimeOnly("org.hiero.block.node.stream.subscriber")
+    runtimeOnly("org.hiero.block.node.verification")
+    runtimeOnly("org.hiero.block.node.blocks.files.recent")
+    runtimeOnly("org.hiero.block.node.blocks.files.historic")
+    runtimeOnly("org.hiero.block.node.access.service")
+    runtimeOnly("org.hiero.block.node.backfill")
+    runtimeOnly("org.hiero.block.node.archive.s3cloud")
+
     exportsTo("com.swirlds.config.impl")
 }
 
-// Vals
+// =============================================================================
+// Docker Tasks
+// =============================================================================
+// Single barebone Docker image - plugins are mounted or downloaded at deployment time.
+
 val dockerProjectRootDirectory: Directory = layout.projectDirectory.dir("docker")
 val dockerBuildRootDirectory: Directory = layout.buildDirectory.dir("docker").get()
 
-// Docker related tasks
 val copyDockerFolder: TaskProvider<Copy> =
     tasks.register<Copy>("copyDockerFolder") {
         description = "Copies the docker folder to the build root directory"
@@ -134,22 +207,9 @@ val copyDockerFolder: TaskProvider<Copy> =
         into(dockerBuildRootDirectory)
     }
 
-val copyDockerFolderCI: TaskProvider<Copy> =
-    tasks.register<Copy>("copyDockerFolderCI") {
-        description =
-            "Copies the docker folder to the build root directory with CI specific files. To be used only in CI environments, for instance when running E2E tests."
-        group = "docker"
-
-        dependsOn(copyDockerFolder)
-        from(dockerBuildRootDirectory.file("ci-logging.properties"))
-        into(dockerBuildRootDirectory)
-        rename { f -> "logging.properties" }
-    }
-
 val createDockerImage: TaskProvider<Exec> =
     tasks.register<Exec>("createDockerImage") {
-        description =
-            "Creates the production docker image of the Block Node Server based on the current version"
+        description = "Creates the barebone Docker image of the Block Node Server (no plugins)"
         group = "docker"
 
         dependsOn(copyDockerFolder, tasks.assemble)
@@ -157,23 +217,26 @@ val createDockerImage: TaskProvider<Exec> =
         commandLine("sh", "-c", "./docker-build.sh ${project.version}")
     }
 
-val createDockerImageCI: TaskProvider<Exec> =
-    tasks.register<Exec>("createDockerImageCI") {
-        description =
-            "Creates the production docker image of the Block Node Server based on the current version, but with CI optimizations. Intended only for use in CI environments, like running E2E tests!"
+// Task to prepare plugins for local docker-compose deployment
+val prepareDockerPlugins: TaskProvider<Copy> =
+    tasks.register<Copy>("prepareDockerPlugins") {
+        description = "Copies all plugin jars to the docker plugins directory for local development"
         group = "docker"
 
-        dependsOn(copyDockerFolderCI, tasks.assemble)
-        workingDir(dockerBuildRootDirectory)
-        commandLine("sh", "-c", "./docker-build.sh ${project.version}")
+        from(allPlugins) {
+            // Exclude jars that are already in the core image
+            exclude { it.name in coreRuntimeJarNames }
+        }
+        into(dockerBuildRootDirectory.dir("plugins"))
+
+        dependsOn(copyDockerFolder)
     }
 
 tasks.register<Exec>("startDockerContainer") {
-    description =
-        "Starts the docker production container of the Block Node Server for the current version"
+    description = "Starts the docker container of the Block Node Server for the current version"
     group = "docker"
 
-    dependsOn(createDockerImageCI)
+    dependsOn(createDockerImage, prepareDockerPlugins)
     workingDir(dockerBuildRootDirectory)
     commandLine(
         "sh",
@@ -183,30 +246,15 @@ tasks.register<Exec>("startDockerContainer") {
 }
 
 tasks.register<Exec>("startDockerContainerDebug") {
-    description =
-        "Starts the docker debug container of the Block Node Server for the current version"
+    description = "Starts the docker container with debug enabled"
     group = "docker"
 
-    dependsOn(createDockerImage)
+    dependsOn(createDockerImage, prepareDockerPlugins)
     workingDir(dockerBuildRootDirectory)
     commandLine(
         "sh",
         "-c",
         "./update-env.sh ${project.version} true false && docker compose -p block-node up -d",
-    )
-}
-
-tasks.register<Exec>("startDockerContainerCI") {
-    description =
-        "Starts the docker CI test container of the Block Node Server for the current version"
-    group = "docker"
-
-    dependsOn(createDockerImageCI)
-    workingDir(dockerBuildRootDirectory)
-    commandLine(
-        "sh",
-        "-c",
-        "./update-env.sh ${project.version} false true && docker compose -p block-node up -d",
     )
 }
 

@@ -148,58 +148,58 @@ The chart includes pre-defined value override files in `values-overrides/`:
 ##### all-plugins.yaml
 
 Full functionality for development and testing.
-- `facility-messaging`
-- `block-access-service`
-- `health`
-- `server-status`
-- `stream-publisher`
-- `stream-subscriber`
-- `verification`
-- `blocks-file-historic`
-- `blocks-file-recent`
-- `backfill`
-- `s3-archive`
+* `facility-messaging`
+* `block-access-service`
+* `health`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+* `verification`
+* `blocks-file-historic`
+* `blocks-file-recent`
+* `backfill`
+* `s3-archive`
 
 ##### minimal.yaml
 
 Minimal functional node for development and testing.
-- `facility-messaging`
-- `block-access-service`
-- `health`
-- `server-status`
-- `stream-publisher`
-- `stream-subscriber`
-- `verification`
-- `blocks-file-historic`
-- `blocks-file-recent`
+* `facility-messaging`
+* `block-access-service`
+* `health`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+* `verification`
+* `blocks-file-historic`
+* `blocks-file-recent`
 
 ##### lfh.yaml
 
 Local File History - stores all blocks on local persistent volumes.
-- `facility-messaging`
-- `block-access-service`
-- `health`
-- `server-status`
-- `stream-publisher`
-- `stream-subscriber`
-- `verification`
-- `blocks-file-historic`
-- `blocks-file-recent`
-- `backfill`
+* `facility-messaging`
+* `block-access-service`
+* `health`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+* `verification`
+* `blocks-file-historic`
+* `blocks-file-recent`
+* `backfill`
 
 ##### rfh.yaml
 
 Remote File History - stores blocks in S3-compatible storage.
-- `facility-messaging`
-- `block-access-service`
-- `health`
-- `server-status`
-- `stream-publisher`
-- `stream-subscriber`
-- `verification`
-- `blocks-file-recent`
-- `backfill`
-- `s3-archive`
+* `facility-messaging`
+* `block-access-service`
+* `health`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+* `verification`
+* `blocks-file-recent`
+* `backfill`
+* `s3-archive`
 
 Deploy with a profile:
 
