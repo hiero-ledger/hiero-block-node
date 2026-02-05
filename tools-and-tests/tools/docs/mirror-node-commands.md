@@ -7,6 +7,8 @@ Available subcommands include:
 - `extractBlockTimes` - Extract block times binary file from the Mirror Node record CSV
 - `validateBlockTimes` - Validate a `block_times.bin` file against the Mirror Node CSV
 - `addNewerBlockTimes` - Extend an existing `block_times.bin` with newer block times by listing GCP
+- `fixBlockTime` - Repair incorrect entries in `block_times.bin` by querying the Mirror Node
+- `fetchMissingTransactions` - Download and compile mainnet errata for missing transactions
 - `extractDayBlocks` - (utility) Extract per-day block info from CSV/other sources
 - `generateAddressBook` - Generate address book history JSON from Mirror Node CSV export
 - `compareAddressBooks` - Compare two address book history JSON files
@@ -198,3 +200,65 @@ Use Cases:
 - Track address book evolution over time
 
 See [ADDRESS_BOOK_ANALYSIS.md](address-book-analysis.md) for analysis of expected discrepancies between different data sources.
+
+---
+
+### `fixBlockTime`
+
+Repair incorrect entries in `block_times.bin` by querying the Mirror Node for correct timestamps. This command is useful when the block times file has stale or incorrect data that causes download failures.
+
+Usage:
+
+```
+mirror fixBlockTime [--dry-run] <from-block> [to-block]
+```
+
+Options:
+- `--dry-run` — Preview changes without writing to the file.
+- `<from-block>` — Starting block number to fix (required).
+- `[to-block]` — Ending block number to fix (optional, defaults to `from-block` for single block).
+
+Features:
+- Fix single block or range of blocks
+- Dry-run mode to preview changes before applying
+- Built-in verification of writes
+- Detailed output showing current vs correct values
+
+Example:
+
+```bash
+# Fix a single block
+java -jar tools-all.jar mirror fixBlockTime 90725361
+
+# Fix a range of blocks
+java -jar tools-all.jar mirror fixBlockTime 90725361 90726000
+
+# Preview changes without writing
+java -jar tools-all.jar mirror fixBlockTime --dry-run 90725361 90726000
+```
+
+Notes:
+- Queries the Mirror Node `/api/v1/blocks/{blockNumber}` endpoint for each block.
+- Updates the `block_times.bin` file in place.
+- Useful for fixing stale block times that cause `IndexOutOfBoundsException` during downloads.
+
+---
+
+### `fetchMissingTransactions`
+
+Download and compile mainnet errata for missing transactions. This command fetches information about transactions that are known to be missing from the blockchain record.
+
+Usage:
+
+```
+mirror fetchMissingTransactions
+```
+
+Features:
+- Downloads missing transaction data from known sources
+- Compiles errata into a format usable by block processing tools
+- Stores results in `missing_transactions.gz` resource file
+
+Notes:
+- This is primarily used for mainnet historical data correction.
+- The output is used by block validation and conversion tools to handle known gaps in the transaction record.

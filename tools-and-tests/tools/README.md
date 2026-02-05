@@ -91,7 +91,9 @@ subcommands
 │   ├── extractBlockTimes     # Extract block times from CSV
 │   ├── validateBlockTimes    # Validate block times file
 │   ├── addNewerBlockTimes    # Add newer block times from GCP
+│   ├── fixBlockTime          # Repair incorrect block_times.bin entries
 │   ├── fetchRecordsCsv       # Download Mirror Node CSV dump
+│   ├── fetchMissingTransactions # Download mainnet errata for missing txns
 │   ├── extractDayBlock       # Extract per-day block info to JSON
 │   ├── update                # Update block data from Mirror Node
 │   ├── generateAddressBook   # Generate address book from CSV
