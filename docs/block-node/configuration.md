@@ -144,9 +144,10 @@ Currently, no specific options.
 
 ### Publisher Plugin Configuration
 
-| ENV Variable                 | Description                                                    |                   Default |
-|:-----------------------------|:---------------------------------------------------------------|--------------------------:|
-| PRODUCER_BATCH_FORWARD_LIMIT | Max number of blocks to forward in a batch. Must be ≥ 100,000. | 9,223,372,036,854,775,807 |
+| ENV Variable                              | Description                                                                                                                                 |                   Default |
+|:------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------|--------------------------:|
+| PRODUCER_BATCH_FORWARD_LIMIT              | Max number of blocks to forward in a batch. Must be ≥ 100,000.                                                                              | 9,223,372,036,854,775,807 |
+| PRODUCER_PUBLISHER_UNAVAILABILITY_TIMEOUT | The time in seconds to wait when we have no active publishers before sending a publisher unavailability timeout status update. Must be ≥ 0. |                       300 |
 
 ### Subscriber Plugin Configuration
 
