@@ -127,30 +127,79 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 #### Available Plugins
 
-| Plugin | Description |
-|--------|-------------|
-| `facility-messaging` | Core messaging facility for inter-plugin communication (required) |
-| `health` | Health check endpoints (`/healthz/livez`, `/healthz/readyz`) |
-| `server-status` | Server status API and metrics |
-| `block-access-service` | gRPC API for block queries |
-| `stream-publisher` | Publishes blocks to downstream subscribers |
-| `stream-subscriber` | Subscribes to upstream block streams |
-| `verification` | Cryptographic verification of blocks |
-| `blocks-file-recent` | Local storage for recent/live blocks |
-| `blocks-file-historic` | Local storage for historical blocks |
-| `backfill` | Fetches missing historical blocks from other nodes |
-| `s3-archive` | Archives blocks to S3-compatible storage |
+|         Plugin         |                            Description                            |
+|------------------------|-------------------------------------------------------------------|
+| `facility-messaging`   | Core messaging facility for inter-plugin communication (required) |
+| `health`               | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)      |
+| `server-status`        | Server status API and metrics                                     |
+| `block-access-service` | gRPC API for block queries                                        |
+| `stream-publisher`     | Publishes blocks to downstream subscribers                        |
+| `stream-subscriber`    | Subscribes to upstream block streams                              |
+| `verification`         | Cryptographic verification of blocks                              |
+| `blocks-file-recent`   | Local storage for recent/live blocks                              |
+| `blocks-file-historic` | Local storage for historical blocks                               |
+| `backfill`             | Fetches missing historical blocks from other nodes                |
+| `s3-archive`           | Archives blocks to S3-compatible storage                          |
 
 #### Pre-defined Profiles
 
 The chart includes pre-defined value override files in `values-overrides/`:
 
-| Profile | Use Case | Plugins |
-|---------|----------|---------|
-| `all-plugins.yaml` | Development/testing with full functionality | All plugins |
-| `minimal.yaml` | Minimal functional node for dev/testing | All except `backfill`, `s3-archive` |
-| `lfh.yaml` | Local File History - stores blocks locally | All except `s3-archive` |
-| `rfh.yaml` | Remote File History - stores blocks in S3 | Excludes `blocks-file-historic` |
+##### all-plugins.yaml
+
+Full functionality for development and testing.
+- `facility-messaging`
+- `block-access-service`
+- `health`
+- `server-status`
+- `stream-publisher`
+- `stream-subscriber`
+- `verification`
+- `blocks-file-historic`
+- `blocks-file-recent`
+- `backfill`
+- `s3-archive`
+
+##### minimal.yaml
+
+Minimal functional node for development and testing.
+- `facility-messaging`
+- `block-access-service`
+- `health`
+- `server-status`
+- `stream-publisher`
+- `stream-subscriber`
+- `verification`
+- `blocks-file-historic`
+- `blocks-file-recent`
+
+##### lfh.yaml
+
+Local File History - stores all blocks on local persistent volumes.
+- `facility-messaging`
+- `block-access-service`
+- `health`
+- `server-status`
+- `stream-publisher`
+- `stream-subscriber`
+- `verification`
+- `blocks-file-historic`
+- `blocks-file-recent`
+- `backfill`
+
+##### rfh.yaml
+
+Remote File History - stores blocks in S3-compatible storage.
+- `facility-messaging`
+- `block-access-service`
+- `health`
+- `server-status`
+- `stream-publisher`
+- `stream-subscriber`
+- `verification`
+- `blocks-file-recent`
+- `backfill`
+- `s3-archive`
 
 Deploy with a profile:
 

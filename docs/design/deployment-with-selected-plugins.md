@@ -45,12 +45,12 @@ that is mounted to the application container's plugin directory.
 
 ### Deployment Profiles
 
-| Profile | Purpose | Description |
-|---------|---------|-------------|
-| **all-plugins** | Development & Testing | Full functionality with all available plugins |
-| **minimal** | Development & Testing | Minimum viable node without archival or backfill |
-| **lfh** (Local File History) | Production | Stores all blocks locally on persistent volumes |
-| **rfh** (Remote File History) | Production | Stores blocks in S3; no local historic storage |
+|            Profile            |        Purpose        |                   Description                    |
+|-------------------------------|-----------------------|--------------------------------------------------|
+| **all-plugins**               | Development & Testing | Full functionality with all available plugins    |
+| **minimal**                   | Development & Testing | Minimum viable node without archival or backfill |
+| **lfh** (Local File History)  | Production            | Stores all blocks locally on persistent volumes  |
+| **rfh** (Remote File History) | Production            | Stores blocks in S3; no local historic storage   |
 
 ### Plugin Dependencies
 
