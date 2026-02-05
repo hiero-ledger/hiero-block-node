@@ -29,6 +29,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.aggregator.ArgumentsAccessor;
 import org.junit.jupiter.params.provider.Arguments;
@@ -384,6 +385,57 @@ class BlockPathTest {
             // call
             final BlockPath actual = BlockPath.computeExistingBlockPath(testConfig, blockNumber);
             assertThat(actual).isNull();
+        }
+
+        /**
+         * This test verifies that {@link BlockPath#computeExistingBlockPath(FilesHistoricConfig, long)}
+         * can find compressed blocks even when they have an unexpected extension (.blk instead of .blk.zstd).
+         */
+        @Test
+        @DisplayName("Test computeExistingBlockPath for compressed block and incorrect block file extension")
+        void testComputeExistingBlockPathWithCompressionAndIncorrectExtension() throws IOException {
+            // Use default config
+            final FilesHistoricConfig testConfig = ConfigurationBuilder.create()
+                    .withConfigDataType(FilesHistoricConfig.class)
+                    .build()
+                    .getConfigData(FilesHistoricConfig.class);
+
+            // Create a zip with 10 compressed blocks using incorrect .blk extension
+            final Path zipFilePath = dataRoot.resolve(dataRoot + "/000/000/000/000/00/00000.zip");
+            final Path dirPath = zipFilePath.getParent();
+            Files.createDirectories(dirPath);
+            Files.createFile(zipFilePath);
+
+            try (final ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zipFilePath))) {
+                for (int i = 0; i < 10; i++) {
+                    final String blockNumStr = String.format("%019d", i);
+                    final String entryName = blockNumStr + ".blk";
+                    final ZipEntry zipEntry = new ZipEntry(entryName);
+                    out.putNextEntry(zipEntry);
+                    final byte[] bytesToWrite = getBytesToWrite(CompressionType.ZSTD);
+                    out.write(bytesToWrite);
+                    out.closeEntry();
+                }
+            }
+
+            // Try to find block number 5 from the archive
+            final BlockPath actual = BlockPath.computeExistingBlockPath(
+                    new FilesHistoricConfig(
+                            dataRoot,
+                            testConfig.compression(),
+                            testConfig.powersOfTenPerZipFileContents(),
+                            0L,
+                            3,
+                            true),
+                    5L);
+
+            // Verify that the block was found with the correct compression type
+            assertThat(actual)
+                    .isNotNull()
+                    .returns("0000000000000000005", from(BlockPath::blockNumStr))
+                    .returns("0000000000000000005.blk", from(BlockPath::blockFileName))
+                    .returns(zipFilePath, from(BlockPath::zipFilePath))
+                    .returns(dirPath, from(BlockPath::dirPath));
         }
 
         private void createZipAndAddEntry(
