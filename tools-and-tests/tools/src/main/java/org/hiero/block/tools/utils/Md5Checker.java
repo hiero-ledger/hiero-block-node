@@ -45,7 +45,21 @@ public class Md5Checker {
      * @throws Exception if an error occurs while computing the MD5 checksum
      */
     public static boolean checkMd5(String expectedMd5Hex, byte[] data) throws Exception {
+        return expectedMd5Hex.equals(computeMd5Hex(data));
+    }
+
+    /**
+     * Compute the MD5 checksum of the given data and return it as a hex string.
+     * Note: MD5 is used for GCS compatibility (file verification), not for security purposes.
+     *
+     * @param data the data to compute the checksum for
+     * @return the MD5 checksum as a lowercase hex string
+     * @throws Exception if an error occurs while computing the MD5 checksum
+     */
+    @SuppressWarnings("java:S4790") // MD5 is required for GCS compatibility, not for security
+    public static String computeMd5Hex(byte[] data) throws Exception {
+        // nosemgrep: java.lang.security.audit.crypto.weak-hash.use-of-md5
         MessageDigest md = MessageDigest.getInstance("MD5");
-        return expectedMd5Hex.equals(HexFormat.of().formatHex(md.digest(data)));
+        return HexFormat.of().formatHex(md.digest(data));
     }
 }

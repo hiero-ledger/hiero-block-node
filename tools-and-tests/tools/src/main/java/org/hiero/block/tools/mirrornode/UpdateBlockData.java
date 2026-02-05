@@ -101,9 +101,6 @@ public class UpdateBlockData implements Runnable {
             // Fetch and update blocks in batches
             long currentBlock = startBlockNumber;
             try (RandomAccessFile blockTimesRaf = new RandomAccessFile(blockTimesFile.toFile(), "rw")) {
-                // Seek to the position to append new block times
-                blockTimesRaf.seek(blockTimesRaf.length());
-
                 while (currentBlock <= latestBlockNumber) {
                     long batchEndBlock = Math.min(currentBlock + BATCH_SIZE - 1, latestBlockNumber);
                     System.out.println(Ansi.AUTO.string(
@@ -127,7 +124,9 @@ public class UpdateBlockData implements Runnable {
                         Instant blockInstant = extractRecordFileTime(recordFileName);
                         long blockTimeLong = instantToBlockTimeLong(blockInstant);
 
-                        // Append to block_times.bin
+                        // Write to block_times.bin at the correct position for this block number
+                        // Each block time is 8 bytes (long), so block N goes at position N*8
+                        blockTimesRaf.seek(blockNumber * Long.BYTES);
                         blockTimesRaf.writeLong(blockTimeLong);
 
                         // Update day_blocks.json data

@@ -49,6 +49,110 @@ public class DownloadDayLiveImpl {
     /** Maximum number of retries for MD5 mismatch errors. */
     private static final int MAX_MD5_RETRIES = 3;
 
+    /**
+     * Counts how many blocks already exist in the temp directory (for resume progress display).
+     */
+    private static long countExistingBlocks(Path tempDir) throws IOException {
+        if (!Files.exists(tempDir)) return 0;
+        try (var files = Files.list(tempDir)) {
+            return files.filter(p -> p.getFileName().toString().endsWith(".block"))
+                    .count();
+        }
+    }
+
+    /**
+     * Checks if a block's files already exist in the temp directory.
+     */
+    private static boolean blockExistsInTempDir(Path tempDir, long blockNumber) {
+        return Files.exists(tempDir.resolve(blockNumber + ".block"));
+    }
+
+    /**
+     * Writes all block files to a single temp file for this block.
+     */
+    private static void writeBlockToTempDir(Path tempDir, long blockNumber, List<InMemoryFile> files)
+            throws IOException {
+        Path blockFile = tempDir.resolve(blockNumber + ".block");
+        try (var dos =
+                new java.io.DataOutputStream(new java.io.BufferedOutputStream(Files.newOutputStream(blockFile)))) {
+            dos.writeInt(files.size());
+            for (InMemoryFile imf : files) {
+                String filename = imf.path().getFileName().toString();
+                byte[] filenameBytes = filename.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                dos.writeInt(filenameBytes.length);
+                dos.write(filenameBytes);
+                dos.writeInt(imf.data().length);
+                dos.write(imf.data());
+            }
+        }
+    }
+
+    /**
+     * Reads a block file and returns the list of InMemoryFiles.
+     */
+    private static List<InMemoryFile> readBlockFile(Path blockFile) throws IOException {
+        List<InMemoryFile> files = new ArrayList<>();
+        try (var dis = new java.io.DataInputStream(new java.io.BufferedInputStream(Files.newInputStream(blockFile)))) {
+            int numFiles = dis.readInt();
+            for (int i = 0; i < numFiles; i++) {
+                int filenameLen = dis.readInt();
+                byte[] filenameBytes = new byte[filenameLen];
+                dis.readFully(filenameBytes);
+                String filename = new String(filenameBytes, java.nio.charset.StandardCharsets.UTF_8);
+                int dataLen = dis.readInt();
+                byte[] data = new byte[dataLen];
+                dis.readFully(data);
+                files.add(new InMemoryFile(Path.of(filename), data));
+            }
+        }
+        return files;
+    }
+
+    /**
+     * Combines all block files from temp directory into a tar.zstd archive.
+     */
+    private static void combineTempDirToTarZstd(Path tempDir, Path outputFile) throws Exception {
+        System.out.println("[DOWNLOAD] Combining temp files into " + outputFile.getFileName());
+        try (ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(outputFile)) {
+            List<Path> blockFiles;
+            try (var files = Files.list(tempDir)) {
+                blockFiles = files.filter(p -> p.getFileName().toString().endsWith(".block"))
+                        .sorted((a, b) -> {
+                            String nameA = a.getFileName().toString();
+                            String nameB = b.getFileName().toString();
+                            long blockA = Long.parseLong(nameA.replace(".block", ""));
+                            long blockB = Long.parseLong(nameB.replace(".block", ""));
+                            return Long.compare(blockA, blockB);
+                        })
+                        .toList();
+            }
+
+            for (Path blockFile : blockFiles) {
+                List<InMemoryFile> blockContents = readBlockFile(blockFile);
+                for (InMemoryFile imf : blockContents) {
+                    writer.putEntry(imf);
+                }
+            }
+        }
+        System.out.println("[DOWNLOAD] Combined " + countExistingBlocks(tempDir) + " blocks into archive");
+    }
+
+    /**
+     * Deletes a directory and all its contents.
+     */
+    private static void deleteDirectory(Path dir) throws IOException {
+        if (!Files.exists(dir)) return;
+        try (var files = Files.walk(dir)) {
+            files.sorted((a, b) -> -a.compareTo(b)).forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    System.err.println("Failed to delete: " + p);
+                }
+            });
+        }
+    }
+
     // small helper container for pending block downloads
     private static final class BlockWork {
         final long blockNumber;
@@ -158,13 +262,6 @@ public class DownloadDayLiveImpl {
 
         final ListingRecordFile mostCommonRecordFile = findMostCommonByType(group, ListingRecordFile.Type.RECORD);
 
-        // Log sidecar distribution for debugging
-        final long totalSidecarsForBlock = group.stream()
-                .filter(lr -> lr.type() == ListingRecordFile.Type.RECORD_SIDECAR)
-                .count();
-        System.out.println("[download-live] Block " + blockNumber + " at " + blockTime + " has " + group.size()
-                + " listing entries, sidecars=" + totalSidecarsForBlock);
-
         // Mirror historic behaviour: use a single most common sidecar candidate
         final ListingRecordFile mostCommonSidecarFile =
                 findMostCommonByType(group, ListingRecordFile.Type.RECORD_SIDECAR);
@@ -172,14 +269,8 @@ public class DownloadDayLiveImpl {
 
         if (mostCommonSidecarFile == null) {
             mostCommonSidecarFiles = new ListingRecordFile[0];
-            System.out.println("[download-live] No most-common sidecar selected for block " + blockNumber + " at "
-                    + blockTime + " (mostCommonSidecarFile=null)");
         } else {
             mostCommonSidecarFiles = new ListingRecordFile[] {mostCommonSidecarFile};
-            System.out.println("[download-live] Selected most-common sidecar for block " + blockNumber
-                    + " at " + blockTime + ": type=" + mostCommonSidecarFile.type()
-                    + ", path=" + mostCommonSidecarFile.path()
-                    + ", md5=" + mostCommonSidecarFile.md5Hex());
         }
 
         final Set<ListingRecordFile> mostCommonFiles = new HashSet<>();
@@ -282,24 +373,11 @@ public class DownloadDayLiveImpl {
             final byte[] blockHashFromMirrorNode)
             throws Exception {
 
-        System.out.println("[download-live] Starting hash-chain validation for block " + blockNumber
-                + " with " + files.size() + " files (prevHash="
-                + (previousRecordFileHash == null ? "null" : HexFormat.of().formatHex(previousRecordFileHash))
-                + ")");
-
         try {
-            final byte[] newPrevRecordFileHash =
-                    validateBlockHashes(blockNumber, files, previousRecordFileHash, blockHashFromMirrorNode);
-
-            System.out.println("[download-live] Completed hash-chain validation for block " + blockNumber
-                    + " (newPrevHash="
-                    + (newPrevRecordFileHash == null ? "null" : HexFormat.of().formatHex(newPrevRecordFileHash))
-                    + ")");
-
-            return newPrevRecordFileHash;
+            return validateBlockHashes(blockNumber, files, previousRecordFileHash, blockHashFromMirrorNode);
         } catch (Exception e) {
-            System.err.println("[download-live] Hash-chain validation failed for block " + blockNumber + " with "
-                    + files.size() + " files: " + e.getMessage());
+            System.err.println(
+                    "[download-live] Hash-chain validation failed for block " + blockNumber + ": " + e.getMessage());
             throw e;
         }
     }
@@ -412,6 +490,7 @@ public class DownloadDayLiveImpl {
         final Set<ListingRecordFile> mostCommonFiles;
         final String dayString;
         final Path finalOutFile;
+        final Path tempDir;
         final long totalDays;
         final int dayIndex;
         final long overallStartMillis;
@@ -425,6 +504,7 @@ public class DownloadDayLiveImpl {
                 Map<LocalDateTime, List<ListingRecordFile>> filesByBlock,
                 Set<ListingRecordFile> mostCommonFiles,
                 String dayString,
+                Path tempDir,
                 Path finalOutFile,
                 long totalDays,
                 int dayIndex,
@@ -435,6 +515,7 @@ public class DownloadDayLiveImpl {
             this.filesByBlock = filesByBlock;
             this.mostCommonFiles = mostCommonFiles;
             this.dayString = dayString;
+            this.tempDir = tempDir;
             this.finalOutFile = finalOutFile;
             this.totalDays = totalDays;
             this.dayIndex = dayIndex;
@@ -469,7 +550,7 @@ public class DownloadDayLiveImpl {
         // Prepare output files
         final String dayString = String.format("%04d-%02d-%02d", year, month, day);
         final Path finalOutFile = downloadedDaysDir.resolve(dayString + ".tar.zstd");
-        final Path partialOutFile = downloadedDaysDir.resolve(dayString + ".tar.zstd_partial");
+        final Path tempDir = downloadedDaysDir.resolve(dayString + "_temp");
 
         // Early exit if already present
         if (Files.exists(finalOutFile)) {
@@ -489,9 +570,16 @@ public class DownloadDayLiveImpl {
             return null;
         }
 
-        // Setup output directory and clean partial files
+        // Setup output directory and temp directory
         if (!Files.exists(downloadedDaysDir)) Files.createDirectories(downloadedDaysDir);
-        Files.deleteIfExists(partialOutFile);
+        if (!Files.exists(tempDir)) {
+            Files.createDirectories(tempDir);
+        } else {
+            // Temp dir exists from previous failed attempt - will resume
+            long existingBlocks = countExistingBlocks(tempDir);
+            System.out.println(
+                    "[DOWNLOAD] Resuming from temp dir with " + existingBlocks + " blocks already downloaded");
+        }
 
         double daySharePercent = (totalDays <= 0) ? 100.0 : (100.0 / totalDays);
         double startingPercent = dayIndex * daySharePercent;
@@ -511,6 +599,7 @@ public class DownloadDayLiveImpl {
                 filesByBlock,
                 mostCommonFiles,
                 dayString,
+                tempDir,
                 finalOutFile,
                 totalDays,
                 dayIndex,
@@ -547,6 +636,11 @@ public class DownloadDayLiveImpl {
             for (long blockNumber = context.dayBlockInfo.firstBlockNumber;
                     blockNumber <= context.dayBlockInfo.lastBlockNumber;
                     blockNumber++) {
+                // Skip blocks that already exist in temp directory (resume support)
+                if (blockExistsInTempDir(context.tempDir, blockNumber)) {
+                    blocksQueuedForDownload.incrementAndGet();
+                    continue;
+                }
                 final LocalDateTime blockTime = context.blockTimeReader.getBlockLocalDateTime(blockNumber);
                 final List<ListingRecordFile> group = context.filesByBlock.get(blockTime);
                 if (group == null || group.isEmpty()) {
@@ -709,10 +803,8 @@ public class DownloadDayLiveImpl {
         final CompletableFuture<Void> downloadQueueingFuture =
                 queueBlockDownloads(context, year, month, day, pending, blocksQueuedForDownload);
 
-        // Process and write blocks as they complete
-        final String dayString = String.format("%04d-%02d-%02d", year, month, day);
-        final Path partialOutFile = context.finalOutFile.getParent().resolve(dayString + ".tar.zstd_partial");
-        try (ConcurrentTarZstdWriter writer = new ConcurrentTarZstdWriter(context.finalOutFile)) {
+        // Process and write blocks as they complete to temp directory
+        try {
             while (!downloadQueueingFuture.isDone() || !pending.isEmpty()) {
                 // Poll for next completed block
                 final BlockWork ready;
@@ -740,8 +832,10 @@ public class DownloadDayLiveImpl {
                 final List<InMemoryFile> inMemoryFilesForWriting =
                         processDownloadedFiles(ready, context.mostCommonFiles, downloadManager);
 
-                // Validate block hashes and write to tar archive
-                prevRecordFileHash = validateAndWriteBlock(ready, inMemoryFilesForWriting, prevRecordFileHash, writer);
+                // Validate block hashes and write to temp directory
+                prevRecordFileHash = validateBlockHashes(
+                        ready.blockNumber, inMemoryFilesForWriting, prevRecordFileHash, ready.blockHashFromMirrorNode);
+                writeBlockToTempDir(context.tempDir, ready.blockNumber, inMemoryFilesForWriting);
 
                 // Print progress
                 printProgress(
@@ -760,12 +854,16 @@ public class DownloadDayLiveImpl {
         } catch (Exception e) {
             clearProgress();
             e.printStackTrace();
-            try {
-                Files.deleteIfExists(partialOutFile);
-            } catch (IOException ignored) {
-            }
+            // Keep temp directory for resume on next attempt
+            System.out.println("[DOWNLOAD] Keeping temp directory for resume: " + context.tempDir);
             throw e;
         }
+
+        // Combine temp files into final tar.zstd archive
+        combineTempDirToTarZstd(context.tempDir, context.finalOutFile);
+        // Clean up temp directory on success
+        deleteDirectory(context.tempDir);
+
         return prevRecordFileHash;
     }
 
@@ -868,11 +966,14 @@ public class DownloadDayLiveImpl {
     /**
      * Compute the new file path for a record file within the output tar.zstd archive.
      *
+     * <p>The resulting path structure is: {@code TIMESTAMP_DIR/filename} where TIMESTAMP_DIR is
+     * extracted from the original filename (e.g., {@code 2024-07-06T16_42_40.006863632Z}).
+     *
      * @param lr the listing record file
      * @param mostCommonFiles the set of most common files
-     * @param filename the original filename
+     * @param filename the original filename (without .gz extension)
      * @return the new file path within the archive
-     * @throws IOException if an unsupported file type is encountered
+     * @throws IOException if an unsupported file type is encountered or timestamp cannot be extracted
      */
     public static Path computeNewFilePath(ListingRecordFile lr, Set<ListingRecordFile> mostCommonFiles, String filename)
             throws IOException {
@@ -892,7 +993,32 @@ public class DownloadDayLiveImpl {
         } else {
             throw new IOException("Unsupported file type: " + lr.type());
         }
-        String dateDirName = extractRecordFileTimeStrFromPath(Path.of(filename));
+
+        // Extract timestamp directory from filename
+        String dateDirName;
+        try {
+            dateDirName = extractRecordFileTimeStrFromPath(Path.of(filename));
+        } catch (IllegalArgumentException e) {
+            // Fallback: try to extract from lr.path() which contains the full GCS path
+            // Format: recordstreams/record0.0.X/YYYY-MM-DD/TIMESTAMP.rcd[_sig].gz
+            try {
+                dateDirName = extractRecordFileTimeStrFromPath(Path.of(lr.path()));
+            } catch (IllegalArgumentException e2) {
+                throw new IOException(
+                        "Cannot extract timestamp directory from filename '" + filename + "' or path '" + lr.path()
+                                + "'",
+                        e2);
+            }
+        }
+
+        // Validate that dateDirName is not empty and doesn't start with /
+        if (dateDirName == null || dateDirName.isEmpty()) {
+            throw new IOException("Empty timestamp directory extracted from filename '" + filename + "'");
+        }
+        if (dateDirName.startsWith("/")) {
+            dateDirName = dateDirName.substring(1);
+        }
+
         String entryName = dateDirName + "/" + targetFileName;
         return Path.of(entryName);
     }
@@ -905,7 +1031,7 @@ public class DownloadDayLiveImpl {
      * @param group the full list of listing record files for the block
      * @return the ordered list of files to download
      */
-    static List<ListingRecordFile> computeFilesToDownload(
+    public static List<ListingRecordFile> computeFilesToDownload(
             ListingRecordFile mostCommonRecordFile,
             ListingRecordFile[] mostCommonSidecarFiles,
             List<ListingRecordFile> group) {
