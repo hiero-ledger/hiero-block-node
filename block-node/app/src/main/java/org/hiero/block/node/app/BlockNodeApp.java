@@ -178,7 +178,6 @@ public class BlockNodeApp implements HealthFacility {
             LOGGER.log(INFO, GREY + "    " + plugin.name());
             plugin.init(blockNodeContext, serviceBuilder);
         }
-        ;
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
