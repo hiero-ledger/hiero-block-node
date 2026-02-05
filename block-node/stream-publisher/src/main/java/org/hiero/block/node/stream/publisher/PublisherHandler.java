@@ -159,6 +159,15 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     }
 
     /**
+     * This method returns the ID of this handler.
+     *
+     * @return the ID of this handler
+     */
+    long getId() {
+        return handlerId;
+    }
+
+    /**
      * todo(1420) add documentation
      */
     private void processNextRequestUnparsed(final PublishStreamRequestUnparsed request) throws InterruptedException {

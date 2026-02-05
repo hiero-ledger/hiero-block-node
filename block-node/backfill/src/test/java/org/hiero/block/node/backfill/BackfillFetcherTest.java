@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.swirlds.metrics.api.Metrics;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -21,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.internal.BlockUnparsed;
@@ -547,8 +549,12 @@ class BackfillFetcherTest {
             assertTrue(fetcher.nodeClientMap.isEmpty(), "Client should be evicted after failure");
             assertTrue(fetcher.isInBackoff(nodeConfig));
 
-            // Step 3: After backoff expires, fresh client is created
-            Thread.sleep(15);
+            // Step 3: Manually expire backoff and verify fresh client is created
+            fetcher.healthMap.compute(
+                    nodeConfig,
+                    (n, h) -> new BackfillFetcher.SourceHealth(
+                            h.failures(), System.currentTimeMillis() - 1, h.successes(), h.totalLatencyNanos()));
+            assertFalse(fetcher.isInBackoff(nodeConfig), "Backoff should have expired");
             shouldFail.set(false);
             assertNotNull(fetcher.getNewAvailableRange(0L));
             BlockNodeClient newClient = fetcher.nodeClientMap.get(nodeConfig);
@@ -573,6 +579,223 @@ class BackfillFetcherTest {
             when(client.isNodeReachable()).thenReturn(true);
             when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
             return client;
+        }
+    }
+
+    @Nested
+    @DisplayName("Backoff Retry Behavior")
+    class BackoffRetryBehaviorTests {
+
+        @Test
+        @DisplayName("getAvailabilityForRange should skip nodes in backoff")
+        void shouldSkipNodesInBackoffForAvailability() throws Exception {
+            BackfillSourceConfig node1 = node("localhost", 1, 1);
+            BackfillSourceConfig node2 = node("localhost", 2, 1);
+            BackfillSourceConfig node3 = node("localhost", 3, 1);
+
+            BackfillSource source = createSource(node1, node2, node3);
+            BackfillConfiguration config = createTestConfig(1, 5_000, 1000, 1000, 300_000L, 1000.0);
+
+            AtomicInteger clientCreationCount = new AtomicInteger(0);
+
+            BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
+                @Override
+                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                    clientCreationCount.incrementAndGet();
+                    BlockNodeClient client = mock(BlockNodeClient.class);
+                    when(client.isNodeReachable()).thenReturn(true);
+                    return client;
+                }
+
+                @Override
+                protected List<LongRange> resolveAvailableRanges(BlockNodeClient node) {
+                    return List.of(new LongRange(0, 100));
+                }
+            };
+
+            // First call - all 3 nodes should be queried
+            fetcher.getAvailabilityForRange(new LongRange(0, 50));
+            assertEquals(3, clientCreationCount.get(), "All 3 nodes should be queried initially");
+
+            // Now put node1 and node2 in backoff by marking failures
+            fetcher.healthMap.compute(
+                    node1, (n, h) -> new BackfillFetcher.SourceHealth(1, System.currentTimeMillis() + 60_000, 0, 0));
+            fetcher.healthMap.compute(
+                    node2, (n, h) -> new BackfillFetcher.SourceHealth(1, System.currentTimeMillis() + 60_000, 0, 0));
+
+            // Reset counter
+            clientCreationCount.set(0);
+
+            // Second call - only node3 should be queried (node1, node2 in backoff)
+            Map<BackfillSourceConfig, List<LongRange>> availability =
+                    fetcher.getAvailabilityForRange(new LongRange(0, 50));
+            assertEquals(1, clientCreationCount.get(), "Only 1 node should be queried when 2 are in backoff");
+            assertTrue(availability.containsKey(node3), "node3 should be in availability");
+            assertFalse(availability.containsKey(node1), "node1 should be skipped (in backoff)");
+            assertFalse(availability.containsKey(node2), "node2 should be skipped (in backoff)");
+        }
+
+        @Test
+        @DisplayName("should track connection attempts for multiple down sources")
+        void shouldTrackConnectionAttemptsForMultipleDownSources() throws Exception {
+            int numberOfNodes = 5;
+            List<BackfillSourceConfig> nodes = new ArrayList<>();
+            for (int i = 0; i < numberOfNodes; i++) {
+                nodes.add(node("localhost", i + 1, 1));
+            }
+
+            BackfillSource source = BackfillSource.newBuilder().nodes(nodes).build();
+            // Very short initial retry delay for testing
+            BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
+
+            AtomicInteger connectionAttempts = new AtomicInteger(0);
+
+            BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
+                @Override
+                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                    connectionAttempts.incrementAndGet();
+                    // All nodes fail to connect
+                    BlockNodeClient client = mock(BlockNodeClient.class);
+                    when(client.isNodeReachable()).thenReturn(true);
+                    when(client.getBlockNodeServiceClient()).thenThrow(new RuntimeException("Connection refused"));
+                    return client;
+                }
+            };
+
+            // First scan - should attempt all 5 nodes
+            fetcher.getNewAvailableRange(0L);
+            assertEquals(numberOfNodes, connectionAttempts.get(), "Should attempt all nodes on first scan");
+
+            // All nodes should now be in backoff
+            for (BackfillSourceConfig node : nodes) {
+                assertTrue(fetcher.isInBackoff(node), "Node " + node.port() + " should be in backoff after failure");
+            }
+
+            // Reset counter
+            connectionAttempts.set(0);
+
+            // Second scan immediately - all nodes are in backoff, so NONE should be attempted
+            fetcher.getNewAvailableRange(0L);
+            assertEquals(
+                    0,
+                    connectionAttempts.get(),
+                    "getNewAvailableRange should skip all nodes in backoff - no excessive retries");
+        }
+
+        @Test
+        @DisplayName("should apply exponential backoff on failure with max cap")
+        void shouldApplyExponentialBackoffOnFailure() throws Exception {
+            BackfillSourceConfig nodeConfig = node("localhost", 1, 1);
+            BackfillSource source = createSource(nodeConfig);
+            // Initial delay 100ms, max backoff 1000ms for fast testing
+            long initialDelayMs = 100L;
+            long maxBackoffMs = 1_000L;
+            BackfillConfiguration config = createTestConfig(1, (int) initialDelayMs, 1000, 1000, maxBackoffMs, 1000.0);
+
+            BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
+                @Override
+                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                    BlockNodeClient client = mock(BlockNodeClient.class);
+                    when(client.isNodeReachable()).thenReturn(true);
+                    when(client.getBlockNodeServiceClient()).thenThrow(new RuntimeException("Connection refused"));
+                    return client;
+                }
+            };
+
+            // First failure - should set initial backoff
+            fetcher.getNewAvailableRange(0L);
+            BackfillFetcher.SourceHealth health1 = fetcher.healthMap.get(nodeConfig);
+            assertNotNull(health1, "Health record should exist after first failure");
+            assertEquals(1, health1.failures(), "Should have 1 failure");
+            assertTrue(fetcher.isInBackoff(nodeConfig), "Should be in backoff after failure");
+
+            // Simulate backoff expiring and second failure
+            fetcher.healthMap.compute(
+                    nodeConfig,
+                    (n, h) -> new BackfillFetcher.SourceHealth(h.failures(), System.currentTimeMillis() - 1, 0, 0));
+            assertFalse(fetcher.isInBackoff(nodeConfig), "Backoff should have expired");
+
+            // Second failure
+            fetcher.getNewAvailableRange(0L);
+            BackfillFetcher.SourceHealth health2 = fetcher.healthMap.get(nodeConfig);
+            assertEquals(2, health2.failures(), "Should have 2 failures");
+
+            // Continue until we hit max backoff (simulate 10 failures by manually updating)
+            // Expected progression: 100, 200, 400, 800, 1000 (capped)
+            for (int i = 3; i <= 10; i++) {
+                fetcher.healthMap.compute(
+                        nodeConfig,
+                        (n, h) -> new BackfillFetcher.SourceHealth(
+                                h.failures(), System.currentTimeMillis() - 1, h.successes(), h.totalLatencyNanos()));
+                fetcher.getNewAvailableRange(0L);
+            }
+
+            BackfillFetcher.SourceHealth finalHealth = fetcher.healthMap.get(nodeConfig);
+            assertEquals(10, finalHealth.failures(), "Should have recorded 10 failures");
+
+            // Verify backoff is capped at maxBackoffMs
+            long now = System.currentTimeMillis();
+            long actualBackoff = finalHealth.nextAllowedMillis() - now;
+            assertTrue(
+                    actualBackoff <= maxBackoffMs + 100, // 100ms tolerance for timing
+                    "Backoff should be capped at maxBackoffMs, actual: " + actualBackoff);
+        }
+
+        @Test
+        @DisplayName("getNewAvailableRange should respect backoff and skip nodes in backoff")
+        void shouldRespectBackoffInGetNewAvailableRange() throws Exception {
+            BackfillSourceConfig node1 = node("localhost", 1, 1);
+            BackfillSourceConfig node2 = node("localhost", 2, 1);
+
+            BackfillSource source = createSource(node1, node2);
+            BackfillConfiguration config = createTestConfig(1, 60_000, 1000, 1000, 300_000L, 1000.0);
+
+            AtomicInteger node1Attempts = new AtomicInteger(0);
+            AtomicInteger node2Attempts = new AtomicInteger(0);
+
+            BackfillFetcher fetcher = new BackfillFetcher(source, config, createTestMetricsHolder()) {
+                @Override
+                protected BlockNodeClient getNodeClient(BackfillSourceConfig node) {
+                    if (node.equals(node1)) {
+                        node1Attempts.incrementAndGet();
+                    } else {
+                        node2Attempts.incrementAndGet();
+                    }
+
+                    BlockNodeClient client = mock(BlockNodeClient.class);
+                    when(client.isNodeReachable()).thenReturn(true);
+                    // node1 always fails, node2 succeeds
+                    if (node.equals(node1)) {
+                        when(client.getBlockNodeServiceClient()).thenThrow(new RuntimeException("Connection refused"));
+                    } else {
+                        BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
+                                mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
+                        when(serviceClient.serverStatus(any()))
+                                .thenReturn(ServerStatusResponse.newBuilder()
+                                        .firstAvailableBlock(0L)
+                                        .lastAvailableBlock(100L)
+                                        .build());
+                        when(client.getBlockNodeServiceClient()).thenReturn(serviceClient);
+                    }
+                    return client;
+                }
+            };
+
+            // First call
+            LongRange range = fetcher.getNewAvailableRange(0L);
+            assertNotNull(range, "Should get range from node2");
+            assertEquals(1, node1Attempts.get(), "node1 should be attempted once");
+            assertEquals(1, node2Attempts.get(), "node2 should be attempted once");
+            assertTrue(fetcher.isInBackoff(node1), "node1 should be in backoff");
+
+            // Second call - node1 is in backoff and should be SKIPPED
+            range = fetcher.getNewAvailableRange(0L);
+            assertNotNull(range, "Should still get range from node2");
+            assertEquals(
+                    1,
+                    node1Attempts.get(),
+                    "node1 should NOT be attempted again - getNewAvailableRange respects backoff");
+            assertEquals(2, node2Attempts.get(), "node2 should be attempted again (not in backoff)");
         }
     }
 

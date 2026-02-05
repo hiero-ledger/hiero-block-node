@@ -37,6 +37,6 @@ public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents,
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long blockRetentionThreshold,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(1) int maxFilesPerDir,
-        @Loggable @ConfigProperty(defaultValue = "false") boolean overwriteExistingArchives) {
+        @Loggable @ConfigProperty(defaultValue = "true") boolean overwriteExistingArchives) {
         // spotless:on
 }

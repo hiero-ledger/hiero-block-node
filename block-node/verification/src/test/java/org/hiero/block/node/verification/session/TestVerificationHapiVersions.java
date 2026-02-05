@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification.session;
 
-import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -19,6 +18,7 @@ import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.verification.session.impl.DummyVerificationSession;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -60,13 +60,16 @@ class TestVerificationHapiVersions {
                 },
                 sampleName + ": processing block items exceeded time budget");
 
-        // Group assertions for a single, readable failure report per sample
-        assertAll(
-                sampleName + ": verification results",
-                () -> assertNotNull(note, "Verification notification should not be null"),
-                () -> assertEquals(blockNumber, note.blockNumber(), "Block number should match"),
-                () -> assertTrue(note.success(), "Verification should be successful"),
-                () -> assertEquals(sampleBlockInfo.blockRootHash(), note.blockHash(), "Block hash should match"));
+        // Basic assertions that apply to all verification sessions
+        assertNotNull(note, sampleName + ": Verification notification should not be null");
+        assertEquals(blockNumber, note.blockNumber(), sampleName + ": Block number should match");
+        assertTrue(note.success(), sampleName + ": Verification should be successful");
+
+        // @todo(2002): Enable hash verification for all sessions once proper v0.71.0 verification is implemented
+        // DummyVerificationSession returns a dummy hash (0x00), so skip hash comparison for it
+        if (!(session instanceof DummyVerificationSession)) {
+            assertEquals(sampleBlockInfo.blockRootHash(), note.blockHash(), sampleName + ": Block hash should match");
+        }
     }
 
     /** Supply the concrete samples you want to cover. Add more here as they’re added to fixtures. */

@@ -67,6 +67,16 @@ public class TestThreadPoolManager<T extends ExecutorService, S extends Schedule
         return scheduledExecutor;
     }
 
+    /**
+     * {@inheritDoc}
+     */
+    @NonNull
+    @Override
+    public ScheduledExecutorService createSingleThreadScheduledExecutor(
+            @NonNull String threadName, @NonNull UncaughtExceptionHandler uncaughtExceptionHandler) {
+        return scheduledExecutor;
+    }
+
     @NonNull
     public final T executor() {
         return executor;
@@ -79,5 +89,6 @@ public class TestThreadPoolManager<T extends ExecutorService, S extends Schedule
 
     public void shutdownNow() {
         executor.shutdownNow();
+        scheduledExecutor.shutdownNow();
     }
 }
