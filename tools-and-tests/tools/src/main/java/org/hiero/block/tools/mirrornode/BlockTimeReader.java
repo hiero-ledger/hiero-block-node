@@ -69,11 +69,18 @@ public class BlockTimeReader implements AutoCloseable {
      *
      * @param blockNumber the block number
      * @return the block time as Instant
+     * @throws IndexOutOfBoundsException if blockNumber is beyond the bounds of the block_times.bin file
      */
     public LocalDateTime getBlockLocalDateTime(long blockNumber) {
-        return blockTimeLongToInstant(mappedLongBuffer.get((int) blockNumber))
-                .atZone(UTC)
-                .toLocalDateTime();
+        int index = (int) blockNumber;
+        int limit = mappedLongBuffer.limit();
+        if (index < 0 || index >= limit) {
+            throw new IndexOutOfBoundsException("Block " + blockNumber + " is out of bounds. "
+                    + "block_times.bin only contains data for blocks 0-" + (limit - 1) + ". "
+                    + "Try running UpdateBlockData to fetch latest block times from mirror node, "
+                    + "then reload the BlockTimeReader.");
+        }
+        return blockTimeLongToInstant(mappedLongBuffer.get(index)).atZone(UTC).toLocalDateTime();
     }
 
     /**

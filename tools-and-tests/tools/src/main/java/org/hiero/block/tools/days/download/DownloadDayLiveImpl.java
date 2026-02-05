@@ -966,11 +966,14 @@ public class DownloadDayLiveImpl {
     /**
      * Compute the new file path for a record file within the output tar.zstd archive.
      *
+     * <p>The resulting path structure is: {@code TIMESTAMP_DIR/filename} where TIMESTAMP_DIR is
+     * extracted from the original filename (e.g., {@code 2024-07-06T16_42_40.006863632Z}).
+     *
      * @param lr the listing record file
      * @param mostCommonFiles the set of most common files
-     * @param filename the original filename
+     * @param filename the original filename (without .gz extension)
      * @return the new file path within the archive
-     * @throws IOException if an unsupported file type is encountered
+     * @throws IOException if an unsupported file type is encountered or timestamp cannot be extracted
      */
     public static Path computeNewFilePath(ListingRecordFile lr, Set<ListingRecordFile> mostCommonFiles, String filename)
             throws IOException {
@@ -990,7 +993,32 @@ public class DownloadDayLiveImpl {
         } else {
             throw new IOException("Unsupported file type: " + lr.type());
         }
-        String dateDirName = extractRecordFileTimeStrFromPath(Path.of(filename));
+
+        // Extract timestamp directory from filename
+        String dateDirName;
+        try {
+            dateDirName = extractRecordFileTimeStrFromPath(Path.of(filename));
+        } catch (IllegalArgumentException e) {
+            // Fallback: try to extract from lr.path() which contains the full GCS path
+            // Format: recordstreams/record0.0.X/YYYY-MM-DD/TIMESTAMP.rcd[_sig].gz
+            try {
+                dateDirName = extractRecordFileTimeStrFromPath(Path.of(lr.path()));
+            } catch (IllegalArgumentException e2) {
+                throw new IOException(
+                        "Cannot extract timestamp directory from filename '" + filename + "' or path '" + lr.path()
+                                + "'",
+                        e2);
+            }
+        }
+
+        // Validate that dateDirName is not empty and doesn't start with /
+        if (dateDirName == null || dateDirName.isEmpty()) {
+            throw new IOException("Empty timestamp directory extracted from filename '" + filename + "'");
+        }
+        if (dateDirName.startsWith("/")) {
+            dateDirName = dateDirName.substring(1);
+        }
+
         String entryName = dateDirName + "/" + targetFileName;
         return Path.of(entryName);
     }

@@ -405,8 +405,7 @@ public class DownloadLive2 implements Runnable {
             System.out.println("[download-live2] About to check catch-up mode...");
             System.out.flush();
             State currentState = initialState;
-            State catchUpResult =
-                    processCatchUpMode(initialState, downloadManager, blockTimeReader, stats, addressBookRegistry);
+            State catchUpResult = processCatchUpMode(initialState, downloadManager, stats, addressBookRegistry);
             System.out.println(
                     "[download-live2] Catch-up mode check returned: " + (catchUpResult != null ? "state" : "null"));
             System.out.flush();
@@ -524,7 +523,6 @@ public class DownloadLive2 implements Runnable {
      *
      * @param initialState the initial state from resume or start date
      * @param downloadManager the download manager for bulk downloads
-     * @param blockTimeReader the block time reader
      * @param stats the signature statistics tracker
      * @param addressBookRegistry the address book registry
      * @return the updated state after catch-up, or null if no catch-up was performed
@@ -532,7 +530,6 @@ public class DownloadLive2 implements Runnable {
     private State processCatchUpMode(
             State initialState,
             ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
-            BlockTimeReader blockTimeReader,
             SignatureStats stats,
             AddressBookRegistry addressBookRegistry)
             throws Exception {
@@ -549,6 +546,9 @@ public class DownloadLive2 implements Runnable {
 
         printCatchUpHeader(startDay, today);
         UpdateBlockData.updateMirrorNodeData(MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
+
+        // Reload BlockTimeReader after updating block data to pick up new block times
+        final BlockTimeReader updatedBlockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
 
         final Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
         final List<LocalDate> daysToDownload = startDay.datesUntil(today).toList();
@@ -582,7 +582,7 @@ public class DownloadLive2 implements Runnable {
                     i,
                     daysToDownload.size(),
                     downloadManager,
-                    blockTimeReader,
+                    updatedBlockTimeReader,
                     stats,
                     addressBookRegistry,
                     catchUpState);
