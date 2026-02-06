@@ -6,6 +6,7 @@ import static org.hiero.block.tools.utils.PrettyPrint.simpleHash;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import java.util.Arrays;
+import java.util.List;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.jspecify.annotations.Nullable;
@@ -49,6 +50,7 @@ public final class WrappedBlockValidator {
         validateBlockChain(blockNumber, block, previousBlockHash);
         validateHistoricalBlockTreeRoot(blockNumber, block, streamingHasher);
         validateAmendments(blockNumber, block, network);
+        validateRequiredItems(blockNumber, block);
         validateNoExtraItems(blockNumber, block);
         validate50Billion(blockNumber, block);
     }
@@ -96,14 +98,143 @@ public final class WrappedBlockValidator {
         if (network.equals("mainnet")) {}
     }
 
-    public static void validateNoExtraItems(final long blockNumber, final Block block) throws ValidationException {
-        long itemCount = block.items().size();
-        if (itemCount > 4) {
-            throw new ValidationException("Block: " + blockNumber
-                    + " - Block contains extra items. Expected at most 4 items (BlockHeader, RecordFile, BlockFooter, BlockProof), but found "
-                    + itemCount);
+    /**
+     * Validates that all minimum required items are present in the block.
+     *
+     * <p>Every wrapped block must contain at least one of each: {@code BlockHeader},
+     * {@code RecordFile}, {@code BlockFooter}, and {@code BlockProof}.
+     *
+     * @param blockNumber the block number for error reporting
+     * @param block the block to validate
+     * @throws ValidationException if any required item type is missing
+     */
+    public static void validateRequiredItems(final long blockNumber, final Block block) throws ValidationException {
+        final List<BlockItem> items = block.items();
+        if (items == null || items.isEmpty()) {
+            throw new ValidationException("Block: " + blockNumber + " - Block has no items");
+        }
+        boolean hasHeader = false;
+        boolean hasRecordFile = false;
+        boolean hasFooter = false;
+        boolean hasProof = false;
+        for (BlockItem item : items) {
+            if (item.hasBlockHeader()) hasHeader = true;
+            if (item.hasRecordFile()) hasRecordFile = true;
+            if (item.hasBlockFooter()) hasFooter = true;
+            if (item.hasBlockProof()) hasProof = true;
+        }
+        if (!hasHeader) {
+            throw new ValidationException("Block: " + blockNumber + " - Missing required BlockHeader");
+        }
+        if (!hasRecordFile) {
+            throw new ValidationException("Block: " + blockNumber + " - Missing required RecordFile");
+        }
+        if (!hasFooter) {
+            throw new ValidationException("Block: " + blockNumber + " - Missing required BlockFooter");
+        }
+        if (!hasProof) {
+            throw new ValidationException("Block: " + blockNumber + " - Missing required BlockProof");
         }
     }
 
+    /**
+     * Validates that no unexpected items are present in the block and that items appear in the
+     * correct order.
+     *
+     * <p>The only valid structure for a wrapped block is:
+     *
+     * <ol>
+     *   <li>Exactly one {@code BlockHeader}
+     *   <li>Zero or more {@code StateChanges} (genesis amendments for block 0)
+     *   <li>Exactly one {@code RecordFile}
+     *   <li>Exactly one {@code BlockFooter}
+     *   <li>One or more {@code BlockProof} items
+     * </ol>
+     *
+     * <p>Any item that does not fit this structure is considered unexpected.
+     *
+     * @param blockNumber the block number for error reporting
+     * @param block the block to validate
+     * @throws ValidationException if unexpected items are found or items are out of order
+     */
+    public static void validateNoExtraItems(final long blockNumber, final Block block) throws ValidationException {
+        final List<BlockItem> items = block.items();
+        final int size = items.size();
+        int index = 0;
+
+        // 1. Exactly one BlockHeader
+        if (index >= size || !items.get(index).hasBlockHeader()) {
+            throw new ValidationException("Block: " + blockNumber + " - First item must be a BlockHeader, found "
+                    + describeItem(items, index));
+        }
+        index++;
+        if (index < size && items.get(index).hasBlockHeader()) {
+            throw new ValidationException("Block: " + blockNumber + " - Multiple BlockHeaders found at index " + index);
+        }
+
+        // 2. Zero or more StateChanges
+        while (index < size && items.get(index).hasStateChanges()) {
+            index++;
+        }
+
+        // 3. Exactly one RecordFile
+        if (index >= size || !items.get(index).hasRecordFile()) {
+            throw new ValidationException("Block: " + blockNumber
+                    + " - Expected RecordFile after BlockHeader/StateChanges at index " + index + ", found "
+                    + describeItem(items, index));
+        }
+        index++;
+        if (index < size && items.get(index).hasRecordFile()) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Multiple RecordFile items found at index " + index);
+        }
+
+        // 4. Exactly one BlockFooter
+        if (index >= size || !items.get(index).hasBlockFooter()) {
+            throw new ValidationException("Block: " + blockNumber
+                    + " - Expected BlockFooter after RecordFile at index " + index + ", found "
+                    + describeItem(items, index));
+        }
+        index++;
+        if (index < size && items.get(index).hasBlockFooter()) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Multiple BlockFooter items found at index " + index);
+        }
+
+        // 5. One or more BlockProof items
+        if (index >= size || !items.get(index).hasBlockProof()) {
+            throw new ValidationException("Block: " + blockNumber
+                    + " - Expected BlockProof after BlockFooter at index " + index + ", found "
+                    + describeItem(items, index));
+        }
+        while (index < size && items.get(index).hasBlockProof()) {
+            index++;
+        }
+
+        // Should be at the end
+        if (index < size) {
+            throw new ValidationException("Block: " + blockNumber + " - Unexpected " + describeItem(items, index)
+                    + " at index " + index + " after BlockProof(s)");
+        }
+    }
+
+    /**
+     * Returns a human-readable description of the item at the given index, or "end of block" if
+     * the index is past the end.
+     */
+    private static String describeItem(final List<BlockItem> items, final int index) {
+        if (index >= items.size()) {
+            return "end of block";
+        }
+        final BlockItem item = items.get(index);
+        if (item.hasBlockHeader()) return "BlockHeader";
+        if (item.hasRecordFile()) return "RecordFile";
+        if (item.hasBlockFooter()) return "BlockFooter";
+        if (item.hasBlockProof()) return "BlockProof";
+        if (item.hasStateChanges()) return "StateChanges";
+        return item.item().kind().name();
+    }
+
+    /** Placeholder for future validation of 50 billion total HBAR in network. */
     public static void validate50Billion(final long blockNumber, final Block block) throws ValidationException {}
 }
