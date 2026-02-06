@@ -121,48 +121,25 @@ fun JavaExec.configureBlockNodeEnvironment(serverDataDir: Directory) {
 }
 
 /**
- * Configures a JavaExec task to copy plugin jars (excluding core runtime jars) to a build directory
- * and add that directory to the module path. Uses FileCollection parameters instead of
- * Configuration to be configuration-cache compatible.
+ * Configures a JavaExec task to run the block node with plugins. Plugin jars are added to the
+ * classpath so Gradle's inferModulePath places them on the module path alongside core runtime jars.
  */
-fun JavaExec.configureWithPlugins(
-    pluginFiles: FileCollection,
-    coreFiles: FileCollection,
-    pluginsDirName: String,
-    cleanStorage: Boolean = false,
-) {
+fun JavaExec.configureWithPlugins(pluginFiles: FileCollection, cleanStorage: Boolean = false) {
     group = "application"
     modularity.inferModulePath = true
-    classpath = sourceSets["main"].runtimeClasspath
 
     val serverDataDir = layout.buildDirectory.get().dir("block-node-storage")
-    val pluginsDir = layout.buildDirectory.dir("run-plugins/$pluginsDirName")
 
-    doFirst {
-        if (cleanStorage) {
+    classpath = sourceSets["main"].runtimeClasspath + pluginFiles
+
+    if (cleanStorage) {
+        doFirst {
             val storageDir = serverDataDir.asFile
             if (storageDir.exists()) {
                 storageDir.deleteRecursively()
             }
         }
-
-        // Copy plugin jars (excluding jars already in core runtime) to plugins directory
-        val coreJarNames: Set<String> = coreFiles.files.map { it.name }.toSet()
-        val targetDir = pluginsDir.get().asFile
-        targetDir.deleteRecursively()
-        targetDir.mkdirs()
-
-        pluginFiles.files
-            .filter { it.name !in coreJarNames }
-            .forEach { jar -> jar.copyTo(File(targetDir, jar.name), overwrite = true) }
     }
-
-    // Add plugins directory to module path via JVM args
-    jvmArgumentProviders.add(
-        CommandLineArgumentProvider {
-            listOf("--module-path", pluginsDir.get().asFile.absolutePath)
-        }
-    )
 
     configureBlockNodeEnvironment(serverDataDir)
 }
@@ -170,11 +147,7 @@ fun JavaExec.configureWithPlugins(
 // Configure the default 'run' task from the application plugin to use all plugins
 tasks.named<JavaExec>("run") {
     description = "Run the block node with all plugins"
-    configureWithPlugins(
-        blockNodePlugins.incoming.files,
-        sourceSets["main"].runtimeClasspath,
-        "run",
-    )
+    configureWithPlugins(blockNodePlugins.incoming.files)
 }
 
 // Run with all plugins and clean storage
@@ -182,12 +155,7 @@ tasks.register<JavaExec>("runWithCleanStorage") {
     description = "Run the block node with all plugins, deleting storage first"
     mainClass = application.mainClass
     mainModule = application.mainModule
-    configureWithPlugins(
-        blockNodePlugins.incoming.files,
-        sourceSets["main"].runtimeClasspath,
-        "runWithCleanStorage",
-        cleanStorage = true,
-    )
+    configureWithPlugins(blockNodePlugins.incoming.files, cleanStorage = true)
 }
 
 testModuleInfo {
@@ -258,11 +226,16 @@ val prepareDockerPlugins =
         dependsOn(copyDockerFolder)
 
         doLast {
-            val coreJarNames: Set<String> = coreFiles.files.map { it.name }.toSet()
+            // Normalize jar names by stripping Gradle's "-module" suffix so that
+            // e.g. "lazysodium-java-5.1.4-module.jar" (core) matches
+            // "lazysodium-java-5.1.4.jar" (plugin transitive dep).
+            val normalizeJarName = { name: String -> name.replace("-module.jar", ".jar") }
+            val coreJarNames: Set<String> =
+                coreFiles.files.map { normalizeJarName(it.name) }.toSet()
             outputDir.deleteRecursively()
             outputDir.mkdirs()
             pluginFiles.files
-                .filter { it.name !in coreJarNames }
+                .filter { normalizeJarName(it.name) !in coreJarNames }
                 .forEach { jar -> jar.copyTo(File(outputDir, jar.name), overwrite = true) }
         }
     }

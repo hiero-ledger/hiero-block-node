@@ -67,31 +67,100 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.blockNode.persistence.verification.existingClaim }}
         {{- end }}
-      {{- if or .Values.blockNode.initContainers .Values.plugins.enabled }}
+      {{- if or .Values.blockNode.initContainers (and .Values.plugins.enabled .Values.plugins.names) }}
       initContainers:
         {{- with .Values.blockNode.initContainers }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- if .Values.plugins.enabled }}
-        - name: download-plugins
-          image: curlimages/curl:8.5.0
+        {{- if and .Values.plugins.enabled .Values.plugins.names }}
+        - name: list-core-modules
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           command:
             - sh
             - -c
             - |
+              set -e
+              APP_DIR="/opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}"
+              echo "Listing JPMS modules from core jars in ${APP_DIR}/lib/ ..."
+              : > /plugins/.core-modules.txt
+              for jar in "${APP_DIR}"/lib/*.jar; do
+                [ -f "$jar" ] || continue
+                mod=$(jar --describe-module --file="$jar" 2>/dev/null | head -1 | sed 's/@.*//' | awk '{print $1}')
+                if [ -n "$mod" ] && [ "$mod" != "No" ]; then
+                  echo "$mod" >> /plugins/.core-modules.txt
+                fi
+              done
+              echo "Found $(wc -l < /plugins/.core-modules.txt | tr -d ' ') core modules"
+          volumeMounts:
+            - name: {{ default "plugins" .Values.plugins.volumeName }}
+              mountPath: /plugins
+        - name: resolve-plugins
+          image: {{ .Values.plugins.mavenImage }}
+          command:
+            - sh
+            - -c
+            - |
+              set -e
               {{- $pluginVersion := .Values.plugins.version | default .Chart.AppVersion }}
+              {{- $groupId := .Values.plugins.groupId }}
+              {{- $repository := .Values.plugins.repository }}
+
+              echo "Generating POM for plugin resolution..."
+              cat > /tmp/pom.xml << 'POMEOF'
+              <?xml version="1.0" encoding="UTF-8"?>
+              <project xmlns="http://maven.apache.org/POM/4.0.0"
+                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                       xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+                <modelVersion>4.0.0</modelVersion>
+                <groupId>plugin-resolver</groupId>
+                <artifactId>plugin-resolver</artifactId>
+                <version>1.0</version>
+                <repositories>
+                  <repository>
+                    <id>plugin-repo</id>
+                    <url>{{ $repository }}</url>
+                  </repository>
+                </repositories>
+                <dependencies>
               {{- range (splitList "," .Values.plugins.names) }}
               {{- $plugin := . | trim }}
               {{- if $plugin }}
-              mkdir -p {{ $.Values.plugins.targetDir | quote }} && \
-              curl -fL -o "{{ $.Values.plugins.targetDir }}/{{ $plugin }}.jar" \
-                "{{ $.Values.plugins.baseUrl }}/{{ $plugin }}/{{ $pluginVersion }}/{{ $plugin }}-{{ $pluginVersion }}.jar" && \
+                  <dependency>
+                    <groupId>{{ $groupId }}</groupId>
+                    <artifactId>{{ $plugin }}</artifactId>
+                    <version>{{ $pluginVersion }}</version>
+                  </dependency>
               {{- end }}
               {{- end }}
-              echo "Plugin download complete"
+                </dependencies>
+              </project>
+              POMEOF
+
+              echo "Resolving plugin dependencies..."
+              mvn -f /tmp/pom.xml dependency:copy-dependencies \
+                -DoutputDirectory=/tmp/deps \
+                -DincludeScope=runtime \
+                -q
+
+              echo "Filtering out jars whose JPMS module already exists in core..."
+              copied=0
+              skipped=0
+              for jar in /tmp/deps/*.jar; do
+                [ -f "$jar" ] || continue
+                mod=$(jar --describe-module --file="$jar" 2>/dev/null | head -1 | sed 's/@.*//' | awk '{print $1}')
+                if [ -n "$mod" ] && [ "$mod" != "No" ] && grep -qx "$mod" /plugins/.core-modules.txt 2>/dev/null; then
+                  skipped=$((skipped + 1))
+                else
+                  cp "$jar" /plugins/
+                  copied=$((copied + 1))
+                fi
+              done
+
+              rm -f /plugins/.core-modules.txt
+              echo "Plugin resolution complete: ${copied} jars copied, ${skipped} duplicates skipped"
           volumeMounts:
             - name: {{ default "plugins" .Values.plugins.volumeName }}
-              mountPath: {{ .Values.plugins.targetDir }}
+              mountPath: /plugins
         {{- end }}
       {{- end }}
       {{- $hostPorts := default (dict) .Values.blockNode.hostPorts }}
@@ -143,9 +212,9 @@ spec:
             mountPath: {{ .Values.blockNode.backfill.path }}
             readOnly: true
           {{- end }}
-          {{- if .Values.plugins.enabled }}
+          {{- if and .Values.plugins.enabled .Values.plugins.names }}
           - name: {{ default "plugins" .Values.plugins.volumeName }}
-            mountPath: /opt/hiero/block-node/app/plugins
+            mountPath: /opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/plugins
             readOnly: true
           {{- end }}
         {{- with  .Values.resources }}
@@ -235,7 +304,7 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.verification.storageClass }}
         {{- end }}
     {{- end }}
-    {{- if .Values.plugins.enabled }}
+    {{- if and .Values.plugins.enabled .Values.plugins.names }}
     - metadata:
         name: {{ default "plugins" .Values.plugins.volumeName }}
       spec:

@@ -98,11 +98,12 @@ plugins:
   volumeName: "plugins"
   size: 2Gi
   enabled: true
-  baseUrl: "https://repo1.maven.org/maven2/org/hiero/block-node"
+  groupId: "org.hiero.block-node"
+  repository: "https://repo1.maven.org/maven2"
   # Defaults to Chart.AppVersion if empty
   version: ""
-  targetDir: "/plugins"
   names: ""
+  mavenImage: "maven:4.0.0-rc-5-eclipse-temurin-25-alpine"
 
 blockNode:
   # Optional hostPort mappings keyed by container port name.

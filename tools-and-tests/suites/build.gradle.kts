@@ -83,12 +83,17 @@ val prepareTestPlugins by
         outputs.dir(outputDir)
 
         doLast {
-            val coreJarNames: Set<String> = coreFiles.files.map { it.name }.toSet()
+            // Normalize jar names by stripping Gradle's "-module" suffix so that
+            // e.g. "lazysodium-java-5.1.4-module.jar" (core) matches
+            // "lazysodium-java-5.1.4.jar" (plugin transitive dep).
+            val normalizeJarName = { name: String -> name.replace("-module.jar", ".jar") }
+            val coreJarNames: Set<String> =
+                coreFiles.files.map { normalizeJarName(it.name) }.toSet()
             val targetDir: File = outputDir.get().asFile
             targetDir.deleteRecursively()
             targetDir.mkdirs()
             pluginFiles.files
-                .filter { it.name !in coreJarNames }
+                .filter { normalizeJarName(it.name) !in coreJarNames }
                 .forEach { jar -> jar.copyTo(File(targetDir, jar.name), overwrite = true) }
         }
     }
