@@ -64,6 +64,10 @@ public final class WrappedBlockValidator {
             final @Nullable StreamingHasher streamingHasher,
             final @Nullable Map<Long, Long> balanceMap)
             throws ValidationException {
+        System.out.println(
+                "WrappedBlockValidator.validateBlock " + blockNumber + ": network=" + network + " streamingHasher="
+                        + streamingHasher + " balanceMap.size="
+                        + (balanceMap == null ? "null" : balanceMap.size()));
         validateBlockChain(blockNumber, block, previousBlockHash);
         validateHistoricalBlockTreeRoot(blockNumber, block, streamingHasher);
         validateAmendments(blockNumber, block, network);
@@ -303,8 +307,10 @@ public final class WrappedBlockValidator {
             } else if (item.hasRecordFile()) {
                 for (final RecordStreamItem recordStreamItem :
                         item.recordFileOrThrow().recordFileContentsOrThrow().recordStreamItems()) {
-                    for (final AccountAmount accountAmount :
-                            recordStreamItem.recordOrThrow().transferListOrThrow().accountAmounts()) {
+                    for (final AccountAmount accountAmount : recordStreamItem
+                            .recordOrThrow()
+                            .transferListOrThrow()
+                            .accountAmounts()) {
                         balanceMap.merge(
                                 accountAmount.accountIDOrThrow().accountNumOrThrow(),
                                 accountAmount.amount(),

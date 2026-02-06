@@ -157,8 +157,9 @@ public class ToWrappedBlocksCommand implements Runnable {
             long highestStoredBlockNumber = blockRegistry.highestBlockNumberStored();
             System.out.println(Ansi.AUTO.string("@|yellow Starting from block:|@ " + highestStoredBlockNumber + " @|"));
             // Print highest stored block time
+            // Use a time just before the first block so block 0 passes the isAfter filter
             final Instant highestStoredBlockTime = highestStoredBlockNumber == -1
-                    ? FIRST_BLOCK_TIME_INSTANT
+                    ? FIRST_BLOCK_TIME_INSTANT.minusNanos(1)
                     : blockTimeReader.getBlockInstant(highestStoredBlockNumber);
             System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockTime + " @|"));
 

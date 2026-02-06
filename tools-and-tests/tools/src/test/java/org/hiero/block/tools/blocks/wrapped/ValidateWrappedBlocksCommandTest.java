@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.wrapped;
 
-import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -16,21 +14,15 @@ import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.block.stream.output.StateChanges;
-import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.net.URL;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
-import org.hiero.block.tools.blocks.NoOpAmendmentProvider;
-import org.hiero.block.tools.blocks.model.BlockArchiveType;
-import org.hiero.block.tools.blocks.model.BlockWriter;
-import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
-import org.hiero.block.tools.days.model.AddressBookRegistry;
-import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
-import org.hiero.block.tools.records.model.parsed.RecordBlockConverter;
+import org.hiero.block.tools.blocks.ToWrappedBlocksCommand;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
-import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -40,9 +32,10 @@ import picocli.CommandLine;
  * and unit tests for individual validation methods in {@link WrappedBlockValidator}.
  *
  * <p>Uses the test resource {@code 2019-09-13.tar.zstd} (first day of mainnet) as source data.
- * Converts record file blocks to wrapped format using {@link RecordBlockConverter} and writes them
- * using {@link BlockWriter} (simulating {@link org.hiero.block.tools.blocks.ToWrappedBlocksCommand}),
- * then validates with {@link ValidateWrappedBlocksCommand} invoked via picocli.
+ * Converts record file blocks to wrapped format using {@link ToWrappedBlocksCommand} invoked via
+ * picocli, then validates with {@link ValidateWrappedBlocksCommand} also invoked via picocli. If
+ * {@code 2019-09-14.tar.zstd} is present in test resources it is included automatically, giving
+ * broader coverage without requiring the file to be checked in.
  */
 class ValidateWrappedBlocksCommandTest {
 
@@ -84,56 +77,63 @@ class ValidateWrappedBlocksCommandTest {
     // ===== End-to-end test =====
 
     /**
-     * End-to-end test: convert first-day mainnet record blocks to wrapped format, write to disk,
-     * then invoke {@link ValidateWrappedBlocksCommand} via picocli to validate all blocks.
+     * End-to-end test: convert mainnet record blocks to wrapped format using
+     * {@link ToWrappedBlocksCommand}, then validate with {@link ValidateWrappedBlocksCommand}.
+     * Both commands are invoked via picocli exactly as they would be from the CLI.
+     *
+     * <p>Always uses {@code 2019-09-13.tar.zstd} (first day, checked in). If
+     * {@code 2019-09-14.tar.zstd} is present in test resources it is included automatically.
      */
     @Test
     void testConvertAndValidateFirstDayBlocks() throws Exception {
         assumeTrue(isZstdAvailable(), "Skipping test: zstd command not available");
 
-        final Path tarZstdPath =
-                Path.of(Objects.requireNonNull(getClass().getResource("/2019-09-13.tar.zstd")).toURI());
+        // Locate required test resources
+        final Path day1 = Path.of(Objects.requireNonNull(getClass().getResource("/2019-09-13.tar.zstd"))
+                .toURI());
+        final Path blockTimesFile = Path.of(Objects.requireNonNull(getClass().getResource("/metadata/block_times.bin"))
+                .toURI());
+        final Path dayBlocksFile = Path.of(Objects.requireNonNull(getClass().getResource("/metadata/day_blocks.json"))
+                .toURI());
 
-        // ===== Phase 1: Convert record blocks to wrapped blocks (simulates ToWrappedBlocksCommand) =====
+        // Set up the input directory with copies of day files (zstd CLI ignores symlinks)
+        final Path inputDir = tempDir.resolve("input");
+        Files.createDirectories(inputDir);
+        Files.copy(day1, inputDir.resolve(day1.getFileName()));
 
-        final List<UnparsedRecordBlock> unparsedBlocks = TarZstdDayReaderUsingExec.readTarZstd(tarZstdPath);
-        assertFalse(unparsedBlocks.isEmpty(), "Should have record blocks in the tar.zstd");
-
-        final NodeAddressBook addressBook = new AddressBookRegistry().getCurrentAddressBook();
-        final NoOpAmendmentProvider amendmentProvider = new NoOpAmendmentProvider();
-        final StreamingHasher conversionHasher = new StreamingHasher();
-        byte[] previousBlockHash = EMPTY_TREE_HASH;
-
-        long blockCount = 0;
-        for (UnparsedRecordBlock unparsedBlock : unparsedBlocks) {
-            final var parsedBlock = unparsedBlock.parse();
-
-            final Block wrappedBlock = RecordBlockConverter.toBlock(
-                    parsedBlock,
-                    blockCount,
-                    previousBlockHash,
-                    conversionHasher.computeRootHash(),
-                    addressBook,
-                    amendmentProvider);
-
-            BlockWriter.writeBlock(tempDir, wrappedBlock, BlockArchiveType.INDIVIDUAL_FILES);
-
-            final byte[] blockHash = hashBlock(wrappedBlock);
-            conversionHasher.addNodeByHash(blockHash);
-            previousBlockHash = blockHash;
-
-            blockCount++;
+        final URL secondDay = getClass().getResource("/2019-09-14.tar.zstd");
+        if (secondDay != null) {
+            final Path day2 = Path.of(secondDay.toURI());
+            Files.copy(day2, inputDir.resolve(day2.getFileName()));
+            System.out.println("Including optional second day: 2019-09-14.tar.zstd");
         }
 
-        assertTrue(blockCount > 0, "Should have processed at least one block");
+        final Path outputDir = tempDir.resolve("output");
+
+        // ===== Phase 1: Convert using ToWrappedBlocksCommand via picocli =====
+
+        int wrapExitCode = new CommandLine(new ToWrappedBlocksCommand())
+                .execute(
+                        "-i",
+                        inputDir.toString(),
+                        "-o",
+                        outputDir.toString(),
+                        "-b",
+                        blockTimesFile.toString(),
+                        "-d",
+                        dayBlocksFile.toString(),
+                        "-u",
+                        "-n",
+                        "mainnet");
+        assertEquals(0, wrapExitCode, "Wrap command should exit with code 0");
 
         // ===== Phase 2: Validate using ValidateWrappedBlocksCommand via picocli =====
-        // The 50 billion HBAR supply check will fail because NoOpAmendmentProvider does not
-        // include genesis state changes with initial account balances. Once wrapping is fixed
-        // to include all amendments, change this assertion to expect exit code 0.
+        // The 50 billion HBAR supply check will fail until wrapping includes all genesis
+        // amendments with initial account balances. Change to expect 0 once that is fixed.
 
-        int exitCode = new CommandLine(new ValidateWrappedBlocksCommand()).execute(tempDir.toString(), "-n", "none");
-        assertEquals(1, exitCode, "Validation should fail: 50 billion check requires genesis amendments");
+        int validateExitCode =
+                new CommandLine(new ValidateWrappedBlocksCommand()).execute(outputDir.toString(), "-n", "mainnet");
+        assertEquals(1, validateExitCode, "Validation should fail: 50 billion check requires genesis amendments");
     }
 
     // ===== validateRequiredItems tests =====
