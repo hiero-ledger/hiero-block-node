@@ -24,10 +24,6 @@ import org.hiero.block.node.base.Loggable;
  * {@link #powersOfTenPerZipFileContents} is set to 3, then this means that 5 zips will be retained and these zips
  * contain 10^3 blocks, i.e. 5_000 blocks effectively retained. If set to 0 (zero), blocks will be retained
  * indefinitely.
- * @param overwriteExistingArchives controls whether already-archived block batches can be overwritten with new
- * versions. When {@code false} (default), the plugin maintains idempotent behavior - each batch is archived exactly
- * once and duplicate block verification notifications are ignored. When {@code true}, duplicate notifications will
- * trigger re-archiving, replacing the existing zip file.
  */
 @ConfigData("files.historic")
 public record FilesHistoricConfig(
@@ -36,7 +32,6 @@ public record FilesHistoricConfig(
         @Loggable @ConfigProperty(defaultValue = "ZSTD") CompressionType compression,
         @Loggable @ConfigProperty(defaultValue = "4") @Min(1) @Max(6) int powersOfTenPerZipFileContents,
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long blockRetentionThreshold,
-        @Loggable @ConfigProperty(defaultValue = "3") @Min(1) int maxFilesPerDir,
-        @Loggable @ConfigProperty(defaultValue = "true") boolean overwriteExistingArchives) {
+        @Loggable @ConfigProperty(defaultValue = "3") @Min(1) int maxFilesPerDir) {
         // spotless:on
 }

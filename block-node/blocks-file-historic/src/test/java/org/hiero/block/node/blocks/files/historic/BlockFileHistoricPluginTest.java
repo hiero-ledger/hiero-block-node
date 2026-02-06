@@ -17,6 +17,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -77,7 +78,7 @@ class BlockFileHistoricPluginTest {
         // use 10 blocks per zip, assuming that the first zip file will contain
         // for example blocks 0-9, the second zip file will contain blocks 10-19
         // also we will not use compression, and we will use the jUnit temp dir
-        testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, false);
+        testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3);
         // build the plugin using the test environment
         toTest = new BlockFileHistoricPlugin();
         // initialize an in memory historical block facility to use for testing
@@ -285,14 +286,7 @@ class BlockFileHistoricPluginTest {
                     String.valueOf(testConfig.powersOfTenPerZipFileContents()));
             final Entry<String, String> blockRetentionThreshold = Map.entry(
                     "files.historic.blockRetentionThreshold", String.valueOf(testConfig.blockRetentionThreshold()));
-            final Entry<String, String> overwriteExistingArchives = Map.entry(
-                    "files.historic.overwriteExistingArchives", String.valueOf(testConfig.overwriteExistingArchives()));
-            return Map.ofEntries(
-                    rootPath,
-                    compression,
-                    powersOfTenPerZipFileContents,
-                    blockRetentionThreshold,
-                    overwriteExistingArchives);
+            return Map.ofEntries(rootPath, compression, powersOfTenPerZipFileContents, blockRetentionThreshold);
         }
 
         /**
@@ -775,14 +769,14 @@ class BlockFileHistoricPluginTest {
             // compute the path to the zip file that would be created
             final Path targetZipFilePath =
                     BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
-            Files.createDirectories(targetZipFilePath.getParent());
-            Files.createFile(targetZipFilePath);
-            Files.setPosixFilePermissions(targetZipFilePath, Collections.emptySet()); // no permissions
+            final Path targetZipDir = targetZipFilePath.getParent();
+            Files.createDirectories(targetZipDir);
+            // Remove write permissions from the parent directory to simulate IOException
+            Files.setPosixFilePermissions(targetZipDir, Collections.emptySet());
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that no blocks are zipped/available
             for (int i = 0; i < 10; i++) {
-                assertThat(targetZipFilePath).isRegularFile().isEmptyFile();
                 assertThat(toTest.availableBlocks().contains(i)).isFalse();
             }
             assertThat(zipWorkRoot).exists().isDirectory().isEmptyDirectory();
@@ -929,15 +923,14 @@ class BlockFileHistoricPluginTest {
             }
             // calculate the target zip path that we expect the plugin to create
             final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
-            Files.createDirectories(targetZipPath.getParent());
-            // create the file with no permissions to simulate a failure later on
-            Files.createFile(targetZipPath);
-            Files.setPosixFilePermissions(targetZipPath, Collections.emptySet());
+            final Path targetZipDir = targetZipPath.getParent();
+            Files.createDirectories(targetZipDir);
+            // Remove write permissions from the parent directory to simulate a failure
+            Files.setPosixFilePermissions(targetZipDir, PosixFilePermissions.fromString("r-x------"));
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
-            // assert that the first 10 blocks are not zipped, but revert proper
-            // perms so we can assert the file is deleted
-            assertThat(targetZipPath).isEmptyFile();
+            // assert that the first 10 blocks are not zipped
+            assertThat(targetZipPath).doesNotExist();
         }
 
         /**
@@ -960,10 +953,10 @@ class BlockFileHistoricPluginTest {
             }
             // calculate the target zip path that we expect the plugin to create
             final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
-            Files.createDirectories(targetZipPath.getParent());
-            // create the file with no permissions to simulate a failure later on
-            Files.createFile(targetZipPath);
-            Files.setPosixFilePermissions(targetZipPath, Collections.emptySet());
+            final Path targetZipDir = targetZipPath.getParent();
+            Files.createDirectories(targetZipDir);
+            // Remove write permissions from the parent directory to simulate a failure
+            Files.setPosixFilePermissions(targetZipDir, Collections.emptySet());
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
             // assert that no accessor will be returned for the blocks
@@ -993,13 +986,13 @@ class BlockFileHistoricPluginTest {
             }
             // calculate the target zip path that we expect the plugin to create
             final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
-            Files.createDirectories(targetZipPath.getParent());
-            // create the file with no permissions to simulate a failure later on
-            Files.createFile(targetZipPath);
-            Files.setPosixFilePermissions(targetZipPath, Collections.emptySet());
+            final Path targetZipDir = targetZipPath.getParent();
+            Files.createDirectories(targetZipDir);
+            // Remove write permissions from the parent directory to simulate a failure
+            Files.setPosixFilePermissions(targetZipDir, Collections.emptySet());
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
-            // asser that available blocks do not contain any of the blocks
+            // assert that available blocks do not contain any of the blocks
             for (int i = 0; i < 10; i++) {
                 assertThat(toTest.availableBlocks().contains(i)).isFalse();
             }
@@ -1025,13 +1018,13 @@ class BlockFileHistoricPluginTest {
             }
             // calculate the target zip path that we expect the plugin to create
             final Path targetZipPath = BlockPath.computeBlockPath(testConfig, 0).zipFilePath();
-            Files.createDirectories(targetZipPath.getParent());
-            // create the file with no permissions to simulate a failure later on
-            Files.createFile(targetZipPath);
-            Files.setPosixFilePermissions(targetZipPath, Collections.emptySet());
+            final Path targetZipDir = targetZipPath.getParent();
+            Files.createDirectories(targetZipDir);
+            // Remove write permissions from the parent directory to simulate a failure
+            Files.setPosixFilePermissions(targetZipDir, Collections.emptySet());
             // execute serially to ensure all tasks are completed
             pluginExecutor.executeSerially();
-            // assert that no notification was sent to the block messaging,
+            // assert that no notification was sent to the block messaging
             final int totalSentNotifications =
                     blockMessaging.getSentPersistedNotifications().size();
             assertThat(totalSentNotifications).isEqualTo(0);
@@ -1129,7 +1122,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("Test retention policy threshold disabled")
         void testRetentionPolicyThresholdDisabled() throws IOException {
             // change the retention policy to be disabled
-            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 0L, 3, false);
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 0L, 3);
             // override the config in the plugin
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
             // generate first 150 blocks from numbers 0-149 and add them to the
@@ -1174,61 +1167,6 @@ class BlockFileHistoricPluginTest {
         }
 
         /**
-         * This test aims to verify that the plugin enforces idempotency by
-         * ensuring that a batch of blocks is archived only once. When duplicate
-         * block verification notifications are received for blocks that have
-         * already been zipped, the plugin should detect that the batch is already archived,
-         * skip submitting a new archival task and leave the existing zip file unmodified
-         */
-        @Test
-        @DisplayName("Test batch is zipped only once and duplicate notifications are ignored")
-        void testBatchIsZippedOnlyOnce() throws IOException {
-            // Send the first set of block verification notifications (blocks 0-9).
-            // This represents the initial arrival of blocks that need to be archived.
-            for (int i = 0; i < 10; i++) {
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
-            }
-
-            // Execute all pending archival tasks. This should zip blocks 0-9 into a single archive.
-            pluginExecutor.executeSerially();
-
-            // Verify that the batch was successfully archived: all blocks should have zip paths
-            // and should be tracked in the plugin's available blocks range.
-            for (int i = 0; i < 10; i++) {
-                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
-                assertThat(plugin.availableBlocks().contains(i)).isTrue();
-            }
-
-            // Capture the zip file's last modified timestamp. This will be used to verify
-            // that the file is not modified when duplicate notifications arrive.
-            final FileTime lastModifiedTime = Files.getLastModifiedTime(
-                    BlockPath.computeExistingBlockPath(testConfig, 0).zipFilePath());
-
-            // Send duplicate verification notifications for the same blocks (0-9).
-            // This simulates scenarios like plugin restart, retry logic, or receiving
-            // the same blocks from multiple sources.
-            for (int i = 0; i < 10; i++) {
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-                blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
-            }
-
-            // Verify that no new archival tasks were submitted to the executor.
-            // The plugin should detect that blocks 0-9 are already archived and skip
-            // creating duplicate work.
-            assertThat(pluginExecutor.getTaskCount()).isZero();
-
-            // Verify that the zip file was not modified by checking its timestamp.
-            // The last modified time should be identical to the original, confirming
-            // that the plugin preserved the immutability of the existing archive.
-            final FileTime lastModifiedTimeSecondPass = Files.getLastModifiedTime(
-                    BlockPath.computeExistingBlockPath(testConfig, 0).zipFilePath());
-            assertThat(lastModifiedTime).isEqualTo(lastModifiedTimeSecondPass);
-        }
-
-        /**
          * This test verifies that when the plugin is configured to allow zipping multiple times,
          * duplicate block verification notifications will result in re-archiving the batch,
          * which updates the zip file's modification timestamp. This behavior is controlled by
@@ -1241,7 +1179,7 @@ class BlockFileHistoricPluginTest {
             // Configure plugin with allowZippingMultipleTimes = true (last parameter).
             // This special configuration allows the same batch to be re-archived when
             // duplicate notifications arrive, unlike the default idempotent behavior.
-            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3, true);
+            testConfig = new FilesHistoricConfig(dataRoot, CompressionType.NONE, 1, 10L, 3);
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
 
             // Send the first set of block verification notifications (blocks 0-9).
@@ -1326,7 +1264,7 @@ class BlockFileHistoricPluginTest {
         @DisplayName("init moves corrupted zip file without shutting down")
         void initMovesCorruptedZipWithoutShutdown() throws IOException {
             final Path corruptedRoot = dataRoot.resolve("corrupted-zip-root");
-            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, 3, false);
+            testConfig = new FilesHistoricConfig(corruptedRoot, CompressionType.NONE, 1, 10L, 3);
 
             final BlockPath corruptedZipLocation = BlockPath.computeBlockPath(testConfig, 0L);
             Files.createDirectories(corruptedZipLocation.dirPath());
