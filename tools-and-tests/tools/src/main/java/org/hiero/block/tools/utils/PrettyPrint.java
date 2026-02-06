@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
+import java.util.HexFormat;
+
 public class PrettyPrint {
     // track whether we've printed progress before so we know when to move the cursor up
     private static boolean printedBefore = false;
@@ -73,7 +75,7 @@ public class PrettyPrint {
             out.append("\033[2K\r");
             out.append(coloredBarWithSpinner).append(" ").append(coloredProgressString);
 
-            System.out.print(out.toString());
+            System.out.print(out);
             System.out.flush();
             printedBefore = true;
         }
@@ -125,7 +127,7 @@ public class PrettyPrint {
             out.append("\033[2K\r");
             out.append(coloredBarWithSpinner).append(" ").append(coloredProgressString);
 
-            System.out.print(out.toString());
+            System.out.print(out);
             System.out.flush();
             printedBefore = true;
         }
@@ -143,15 +145,15 @@ public class PrettyPrint {
         StringBuilder sb = new StringBuilder();
         if (days > 0) sb.append(days).append("d");
         if (hours > 0) {
-            if (sb.length() > 0) sb.append(" ");
+            if (!sb.isEmpty()) sb.append(" ");
             sb.append(hours).append("h");
         }
         if (minutes > 0) {
-            if (sb.length() > 0) sb.append(" ");
+            if (!sb.isEmpty()) sb.append(" ");
             sb.append(minutes).append("m");
         }
         if (seconds > 0) {
-            if (sb.length() > 0) sb.append(" ");
+            if (!sb.isEmpty()) sb.append(" ");
             sb.append(seconds).append("s");
         }
         return sb.toString();
@@ -163,7 +165,7 @@ public class PrettyPrint {
     public static void clearProgress() {
         synchronized (PRINT_LOCK) {
             if (!printedBefore) return;
-            // clear current line and move to the next line
+            // clear the current line and move to the next line
             System.out.print("\033[2K\r\n");
             System.out.flush();
             printedBefore = false;
@@ -206,5 +208,15 @@ public class PrettyPrint {
             remainingMillis = Long.MAX_VALUE; // unknown ETA at the very start
         }
         return remainingMillis;
+    }
+
+    /**
+     * Prints the first 6 characters of a hash in hex for a concise representation (e.g., "ABC123").
+     *
+     * @param hash the hash to print
+     * @return the first 6 characters of the hash in hex
+     */
+    public static String simpleHash(byte[] hash) {
+        return HexFormat.of().formatHex(hash).substring(0, 6).toUpperCase();
     }
 }
