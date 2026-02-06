@@ -5,8 +5,15 @@ import static org.hiero.block.tools.utils.PrettyPrint.simpleHash;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.MapChangeKey;
+import com.hedera.hapi.block.stream.output.MapChangeValue;
+import com.hedera.hapi.block.stream.output.MapUpdateChange;
+import com.hedera.hapi.block.stream.output.StateChange;
+import com.hedera.hapi.node.base.AccountAmount;
+import com.hedera.hapi.streams.RecordStreamItem;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.jspecify.annotations.Nullable;
@@ -18,6 +25,9 @@ import org.jspecify.annotations.Nullable;
  * {@link ValidateWrappedBlocksCommand} or from any other code that needs to validate wrapped blocks.
  */
 public final class WrappedBlockValidator {
+
+    /** Total HBAR supply expressed in tinybar (50 billion HBAR * 100 million tinybar per HBAR). */
+    static final long FIFTY_BILLION_HBAR_IN_TINYBAR = 5_000_000_000_000_000_000L;
 
     /** Private constructor to prevent instantiation. */
     private WrappedBlockValidator() {}
@@ -32,12 +42,18 @@ public final class WrappedBlockValidator {
      * of the block hash cannot be validated (e.g. when starting validation from a block other than
      * block zero).
      *
+     * <p>When {@code balanceMap} is non-null, account balances are tracked across blocks and the
+     * total supply is verified to equal 50 billion HBAR (in tinybar) after each block. The map is
+     * mutated in place so the caller can pass the same map across successive blocks. When null,
+     * the 50 billion HBAR validation is skipped.
+     *
      * @param block the block to validate
      * @param blockNumber the expected block number
      * @param previousBlockHash the hash of the previous block, or null for the first block being validated
      * @param network the network name (e.g., "mainnet", "testnet") for network-specific validation
      * @param streamingHasher the streaming hasher tracking the all-blocks merkle tree, or null if
      *                        merkle tree validation should be skipped
+     * @param balanceMap mutable map of account number to tinybar balance, or null to skip supply validation
      * @throws ValidationException if the block fails validation
      */
     public static void validateBlock(
@@ -45,14 +61,15 @@ public final class WrappedBlockValidator {
             final long blockNumber,
             final byte[] previousBlockHash,
             final String network,
-            final @Nullable StreamingHasher streamingHasher)
+            final @Nullable StreamingHasher streamingHasher,
+            final @Nullable Map<Long, Long> balanceMap)
             throws ValidationException {
         validateBlockChain(blockNumber, block, previousBlockHash);
         validateHistoricalBlockTreeRoot(blockNumber, block, streamingHasher);
         validateAmendments(blockNumber, block, network);
         validateRequiredItems(blockNumber, block);
         validateNoExtraItems(blockNumber, block);
-        validate50Billion(blockNumber, block);
+        validate50Billion(blockNumber, block, balanceMap);
     }
 
     public static void validateBlockChain(final long blockNumber, final Block block, final byte[] previousBlockHash)
@@ -94,6 +111,7 @@ public final class WrappedBlockValidator {
         }
     }
 
+    @SuppressWarnings({"unused", "StatementWithEmptyBody"})
     public static void validateAmendments(final long blockNumber, final Block block, final String network) {
         if (network.equals("mainnet")) {}
     }
@@ -110,7 +128,7 @@ public final class WrappedBlockValidator {
      */
     public static void validateRequiredItems(final long blockNumber, final Block block) throws ValidationException {
         final List<BlockItem> items = block.items();
-        if (items == null || items.isEmpty()) {
+        if (items.isEmpty()) {
             throw new ValidationException("Block: " + blockNumber + " - Block has no items");
         }
         boolean hasHeader = false;
@@ -235,6 +253,77 @@ public final class WrappedBlockValidator {
         return item.item().kind().name();
     }
 
-    /** Placeholder for future validation of 50 billion total HBAR in network. */
-    public static void validate50Billion(final long blockNumber, final Block block) throws ValidationException {}
+    /**
+     * Validates that the total HBAR supply equals exactly 50 billion HBAR (in tinybar) after
+     * processing this block.
+     *
+     * <p>Account balances are updated from two sources within the block, processed in item order:
+     *
+     * <ol>
+     *   <li>{@code StateChanges} items – map updates set absolute balances; map deletes remove accounts.
+     *   <li>{@code RecordFile} items – transfer lists apply relative balance changes.
+     * </ol>
+     *
+     * <p>After all items are processed the sum of all account balances must equal
+     * {@link #FIFTY_BILLION_HBAR_IN_TINYBAR}. When {@code balanceMap} is null, this validation is
+     * skipped.
+     *
+     * @param blockNumber the block number for error reporting
+     * @param block the block to validate
+     * @param balanceMap mutable map of account number to tinybar balance, or null to skip
+     * @throws ValidationException if the total supply does not equal 50 billion HBAR
+     */
+    public static void validate50Billion(
+            final long blockNumber, final Block block, final @Nullable Map<Long, Long> balanceMap)
+            throws ValidationException {
+        if (balanceMap == null) {
+            return;
+        }
+
+        // Process block items in order – StateChanges first, then RecordFile
+        for (final BlockItem item : block.items()) {
+            if (item.hasStateChanges()) {
+                for (final StateChange stateChange : item.stateChangesOrThrow().stateChanges()) {
+                    if (stateChange.hasMapUpdate()) {
+                        final MapUpdateChange mapUpdate = stateChange.mapUpdateOrThrow();
+                        final MapChangeKey key = mapUpdate.keyOrThrow();
+                        final MapChangeValue value = mapUpdate.valueOrThrow();
+                        if (key.hasAccountIdKey() && value.hasAccountValue()) {
+                            balanceMap.put(
+                                    key.accountIdKeyOrThrow().accountNumOrThrow(),
+                                    value.accountValueOrThrow().tinybarBalance());
+                        }
+                    } else if (stateChange.hasMapDelete()) {
+                        final MapChangeKey key = stateChange.mapDeleteOrThrow().keyOrThrow();
+                        if (key.hasAccountIdKey()) {
+                            balanceMap.remove(key.accountIdKeyOrThrow().accountNumOrThrow());
+                        }
+                    }
+                }
+            } else if (item.hasRecordFile()) {
+                for (final RecordStreamItem recordStreamItem :
+                        item.recordFileOrThrow().recordFileContentsOrThrow().recordStreamItems()) {
+                    for (final AccountAmount accountAmount :
+                            recordStreamItem.recordOrThrow().transferListOrThrow().accountAmounts()) {
+                        balanceMap.merge(
+                                accountAmount.accountIDOrThrow().accountNumOrThrow(),
+                                accountAmount.amount(),
+                                Long::sum);
+                    }
+                }
+            }
+        }
+
+        // Sum all balances and verify total supply
+        long totalBalance = 0;
+        for (final long balance : balanceMap.values()) {
+            totalBalance += balance;
+        }
+        if (totalBalance != FIFTY_BILLION_HBAR_IN_TINYBAR) {
+            final long difference = totalBalance - FIFTY_BILLION_HBAR_IN_TINYBAR;
+            throw new ValidationException("Block: " + blockNumber + " - Total HBAR supply mismatch. Expected "
+                    + FIFTY_BILLION_HBAR_IN_TINYBAR + " tinybar but found " + totalBalance + " tinybar (difference: "
+                    + difference + ")");
+        }
+    }
 }

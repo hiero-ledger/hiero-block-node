@@ -7,6 +7,10 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.Callable;
+import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.tools.blocks.model.BlockReader;
 import org.hiero.block.tools.blocks.model.BlockWriter;
@@ -35,7 +39,7 @@ import picocli.CommandLine.Parameters;
         name = "validate-wrapped",
         description = "Validate wrapped block stream blocks produced by the wrap command",
         mixinStandardHelpOptions = true)
-public class ValidateWrappedBlocksCommand implements Runnable {
+public class ValidateWrappedBlocksCommand implements Callable<Integer> {
 
     @SuppressWarnings("unused")
     @Parameters(index = "0..1", description = "Block files, directories, or zip archives to process")
@@ -47,28 +51,36 @@ public class ValidateWrappedBlocksCommand implements Runnable {
     private String network = "mainnet";
 
     @Override
-    public void run() {
+    public Integer call() {
         if (files == null || files.length == 0) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ No input directory specified"));
-            return;
+            return 1;
         }
         final Path inputDir = files[0].toPath();
         // Validate input directory exists
         if (!Files.isDirectory(inputDir)) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ Input directory does not exist: " + inputDir));
-            return;
+            return 1;
         }
 
-        // Discover block range - try ZSTD first (most common), then NONE
+        // Discover block range - try zip archives first, then individual files, ZSTD then NONE
         long firstBlock = BlockWriter.minStoredBlockNumber(inputDir, CompressionType.ZSTD);
         long lastBlock = BlockWriter.maxStoredBlockNumber(inputDir, CompressionType.ZSTD);
         if (firstBlock < 0) {
             firstBlock = BlockWriter.minStoredBlockNumber(inputDir, CompressionType.NONE);
             lastBlock = BlockWriter.maxStoredBlockNumber(inputDir, CompressionType.NONE);
         }
+        if (firstBlock < 0) {
+            firstBlock = BlockFile.nestedDirectoriesMinBlockNumber(inputDir, CompressionType.ZSTD);
+            lastBlock = BlockFile.nestedDirectoriesMaxBlockNumber(inputDir, CompressionType.ZSTD);
+        }
+        if (firstBlock < 0) {
+            firstBlock = BlockFile.nestedDirectoriesMinBlockNumber(inputDir, CompressionType.NONE);
+            lastBlock = BlockFile.nestedDirectoriesMaxBlockNumber(inputDir, CompressionType.NONE);
+        }
         if (firstBlock < 0 || lastBlock < 0) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ No blocks found in: " + inputDir.toAbsolutePath()));
-            return;
+            return 1;
         }
 
         final long totalBlocks = lastBlock - firstBlock + 1;
@@ -93,8 +105,9 @@ public class ValidateWrappedBlocksCommand implements Runnable {
         }
         System.out.println();
 
-        // Create streaming hasher only if we start from block 0
+        // Create a streaming hasher and balance map only if we start from block 0
         final StreamingHasher streamingHasher = startsAtZero ? new StreamingHasher() : null;
+        final Map<Long, Long> balanceMap = startsAtZero ? new HashMap<>() : null;
 
         // Validation tracking
         final long startNanos = System.nanoTime();
@@ -105,7 +118,8 @@ public class ValidateWrappedBlocksCommand implements Runnable {
         for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
             try {
                 final var block = BlockReader.readBlock(inputDir, blockNumber);
-                WrappedBlockValidator.validateBlock(block, blockNumber, previousBlockHash, network, streamingHasher);
+                WrappedBlockValidator.validateBlock(
+                        block, blockNumber, previousBlockHash, network, streamingHasher, balanceMap);
 
                 // Compute block hash and update state for the next block's validation
                 previousBlockHash = hashBlock(block);
@@ -128,11 +142,11 @@ public class ValidateWrappedBlocksCommand implements Runnable {
                 PrettyPrint.clearProgress();
                 System.err.println(
                         Ansi.AUTO.string("@|red Error reading block " + blockNumber + ":|@ " + e.getMessage()));
-                System.exit(1);
+                return 1;
             } catch (ValidationException e) {
                 PrettyPrint.clearProgress();
                 System.err.println(Ansi.AUTO.string("@|red Block " + blockNumber + ":|@ " + e.getMessage()));
-                System.exit(1);
+                return 1;
             }
         }
 
@@ -156,5 +170,6 @@ public class ValidateWrappedBlocksCommand implements Runnable {
 
         long elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000L;
         System.out.println(Ansi.AUTO.string("@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
+        return 0;
     }
 }
