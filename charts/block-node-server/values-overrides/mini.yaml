@@ -24,6 +24,16 @@ blockNode:
       size: 1Gi
     verification:
       size: 100Mi
+  health:
+    readiness:
+      initialDelaySeconds: 20
+      timeoutSeconds: 2
+    liveness:
+      initialDelaySeconds: 25
+      periodSeconds: 10
+      timeoutSeconds: 2
+      successThreshold: 1
+      failureThreshold: 3
 
 # Setting the PVC size for the Observability stack to mini claims of 1 Gigabyte
 kubepromstack:

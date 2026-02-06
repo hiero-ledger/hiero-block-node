@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# Simple topology: 3 Consensus Nodes, 1 Block Node, 1 Mirror Node
+#
+# All Consensus Nodes stream to the same Block Node.
+# This tests multiple CN sources feeding a single BN.
+# Mirror Node receives blocks from the Block Node.
+#
+# CN1,2,3 → BN1 → MN
+
+name: 3cn-1bn
+description: "3 CNs to the same BN"
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1]
+  node2:
+      block_nodes: [block-node-1]
+  node3:
+      block_nodes: [block-node-1]
+
+mirror_nodes:
+  mirror-1:
+    block_nodes: [block-node-1]
+
+relay_nodes:
+  relay-1:
+    mirror_nodes: [mirror-1]
+
+explorer_nodes:
+  explorer-1:
+    mirror_nodes: [mirror-1]

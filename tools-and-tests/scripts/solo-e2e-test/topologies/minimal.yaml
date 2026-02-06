@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# Minimal topology: 1 Consensus Node, 1 Block Node only
+#
+# Fastest deployment for testing Block Node and NLG load generation.
+# No Mirror Node, Relay, or Explorer to save startup time.
+#
+# CN1 → BN1 (no MN/Relay/Explorer)
+
+name: minimal
+description: "1 CN, 1 BN only (fastest)"
+
+block_nodes:
+  block-node-1:
+    address: block-node-1
+    port: 40840
+
+consensus_nodes:
+  node1:
+    block_nodes: [block-node-1]
+
+# Empty sections = skip deployment
+mirror_nodes: {}
+relay_nodes: {}
+explorer_nodes: {}

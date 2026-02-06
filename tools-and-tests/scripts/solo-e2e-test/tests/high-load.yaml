@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# High Load Test
+#
+# Validates that all Block Nodes correctly receive and store blocks
+# under high load conditions (5000 TPS).
+#
+# Prerequisites:
+#   - Any topology deployed (task up)
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/high-load.yaml
+
+name: high-load-test
+description: "High load test with 5000 TPS cap"
+
+events:
+  - id: start-load
+    type: load-start
+    description: "Start CryptoTransfer high load"
+    delay: 10
+    args:
+      test_class: CryptoTransferLoadTest
+      concurrency: 10
+      accounts: 15000
+      duration: 420  # 7 minutes - ends at ~430s
+      max_tps: 5000
+
+  - id: early-metrics
+    type: print-metrics
+    description: "Print early metrics"
+    delay: 120  # 2 minutes
+    args:
+      target: all
+
+  - id: mid-metrics
+    type: print-metrics
+    description: "Print mid-test metrics"
+    delay: 300  # 5 minutes
+    args:
+      target: all
+
+  - id: stop-load
+    type: load-stop
+    description: "Stop load generation (cleanup)"
+    delay: 510  # 8.5 minutes - 80s buffer after NLG should end naturally
+    args:
+      test_class: CryptoTransferLoadTest
+
+  - id: final-metrics
+    type: print-metrics
+    description: "Print final metrics"
+    delay: 570  # 9.5 minutes
+    args:
+      target: all
+
+assertions:
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: all
+
+  - id: all-blocks-increasing
+    type: blocks-increasing
+    description: "All Block Nodes are receiving new blocks"
+    target: all
