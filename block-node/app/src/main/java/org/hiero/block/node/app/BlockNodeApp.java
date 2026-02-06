@@ -238,6 +238,7 @@ public class BlockNodeApp implements HealthFacility {
         metricsProvider.start();
         // Start all the facilities & plugins asynchronously
         LOGGER.log(INFO, "Asynchronously Starting plugins:");
+        // Asynchronously start the plugins
         loadedPlugins.parallelStream().forEach(plugin -> {
             LOGGER.log(INFO, "    " + plugin.name());
             plugin.start();
