@@ -5,8 +5,6 @@ import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
-import static org.hiero.block.node.app.logging.CleanColorfulFormatter.GREY;
-import static org.hiero.block.node.app.logging.CleanColorfulFormatter.LIGHT_GREEN;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
@@ -65,11 +63,11 @@ public class BlockNodeApp implements HealthFacility {
     /** The metrics provider. Package so accessible for testing. */
     final DefaultMetricsProvider metricsProvider;
     /** metric to report the BN App oldest available block **/
-    private LongGauge historicalOldestBlockGauge;
+    private final LongGauge historicalOldestBlockGauge;
     /** metric to report the BN App latest/newest available block **/
-    private LongGauge historicalLatestBlockGauge;
+    private final LongGauge historicalLatestBlockGauge;
     /** metric to report the BN App state (0) Starting, (1) Running and (2) Shutting_Down**/
-    private LongGauge appStateStatus;
+    private final LongGauge appStateStatus;
 
     /**
      * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
@@ -112,7 +110,7 @@ public class BlockNodeApp implements HealthFacility {
             final String[] moduleClassPathArray = moduleClassPath.split(":");
             for (String module : moduleClassPathArray) {
                 if (module.contains("hiero")) {
-                    LOGGER.log(INFO, GREY + "    " + module);
+                    LOGGER.log(INFO, "    " + module);
                 }
             }
         }
@@ -175,7 +173,7 @@ public class BlockNodeApp implements HealthFacility {
         // Initialize all the facilities & plugins, adding routing for each plugin
         LOGGER.log(INFO, "Initializing plugins:");
         for (BlockNodePlugin plugin : loadedPlugins) {
-            LOGGER.log(INFO, GREY + "    " + plugin.name());
+            LOGGER.log(INFO, "    " + plugin.name());
             plugin.init(blockNodeContext, serviceBuilder);
         }
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
@@ -233,7 +231,7 @@ public class BlockNodeApp implements HealthFacility {
      * and starts the metrics.
      */
     public void start() {
-        LOGGER.log(INFO, LIGHT_GREEN + "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
+        LOGGER.log(INFO, "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
         // Start the web server
         webServer.start();
         // Start metrics
@@ -241,7 +239,7 @@ public class BlockNodeApp implements HealthFacility {
         // Start all the facilities & plugins
         LOGGER.log(INFO, "Starting plugins:");
         for (BlockNodePlugin plugin : loadedPlugins) {
-            LOGGER.log(INFO, GREY + "    " + plugin.name());
+            LOGGER.log(INFO, "    " + plugin.name());
             plugin.start();
         }
         // mark the server as started
@@ -249,7 +247,7 @@ public class BlockNodeApp implements HealthFacility {
         // log the server has started
         LOGGER.log(
                 INFO,
-                LIGHT_GREEN + "Started BlockNode Server : State={0} HistoricBlockRange={1}",
+                "Started BlockNode Server : State={0} HistoricBlockRange={1}",
                 state.get(),
                 historicalBlockFacility
                         .availableBlocks()
