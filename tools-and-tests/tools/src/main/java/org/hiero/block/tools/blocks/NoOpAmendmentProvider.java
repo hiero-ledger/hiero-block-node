@@ -36,8 +36,6 @@ public class NoOpAmendmentProvider implements AmendmentProvider {
         return networkName;
     }
 
-    // ========== Genesis Amendments ==========
-
     @Override
     public boolean hasGenesisAmendments(long blockNumber) {
         return false;
@@ -45,18 +43,6 @@ public class NoOpAmendmentProvider implements AmendmentProvider {
 
     @Override
     public List<BlockItem> getGenesisAmendments(long blockNumber) {
-        return List.of();
-    }
-
-    // ========== Transaction Amendments ==========
-
-    @Override
-    public boolean hasTransactionAmendments(long blockNumber) {
-        return false;
-    }
-
-    @Override
-    public List<BlockItem> getTransactionAmendments(long blockNumber) {
         return List.of();
     }
 }

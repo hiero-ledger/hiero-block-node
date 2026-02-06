@@ -51,8 +51,6 @@ public class MainnetAmendmentProvider implements AmendmentProvider {
         return "mainnet";
     }
 
-    // ========== Genesis Amendments ==========
-
     @Override
     public boolean hasGenesisAmendments(long blockNumber) {
         return blockNumber == GENESIS_BLOCK;
@@ -78,23 +76,6 @@ public class MainnetAmendmentProvider implements AmendmentProvider {
     private List<BlockItem> loadGenesisState() {
         return MainnetBlockZeroState.loadStartBlockZeroStateChanges();
     }
-
-    // ========== Transaction Amendments ==========
-
-    @Override
-    public boolean hasTransactionAmendments(long blockNumber) {
-        // Transaction amendments as BlockItems are not currently implemented
-        // Missing transactions are handled via getMissingRecordStreamItems instead
-        return false;
-    }
-
-    @Override
-    public List<BlockItem> getTransactionAmendments(long blockNumber) {
-        // Transaction amendments as BlockItems are not currently implemented
-        return List.of();
-    }
-
-    // ========== Missing Transaction Amendments ==========
 
     @Override
     public List<RecordStreamItem> getMissingRecordStreamItems(long blockNumber) {

@@ -604,16 +604,6 @@ public class RecordBlockConverterTest {
             }
 
             @Override
-            public boolean hasTransactionAmendments(long blockNumber) {
-                return false;
-            }
-
-            @Override
-            public List<BlockItem> getTransactionAmendments(long blockNumber) {
-                return List.of();
-            }
-
-            @Override
             public List<RecordStreamItem> getMissingRecordStreamItems(long blockNumber) {
                 return missingItems;
             }
@@ -703,16 +693,6 @@ public class RecordBlockConverterTest {
 
             @Override
             public List<BlockItem> getGenesisAmendments(long blockNumber) {
-                return List.of();
-            }
-
-            @Override
-            public boolean hasTransactionAmendments(long blockNumber) {
-                return false;
-            }
-
-            @Override
-            public List<BlockItem> getTransactionAmendments(long blockNumber) {
                 return List.of();
             }
 

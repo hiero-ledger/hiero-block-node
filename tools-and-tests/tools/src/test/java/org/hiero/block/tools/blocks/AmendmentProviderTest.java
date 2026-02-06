@@ -59,22 +59,6 @@ class AmendmentProviderTest {
         }
 
         @Test
-        @DisplayName("hasTransactionAmendments returns false (not implemented yet)")
-        void testHasTransactionAmendments() {
-            MainnetAmendmentProvider provider = new MainnetAmendmentProvider();
-            assertFalse(provider.hasTransactionAmendments(0), "Block 0 should not have transaction amendments yet");
-            assertFalse(provider.hasTransactionAmendments(1), "Block 1 should not have transaction amendments yet");
-        }
-
-        @Test
-        @DisplayName("getTransactionAmendments returns empty list (not implemented yet)")
-        void testGetTransactionAmendments() {
-            MainnetAmendmentProvider provider = new MainnetAmendmentProvider();
-            assertTrue(provider.getTransactionAmendments(0).isEmpty(), "Transaction amendments should be empty");
-            assertTrue(provider.getTransactionAmendments(1).isEmpty(), "Transaction amendments should be empty");
-        }
-
-        @Test
         @DisplayName("getMissingRecordStreamItems returns empty list when index not available")
         void testGetMissingRecordStreamItemsNoIndex() {
             // When missing_transactions.gz doesn't exist, should return empty list
@@ -121,24 +105,6 @@ class AmendmentProviderTest {
         }
 
         @Test
-        @DisplayName("hasTransactionAmendments always returns false")
-        void testHasTransactionAmendments() {
-            NoOpAmendmentProvider provider = new NoOpAmendmentProvider();
-            assertFalse(provider.hasTransactionAmendments(0), "Block 0 should not have transaction amendments");
-            assertFalse(provider.hasTransactionAmendments(1), "Block 1 should not have transaction amendments");
-        }
-
-        @Test
-        @DisplayName("getTransactionAmendments always returns empty list")
-        void testGetTransactionAmendments() {
-            NoOpAmendmentProvider provider = new NoOpAmendmentProvider();
-            assertTrue(
-                    provider.getTransactionAmendments(0).isEmpty(), "Block 0 transaction amendments should be empty");
-            assertTrue(
-                    provider.getTransactionAmendments(1).isEmpty(), "Block 1 transaction amendments should be empty");
-        }
-
-        @Test
         @DisplayName("getMissingRecordStreamItems always returns empty list (default implementation)")
         void testGetMissingRecordStreamItems() {
             NoOpAmendmentProvider provider = new NoOpAmendmentProvider();
@@ -173,16 +139,6 @@ class AmendmentProviderTest {
 
                 @Override
                 public List<BlockItem> getGenesisAmendments(long blockNumber) {
-                    return List.of();
-                }
-
-                @Override
-                public boolean hasTransactionAmendments(long blockNumber) {
-                    return false;
-                }
-
-                @Override
-                public List<BlockItem> getTransactionAmendments(long blockNumber) {
                     return List.of();
                 }
             };
