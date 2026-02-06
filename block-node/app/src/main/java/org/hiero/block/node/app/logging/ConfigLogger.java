@@ -2,9 +2,6 @@
 package org.hiero.block.node.app.logging;
 
 import static java.lang.System.Logger.Level.INFO;
-import static org.hiero.block.node.app.logging.CleanColorfulFormatter.CYAN;
-import static org.hiero.block.node.app.logging.CleanColorfulFormatter.GREY;
-import static org.hiero.block.node.app.logging.CleanColorfulFormatter.WHITE;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
@@ -38,13 +35,13 @@ public final class ConfigLogger {
             // Log loaded configuration data types
             LOGGER.log(INFO, "Configuration data types:");
             for (final var type : configuration.getConfigDataTypes()) {
-                LOGGER.log(INFO, GREY + "    " + type.getName());
+                LOGGER.log(INFO, "    " + type.getName());
             }
             LOGGER.log(INFO, BANNER_LINE);
             LOGGER.log(INFO, "Combined Configuration:");
             // Log the configuration
             for (final var config : collectConfig(configuration).entrySet()) {
-                LOGGER.log(INFO, GREY + "    " + config.getKey() + CYAN + " = " + WHITE + config.getValue());
+                LOGGER.log(INFO, "    " + config.getKey() + " = " + config.getValue());
             }
             // Footer
             LOGGER.log(INFO, BANNER_LINE);
