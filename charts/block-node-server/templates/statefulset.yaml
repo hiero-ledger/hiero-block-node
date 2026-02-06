@@ -120,6 +120,21 @@ spec:
                     <id>plugin-repo</id>
                     <url>{{ $repository }}</url>
                   </repository>
+                  <repository>
+                    <id>besu-maven</id>
+                    <url>https://hyperledger.jfrog.io/artifactory/besu-maven</url>
+                  </repository>
+                  <repository>
+                    <id>consensys</id>
+                    <url>https://artifacts.consensys.net/public/maven/maven/</url>
+                  </repository>
+                  <repository>
+                    <id>sonatype-snapshots</id>
+                    <url>https://central.sonatype.com/repository/maven-snapshots</url>
+                    <snapshots>
+                      <enabled>true</enabled>
+                    </snapshots>
+                  </repository>
                 </repositories>
                 <dependencies>
               {{- range (splitList "," .Values.plugins.names) }}
