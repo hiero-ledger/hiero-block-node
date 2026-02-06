@@ -388,70 +388,56 @@ class BlockPathTest {
         }
 
         /**
-         * This test verifies that {@link BlockPath#computeExistingBlockPath(FilesHistoricConfig, long)}
-         * can find compressed blocks even when they have an unexpected extension (.blk instead of .blk.zstd).
+         * This test verifies that {@link BlockPath#computeExistingBlockPath} correctly identifies
+         * the actual compression type by reading magic bytes from file content, regardless of:
+         * <ul>
+         *   <li>The file extension (which might suggest a different compression type)</li>
+         *   <li>The compression type specified in the configuration</li>
+         * </ul>
          */
         @Test
-        @DisplayName("Test computeExistingBlockPath for compressed block and incorrect block file extension")
-        void testComputeExistingBlockPathWithCompressionAndIncorrectExtension() throws IOException {
-            // Use default config
-            final FilesHistoricConfig testConfig = ConfigurationBuilder.create()
-                    .withConfigDataType(FilesHistoricConfig.class)
-                    .build()
-                    .getConfigData(FilesHistoricConfig.class);
-
-            // Create a zip with 10 compressed blocks using incorrect .blk extension
+        @DisplayName("Test compression type is determined regardless of extension and config")
+        void testCompressionTypeIsDetermined() throws IOException {
+            // Create a zip with blocks using all combinations of compression types and file extensions
             final Path zipFilePath = dataRoot.resolve(dataRoot + "/000/000/000/000/00/00000.zip");
             final Path dirPath = zipFilePath.getParent();
             Files.createDirectories(dirPath);
             Files.createFile(zipFilePath);
 
+            final CompressionType[] compressionTypes = CompressionType.values();
+
+            // Create blocks with all combinations of actual compression (i) vs file extension (j)
             try (final ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zipFilePath))) {
-                for (int i = 0; i < 10; i++) {
-                    final String blockNumStr = String.format("%019d", i);
-                    final String entryName = blockNumStr + ".blk";
-                    final ZipEntry zipEntry = new ZipEntry(entryName);
-                    out.putNextEntry(zipEntry);
-                    final byte[] bytesToWrite = getBytesToWrite(CompressionType.ZSTD);
-                    out.write(bytesToWrite);
-                    out.closeEntry();
+                for (int compressionIdx = 0; compressionIdx < compressionTypes.length; compressionIdx++) {
+                    for (int extensionIdx = 0; extensionIdx < compressionTypes.length; extensionIdx++) {
+                        final String blockNumStr = String.format("%019d", compressionIdx + extensionIdx);
+                        // File extension suggests compression type j
+                        final String entryName =
+                                blockNumStr + ".blk%s".formatted(compressionTypes[extensionIdx].extension());
+                        final ZipEntry zipEntry = new ZipEntry(entryName);
+                        out.putNextEntry(zipEntry);
+                        // But actual content is compressed with compression type i
+                        final byte[] bytesToWrite = getBytesToWrite(compressionTypes[compressionIdx]);
+                        out.write(bytesToWrite);
+                        out.closeEntry();
+                    }
                 }
             }
 
-            // Try to find block number 5 from the archive
-            final BlockPath blockPathSameConfigCompression = BlockPath.computeExistingBlockPath(
-                    new FilesHistoricConfig(
-                            dataRoot,
-                            testConfig.compression(),
-                            testConfig.powersOfTenPerZipFileContents(),
-                            0L,
-                            3,
-                            true),
-                    5L);
-
-            // Verify that the block was found with the correct compression type
-            assertThat(blockPathSameConfigCompression)
-                    .isNotNull()
-                    .returns("0000000000000000005", from(BlockPath::blockNumStr))
-                    .returns("0000000000000000005.blk", from(BlockPath::blockFileName))
-                    .returns(CompressionType.ZSTD, from(BlockPath::compressionType))
-                    .returns(zipFilePath, from(BlockPath::zipFilePath))
-                    .returns(dirPath, from(BlockPath::dirPath));
-
-            // Try to find block number 5 from the archive when the happy path detects different compression type
-            final BlockPath blockPathDifferentConfigCompression = BlockPath.computeExistingBlockPath(
-                    new FilesHistoricConfig(
-                            dataRoot, CompressionType.NONE, testConfig.powersOfTenPerZipFileContents(), 0L, 3, true),
-                    5L);
-
-            // Verify that the block was found with the correct compression type
-            assertThat(blockPathDifferentConfigCompression)
-                    .isNotNull()
-                    .returns("0000000000000000005", from(BlockPath::blockNumStr))
-                    .returns("0000000000000000005.blk", from(BlockPath::blockFileName))
-                    .returns(CompressionType.ZSTD, from(BlockPath::compressionType))
-                    .returns(zipFilePath, from(BlockPath::zipFilePath))
-                    .returns(dirPath, from(BlockPath::dirPath));
+            // Verify that for each combination, the actual compression (i) is correctly detected
+            // regardless of the file extension (j) and config compression (j)
+            for (int compressionIdx = 0; compressionIdx < compressionTypes.length; compressionIdx++) {
+                for (int configIdx = 0; configIdx < compressionTypes.length; configIdx++) {
+                    // Use config with compression type j (matching the file extension)
+                    final BlockPath blockPathSameConfigCompression = BlockPath.computeExistingBlockPath(
+                            new FilesHistoricConfig(dataRoot, compressionTypes[configIdx], 4, 0L, 3, true),
+                            compressionIdx + configIdx);
+                    // Verify that the actual compression type i is detected from magic bytes or lack thereof
+                    assertThat(blockPathSameConfigCompression)
+                            .isNotNull()
+                            .returns(compressionTypes[compressionIdx], from(BlockPath::compressionType));
+                }
+            }
         }
 
         private void createZipAndAddEntry(
