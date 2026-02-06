@@ -26,8 +26,10 @@ import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -212,12 +214,8 @@ class PublisherHandlerTest {
             void testOnNextHappyPathACCEPT() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemSetUnparsed blockItemSet = block.asItemSetUnparsed();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
@@ -246,14 +244,9 @@ class PublisherHandlerTest {
             void testOnNextNoRepliesHappyPathACCEPT() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return ACCEPT for the block number
                 manager.setBlockAction(BlockAction.ACCEPT);
@@ -284,21 +277,16 @@ class PublisherHandlerTest {
             void testOnNextMetricsHappyPathACCEPT() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return ACCEPT for the block number
                 manager.setBlockAction(BlockAction.ACCEPT);
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
+                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(block.asBlockItemUnparsedArray().length);
                 // Assert other metrics unchanged
                 assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
@@ -328,14 +316,10 @@ class PublisherHandlerTest {
             void testOnNextHappyPathResponseACCEPT() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int expectedStreamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                expectedStreamedBlockNumber, expectedStreamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long expectedStreamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return ACCEPT for the block number
                 manager.setBlockAction(BlockAction.ACCEPT);
@@ -356,7 +340,7 @@ class PublisherHandlerTest {
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                        .returns((long) expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
+                        .returns(expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
                 // Assert no other responses sent to the pipeline
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -383,20 +367,15 @@ class PublisherHandlerTest {
             void testOnNextCloseBlockValidProofHappyPathACCEPT(final BlockAction action) {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return the current action for the block number
                 manager.setBlockAction(action);
                 // Call
                 toTest.onNext(request);
-                endThisBlock(toTest, streamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert that the manager's closeBlock method was called
                 assertThat(manager.closeBlockCallsForHandler(handlerId)).isOne();
             }
@@ -420,11 +399,10 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with a broken proof
                 final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenProofs(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenProof(streamedBlockNumber);
+                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                        .blockItems(block.blockItems())
+                        .build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
@@ -455,9 +433,8 @@ class PublisherHandlerTest {
             void testOnNextConsecutiveRequestsHappyPathACCEPT() {
                 // Create the block to stream, a single complete valid block
                 final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 final int mid = blockItems.length / 2;
                 // Build the first request with the first half of the block items
                 final BlockItemSetUnparsed blockItemSet1 = BlockItemSetUnparsed.newBuilder()
@@ -502,10 +479,9 @@ class PublisherHandlerTest {
                     "Test onNext() with valid two requests with a complete single block metrics updated - happy path ACCEPT")
             void testOnNextConsecutiveRequestsMetricsHappyPathACCEPT() {
                 // Create the block to stream, a single complete valid block
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long streamedBlockNumber = block.number();
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 final int mid = blockItems.length / 2;
                 // Build the first request with the first half of the block items
                 final BlockItemSetUnparsed blockItemSet1 = BlockItemSetUnparsed.newBuilder()
@@ -558,14 +534,10 @@ class PublisherHandlerTest {
             void testOnNextSKIP() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SKIP for the block number
                 manager.setBlockAction(BlockAction.SKIP);
@@ -592,14 +564,10 @@ class PublisherHandlerTest {
             void testOnNextResponseSKIP() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SKIP for the block number
                 manager.setBlockAction(BlockAction.SKIP);
@@ -614,7 +582,7 @@ class PublisherHandlerTest {
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
-                        .returns((long) streamedBlockNumber, skipBlockNumberExtractor);
+                        .returns(streamedBlockNumber, skipBlockNumberExtractor);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -637,14 +605,9 @@ class PublisherHandlerTest {
             void testOnNextMetricsSKIP() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SKIP for the block number
                 manager.setBlockAction(BlockAction.SKIP);
@@ -679,14 +642,9 @@ class PublisherHandlerTest {
             void testOnNextRESEND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return RESEND for the block number
                 manager.setBlockAction(BlockAction.RESEND);
@@ -713,14 +671,10 @@ class PublisherHandlerTest {
             void testOnNextResponseRESEND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return RESEND for the block number
                 manager.setBlockAction(BlockAction.RESEND);
@@ -761,14 +715,9 @@ class PublisherHandlerTest {
             void testOnNextMetricsRESEND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return RESEND for the block number
                 manager.setBlockAction(BlockAction.RESEND);
@@ -805,14 +754,9 @@ class PublisherHandlerTest {
             void testOnNextDUPLICATE() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_DUPLICATE for the block number
                 manager.setBlockAction(BlockAction.END_DUPLICATE);
@@ -840,14 +784,10 @@ class PublisherHandlerTest {
             void testOnNextResponseDUPLICATE() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_DUPLICATE for the block number
                 manager.setBlockAction(BlockAction.END_DUPLICATE);
@@ -889,14 +829,9 @@ class PublisherHandlerTest {
             void testOnNextMetricsDUPLICATE() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_DUPLICATE for the block number
                 manager.setBlockAction(BlockAction.END_DUPLICATE);
@@ -933,14 +868,9 @@ class PublisherHandlerTest {
             void testOnNextBEHIND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SEND_BEHIND for the block number
                 manager.setBlockAction(BlockAction.SEND_BEHIND);
@@ -966,14 +896,10 @@ class PublisherHandlerTest {
             void testOnNextResponseBEHIND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SEND_BEHIND for the block number
                 manager.setBlockAction(BlockAction.SEND_BEHIND);
@@ -1008,14 +934,9 @@ class PublisherHandlerTest {
             void testOnNextMetricsBEHIND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_BEHIND for the block number
                 manager.setBlockAction(BlockAction.SEND_BEHIND);
@@ -1053,14 +974,9 @@ class PublisherHandlerTest {
             void testOnNextERROR() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_ERROR for the block number
                 manager.setBlockAction(BlockAction.END_ERROR);
@@ -1088,14 +1004,10 @@ class PublisherHandlerTest {
             void testOnNextResponseERROR() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_ERROR for the block number
                 manager.setBlockAction(BlockAction.END_ERROR);
@@ -1136,14 +1048,9 @@ class PublisherHandlerTest {
             void testOnNextMetricsERROR() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_ERROR for the block number
                 manager.setBlockAction(BlockAction.END_ERROR);
@@ -1179,10 +1086,8 @@ class PublisherHandlerTest {
             void testOnNextReturnOnInvalidRequest() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1212,10 +1117,8 @@ class PublisherHandlerTest {
             void testOnNextReturnOnInvalidRequestNoResponse() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1249,10 +1152,8 @@ class PublisherHandlerTest {
             void testOnNextReturnOnInvalidRequestMetrics() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1292,10 +1193,9 @@ class PublisherHandlerTest {
             void testOnNextInvalidRequestValidSubsequentRequest() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int expectedStreamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                expectedStreamedBlockNumber, expectedStreamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long expectedStreamedBlockNumber = block.number();
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1341,10 +1241,9 @@ class PublisherHandlerTest {
             void testOnNextInvalidRequestValidSubsequentRequestResponse() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int expectedStreamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                expectedStreamedBlockNumber, expectedStreamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long expectedStreamedBlockNumber = block.number();
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1375,7 +1274,7 @@ class PublisherHandlerTest {
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                        .returns((long) expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
+                        .returns(expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
                 // Assert no replies sent to the pipeline
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1400,10 +1299,9 @@ class PublisherHandlerTest {
             void testOnNextInvalidRequestValidSubsequentRequestMetrics() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int expectedStreamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                expectedStreamedBlockNumber, expectedStreamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long expectedStreamedBlockNumber = block.number();
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1464,10 +1362,8 @@ class PublisherHandlerTest {
             void testOnNextPrematureHeader() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Send the first half of the items, header included
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 0, blockItems.length / 2);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1506,10 +1402,8 @@ class PublisherHandlerTest {
             void testOnNextPrematureHeaderResponse() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Send the first half of the items, header included
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 0, blockItems.length / 2);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1558,10 +1452,8 @@ class PublisherHandlerTest {
             void testOnNextPrematureHeaderMetrics() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                                streamedBlockNumber, streamedBlockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Send the first half of the items, header included
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 0, blockItems.length / 2);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
@@ -1577,7 +1469,7 @@ class PublisherHandlerTest {
                 // Assert items were propagated (first request was valid and passed)
                 assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
                 // Assert metrics updated for the successful request
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(1);
+                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItemsToSend.length);
                 // Call again, now we expect that the handler will not propagate any items
                 // because the request would be invalid, we are sending a header, but the
                 // current block is not yet streamed in full as we sent only half of the items.
@@ -1585,7 +1477,7 @@ class PublisherHandlerTest {
                 // Assert metrics updated
                 assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(1);
+                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItemsToSend.length);
                 assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
@@ -1607,11 +1499,10 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a broken header and ending with proof
                 final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenHeader(streamedBlockNumber);
+                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                        .blockItems(block.blockItems())
+                        .build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
@@ -1637,11 +1528,10 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a broken header and ending with proof
                 final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenHeader(streamedBlockNumber);
+                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                        .blockItems(block.blockItems())
+                        .build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
@@ -1674,11 +1564,10 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a broken header and ending with proof
                 final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithBrokenHeaders(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenHeader(streamedBlockNumber);
+                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                        .blockItems(block.blockItems())
+                        .build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
@@ -1709,11 +1598,10 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a null header and ending with proof
                 final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final BlockUnparsed block = TestBlockBuilder.generateBlockWithNullHeaderBytes(streamedBlockNumber);
+                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                        .blockItems(block.blockItems())
+                        .build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
@@ -1738,11 +1626,10 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a null header and ending with proof
                 final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final BlockUnparsed block = TestBlockBuilder.generateBlockWithNullHeaderBytes(streamedBlockNumber);
+                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                        .blockItems(block.blockItems())
+                        .build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
@@ -1774,11 +1661,10 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a null header and ending with proof
                 final int streamedBlockNumber = 0;
-                final BlockItemUnparsed[] blockItems =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsedWithNullHeaderBytes(
-                                streamedBlockNumber, streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
+                final BlockUnparsed block = TestBlockBuilder.generateBlockWithNullHeaderBytes(streamedBlockNumber);
+                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                        .blockItems(block.blockItems())
+                        .build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
@@ -2341,17 +2227,14 @@ class PublisherHandlerTest {
                     "handleFailedVerification() - EndOfStream response with Code BAD_BLOCK_PROOF when handler sent the block that failed verification")
             void testHandleVerificationBadProof() {
                 // Generate any block, we do not have an actual verification, we will simulate a failure
-                final long expectedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                        (int) expectedBlockNumber, (int) (expectedBlockNumber + 1));
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final long expectedBlockNumber = block.number();
                 // Send a request to the handler with the block, this will update
                 // the internal state of the handler and will flag that the block has been sent
                 // by the handler under test. This will be important when we simulate the failed
                 // verification.
-                final BlockItemSetUnparsed blockItemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to expect return ACCEPT
                 manager.setBlockAction(BlockAction.ACCEPT);

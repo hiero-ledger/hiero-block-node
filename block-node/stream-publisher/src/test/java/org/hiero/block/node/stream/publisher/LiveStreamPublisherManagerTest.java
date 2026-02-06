@@ -25,19 +25,20 @@ import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
-import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -349,10 +350,9 @@ class LiveStreamPublisherManagerTest {
                 // logic that will update the current streaming block number once we run messaging forwarder async.
                 // First we need to build a block
                 final long streamedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
                 // Now we build the request
-                final BlockItemSetUnparsed itemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(itemSet)
                         .build();
@@ -457,16 +457,14 @@ class LiveStreamPublisherManagerTest {
                 // Assert that the latest block number is -1L before we persist any blocks.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1L);
                 // Generate block with number 0 and send it to the historical block facility.
-                final BlockItemUnparsed[] block0 = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
                 // The below call will send a persisted notification which will be picked up by the
                 // instance under test.
-                final long expectedLatestBlockNumber = 0L;
-                historicalBlockFacility.handleBlockItemsReceived(
-                        new BlockItems(List.of(block0), expectedLatestBlockNumber));
+                historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems());
                 // Call
                 final long actual = toTest.getLatestBlockNumber();
                 // Assert that the latest block number is now 0.
-                assertThat(actual).isEqualTo(expectedLatestBlockNumber);
+                assertThat(actual).isEqualTo(block.number());
             }
 
             /**
@@ -480,11 +478,9 @@ class LiveStreamPublisherManagerTest {
             void testLatestBlockNumberDuringConstruction() {
                 final SimpleInMemoryHistoricalBlockFacility localHistoricalBlockFacility =
                         new SimpleInMemoryHistoricalBlockFacility();
-                final BlockItemUnparsed[] block0 = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-                final long expectedLatestBlockNumber = 0L;
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
                 // Persist the block in the local historical block facility, we do not need to send a notification.
-                localHistoricalBlockFacility.handleBlockItemsReceived(
-                        new BlockItems(List.of(block0), expectedLatestBlockNumber), false);
+                localHistoricalBlockFacility.handleBlockItemsReceived(block.asBlockItems(), false);
                 // Construct a new LiveStreamPublisherManager with the local historical block facility.
                 final LiveStreamPublisherManager localToTest = new LiveStreamPublisherManager(
                         generateContext(localHistoricalBlockFacility), generateManagerMetrics());
@@ -492,7 +488,7 @@ class LiveStreamPublisherManagerTest {
                 // Call
                 final long actual = localToTest.getLatestBlockNumber();
                 // Assert that the latest block number is now 0.
-                assertThat(actual).isEqualTo(expectedLatestBlockNumber);
+                assertThat(actual).isEqualTo(block.number());
             }
         }
 
@@ -543,16 +539,16 @@ class LiveStreamPublisherManagerTest {
                 final long blockNumber = 0L;
 
                 // Build at least one synthetic block item for the block we will close.
-                final BlockItemUnparsed[] items =
-                        SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(blockNumber);
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(blockNumber).blockUnparsed();
                 // Header-first sanity check
-                assertThat(items[0].hasBlockHeader())
+                assertThat(block.blockItems().getFirst().hasBlockHeader())
                         .as("first item must be a BlockHeader for block " + blockNumber)
                         .isTrue();
                 // Wrap items into a request payload for the publisher.
                 final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(BlockItemSetUnparsed.newBuilder()
-                                .blockItems(items)
+                                .blockItems(block.blockItems())
                                 .build())
                         .build();
 
@@ -604,13 +600,10 @@ class LiveStreamPublisherManagerTest {
                 final long blockNumber = 100L;
 
                 // Build items for the same block that we will close.
-                final BlockItemUnparsed[] items = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                        (int) blockNumber, (int) blockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
                 // Wrap them into a publish request.
                 final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(BlockItemSetUnparsed.newBuilder()
-                                .blockItems(items)
-                                .build())
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
 
                 // Enqueue to the handler (may schedule forwarder depending on prod logic).
@@ -643,26 +636,23 @@ class LiveStreamPublisherManagerTest {
             void testRestartForwarderAfterCompletion() throws InterruptedException {
                 // ===== Run #1 =====
                 // Use a unique block number for the first run.
-                final long b0 = 2L;
+                final long b2 = 2L;
                 // Build items for block #b0.
-                final BlockItemUnparsed[] items0 =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed((int) b0, (int) b0);
+                final TestBlock block2 = TestBlockBuilder.generateBlockWithNumber(b2);
                 // Wrap into a request.
                 final PublishStreamRequestUnparsed req0 = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(BlockItemSetUnparsed.newBuilder()
-                                .blockItems(items0)
-                                .build())
+                        .blockItems(block2.asItemSetUnparsed())
                         .build();
 
                 // Enqueue to handler.
                 publisherHandler.onNext(req0);
                 // Mark block b0 as ended.
-                endThisBlock(publisherHandler, b0);
+                endThisBlock(publisherHandler, b2);
                 // Baseline both async batches and immediate close counters.
                 final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
                 final long beforeClosed = managerMetrics.blocksClosedComplete().get();
                 // Close the block (immediate metric should +1).
-                toTest.closeBlock(b0);
+                toTest.closeBlock(b2);
                 // Verify immediate close counter progressed by exactly one.
                 assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 1);
                 // Execute the queued tasks; the test pool throws if the queue is empty, enforcing correct sequencing.
@@ -676,23 +666,20 @@ class LiveStreamPublisherManagerTest {
 
                 // ===== Run #2 =====
                 // Use another unique block number for isolation.
-                final long b1 = 3L;
+                final long b3 = 3L;
                 // Build items for block #b1.
-                final BlockItemUnparsed[] items1 =
-                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed((int) b1, (int) b1);
+                final TestBlock block3 = TestBlockBuilder.generateBlockWithNumber(b3);
                 // Wrap into a request.
                 final PublishStreamRequestUnparsed req1 = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(BlockItemSetUnparsed.newBuilder()
-                                .blockItems(items1)
-                                .build())
+                        .blockItems(block3.asItemSetUnparsed())
                         .build();
 
                 // Enqueue to handler.
                 publisherHandler.onNext(req1);
                 // Mark block b1 as ended.
-                endThisBlock(publisherHandler, b1);
+                endThisBlock(publisherHandler, b3);
                 // Close the block
-                toTest.closeBlock(b1);
+                toTest.closeBlock(b3);
                 assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 3);
 
                 // Wait until batches surpass the +2 baseline from the first run.
@@ -715,13 +702,10 @@ class LiveStreamPublisherManagerTest {
                 final long blockNumber = 4L;
 
                 // Build items for this block.
-                final BlockItemUnparsed[] items = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(
-                        (int) blockNumber, (int) blockNumber);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
                 // Wrap into a request.
                 final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(BlockItemSetUnparsed.newBuilder()
-                                .blockItems(items)
-                                .build())
+                        .blockItems(block.asItemSetUnparsed())
                         .build();
 
                 // Enqueue to handler.
@@ -772,11 +756,9 @@ class LiveStreamPublisherManagerTest {
                 // unstreamed block number to 1L so we have a gap between
                 // latest persisted (which should be -1L) and next unstreamed.
                 // This is an expected condition during normal operation.
-                final long streamedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
                 // Now we build the request
-                final BlockItemSetUnparsed itemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(itemSet)
                         .build();
@@ -786,11 +768,11 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler.onNext(request);
-                endThisBlock(publisherHandler, streamedBlockNumber);
+                endThisBlock(publisherHandler, block.number());
                 // Build a verification notification with passed verification.
                 // Source must be publisher.
                 final VerificationNotification notification =
-                        new VerificationNotification(true, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                        new VerificationNotification(true, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that no responses have been sent.
@@ -819,11 +801,9 @@ class LiveStreamPublisherManagerTest {
                 // unstreamed block number to 1L so we have a gap between
                 // latest persisted (which should be -1L) and next unstreamed.
                 // This is an expected condition during normal operation.
-                final long streamedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
                 // Now we build the request
-                final BlockItemSetUnparsed itemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(itemSet)
                         .build();
@@ -833,22 +813,22 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler.onNext(request);
-                endThisBlock(publisherHandler, streamedBlockNumber);
+                endThisBlock(publisherHandler, block.number());
                 // Now we need to send a PersistedNotification, so that the
                 // latest known block number will be updated to 0L.
                 final PersistedNotification persistedNotification =
-                        new PersistedNotification(streamedBlockNumber, true, 0, BlockSource.PUBLISHER);
+                        new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER);
                 // Send the persisted notification to the manager.
                 toTest.handlePersisted(persistedNotification);
                 // Assert that the latest known block number is now 0L.
-                assertThat(toTest.getLatestBlockNumber()).isEqualTo(streamedBlockNumber);
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(block.number());
                 // Clear the pipeline because an acknowledgement response has been sent due to the
                 // persisted notification.
                 responsePipeline.clear();
                 // Build a verification notification with block number equal to the latest known.
                 // Source must be publisher.
                 final VerificationNotification notification =
-                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                        new VerificationNotification(false, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that only an Acknowledgement response has been sent,
@@ -879,11 +859,9 @@ class LiveStreamPublisherManagerTest {
                 // unstreamed block number to 1L so we have a gap between
                 // latest persisted (which should be -1L) and next unstreamed.
                 // This is an expected condition during normal operation.
-                final long streamedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
                 // Now we build the request
-                final BlockItemSetUnparsed itemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(itemSet)
                         .build();
@@ -893,22 +871,22 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler.onNext(request);
-                endThisBlock(publisherHandler, streamedBlockNumber);
+                endThisBlock(publisherHandler, block.number());
                 // We need to send a PersistedNotification first, so that the latest known block number will be updated
                 // to 0L.
                 final PersistedNotification persistedNotification =
-                        new PersistedNotification(streamedBlockNumber, true, 0, BlockSource.PUBLISHER);
+                        new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER);
                 // Send the persisted notification to the manager.
                 toTest.handlePersisted(persistedNotification);
                 // Assert that the latest known block number is now 0L.
-                assertThat(toTest.getLatestBlockNumber()).isEqualTo(streamedBlockNumber);
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(block.number());
                 // Clear the pipeline because an acknowledgement response has been sent due to the
                 // persisted notification.
                 responsePipeline.clear();
                 // Build a verification notification with block number lower than the latest known.
                 // Source must be publisher.
-                final VerificationNotification notification = new VerificationNotification(
-                        false, streamedBlockNumber - 1L, null, null, BlockSource.PUBLISHER);
+                final VerificationNotification notification =
+                        new VerificationNotification(false, block.number() - 1L, null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that only an Acknowledgement response has been sent,
@@ -991,11 +969,9 @@ class LiveStreamPublisherManagerTest {
                 // unstreamed block number to 1L so we have a gap between
                 // latest persisted (which should be -1L) and next unstreamed.
                 // This is an expected condition during normal operation.
-                final long streamedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
                 // Now we build the request
-                final BlockItemSetUnparsed itemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(itemSet)
                         .build();
@@ -1005,11 +981,11 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler.onNext(request);
-                endThisBlock(publisherHandler, streamedBlockNumber);
+                endThisBlock(publisherHandler, block.number());
                 // Now, the publisher has sent the targeted block with broken proof.
                 // We can now build a verification notification with failed verification.
                 final VerificationNotification notification =
-                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                        new VerificationNotification(false, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that the response pipeline has received a BAD_BLOCK_PROOF response, because the
@@ -1046,11 +1022,9 @@ class LiveStreamPublisherManagerTest {
                 // unstreamed block number to 1L so we have a gap between
                 // latest persisted (which should be -1L) and next unstreamed.
                 // This is an expected condition during normal operation.
-                final long streamedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
                 // Now we build the request
-                final BlockItemSetUnparsed itemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(itemSet)
                         .build();
@@ -1060,10 +1034,10 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler2.onNext(request);
-                endThisBlock(publisherHandler2, streamedBlockNumber);
+                endThisBlock(publisherHandler2, block.number());
                 // Build a verification notification with failed verification.
                 final VerificationNotification notification =
-                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                        new VerificationNotification(false, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that the response pipeline has received a RESEND response, because the
@@ -1114,11 +1088,10 @@ class LiveStreamPublisherManagerTest {
                 // unstreamed block number to 1L so we have a gap between
                 // latest persisted (which should be -1L) and next unstreamed.
                 // This is an expected condition during normal operation.
-                final long streamedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock testBlock = TestBlockBuilder.generateBlockWithNumber(0);
+                final BlockItemUnparsed[] block = testBlock.asBlockItemUnparsedArray();
                 // Now we build the request
-                final BlockItemSetUnparsed itemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final BlockItemSetUnparsed itemSet = testBlock.asItemSetUnparsed();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(itemSet)
                         .build();
@@ -1128,12 +1101,12 @@ class LiveStreamPublisherManagerTest {
                 // manager for a block action for block 0L and at that point it
                 // was the next expected block.
                 publisherHandler2.onNext(request);
-                endThisBlock(publisherHandler2, streamedBlockNumber);
+                endThisBlock(publisherHandler2, testBlock.number());
                 // Then, we need to simulate that the publisher has sent a block with invalid proof, i.e. call
                 // handleVerification with failed verification.
                 // Build a verification notification with failed verification.
                 final VerificationNotification notification =
-                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                        new VerificationNotification(false, testBlock.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that the response pipeline has received a RESEND response, because the
@@ -1174,7 +1147,7 @@ class LiveStreamPublisherManagerTest {
                 assertThat(messagingFacility.getSentBlockItems()).isNotNull().isEmpty();
                 // We send the request to the publisher handler.
                 publisherHandler.onNext(request);
-                endThisBlock(publisherHandler, streamedBlockNumber);
+                endThisBlock(publisherHandler, testBlock.number());
                 // We run the queued messaging forwarder to update the current streaming block number.
                 // We need to run the task async, because the loop (managed by config) is way too big to block on.
                 // We will however wait for one second to ensure the task is run.
@@ -1338,17 +1311,15 @@ class LiveStreamPublisherManagerTest {
                 // First, we build a valid request and send it to the publisher.
                 // This will query for block action which will update the state
                 // of the manager to have a next unstreamed block number of 1L.
-                final long streamedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
                 // Now we build the request
-                final BlockItemSetUnparsed itemSet =
-                        BlockItemSetUnparsed.newBuilder().blockItems(block).build();
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(itemSet)
                         .build();
                 // We send the request to the publisher handler.
                 publisherHandler.onNext(request);
-                endThisBlock(publisherHandler, streamedBlockNumber);
+                endThisBlock(publisherHandler, block.number());
                 // Now we need to build an end stream request
                 final EndStream endStream = EndStream.newBuilder()
                         .endCode(code)
@@ -1373,12 +1344,12 @@ class LiveStreamPublisherManagerTest {
                 // we expect to get a SKIP, the block was complete, next expected is +1L.
                 // We use the second publisher as the first one is already shut down.
                 publisherHandler2.onNext(request);
-                endThisBlock(publisherHandler, streamedBlockNumber);
+                endThisBlock(publisherHandler, block.number());
                 assertThat(responsePipeline2.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
-                        .returns(streamedBlockNumber, skipBlockNumberExtractor);
+                        .returns(block.number(), skipBlockNumberExtractor);
                 assertThat(sharedHandlerMetrics.blockSkipsSent().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
@@ -1400,8 +1371,8 @@ class LiveStreamPublisherManagerTest {
                 // First, we build a valid request and send it to the publisher.
                 // This will query for block action which will update the state
                 // of the manager to have a next unstreamed block number of 1L.
-                final long streamedBlockNumber = 0L;
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+                final TestBlock testBlock = TestBlockBuilder.generateBlockWithNumber(0);
+                final BlockItemUnparsed[] block = testBlock.asBlockItemUnparsedArray();
                 // Make the block incomplete
                 final BlockItemUnparsed[] incompleteBlock = Arrays.copyOfRange(block, 0, block.length / 2);
                 // Now we build the request
@@ -1416,8 +1387,8 @@ class LiveStreamPublisherManagerTest {
                 // Now we need to build an end stream request
                 final EndStream endStream = EndStream.newBuilder()
                         .endCode(code)
-                        .earliestBlockNumber(streamedBlockNumber)
-                        .latestBlockNumber(streamedBlockNumber)
+                        .earliestBlockNumber(testBlock.number())
+                        .latestBlockNumber(testBlock.number())
                         .build();
                 // Build a PublishStreamRequest with the EndStream
                 final PublishStreamRequestUnparsed endStreamRequest = PublishStreamRequestUnparsed.newBuilder()
@@ -1443,7 +1414,7 @@ class LiveStreamPublisherManagerTest {
                         .blockItems(fullBlockSet)
                         .build();
                 publisherHandler2.onNext(requestFullBlock);
-                endThisBlock(publisherHandler, streamedBlockNumber);
+                endThisBlock(publisherHandler, testBlock.number());
                 // We run the queued messaging forwarder to update the current streaming block number.
                 // We need to run the task async, because the loop (managed by config) is way too big to block on.
                 // We will however wait for one second to ensure the task is run.

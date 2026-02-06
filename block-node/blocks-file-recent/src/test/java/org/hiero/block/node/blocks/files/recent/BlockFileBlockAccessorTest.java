@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -16,10 +15,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 import org.junit.jupiter.api.BeforeEach;
@@ -293,9 +291,9 @@ class BlockFileBlockAccessorTest {
             // create block file path before call
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final Block expected = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(1);
+            final Block expected = block.block();
+            final Bytes protoBytes = block.bytes();
             // create instance to test
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, protoBytes);
@@ -321,9 +319,9 @@ class BlockFileBlockAccessorTest {
             final Path blockFilePath =
                     config.liveRootPath().resolve(blockNumber + ".blk" + compressionType.extension());
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final Block expected = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final Block expected = block.block();
+            final Bytes protoBytes = block.bytes();
             // create instance to test
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(blockNumber, blockFilePath, compressionType, protoBytes);
@@ -361,9 +359,8 @@ class BlockFileBlockAccessorTest {
             // create block file path before call
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final Block expected = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final Bytes protoBytes = block.bytes();
             // create instance to test
             final BlockFileBlockAccessor toTest =
                     createBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, protoBytes);
@@ -412,12 +409,11 @@ class BlockFileBlockAccessorTest {
             // create block file path before call
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final BlockUnparsed expected = block.blockUnparsed();
             // create instance to test
             final BlockFileBlockAccessor toTest =
-                    createBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, protoBytes);
+                    createBlockAndGetAssociatedAccessor(block.number(), blockFilePath, compressionType, block.bytes());
             // test accessor.blockUnparsed()
             final BlockUnparsed actual = toTest.blockUnparsed();
             assertThat(actual).isEqualTo(expected);
@@ -437,12 +433,11 @@ class BlockFileBlockAccessorTest {
             final Path blockFilePath =
                     config.liveRootPath().resolve(blockNumber + ".blk" + compressionType.extension());
             // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
+            final BlockUnparsed expected = block.blockUnparsed();
             // create instance to test
             final BlockFileBlockAccessor toTest =
-                    createBlockAndGetAssociatedAccessor(blockNumber, blockFilePath, compressionType, protoBytes);
+                    createBlockAndGetAssociatedAccessor(blockNumber, blockFilePath, compressionType, block.bytes());
             // test accessor.blockUnparsed()
             final BlockUnparsed actual = toTest.blockUnparsed();
             assertThat(actual).isEqualTo(expected);
@@ -471,12 +466,11 @@ class BlockFileBlockAccessorTest {
             // create block file path before call
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final BlockUnparsed expected = block.blockUnparsed();
             // create instance to test
             final BlockFileBlockAccessor toTest =
-                    createBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, protoBytes);
+                    createBlockAndGetAssociatedAccessor(block.number(), blockFilePath, compressionType, block.bytes());
 
             // calling close will drop the hard link, and accessor will no longer
             // be able to find the data
@@ -527,9 +521,8 @@ class BlockFileBlockAccessorTest {
             final Path blockFilePath = config.liveRootPath().resolve("0.blk");
 
             // Build a valid block first
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
-            final BlockUnparsed validBlock = new BlockUnparsed(List.of(blockItems));
-            final byte[] validBytes = BlockUnparsed.PROTOBUF.toBytes(validBlock).toByteArray();
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final byte[] validBytes = block.bytes().toByteArray();
 
             // Append unknown protobuf fields to simulate a block from a newer proto version.
             // In protobuf, unknown fields are encoded as: tag (field_number << 3 | wire_type) + value
@@ -552,7 +545,7 @@ class BlockFileBlockAccessorTest {
             // blockUnparsed() should succeed - it only parses top-level structure
             final BlockUnparsed result = toTest.blockUnparsed();
             assertThat(result).isNotNull();
-            assertThat(result.blockItems()).hasSize(blockItems.length);
+            assertThat(result.blockItems()).hasSize(block.blockSize());
 
             // Verify the block items are still accessible
             assertThat(result.blockItems().getFirst().hasBlockHeader()).isTrue();
@@ -578,7 +571,7 @@ class BlockFileBlockAccessorTest {
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // create instance to test
             final BlockFileBlockAccessor toTest =
-                    buildAndCreateBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, 1);
+                    buildAndCreateBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType);
             // test accessor.blockBytes()
             final Format format =
                     switch (compressionType) {
@@ -606,7 +599,7 @@ class BlockFileBlockAccessorTest {
                     config.liveRootPath().resolve(blockNumber + ".blk" + compressionType.extension());
             // create instance to test
             final BlockFileBlockAccessor toTest =
-                    buildAndCreateBlockAndGetAssociatedAccessor(blockNumber, blockFilePath, compressionType, 1);
+                    buildAndCreateBlockAndGetAssociatedAccessor(blockNumber, blockFilePath, compressionType);
             // test accessor.blockBytes()
             final Format format =
                     switch (compressionType) {
@@ -643,7 +636,7 @@ class BlockFileBlockAccessorTest {
             final Path blockFilePath = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // create instance to test
             final BlockFileBlockAccessor toTest =
-                    buildAndCreateBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, 1);
+                    buildAndCreateBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType);
             // test accessor.blockBytes()
             final Format format =
                     switch (compressionType) {
@@ -675,7 +668,7 @@ class BlockFileBlockAccessorTest {
 
             // create instance to test
             final BlockFileBlockAccessor toTest =
-                    buildAndCreateBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType, 1);
+                    buildAndCreateBlockAndGetAssociatedAccessor(0, blockFilePath, compressionType);
 
             // calling close will drop the hard link, and accessor will no longer
             // be able to find the data
@@ -702,7 +695,7 @@ class BlockFileBlockAccessorTest {
             final Path actual = config.liveRootPath().resolve("0.blk" + compressionType.extension());
             // create instance to test
             final BlockFileBlockAccessor toTest =
-                    buildAndCreateBlockAndGetAssociatedAccessor(0, actual, compressionType, 1);
+                    buildAndCreateBlockAndGetAssociatedAccessor(0, actual, compressionType);
             // assert that the hardlink was created due to issuing the accessor
             assertThat(linksRoot).exists().isNotEmptyDirectory();
             // read the contents of the actual block file before close()
@@ -723,7 +716,6 @@ class BlockFileBlockAccessorTest {
         private BlockFileBlockAccessor createBlockAndGetAssociatedAccessor(
                 long blockNumber, final Path blockFilePath, final CompressionType compressionType, Bytes protoBytes)
                 throws IOException {
-
             // create & assert existing block file path before call
             Files.createFile(blockFilePath);
             assertThat(blockFilePath).exists().isEmptyFile();
@@ -738,17 +730,9 @@ class BlockFileBlockAccessorTest {
         }
 
         private BlockFileBlockAccessor buildAndCreateBlockAndGetAssociatedAccessor(
-                long blockNumber,
-                final Path blockFilePath,
-                final CompressionType compressionType,
-                final int numberOfBlocks)
-                throws IOException {
-            final BlockItemUnparsed[] blockItems1 =
-                    SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(numberOfBlocks);
-            final BlockUnparsed expected1 = new BlockUnparsed(List.of(blockItems1));
-            final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected1);
-
-            return createBlockAndGetAssociatedAccessor(blockNumber, blockFilePath, compressionType, protoBytes);
+                long blockNumber, final Path blockFilePath, final CompressionType compressionType) throws IOException {
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
+            return createBlockAndGetAssociatedAccessor(blockNumber, blockFilePath, compressionType, block.bytes());
         }
     }
 }

@@ -15,7 +15,6 @@ import com.swirlds.metrics.api.Metrics;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +26,7 @@ import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.backfill.client.BlockNodeClient;
@@ -55,9 +54,7 @@ class BackfillFetcherTest {
     }
 
     private static BlockUnparsed createTestBlock(long blockNumber) {
-        return BlockUnparsed.newBuilder()
-                .blockItems(Arrays.asList(SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(blockNumber)))
-                .build();
+        return TestBlockBuilder.generateBlockWithNumber(blockNumber).blockUnparsed();
     }
 
     private static BackfillFetcher newClient(BackfillSourceConfig... nodes) throws Exception {

@@ -2,8 +2,6 @@
 package org.hiero.block.node.blocks.files.recent;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -11,20 +9,18 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
-import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.base.BlockFile;
@@ -165,8 +161,8 @@ class BlockFileRecentPluginTest {
         @DisplayName("Test send/retrieve block by persistence first")
         void testSendingBlockAndReadingBack() {
             // create sample block of block items
-            final BlockItem[] blockBlockItems = createNumberOfVerySimpleBlocks(1);
-            final long blockNumber = blockBlockItems[0].blockHeader().number();
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final long blockNumber = block.number();
             // check the block is not stored yet
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
@@ -177,17 +173,13 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification
             blockMessaging.sendBlockVerification(new VerificationNotification(
-                    true,
-                    blockNumber,
-                    Bytes.EMPTY,
-                    new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems)),
-                    BlockSource.PUBLISHER));
+                    true, blockNumber, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             // now try and read it back
-            final BlockUnparsed block = plugin.block(blockNumber).blockUnparsed();
+            final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed();
             // check we got the correct block
             assertArrayEquals(
-                    toBlockItemsUnparsed(blockBlockItems).toArray(),
-                    block.blockItems().toArray());
+                    block.asBlockItemUnparsedArray(),
+                    blockFromPlugin.blockItems().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
         }
@@ -201,8 +193,8 @@ class BlockFileRecentPluginTest {
         @DisplayName("Test send/retrieve failed verification")
         void testSendingBlockAndReadingBackFailedVerification() {
             // create sample block of block items
-            final BlockItem[] blockBlockItems = createNumberOfVerySimpleBlocks(1);
-            final long blockNumber = blockBlockItems[0].blockHeader().number();
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final long blockNumber = block.number();
             // check the block is not stored yet
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
@@ -213,11 +205,7 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification with failure
             blockMessaging.sendBlockVerification(new VerificationNotification(
-                    false,
-                    blockNumber,
-                    Bytes.EMPTY,
-                    new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems)),
-                    BlockSource.PUBLISHER));
+                    false, blockNumber, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
@@ -232,9 +220,9 @@ class BlockFileRecentPluginTest {
         @DisplayName("Test send/retrieve block by verification first")
         void testSendingBlockAndReadingBackVerificationFirst() {
             // create sample block of block items
-            final BlockItem[] blockBlockItems = createNumberOfVerySimpleBlocks(1);
-            final BlockUnparsed blockOrig = new BlockUnparsed(toBlockItemsUnparsed(blockBlockItems));
-            final long blockNumber = blockBlockItems[0].blockHeader().number();
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            final BlockUnparsed blockOrig = block.blockUnparsed();
+            final long blockNumber = block.number();
             // check the block is not stored yet
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
@@ -247,11 +235,11 @@ class BlockFileRecentPluginTest {
             blockMessaging.sendBlockVerification(
                     new VerificationNotification(true, blockNumber, Bytes.EMPTY, blockOrig, BlockSource.PUBLISHER));
             // now try and read it back
-            final BlockUnparsed block = plugin.block(blockNumber).blockUnparsed();
+            final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed();
             // check we got the correct block
             assertArrayEquals(
-                    toBlockItemsUnparsed(blockBlockItems).toArray(),
-                    block.blockItems().toArray());
+                    blockOrig.blockItems().toArray(),
+                    blockFromPlugin.blockItems().toArray());
             assertEquals(blockNumber, plugin.availableBlocks().max());
             assertEquals(blockNumber, plugin.availableBlocks().min());
         }
@@ -268,10 +256,11 @@ class BlockFileRecentPluginTest {
             // create 150 blocks and then send a verification notification for them
             for (int i = 0; i < 150; i++) {
                 // generate the next block
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 // send the block items to the plugin
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
                         blocksRootPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
@@ -315,10 +304,11 @@ class BlockFileRecentPluginTest {
             // create 150 blocks and then send a verification notification for them
             for (int i = 0; i < 150; i++) {
                 // generate the next block
-                final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 // send the block items to the plugin
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
                         blocksRootPath,

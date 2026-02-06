@@ -44,7 +44,7 @@ class ExtendedMerkleTreeSessionTest {
                 new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null);
 
         // Create BlockItems with isEndOfBlock=true to trigger finalization
-        BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber);
+        BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber, true, true);
         VerificationNotification blockNotification = session.processBlockItems(blockItemsMessage);
 
         assertArrayEquals(

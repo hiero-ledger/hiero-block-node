@@ -2,14 +2,11 @@
 package org.hiero.block.node.server.status;
 
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
-import static org.hiero.block.node.app.fixtures.blocks.BlockItemUtils.toBlockItemsUnparsed;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -17,9 +14,10 @@ import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
-import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -98,12 +96,10 @@ public class ServerStatusServicePluginTest
      * @param numberOfBlocks the number of test blocks to create and send
      */
     private void sendBlocks(int numberOfBlocks) {
-        BlockItem[] blockItems = createNumberOfVerySimpleBlocks(numberOfBlocks);
         // Send some blocks
-        for (BlockItem blockItem : blockItems) {
-            long blockNumber =
-                    blockItem.hasBlockHeader() ? blockItem.blockHeader().number() : UNKNOWN_BLOCK_NUMBER;
-            blockMessaging.sendBlockItems(new BlockItems(toBlockItemsUnparsed(blockItem), blockNumber));
+        for (long bn = 0; bn < numberOfBlocks; bn++) {
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(bn);
+            blockMessaging.sendBlockItems(block.asBlockItems());
         }
     }
 }

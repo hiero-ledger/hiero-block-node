@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.base.tar;
 
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfLargeBlocks;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlockAccessors;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.generateLargeBlockWithNumber;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.github.luben.zstd.Zstd;
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
-import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 import org.junit.jupiter.api.DisplayName;
@@ -34,7 +34,9 @@ public class TaredBlockIteratorTest {
     @Test
     @DisplayName("Test writing a tar file and extracting it, and checking the contents")
     public void testWritingTar(@TempDir Path tempDir) throws IOException, InterruptedException {
-        BlockAccessor[] blockAccessors = createNumberOfVerySimpleBlockAccessors(0, 3);
+        final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, 3);
+        BlockAccessor[] blockAccessors =
+                blocks.stream().map(TestBlock::asBlockAccessor).toArray(BlockAccessor[]::new);
         TaredBlockIterator taredBlockIterator =
                 new TaredBlockIterator(Format.ZSTD_PROTOBUF, new Arrays.Iterator<>(blockAccessors));
         // write to temp file
@@ -57,11 +59,7 @@ public class TaredBlockIteratorTest {
     @DisplayName("Test writing a tar file with huge block and extracting it, and checking the contents")
     public void testWritingTarLargeBlocks(@TempDir Path tempDir) throws IOException, InterruptedException {
         BlockAccessor[] blockAccessors = LongStream.range(0, 10)
-                .mapToObj(bn -> {
-                    BlockItem[] blockItems = createNumberOfLargeBlocks(bn, bn);
-                    Block block = new Block(java.util.Arrays.asList(blockItems));
-                    return new MinimalBlockAccessor(bn, block);
-                })
+                .mapToObj(bn -> generateLargeBlockWithNumber(bn).asBlockAccessor())
                 .toArray(BlockAccessor[]::new);
 
         TaredBlockIterator taredBlockIterator =

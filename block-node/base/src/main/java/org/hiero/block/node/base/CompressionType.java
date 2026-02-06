@@ -5,9 +5,11 @@ import com.github.luben.zstd.Zstd;
 import com.github.luben.zstd.ZstdInputStream;
 import com.github.luben.zstd.ZstdOutputStream;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.util.Objects;
 
 /**
@@ -114,7 +116,14 @@ public enum CompressionType {
     public byte[] decompress(@NonNull final byte[] data) {
         Objects.requireNonNull(data);
         return switch (this) {
-            case ZSTD -> Zstd.decompress(data, data.length);
+            case ZSTD -> {
+                try (final ByteArrayInputStream bais = new ByteArrayInputStream(data);
+                        final InputStream wrapped = wrapStream(bais)) {
+                    yield wrapped.readAllBytes();
+                } catch (final IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
             case NONE -> data;
         };
     }
