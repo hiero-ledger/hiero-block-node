@@ -69,12 +69,14 @@ mainModuleInfo {
 
 val allPlugins: Configuration by
     configurations.creating {
-        isCanBeConsumed = false
+        isCanBeConsumed = true
         isCanBeResolved = true
         isTransitive = true
     }
 
 dependencies {
+    // Inherit version constraints so transitive dependencies resolve correctly
+    allPlugins(platform(project(":hiero-dependency-versions")))
     allPlugins(project(":facility-messaging"))
     allPlugins(project(":health"))
     allPlugins(project(":server-status"))
@@ -94,11 +96,6 @@ dependencies {
 // These tasks run the block node with different plugin configurations.
 // Plugins are copied to a build directory and added to the module path.
 
-// Collect names of jars in core runtime classpath to exclude when copying plugins
-val coreRuntimeJarNames: Set<String> by lazy {
-    sourceSets["main"].runtimeClasspath.files.map { it.name }.toSet()
-}
-
 // Common environment setup for all run tasks
 fun JavaExec.configureBlockNodeEnvironment(serverDataDir: Directory) {
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
@@ -110,9 +107,11 @@ fun JavaExec.configureBlockNodeEnvironment(serverDataDir: Directory) {
     )
 }
 
-// Helper to configure a JavaExec task with plugin loading
+// Helper to configure a JavaExec task with plugin loading.
+// Uses FileCollection parameters instead of Configuration to be configuration-cache compatible.
 fun JavaExec.configureWithPlugins(
-    pluginsConfiguration: Configuration,
+    pluginFiles: FileCollection,
+    coreFiles: FileCollection,
     pluginsDirName: String,
     cleanStorage: Boolean = false,
 ) {
@@ -132,13 +131,13 @@ fun JavaExec.configureWithPlugins(
         }
 
         // Copy plugin jars (excluding jars already in core runtime) to plugins directory
+        val coreJarNames: Set<String> = coreFiles.files.map { it.name }.toSet()
         val targetDir = pluginsDir.get().asFile
         targetDir.deleteRecursively()
         targetDir.mkdirs()
 
-        pluginsConfiguration
-            .resolve()
-            .filter { it.name !in coreRuntimeJarNames }
+        pluginFiles.files
+            .filter { it.name !in coreJarNames }
             .forEach { jar -> jar.copyTo(File(targetDir, jar.name), overwrite = true) }
     }
 
@@ -155,7 +154,7 @@ fun JavaExec.configureWithPlugins(
 // Configure the default 'run' task from the application plugin to use all plugins
 tasks.named<JavaExec>("run") {
     description = "Run the block node with all plugins"
-    configureWithPlugins(allPlugins, "run")
+    configureWithPlugins(allPlugins.incoming.files, sourceSets["main"].runtimeClasspath, "run")
 }
 
 // Run with all plugins and clean storage
@@ -163,7 +162,12 @@ tasks.register<JavaExec>("runWithCleanStorage") {
     description = "Run the block node with all plugins, deleting storage first"
     mainClass = application.mainClass
     mainModule = application.mainModule
-    configureWithPlugins(allPlugins, "runWithCleanStorage", cleanStorage = true)
+    configureWithPlugins(
+        allPlugins.incoming.files,
+        sourceSets["main"].runtimeClasspath,
+        "runWithCleanStorage",
+        cleanStorage = true,
+    )
 }
 
 testModuleInfo {
@@ -218,18 +222,29 @@ val createDockerImage: TaskProvider<Exec> =
     }
 
 // Task to prepare plugins for local docker-compose deployment
-val prepareDockerPlugins: TaskProvider<Copy> =
-    tasks.register<Copy>("prepareDockerPlugins") {
+val prepareDockerPlugins =
+    tasks.register("prepareDockerPlugins") {
         description = "Copies all plugin jars to the docker plugins directory for local development"
         group = "docker"
 
-        from(allPlugins) {
-            // Exclude jars that are already in the core image
-            exclude { it.name in coreRuntimeJarNames }
-        }
-        into(dockerBuildRootDirectory.dir("plugins"))
+        val pluginFiles: FileCollection = allPlugins.incoming.files
+        val coreFiles: FileCollection = sourceSets["main"].runtimeClasspath
+        val outputDir: File = dockerBuildRootDirectory.dir("plugins").asFile
+
+        inputs.files(pluginFiles)
+        inputs.files(coreFiles)
+        outputs.dir(outputDir)
 
         dependsOn(copyDockerFolder)
+
+        doLast {
+            val coreJarNames: Set<String> = coreFiles.files.map { it.name }.toSet()
+            outputDir.deleteRecursively()
+            outputDir.mkdirs()
+            pluginFiles.files
+                .filter { it.name !in coreJarNames }
+                .forEach { jar -> jar.copyTo(File(outputDir, jar.name), overwrite = true) }
+        }
     }
 
 tasks.register<Exec>("startDockerContainer") {

@@ -28,8 +28,17 @@ mainModuleInfo {
 // E2E Test Plugin Configuration
 // =============================================================================
 // Plugins are built locally and mounted into the test container.
-// This avoids external dependencies during E2E testing.
+// Uses proper cross-project dependencies to resolve plugin and core jars.
 
+// Resolves the app's core runtime jars (for exclusion filtering)
+val appCoreRuntime: Configuration by
+    configurations.creating {
+        isCanBeConsumed = false
+        isCanBeResolved = true
+        isTransitive = true
+    }
+
+// Resolves all plugin jars from the app's allPlugins configuration
 val testPlugins: Configuration by
     configurations.creating {
         isCanBeConsumed = false
@@ -38,36 +47,35 @@ val testPlugins: Configuration by
     }
 
 dependencies {
-    // All plugins needed for E2E testing
-    testPlugins(project(":facility-messaging"))
-    testPlugins(project(":health"))
-    testPlugins(project(":server-status"))
-    testPlugins(project(":block-access-service"))
-    testPlugins(project(":stream-publisher"))
-    testPlugins(project(":stream-subscriber"))
-    testPlugins(project(":verification"))
-    testPlugins(project(":blocks-file-recent"))
-    testPlugins(project(":blocks-file-historic"))
-    testPlugins(project(":backfill"))
-    testPlugins(project(":s3-archive"))
-}
-
-// Collect core jar names from the app's runtime classpath to exclude when copying plugins
-val appCoreJarNames: Set<String> by lazy {
-    project(":app").configurations.getByName("runtimeClasspath").files.map { it.name }.toSet()
+    // Both configurations need version constraints for transitive dependency resolution
+    appCoreRuntime(platform(project(":hiero-dependency-versions")))
+    appCoreRuntime(project(":app"))
+    testPlugins(project(path = ":app", configuration = "allPlugins"))
 }
 
 // Task to prepare plugins for E2E test container mounting
 val prepareTestPlugins by
-    tasks.registering(Copy::class) {
+    tasks.registering {
         description = "Copies plugin jars for E2E test container mounting"
         group = "suites"
 
-        from(testPlugins) {
-            // Exclude jars that are already in the core image
-            exclude { it.name in appCoreJarNames }
+        val pluginFiles: FileCollection = testPlugins.incoming.files
+        val coreFiles: FileCollection = appCoreRuntime.incoming.files
+        val outputDir: Provider<Directory> = layout.buildDirectory.dir("test-plugins")
+
+        inputs.files(pluginFiles)
+        inputs.files(coreFiles)
+        outputs.dir(outputDir)
+
+        doLast {
+            val coreJarNames: Set<String> = coreFiles.files.map { it.name }.toSet()
+            val targetDir: File = outputDir.get().asFile
+            targetDir.deleteRecursively()
+            targetDir.mkdirs()
+            pluginFiles.files
+                .filter { it.name !in coreJarNames }
+                .forEach { jar -> jar.copyTo(File(targetDir, jar.name), overwrite = true) }
         }
-        into(layout.buildDirectory.dir("test-plugins"))
     }
 
 tasks.register<Test>("runSuites") {
