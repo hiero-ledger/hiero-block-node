@@ -2,6 +2,7 @@
 package org.hiero.block.tools.blocks;
 
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.streams.RecordStreamItem;
 import java.util.List;
 
 /**
@@ -74,6 +75,22 @@ public interface AmendmentProvider {
      * @return the list of BlockItems to insert as transaction amendments, or empty list if none
      */
     List<BlockItem> getTransactionAmendments(long blockNumber);
+
+    // ========== Missing Transaction Amendments ==========
+
+    /**
+     * Gets the missing RecordStreamItems that should be merged into the specified block.
+     *
+     * <p>Missing transactions are transactions that were not included in the original
+     * record stream but should have been. These are loaded from the mirror node errata
+     * data and merged into the RecordStreamFile within the block.
+     *
+     * @param blockNumber the block number to get missing transactions for
+     * @return the list of RecordStreamItems to merge, or empty list if none
+     */
+    default List<RecordStreamItem> getMissingRecordStreamItems(long blockNumber) {
+        return List.of();
+    }
 
     /**
      * Creates an amendment provider based on the network name.

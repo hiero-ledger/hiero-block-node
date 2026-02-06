@@ -25,6 +25,9 @@ pbj { generateTestClasses = false }
 sourceSets {
     main {
         pbj {
+            // Local overrides take precedence - adds RecordFileItem.amendments field not yet in CN
+            // TODO: Remove this once we upgrade the protobuf version to include amendments field
+            srcDir(layout.projectDirectory.dir("../../protobuf-sources/src/main/proto-overrides"))
             // use sources from 'protobuf' module
             srcDir(layout.projectDirectory.dir("../../protobuf-sources/src/main/proto"))
             // use sources from CN repository cloned by 'protobuf' module (see task dependency)

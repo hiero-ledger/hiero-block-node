@@ -29,6 +29,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.hapi.node.base.Transaction;
+import com.hedera.hapi.node.transaction.TransactionRecord;
+import com.hedera.hapi.streams.RecordStreamItem;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
@@ -36,6 +40,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
+import org.hiero.block.tools.blocks.AmendmentProvider;
 import org.hiero.block.tools.blocks.NoOpAmendmentProvider;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.junit.jupiter.api.DisplayName;
@@ -567,5 +572,192 @@ public class RecordBlockConverterTest {
         assertTrue(amendedBlock.items().get(2).hasRecordFile(), "Index 2 should be RECORD_FILE");
         assertTrue(amendedBlock.items().get(3).hasBlockFooter(), "Index 3 should be BLOCK_FOOTER");
         assertTrue(amendedBlock.items().get(4).hasBlockProof(), "Index 4 should be BLOCK_PROOF");
+    }
+
+    // ========== Missing Transaction Amendments Tests ==========
+
+    @Test
+    @Order(14)
+    @DisplayName("Test RecordFileItem contains amendments when provided by AmendmentProvider")
+    void testRecordFileItemContainsAmendments() {
+        assertNotNull(v6ParsedBlock, "V6 parsed block must be set up first");
+
+        // Create mock amendment provider that returns missing transactions
+        RecordStreamItem missingItem1 = createTestRecordStreamItem(1000L, 100);
+        RecordStreamItem missingItem2 = createTestRecordStreamItem(2000L, 200);
+        List<RecordStreamItem> missingItems = List.of(missingItem1, missingItem2);
+
+        AmendmentProvider amendmentProviderWithMissing = new AmendmentProvider() {
+            @Override
+            public String getNetworkName() {
+                return "test";
+            }
+
+            @Override
+            public boolean hasGenesisAmendments(long blockNumber) {
+                return false;
+            }
+
+            @Override
+            public List<BlockItem> getGenesisAmendments(long blockNumber) {
+                return List.of();
+            }
+
+            @Override
+            public boolean hasTransactionAmendments(long blockNumber) {
+                return false;
+            }
+
+            @Override
+            public List<BlockItem> getTransactionAmendments(long blockNumber) {
+                return List.of();
+            }
+
+            @Override
+            public List<RecordStreamItem> getMissingRecordStreamItems(long blockNumber) {
+                return missingItems;
+            }
+        };
+
+        // Convert to Block with amendments
+        Block block = RecordBlockConverter.toBlock(
+                v6ParsedBlock,
+                V6_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V6_TEST_BLOCK_ADDRESS_BOOK,
+                amendmentProviderWithMissing);
+
+        // Extract RecordFileItem
+        var recordFileItem = block.items().stream()
+                .filter(item -> item.hasRecordFile())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Block should have a RecordFileItem"))
+                .recordFile();
+
+        assertNotNull(recordFileItem, "RecordFileItem should not be null");
+
+        // Verify amendments are present
+        List<RecordStreamItem> amendments = recordFileItem.amendments();
+        assertNotNull(amendments, "Amendments should not be null");
+        assertEquals(2, amendments.size(), "RecordFileItem should have 2 amendments");
+
+        // Verify amendment contents
+        assertEquals(1000L, amendments.get(0).record().consensusTimestamp().seconds(), "First amendment timestamp");
+        assertEquals(2000L, amendments.get(1).record().consensusTimestamp().seconds(), "Second amendment timestamp");
+    }
+
+    @Test
+    @Order(15)
+    @DisplayName("Test RecordFileItem has empty amendments when none provided")
+    void testRecordFileItemHasEmptyAmendments() {
+        assertNotNull(v6ParsedBlock, "V6 parsed block must be set up first");
+
+        // Convert to Block without amendments (NoOpAmendmentProvider)
+        Block block = RecordBlockConverter.toBlock(
+                v6ParsedBlock,
+                V6_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V6_TEST_BLOCK_ADDRESS_BOOK,
+                new NoOpAmendmentProvider());
+
+        // Extract RecordFileItem
+        var recordFileItem = block.items().stream()
+                .filter(item -> item.hasRecordFile())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Block should have a RecordFileItem"))
+                .recordFile();
+
+        // Verify amendments are empty
+        List<RecordStreamItem> amendments = recordFileItem.amendments();
+        assertNotNull(amendments, "Amendments should not be null");
+        assertTrue(amendments.isEmpty(), "RecordFileItem should have no amendments");
+    }
+
+    @Test
+    @Order(16)
+    @DisplayName("Test original recordStreamItems are not modified by amendments")
+    void testOriginalRecordStreamItemsNotModified() {
+        assertNotNull(v6ParsedBlock, "V6 parsed block must be set up first");
+
+        // Count original record stream items
+        int originalItemCount = v6ParsedBlock
+                .recordFile()
+                .recordStreamFile()
+                .recordStreamItems()
+                .size();
+
+        // Create amendment provider with missing transactions
+        RecordStreamItem missingItem = createTestRecordStreamItem(9999L, 0);
+        AmendmentProvider amendmentProviderWithMissing = new AmendmentProvider() {
+            @Override
+            public String getNetworkName() {
+                return "test";
+            }
+
+            @Override
+            public boolean hasGenesisAmendments(long blockNumber) {
+                return false;
+            }
+
+            @Override
+            public List<BlockItem> getGenesisAmendments(long blockNumber) {
+                return List.of();
+            }
+
+            @Override
+            public boolean hasTransactionAmendments(long blockNumber) {
+                return false;
+            }
+
+            @Override
+            public List<BlockItem> getTransactionAmendments(long blockNumber) {
+                return List.of();
+            }
+
+            @Override
+            public List<RecordStreamItem> getMissingRecordStreamItems(long blockNumber) {
+                return List.of(missingItem);
+            }
+        };
+
+        // Convert to Block with amendments
+        Block block = RecordBlockConverter.toBlock(
+                v6ParsedBlock,
+                V6_TEST_BLOCK_NUMBER,
+                DUMMY_PREVIOUS_BLOCK_HASH,
+                DUMMY_ROOT_HASH,
+                V6_TEST_BLOCK_ADDRESS_BOOK,
+                amendmentProviderWithMissing);
+
+        // Extract RecordFileItem
+        var recordFileItem = block.items().stream()
+                .filter(item -> item.hasRecordFile())
+                .findFirst()
+                .orElseThrow()
+                .recordFile();
+
+        // Verify original record stream items are unchanged
+        int newItemCount =
+                recordFileItem.recordFileContents().recordStreamItems().size();
+        assertEquals(
+                originalItemCount,
+                newItemCount,
+                "Original recordStreamItems count should not change when amendments are added");
+
+        // Verify amendments are separate
+        assertEquals(1, recordFileItem.amendments().size(), "Amendments should be in separate field");
+    }
+
+    /**
+     * Creates a test RecordStreamItem with the given timestamp.
+     */
+    private RecordStreamItem createTestRecordStreamItem(long seconds, int nanos) {
+        Timestamp timestamp = new Timestamp(seconds, nanos);
+        TransactionRecord record =
+                TransactionRecord.newBuilder().consensusTimestamp(timestamp).build();
+        Transaction transaction = Transaction.newBuilder().build();
+        return new RecordStreamItem(transaction, record);
     }
 }

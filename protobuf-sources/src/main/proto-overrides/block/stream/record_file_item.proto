@@ -1,0 +1,131 @@
+/**
+ * # Record File Block
+ * This block carries the data from "record stream" and "sidecar"
+ * files that preceded the block stream. Record blocks are full blocks,
+ * not block items, but do not have a block header or block proof.
+ *
+ * ### Keywords
+ * The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+ * "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
+ * document are to be interpreted as described in
+ * [RFC2119](https://www.ietf.org/rfc/rfc2119) and clarified in
+ * [RFC8174](https://www.ietf.org/rfc/rfc8174).
+ */
+syntax = "proto3";
+
+package com.hedera.hapi.block.stream;
+
+// SPDX-License-Identifier: Apache-2.0
+option java_package = "com.hedera.hapi.block.stream.protoc";
+// <<<pbj.java_package = "com.hedera.hapi.block.stream">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+import "services/basic_types.proto";
+import "services/timestamp.proto";
+import "streams/sidecar_file.proto";
+import "streams/record_stream_file.proto";
+
+/**
+ * A Block Item for record files.
+ *
+ * A `RecordFileItem` contains data produced before the innovation of the
+ * Block Stream, when data was stored in files and validated by individual
+ * signature files.<br/>
+ *
+ * This item enables a single format, the Block Stream, to carry both
+ * historical and current data; eliminating the need to search two sources for
+ * block and block chain data.<br/>
+ *
+ * There are 3 versions of the binary file format that record files were
+ * produced in: v2, v5 and v6. Version 6 was protobuf already in the format of
+ * `proto.RecordStreamFile`. Version 5 was almost identical in content but a
+ * custom binary encoding rather than protobuf. Version 2 was a different
+ * custom binary format. All versions can be converted to a block stream block
+ * with RecordFileItem in a fully reversible lossless way.<br/>
+ *
+ * The following pseudocode describes how to reconstruct the original record
+ * file from the contents of this item. All numbers are big-endian.
+ * <code><pre>{@code
+ * recordFormatVersion = BlockProof.SignedRecordFileProof.version
+ * PROCEDURE reconstructRecordFile(recordFormatVersion,
+ *                                  hapiProtoVersion, previousBlockHash,
+ *                                  recordStreamFile):
+ *     WRITE version number (4 bytes, int)
+ *     IF version == 2:
+ *         WRITE HAPI major version (4 bytes int)
+ *         WRITE previous file hash marker (1 byte = 0x01)
+ *         WRITE previous block hash (48 bytes SHA-384)
+ *         FOR EACH item IN recordStreamFile.recordStreamItems:
+ *             WRITE record marker (1 byte = 0x02)
+ *             WRITE transaction length (4 bytes int)
+ *             WRITE transaction (protobuf bytes)
+ *             WRITE transaction record length (4 bytes int)
+ *             WRITE transaction record (protobuf bytes)
+ *         END FOR
+ *     ELSE IF version == 5:
+ *         WRITE HAPI major version (4 bytes int)
+ *         WRITE HAPI minor version (4 bytes int)
+ *         WRITE HAPI patch version (4 bytes int)
+ *         WRITE object stream version (4 bytes int = 1)
+ *         WRITE start object running hash (V5 HashObject format)
+ *         FOR EACH item IN recordStreamFile.recordStreamItems:
+ *             WRITE class ID (8 bytes long = 0xe370929ba5429d8b)
+ *             WRITE class version (4 bytes int = 1)
+ *             WRITE transaction record length (4 bytes int)
+ *             WRITE transaction record (protobuf bytes)
+ *             WRITE transaction length (4 bytes int)
+ *             WRITE transaction (protobuf bytes)
+ *         END FOR
+ *         WRITE end object running hash (V5 HashObject format)
+ *     ELSE IF version == 6:
+ *         WRITE RecordStreamFile (protobuf encoded)
+ *     ELSE:
+ *         THROW UnsupportedOperationException
+ * END PROCEDURE
+ * }</pre></code>
+ *
+ * Any block containing this item requires special handling.
+ * - The block SHALL have a `BlockHeader`.
+ *    - Some fields in the `BlockHeader` may be interpreted differently, and
+ *      may depend on when the original record file was created.
+ * - The block SHALL contain _exactly one_ `RecordFileItem`.
+ * - The block SHALL have a `BlockFooter`.
+ * - The block SHALL have a `SignedRecordFileProof` type `BlockProof`.
+ * - The block SHALL NOT contain any content item other than a block header,
+ *   single `RecordFileItem`, block footer and one or more block proofs.
+ */
+message RecordFileItem {
+    /**
+     * The consensus time the record file was produced for.<br/>
+     * This comes from the record file name.
+     */
+    proto.Timestamp creation_time = 1;
+
+    /**
+     * The contents of a record file.<br/>
+     * Record files were originally stored in different binary formats,
+     * this is the content converted to V6 format RecordStreamFile. That
+     * conversion is lossless and reversible. It will need to be reversed to
+     * validate the block with a `SignedRecordFileProof`.
+     */
+    proto.RecordStreamFile record_file_contents = 2;
+
+    /**
+     * The contents of sidecar files for this block.<br/>
+     * Each block can have zero or more sidecar files.
+     */
+    repeated proto.SidecarFile sidecar_file_contents = 3;
+
+    /**
+     * Amendments to the record file data.<br/>
+     * These are RecordStreamItems that fix data quality issues in the original
+     * record stream. The transaction ID in each amendment can be used to match
+     * the amendment to the original record stream item it corrects.<br/>
+     * Consumers can choose to ignore amendments if they want the raw original data.
+     * <p>
+     * NOTE: This field is a local addition pending inclusion in the upstream
+     * hiero-consensus-node protobuf (see PR #23259). Once a stable release
+     * includes this field, this local override should be removed.
+     */
+    repeated proto.RecordStreamItem amendments = 4;
+}
