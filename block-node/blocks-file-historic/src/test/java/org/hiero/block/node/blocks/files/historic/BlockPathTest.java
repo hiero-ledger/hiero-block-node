@@ -9,6 +9,9 @@ import static org.assertj.core.api.Assertions.from;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.FileSystem;
@@ -20,11 +23,13 @@ import java.util.List;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.base.CompressionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.aggregator.ArgumentsAccessor;
 import org.junit.jupiter.params.provider.Arguments;
@@ -382,6 +387,59 @@ class BlockPathTest {
             assertThat(actual).isNull();
         }
 
+        /**
+         * This test verifies that {@link BlockPath#computeExistingBlockPath} correctly identifies
+         * the actual compression type by reading magic bytes from file content, regardless of:
+         * <ul>
+         *   <li>The file extension (which might suggest a different compression type)</li>
+         *   <li>The compression type specified in the configuration</li>
+         * </ul>
+         */
+        @Test
+        @DisplayName("Test compression type is determined regardless of extension and config")
+        void testCompressionTypeIsDetermined() throws IOException {
+            // Create a zip with blocks using all combinations of compression types and file extensions
+            final Path zipFilePath = dataRoot.resolve(dataRoot + "/000/000/000/000/00/00000.zip");
+            final Path dirPath = zipFilePath.getParent();
+            Files.createDirectories(dirPath);
+            Files.createFile(zipFilePath);
+
+            final CompressionType[] compressionTypes = CompressionType.values();
+
+            // Create blocks with all combinations of actual compression (i) vs file extension (j)
+            try (final ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zipFilePath))) {
+                for (int compressionIdx = 0; compressionIdx < compressionTypes.length; compressionIdx++) {
+                    for (int extensionIdx = 0; extensionIdx < compressionTypes.length; extensionIdx++) {
+                        final String blockNumStr = String.format("%019d", compressionIdx + extensionIdx);
+                        // File extension suggests compression type j
+                        final String entryName =
+                                blockNumStr + ".blk%s".formatted(compressionTypes[extensionIdx].extension());
+                        final ZipEntry zipEntry = new ZipEntry(entryName);
+                        out.putNextEntry(zipEntry);
+                        // But actual content is compressed with compression type i
+                        final byte[] bytesToWrite = getBytesToWrite(compressionTypes[compressionIdx]);
+                        out.write(bytesToWrite);
+                        out.closeEntry();
+                    }
+                }
+            }
+
+            // Verify that for each combination, the actual compression (i) is correctly detected
+            // regardless of the file extension (j) and config compression (j)
+            for (int compressionIdx = 0; compressionIdx < compressionTypes.length; compressionIdx++) {
+                for (int configIdx = 0; configIdx < compressionTypes.length; configIdx++) {
+                    // Use config with compression type j (matching the file extension)
+                    final BlockPath blockPathSameConfigCompression = BlockPath.computeExistingBlockPath(
+                            new FilesHistoricConfig(dataRoot, compressionTypes[configIdx], 4, 0L, 3, true),
+                            compressionIdx + configIdx);
+                    // Verify that the actual compression type i is detected from magic bytes or lack thereof
+                    assertThat(blockPathSameConfigCompression)
+                            .isNotNull()
+                            .returns(compressionTypes[compressionIdx], from(BlockPath::compressionType));
+                }
+            }
+        }
+
         private void createZipAndAddEntry(
                 final Path expectedDirPath, final Path expectedZipFilePath, final String entryName) throws IOException {
             Files.createDirectories(expectedDirPath);
@@ -389,8 +447,20 @@ class BlockPathTest {
             try (final ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(expectedZipFilePath))) {
                 final ZipEntry zipEntry = new ZipEntry(entryName);
                 out.putNextEntry(zipEntry);
+                final CompressionType compressionType = entryName.endsWith(CompressionType.ZSTD.extension())
+                        ? CompressionType.ZSTD
+                        : CompressionType.NONE;
+                final byte[] bytesToWrite = getBytesToWrite(compressionType);
+                out.write(bytesToWrite);
                 out.closeEntry();
             }
+        }
+
+        private byte[] getBytesToWrite(CompressionType compressionType) {
+            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
+            return compressionType.compress(protoBytes.toByteArray());
         }
     }
 

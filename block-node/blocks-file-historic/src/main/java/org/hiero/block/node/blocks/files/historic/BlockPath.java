@@ -6,11 +6,14 @@ import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Objects;
+import java.util.stream.Stream;
 import org.hiero.block.common.utils.Preconditions;
 import org.hiero.block.node.base.CompressionType;
 
@@ -100,30 +103,56 @@ record BlockPath(
         // check if the zip file exists
         if (Files.exists(computed.zipFilePath)) {
             try (final FileSystem zipFS = FileSystems.newFileSystem(computed.zipFilePath)) {
+                final CompressionType[] compressionOpts =
+                        config.compression().getDeclaringClass().getEnumConstants();
                 // check if the block file exists
                 if (Files.exists(zipFS.getPath(computed.blockFileName))) {
-                    return computed;
+                    // Check what is the compression type based on the magic bytes
+                    final CompressionType magicBytesCT = Objects.requireNonNullElse(
+                            determineCompressionByMagicBytes(zipFS.getPath(computed.blockFileName), compressionOpts),
+                            CompressionType.NONE);
+                    if (computed.compressionType.equals(magicBytesCT)) {
+                        // If the current compression type matches the magic bytes compression type,
+                        // return the computed block path
+                        return computed;
+                    } else {
+                        // Otherwise return a new block path with the compression type computed by magic bytes
+                        return new BlockPath(
+                                computed.dirPath,
+                                computed.zipFilePath,
+                                computed.blockNumStr,
+                                computed.blockFileName,
+                                magicBytesCT);
+                    }
                 } else {
                     // if happy path not found, check if persisted with another
                     // compression extension.
-                    final CompressionType[] compressionOpts =
-                            config.compression().getDeclaringClass().getEnumConstants();
+
                     // noinspection ForLoopReplaceableByForEach
                     for (int i = 0; i < compressionOpts.length; i++) {
                         final CompressionType currentOpt = compressionOpts[i];
-                        // we are only
                         if (!currentOpt.equals(config.compression())) {
-                            // check if the block file exists
                             final String newFileName =
                                     computed.blockNumStr + BLOCK_FILE_EXTENSION + currentOpt.extension();
-                            if (Files.exists(zipFS.getPath(newFileName))) {
-                                // if found, update and return
+                            final Path blockFilePath = zipFS.getPath(newFileName);
+
+                            // Check whether a file with the current compression extension exists
+                            if (Files.exists(blockFilePath)) {
+                                // Check whether the file with the current compression extension was compressed with
+                                // magic bytes
+                                // in front (possibly by another compression than the configured)
+                                final CompressionType compressionByMagicBytes =
+                                        determineCompressionByMagicBytes(blockFilePath, compressionOpts);
+                                // The above method returns null if no known magic bytes found in the file,
+                                // so falling back to compression which extension matches the file extension
+                                final CompressionType compressionType =
+                                        Objects.requireNonNullElse(compressionByMagicBytes, currentOpt);
                                 return new BlockPath(
                                         computed.dirPath,
                                         computed.zipFilePath,
                                         computed.blockNumStr,
                                         newFileName,
-                                        currentOpt);
+                                        compressionType);
                             }
                         }
                     }
@@ -131,6 +160,35 @@ record BlockPath(
             }
         }
         // if none found, return null as we could not find the block existing
+        return null;
+    }
+
+    private static CompressionType determineCompressionByMagicBytes(
+            Path blockFilePath, CompressionType[] compressionOpts) throws IOException {
+        // Find the longest magic bytes sequence to determine how many bytes we need to read
+        final int max = Stream.of(compressionOpts)
+                .map(ct -> ct.magicBytes().length)
+                .max(Integer::compare)
+                .orElse(0);
+
+        // Read the file header once with enough bytes to check all compression types
+        final byte[] fileHeader = new byte[max];
+        try (final InputStream is = Files.newInputStream(blockFilePath)) {
+            final int _ = is.read(fileHeader);
+        }
+
+        // Check each compression type's magic bytes against the file header
+        for (CompressionType currentOpt : compressionOpts) {
+            final byte[] magicBytes = currentOpt.magicBytes();
+            if (magicBytes != null && magicBytes.length > 0) {
+                // Extract the relevant portion of the header for this compression type
+                final byte[] headerChunk = Arrays.copyOf(fileHeader, magicBytes.length);
+                if (Arrays.equals(headerChunk, magicBytes)) {
+                    // Magic bytes match, return this compression type
+                    return currentOpt;
+                }
+            }
+        }
         return null;
     }
 }
