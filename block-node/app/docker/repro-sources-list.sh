@@ -18,7 +18,7 @@
 # repro-sources-list.sh:
 # configures /etc/apt/sources.list and similar files for installing packages from a snapshot.
 #
-# This script is expected to be executed inside Dockerfile.
+# This script is expected to be executed inside Dockerfile-old.
 #
 # The following distributions are supported:
 # - debian:11    (/etc/apt/sources.list)
