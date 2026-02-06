@@ -299,7 +299,7 @@ class AllBlocksHasherHandlerTest {
                 previousBlockHash,
                 Bytes.wrap(rootHashOfAllPreviousBlocks));
 
-        BlockItems blockItemsMessage = new BlockItems(parsedItems, blockNumber);
+        BlockItems blockItemsMessage = new BlockItems(parsedItems, blockNumber, true, true);
 
         final VerificationNotification notification = session.processBlockItems(blockItemsMessage);
 

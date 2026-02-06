@@ -1238,7 +1238,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
                 continue;
             }
             final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-            gappyStorage.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            gappyStorage.handleBlockItemsReceived(new BlockItems(List.of(block), i, true, true), false);
         }
 
         testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), gappyStorage));
@@ -1342,7 +1342,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
         SimpleInMemoryHistoricalBlockFacility historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
         for (long i = startBlock; i <= endBlock; i++) {
             final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-            historicalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            historicalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i, true, true), false);
         }
         return historicalBlockFacility;
     }

@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Random;
 import java.util.stream.LongStream;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -397,7 +398,7 @@ public final class SimpleTestBlockItemBuilder {
             oneBatch.add(sampleBlockHeaderUnparsed(i));
             oneBatch.add(sampleRoundHeaderUnparsed(i * 10L));
             oneBatch.add(sampleBlockProofUnparsed(i));
-            batches[i - startBlockNumber] = new BlockItems(oneBatch, i);
+            batches[i - startBlockNumber] = new BlockItems(oneBatch, i, true, true);
         }
         return batches;
     }
@@ -418,27 +419,34 @@ public final class SimpleTestBlockItemBuilder {
         return blockItems;
     }
 
-    public static BlockItems toBlockItems(final List<BlockItem> block) {
-        return toBlockItems(block, true, block.getFirst().blockHeader().number());
+    /**
+     * This method will convert a list of {@link BlockItem} to {@link BlockItems}.
+     * This method always assumes that the supplied block is a complete block.
+     *
+     * @param completeBlock to be converted
+     *
+     * @return the converted {@link BlockItems}
+     */
+    public static BlockItems toBlockItems(final List<BlockItem> completeBlock) {
+        final long blockNumber = Objects.requireNonNull(completeBlock.getFirst().blockHeader(), "Header not found!")
+                .number();
+        return toBlockItems(completeBlock, blockNumber, true, true);
     }
 
     @SuppressWarnings("all")
     public static BlockItems toBlockItems(
-            final List<BlockItem> block, final boolean includeHeader, final long blockNumber) {
+            final List<BlockItem> itemsToConvert,
+            final long blockNumber,
+            final boolean isStartOfNewBlock,
+            final boolean isEndOfBlock) {
         final List<BlockItemUnparsed> result = new ArrayList<>();
-        final List<BlockItem> blockItemsToConvert;
-        if (!block.getFirst().hasBlockHeader()) {
-            blockItemsToConvert = block;
-        } else {
-            blockItemsToConvert = includeHeader ? block : block.subList(1, block.size());
-        }
-        for (final BlockItem item : blockItemsToConvert) {
+        for (final BlockItem item : itemsToConvert) {
             try {
                 result.add(BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(item)));
             } catch (final ParseException e) {
                 fail("Failed to parse BlockItem to BlockItemUnparsed", e);
             }
         }
-        return new BlockItems(result, blockNumber);
+        return new BlockItems(List.copyOf(result), blockNumber, isStartOfNewBlock, isEndOfBlock);
     }
 }

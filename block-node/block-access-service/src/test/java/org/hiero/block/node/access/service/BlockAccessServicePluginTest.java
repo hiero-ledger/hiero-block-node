@@ -180,7 +180,7 @@ public class BlockAccessServicePluginTest
         for (BlockItem blockItem : blockItems) {
             long blockNumber =
                     blockItem.hasBlockHeader() ? blockItem.blockHeader().number() : UNKNOWN_BLOCK_NUMBER;
-            blockMessaging.sendBlockItems(new BlockItems(toBlockItemsUnparsed(blockItem), blockNumber));
+            blockMessaging.sendBlockItems(new BlockItems(toBlockItemsUnparsed(blockItem), blockNumber, true, true));
         }
     }
 }

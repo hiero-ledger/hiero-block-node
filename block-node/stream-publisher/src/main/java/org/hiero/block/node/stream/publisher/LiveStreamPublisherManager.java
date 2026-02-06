@@ -800,7 +800,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                                     currentBlockNumber,
                                     currentBatch.blockItems().size());
                             // send the batch to the messaging facility
-                            messaging.sendBlockItems(new BlockItems(currentBatch.blockItems(), currentBlockNumber));
+                            messaging.sendBlockItems(
+                                    new BlockItems(currentBatch.blockItems(), currentBlockNumber, true, true));
                             publisherManager
                                     .metrics
                                     .blockItemsMessaged()

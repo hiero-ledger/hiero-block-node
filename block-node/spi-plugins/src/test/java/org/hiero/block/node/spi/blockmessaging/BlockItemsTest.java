@@ -34,7 +34,7 @@ public class BlockItemsTest {
     @Test
     @DisplayName("Test BlockItems constructor with valid inputs")
     void testBlockItemsConstructorValid() {
-        BlockItems blockItems = new BlockItems(blockItemList, 1);
+        BlockItems blockItems = new BlockItems(blockItemList, 1, true, true);
         assertNotNull(blockItems);
         assertEquals(blockItemList, blockItems.blockItems());
         assertEquals(1, blockItems.blockNumber());
@@ -43,14 +43,14 @@ public class BlockItemsTest {
     @Test
     @DisplayName("Test BlockItems constructor with empty block items list")
     void testBlockItemsConstructorEmptyList() {
-        Executable executable = () -> new BlockItems(List.of(), 1);
+        Executable executable = () -> new BlockItems(List.of(), 1, true, true);
         assertThrows(IllegalArgumentException.class, executable, "Block items cannot be empty");
     }
 
     @Test
     @DisplayName("Test BlockItems constructor with negative block number")
     void testBlockItemsConstructorNegativeBlockNumber() {
-        Executable executable = () -> new BlockItems(blockItemList, -2);
+        Executable executable = () -> new BlockItems(blockItemList, -2, true, true);
         assertThrows(
                 IllegalArgumentException.class,
                 executable,
@@ -60,12 +60,15 @@ public class BlockItemsTest {
     @Test
     @DisplayName("Test isStartOfNewBlock method")
     void testIsStartOfNewBlock() {
-        BlockItems blockItems =
-                new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), 1);
+        BlockItems blockItems = new BlockItems(
+                List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), 1, true, true);
         assertTrue(blockItems.isStartOfNewBlock());
 
         BlockItems blockItemsUnknown = new BlockItems(
-                List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_PROOF, null))), UNKNOWN_BLOCK_NUMBER);
+                List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_PROOF, null))),
+                UNKNOWN_BLOCK_NUMBER,
+                true,
+                true);
         assertFalse(blockItemsUnknown.isStartOfNewBlock());
     }
 
@@ -73,9 +76,9 @@ public class BlockItemsTest {
     @DisplayName("Test isEndOfBlock method")
     void testIsEndOfBlock() {
         BlockItemUnparsed blockItemWithProof = new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_PROOF, null));
-        BlockItems blockItems = new BlockItems(List.of(blockItemWithProof), 1);
+        BlockItems blockItems = new BlockItems(List.of(blockItemWithProof), 1, true, true);
         assertTrue(blockItems.isEndOfBlock());
-        BlockItems blockItemsWithoutProof = new BlockItems(blockItemList, 1);
+        BlockItems blockItemsWithoutProof = new BlockItems(blockItemList, 1, true, true);
         assertFalse(blockItemsWithoutProof.isEndOfBlock());
     }
 }

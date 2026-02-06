@@ -314,7 +314,7 @@ public class AllBlocksHasherHandler {
         final BlockHeader blockHeader =
                 BlockHeader.PROTOBUF.parse(block.blockItems().getFirst().blockHeader());
 
-        BlockItems blockItemsMessage = new BlockItems(block.blockItems(), blockNumber);
+        BlockItems blockItemsMessage = new BlockItems(block.blockItems(), blockNumber, true, true);
 
         final Bytes previousBlockHashBytes = (previousBlockHash == null) ? null : Bytes.wrap(previousBlockHash);
 

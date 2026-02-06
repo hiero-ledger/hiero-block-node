@@ -12,6 +12,7 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -25,6 +26,7 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -291,18 +293,19 @@ class SubscriberServicePluginTest {
                         // Now supply the requested block to history in multiple batches
                         final List<Block> blockOne =
                                 SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(1, 1);
-                        final List<BlockItem> expected = blockOne.getFirst().items();
+                        final Block expected = blockOne.getFirst();
                         // Now, send to live only the header as a first batch
-                        final List<BlockItem> headerOnly = expected.subList(0, 1);
-                        blockMessaging.sendBlockItems(toBlockItems(headerOnly));
+                        final List<BlockItem> headerOnly = expected.items().subList(0, 1);
+                        final long expectedNumber =
+                                expected.items().getFirst().blockHeader().number();
+                        final BlockItems blockItems = toBlockItems(headerOnly, expectedNumber, true, false);
+                        blockMessaging.sendBlockItems(blockItems);
                         // we expect that a response will be sent
                         awaitResponse(fromPluginBytes, 1);
                         // Now send the rest of the block in one batch
-                        final List<BlockItem> restOfBlock = expected.subList(1, expected.size());
-                        blockMessaging.sendBlockItems(toBlockItems(
-                                restOfBlock,
-                                false,
-                                headerOnly.getFirst().blockHeader().number()));
+                        final List<BlockItem> restOfBlock =
+                                expected.items().subList(1, expected.items().size());
+                        blockMessaging.sendBlockItems(toBlockItems(restOfBlock, expectedNumber, false, true));
                         // Wait for all responses, now we expect two responses,
                         // one is for the rest of the block items, the other is
                         // the success status
@@ -952,12 +955,13 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Send a partial block from live, simulating a mid-block subscription
-                        final List<BlockItem> firstBlock =
-                                blocksZeroToTwo.getFirst().items();
-                        blockMessaging.sendBlockItems(toBlockItems(
-                                firstBlock,
+                        final Block blockZero = blocksZeroToTwo.getFirst();
+                        final BlockItems blockItems = toBlockItems(
+                                blockZero.items().subList(1, blockZero.items().size()), // remove the header
+                                blockZero.items().getFirst().blockHeader().number(), // supply the correct block number
                                 false,
-                                firstBlock.getFirst().blockHeader().number()));
+                                true);
+                        blockMessaging.sendBlockItems(blockItems);
                         // Now supply the following blocks from history
                         final List<Block> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
                         for (final Block block : blocksOneToTwo) {
@@ -1006,19 +1010,16 @@ class SubscriberServicePluginTest {
                     // Send the request
                     toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                     // Send a block 0
-                    final List<BlockItem> firstBlock =
-                            blocksZeroToTwo.getFirst().items();
-                    blockMessaging.sendBlockItems(toBlockItems(
-                            firstBlock,
-                            true,
-                            firstBlock.getFirst().blockHeader().number()));
+                    final List<BlockItem> blockZero = blocksZeroToTwo.getFirst().items();
+                    blockMessaging.sendBlockItems(toBlockItems(blockZero));
                     // Now supply the following blocks without headers
                     final List<Block> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
                     for (final Block block : blocksOneToTwo) {
                         blockMessaging.sendBlockItems(toBlockItems(
-                                block.items(),
+                                block.items().subList(1, block.items().size()), // remove the header from the block
+                                blockZero.getFirst().blockHeader().number(), // put block number of last one streamed
                                 false,
-                                firstBlock.getFirst().blockHeader().number()));
+                                true));
                     }
                     // Wait for responses for block items
                     final int expectedBlockItemResponses = 2; // only one with items and end block
@@ -1038,6 +1039,59 @@ class SubscriberServicePluginTest {
                     final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
                     assertBlockItemsMatch(List.of(blocksZeroToTwo.getFirst()), blockItemResponses);
                 }
+            }
+
+            /**
+             * This test aims to assert that when we have partial blocks supplied, they will still be sent
+             */
+            @Test
+            @DisplayName("Test Subscriber: Valid Request Live Stream Subscription With Partial Blocks")
+            void testSuccessfulRequestLiveStreamWithPartialBlocksSubscription() {
+                // First we create the blocks
+                final List<Block> blocksZeroToTwo =
+                        SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                // Then, we create the request for live stream
+                final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                        .startBlockNumber(-1L)
+                        .endBlockNumber(-1L)
+                        .build();
+                // Send the request
+                toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+                // Send a block 0
+                final List<Block> expected = new ArrayList<>();
+                expected.add(blocksZeroToTwo.getFirst());
+                final List<BlockItem> blockZero = blocksZeroToTwo.getFirst().items();
+                blockMessaging.sendBlockItems(toBlockItems(blockZero));
+                // Now supply the following blocks without headers
+                final List<Block> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
+                for (final Block block : blocksOneToTwo) {
+                    // remove the header from the block
+                    final List<BlockItem> itemsToSend =
+                            block.items().subList(1, block.items().size());
+                    blockMessaging.sendBlockItems(toBlockItems(
+                            itemsToSend,
+                            block.items().getFirst().blockHeader().number(), // the correct block number
+                            false,
+                            true));
+                    expected.add(Block.newBuilder().items(itemsToSend).build());
+                }
+                // Wait for responses for block items
+                final int expectedBlockItemResponses = 6; // only one with items and end block
+                awaitResponse(fromPluginBytes, expectedBlockItemResponses);
+                // now we need to stop the plugin to end the live stream request and
+                // receive the success status response
+                plugin.stop();
+                final int expectedResponses = expectedBlockItemResponses + 1; // items and one with success status
+                // Assert responses count and status success
+                assertThat(fromPluginBytes)
+                        .hasSize(expectedResponses)
+                        .last()
+                        .extracting(responseExtractor)
+                        .isNotNull()
+                        .returns(Code.SUCCESS, responseStatusExtractor);
+                final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                // Extract and assert block items response
+                assertBlockItemsMatch(expected, blockItemResponses);
             }
 
             /**

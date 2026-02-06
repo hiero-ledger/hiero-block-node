@@ -462,7 +462,7 @@ class LiveStreamPublisherManagerTest {
                 // instance under test.
                 final long expectedLatestBlockNumber = 0L;
                 historicalBlockFacility.handleBlockItemsReceived(
-                        new BlockItems(List.of(block0), expectedLatestBlockNumber));
+                        new BlockItems(List.of(block0), expectedLatestBlockNumber, true, true));
                 // Call
                 final long actual = toTest.getLatestBlockNumber();
                 // Assert that the latest block number is now 0.
@@ -484,7 +484,7 @@ class LiveStreamPublisherManagerTest {
                 final long expectedLatestBlockNumber = 0L;
                 // Persist the block in the local historical block facility, we do not need to send a notification.
                 localHistoricalBlockFacility.handleBlockItemsReceived(
-                        new BlockItems(List.of(block0), expectedLatestBlockNumber), false);
+                        new BlockItems(List.of(block0), expectedLatestBlockNumber, true, true), false);
                 // Construct a new LiveStreamPublisherManager with the local historical block facility.
                 final LiveStreamPublisherManager localToTest = new LiveStreamPublisherManager(
                         generateContext(localHistoricalBlockFacility), generateManagerMetrics());

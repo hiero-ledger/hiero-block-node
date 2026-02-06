@@ -352,7 +352,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
             }
             blockItemList.add(blockItem);
             if (blockItem.hasBlockProof()) {
-                blockMessaging.sendBlockItems(new BlockItems(blockItemList, blockNumber));
+                blockMessaging.sendBlockItems(new BlockItems(blockItemList, blockNumber, true, true));
                 blockNumber++;
                 blockTime = blockTime.plus(ONE_DAY);
             }

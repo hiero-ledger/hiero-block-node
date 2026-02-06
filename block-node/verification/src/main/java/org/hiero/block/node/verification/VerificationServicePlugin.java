@@ -270,7 +270,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 // process the block items in the backfilled notification
                 // For backfill, we wrap items in BlockItems with isEndOfBlock=true (last item should be block proof)
                 BlockItems backfillBlockItems =
-                        new BlockItems(notification.block().blockItems(), notification.blockNumber());
+                        new BlockItems(notification.block().blockItems(), notification.blockNumber(), true, true);
                 VerificationNotification backfillNotification = backfillSession.processBlockItems(backfillBlockItems);
                 if (backfillNotification != null) {
                     // Log the backfill verification result

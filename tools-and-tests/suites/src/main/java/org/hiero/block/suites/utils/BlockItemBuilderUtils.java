@@ -347,7 +347,7 @@ public final class BlockItemBuilderUtils {
             oneBatch.add(sampleBlockHeaderUnparsed(i));
             oneBatch.add(sampleRoundHeaderUnparsed(i * 10L));
             oneBatch.add(sampleBlockProofUnparsed(i));
-            batches[i - startBlockNumber] = new BlockItems(oneBatch, i);
+            batches[i - startBlockNumber] = new BlockItems(oneBatch, i, true, true);
         }
         return batches;
     }
