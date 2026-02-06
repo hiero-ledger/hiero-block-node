@@ -194,8 +194,15 @@ blockNode:
   health:
     readiness:
       endpoint: "/healthz/readyz"
+      initialDelaySeconds: 5
+      timeoutSeconds: 2
     liveness:
       endpoint: "/healthz/livez"
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 2
+      successThreshold: 1
+      failureThreshold: 3
     metrics:
       port: 16007
   logs:

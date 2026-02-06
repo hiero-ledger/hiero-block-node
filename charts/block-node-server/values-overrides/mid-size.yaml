@@ -18,3 +18,13 @@ blockNode:
       size: 2Gi
     verification:
       size: 500Mi
+  health:
+    readiness:
+      initialDelaySeconds: 10
+      timeoutSeconds: 2
+    liveness:
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 2
+      successThreshold: 1
+      failureThreshold: 3

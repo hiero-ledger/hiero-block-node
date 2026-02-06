@@ -238,12 +238,12 @@ public class BlockNodeApp implements HealthFacility {
         webServer.start();
         // Start metrics
         metricsProvider.start();
-        // Start all the facilities & plugins
-        LOGGER.log(INFO, "Starting plugins:");
-        for (BlockNodePlugin plugin : loadedPlugins) {
+        // Start all the facilities & plugins asynchronously
+        LOGGER.log(INFO, "Asynchronously Starting plugins:");
+        loadedPlugins.parallelStream().forEach(plugin -> {
             LOGGER.log(INFO, GREY + "    " + plugin.name());
             plugin.start();
-        }
+        });
         // mark the server as started
         state.set(State.RUNNING);
         // log the server has started
