@@ -22,6 +22,19 @@ mainModuleInfo {
     runtimeOnly("io.helidon.http")
     runtimeOnly("io.helidon.webclient.http2")
     runtimeOnly("org.hiero.block.protobuf.pbj")
+
+    // Block node plugins needed for in-JVM tests (BlockNodeAPITests)
+    runtimeOnly("org.hiero.block.node.messaging")
+    runtimeOnly("org.hiero.block.node.health")
+    runtimeOnly("org.hiero.block.node.server.status")
+    runtimeOnly("org.hiero.block.node.stream.publisher")
+    runtimeOnly("org.hiero.block.node.stream.subscriber")
+    runtimeOnly("org.hiero.block.node.verification")
+    runtimeOnly("org.hiero.block.node.blocks.files.recent")
+    runtimeOnly("org.hiero.block.node.blocks.files.historic")
+    runtimeOnly("org.hiero.block.node.access.service")
+    runtimeOnly("org.hiero.block.node.backfill")
+    runtimeOnly("org.hiero.block.node.archive.s3cloud")
 }
 
 // =============================================================================
@@ -29,6 +42,8 @@ mainModuleInfo {
 // =============================================================================
 // Plugins are built locally and mounted into the test container.
 // Uses proper cross-project dependencies to resolve plugin and core jars.
+
+val testPluginsDir: Provider<Directory> = layout.buildDirectory.dir("test-plugins")
 
 // Resolves the app's core runtime jars (for exclusion filtering)
 val appCoreRuntime: Configuration by
@@ -50,7 +65,7 @@ dependencies {
     // Both configurations need version constraints for transitive dependency resolution
     appCoreRuntime(platform(project(":hiero-dependency-versions")))
     appCoreRuntime(project(":app"))
-    testPlugins(project(path = ":app", configuration = "allPlugins"))
+    testPlugins(project(path = ":app", configuration = "blockNodePlugins"))
 }
 
 // Task to prepare plugins for E2E test container mounting
@@ -61,7 +76,7 @@ val prepareTestPlugins by
 
         val pluginFiles: FileCollection = testPlugins.incoming.files
         val coreFiles: FileCollection = appCoreRuntime.incoming.files
-        val outputDir: Provider<Directory> = layout.buildDirectory.dir("test-plugins")
+        val outputDir: Provider<Directory> = testPluginsDir
 
         inputs.files(pluginFiles)
         inputs.files(coreFiles)
@@ -92,10 +107,7 @@ tasks.register<Test>("runSuites") {
 
     // Pass block-node version and plugins directory to tests
     systemProperty("block.node.version", project(":app").version.toString())
-    systemProperty(
-        "plugins.dir",
-        layout.buildDirectory.dir("test-plugins").get().asFile.absolutePath,
-    )
+    systemProperty("plugins.dir", testPluginsDir.get().asFile.absolutePath)
 }
 
 tasks.register<Test>("runAPISuites") {
@@ -112,8 +124,5 @@ tasks.register<Test>("runAPISuites") {
 
     // Pass block-node version and plugins directory to tests
     systemProperty("block.node.version", project(":app").version.toString())
-    systemProperty(
-        "plugins.dir",
-        layout.buildDirectory.dir("test-plugins").get().asFile.absolutePath,
-    )
+    systemProperty("plugins.dir", testPluginsDir.get().asFile.absolutePath)
 }

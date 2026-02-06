@@ -66,8 +66,13 @@ mainModuleInfo {
 // plugins directory, which can be populated via Helm chart, docker mount, or Gradle.
 // Profile-specific plugin selection (minimal, lfh, rfh) is handled by Helm chart
 // values-overrides and the prepare-plugins.sh script for local docker-compose.
+//
+// This is the authoritative list of block node plugins. When adding a new plugin,
+// add it here and in testModuleInfo below. Transitive dependencies (e.g. gRPC,
+// Helidon, Swirlds libraries) are resolved automatically and filtered against the
+// core runtime to avoid duplicates.
 
-val allPlugins: Configuration by
+val blockNodePlugins: Configuration by
     configurations.creating {
         isCanBeConsumed = true
         isCanBeResolved = true
@@ -75,19 +80,27 @@ val allPlugins: Configuration by
     }
 
 dependencies {
-    // Inherit version constraints so transitive dependencies resolve correctly
-    allPlugins(platform(project(":hiero-dependency-versions")))
-    allPlugins(project(":facility-messaging"))
-    allPlugins(project(":health"))
-    allPlugins(project(":server-status"))
-    allPlugins(project(":block-access-service"))
-    allPlugins(project(":stream-publisher"))
-    allPlugins(project(":stream-subscriber"))
-    allPlugins(project(":verification"))
-    allPlugins(project(":blocks-file-recent"))
-    allPlugins(project(":blocks-file-historic"))
-    allPlugins(project(":backfill"))
-    allPlugins(project(":s3-archive"))
+    // Version constraints for transitive dependency resolution
+    blockNodePlugins(platform(project(":hiero-dependency-versions")))
+
+    // Facilities
+    blockNodePlugins(project(":facility-messaging"))
+
+    // Services
+    blockNodePlugins(project(":health"))
+    blockNodePlugins(project(":server-status"))
+    blockNodePlugins(project(":block-access-service"))
+    blockNodePlugins(project(":stream-publisher"))
+    blockNodePlugins(project(":stream-subscriber"))
+    blockNodePlugins(project(":verification"))
+
+    // Storage
+    blockNodePlugins(project(":blocks-file-recent"))
+    blockNodePlugins(project(":blocks-file-historic"))
+
+    // Extended functionality
+    blockNodePlugins(project(":backfill"))
+    blockNodePlugins(project(":s3-archive"))
 }
 
 // =============================================================================
@@ -96,7 +109,7 @@ dependencies {
 // These tasks run the block node with different plugin configurations.
 // Plugins are copied to a build directory and added to the module path.
 
-// Common environment setup for all run tasks
+/** Sets block node storage environment variables for the given data directory. */
 fun JavaExec.configureBlockNodeEnvironment(serverDataDir: Directory) {
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
     environment("FILES_RECENT_LIVE_ROOT_PATH", "${serverDataDir}/files-live")
@@ -107,8 +120,11 @@ fun JavaExec.configureBlockNodeEnvironment(serverDataDir: Directory) {
     )
 }
 
-// Helper to configure a JavaExec task with plugin loading.
-// Uses FileCollection parameters instead of Configuration to be configuration-cache compatible.
+/**
+ * Configures a JavaExec task to copy plugin jars (excluding core runtime jars) to a build directory
+ * and add that directory to the module path. Uses FileCollection parameters instead of
+ * Configuration to be configuration-cache compatible.
+ */
 fun JavaExec.configureWithPlugins(
     pluginFiles: FileCollection,
     coreFiles: FileCollection,
@@ -154,7 +170,11 @@ fun JavaExec.configureWithPlugins(
 // Configure the default 'run' task from the application plugin to use all plugins
 tasks.named<JavaExec>("run") {
     description = "Run the block node with all plugins"
-    configureWithPlugins(allPlugins.incoming.files, sourceSets["main"].runtimeClasspath, "run")
+    configureWithPlugins(
+        blockNodePlugins.incoming.files,
+        sourceSets["main"].runtimeClasspath,
+        "run",
+    )
 }
 
 // Run with all plugins and clean storage
@@ -163,7 +183,7 @@ tasks.register<JavaExec>("runWithCleanStorage") {
     mainClass = application.mainClass
     mainModule = application.mainModule
     configureWithPlugins(
-        allPlugins.incoming.files,
+        blockNodePlugins.incoming.files,
         sourceSets["main"].runtimeClasspath,
         "runWithCleanStorage",
         cleanStorage = true,
@@ -227,7 +247,7 @@ val prepareDockerPlugins =
         description = "Copies all plugin jars to the docker plugins directory for local development"
         group = "docker"
 
-        val pluginFiles: FileCollection = allPlugins.incoming.files
+        val pluginFiles: FileCollection = blockNodePlugins.incoming.files
         val coreFiles: FileCollection = sourceSets["main"].runtimeClasspath
         val outputDir: File = dockerBuildRootDirectory.dir("plugins").asFile
 

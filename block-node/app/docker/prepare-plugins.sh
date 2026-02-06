@@ -45,11 +45,11 @@ echo "Building plugins..."
 cd "${PROJECT_ROOT}"
 
 # Build all plugin modules in parallel
-PLUGIN_TASKS=""
+PLUGIN_TASKS=()
 for plugin in ${PLUGINS}; do
-    PLUGIN_TASKS="${PLUGIN_TASKS} :${plugin}:jar"
+    PLUGIN_TASKS+=( ":${plugin}:jar" )
 done
-./gradlew ${PLUGIN_TASKS} --parallel -q
+./gradlew "${PLUGIN_TASKS[@]}" --parallel -q
 
 # Clean and create plugins directory
 echo ""
