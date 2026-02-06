@@ -135,7 +135,6 @@ public class MissingTransactionsIndex {
             MissingTransactionsLoader loader, BlockTimeReader blockTimeReader) {
 
         Map<Long, List<RecordStreamItem>> index = new HashMap<>();
-        long maxBlock = blockTimeReader.getMaxBlockNumber();
 
         for (RecordStreamItem item : loader.getAllTransactions()) {
             if (item.record() == null || item.record().consensusTimestamp() == null) {
@@ -149,7 +148,7 @@ public class MissingTransactionsIndex {
 
             // Find the block number for this timestamp
             // Block N contains transactions with timestamps >= block_time[N] and < block_time[N+1]
-            long blockNumber = findBlockForTimestamp(blockTimeReader, timestampNanos, maxBlock);
+            long blockNumber = findBlockForTimestamp(blockTimeReader, timestampNanos);
 
             index.computeIfAbsent(blockNumber, k -> new ArrayList<>()).add(item);
         }
@@ -179,10 +178,9 @@ public class MissingTransactionsIndex {
      *
      * @param blockTimeReader the block time reader
      * @param timestampNanos the target timestamp in nanoseconds
-     * @param maxBlock the maximum block number available
      * @return the block number containing this timestamp
      */
-    private long findBlockForTimestamp(BlockTimeReader blockTimeReader, long timestampNanos, long maxBlock) {
+    private long findBlockForTimestamp(BlockTimeReader blockTimeReader, long timestampNanos) {
         // getNearestBlockAfterTime returns the first block with time >= target
         // So if we get block N, the transaction either belongs to:
         // - Block N if timestamp == block_time[N]

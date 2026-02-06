@@ -42,6 +42,9 @@ sourceSets {
 // https://github.com/hiero-ledger/hiero-gradle-conventions/issues/185
 tasks.generatePbjSource { dependsOn(":protobuf-sources:generateBlockNodeProtoArtifact") }
 
+// Handle duplicate proto files from overrides - use EXCLUDE so first occurrence wins
+tasks.withType<Jar>().configureEach { duplicatesStrategy = DuplicatesStrategy.EXCLUDE }
+
 tasks.test {
     // we can exclude the standard protobuf generated tests as we don't need to test them again here
     // this speeds up the block node project test run no end :-)

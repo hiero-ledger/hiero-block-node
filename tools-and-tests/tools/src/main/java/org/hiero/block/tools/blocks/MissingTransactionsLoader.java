@@ -124,51 +124,87 @@ public class MissingTransactionsLoader {
             return Collections.emptyList();
         }
 
+        List<RecordStreamItem> items = readAllItems(file);
+        sortByConsensusTimestamp(items);
+
+        System.out.println("Loaded " + items.size() + " missing transactions from " + file);
+        return Collections.unmodifiableList(items);
+    }
+
+    /**
+     * Reads all RecordStreamItems from the gzipped file.
+     *
+     * @param file the path to the missing_transactions.gz file
+     * @return mutable list of loaded items
+     * @throws IOException if the file cannot be read or parsed
+     */
+    private List<RecordStreamItem> readAllItems(Path file) throws IOException {
         List<RecordStreamItem> items = new ArrayList<>();
         try (InputStream fis = Files.newInputStream(file);
                 GZIPInputStream gzis = new GZIPInputStream(fis);
                 DataInputStream dis = new DataInputStream(gzis)) {
 
-            while (true) {
-                // Read the 4-byte length prefix
-                int length;
-                try {
-                    length = dis.readInt();
-                } catch (java.io.EOFException e) {
-                    // Normal end of file
-                    break;
-                }
-
-                if (length <= 0) {
-                    throw new IOException("Invalid record length: " + length);
-                }
-
-                // Read the protobuf bytes
-                byte[] protoBytes = new byte[length];
-                dis.readFully(protoBytes);
-
-                // Parse the RecordStreamItem
-                try {
-                    RecordStreamItem item = RecordStreamItem.PROTOBUF.parse(Bytes.wrap(protoBytes));
-                    items.add(item);
-                } catch (ParseException e) {
-                    throw new IOException("Failed to parse RecordStreamItem", e);
-                }
+            RecordStreamItem item;
+            while ((item = readNextItem(dis)) != null) {
+                items.add(item);
             }
         }
+        return items;
+    }
 
-        // Sort by consensus timestamp (seconds then nanos)
+    /**
+     * Reads the next RecordStreamItem from the stream.
+     *
+     * @param dis the data input stream
+     * @return the next item, or null if end of stream
+     * @throws IOException if there's an error reading or parsing
+     */
+    private RecordStreamItem readNextItem(DataInputStream dis) throws IOException {
+        int length;
+        try {
+            length = dis.readInt();
+        } catch (java.io.EOFException e) {
+            return null;
+        }
+
+        if (length <= 0) {
+            throw new IOException("Invalid record length: " + length);
+        }
+
+        byte[] protoBytes = new byte[length];
+        dis.readFully(protoBytes);
+
+        try {
+            return RecordStreamItem.PROTOBUF.parse(Bytes.wrap(protoBytes));
+        } catch (ParseException e) {
+            throw new IOException("Failed to parse RecordStreamItem", e);
+        }
+    }
+
+    /**
+     * Sorts items by consensus timestamp (seconds then nanos).
+     *
+     * @param items the list to sort in place
+     */
+    private void sortByConsensusTimestamp(List<RecordStreamItem> items) {
         items.sort((a, b) -> {
-            if (a.record() == null || a.record().consensusTimestamp() == null) return -1;
-            if (b.record() == null || b.record().consensusTimestamp() == null) return 1;
-            var tsA = a.record().consensusTimestamp();
-            var tsB = b.record().consensusTimestamp();
-            int cmp = Long.compare(tsA.seconds(), tsB.seconds());
-            if (cmp != 0) return cmp;
-            return Integer.compare(tsA.nanos(), tsB.nanos());
+            long tsA = getTimestampNanos(a);
+            long tsB = getTimestampNanos(b);
+            return Long.compare(tsA, tsB);
         });
+    }
 
-        System.out.println("Loaded " + items.size() + " missing transactions from " + file);
-        return Collections.unmodifiableList(items);
+    /**
+     * Gets the consensus timestamp as nanoseconds since epoch.
+     *
+     * @param item the record stream item
+     * @return timestamp in nanoseconds, or Long.MIN_VALUE if not available
+     */
+    private long getTimestampNanos(RecordStreamItem item) {
+        if (item.record() == null || item.record().consensusTimestamp() == null) {
+            return Long.MIN_VALUE;
+        }
+        var ts = item.record().consensusTimestamp();
+        return ts.seconds() * 1_000_000_000L + ts.nanos();
     }
 }

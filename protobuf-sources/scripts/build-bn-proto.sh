@@ -126,7 +126,7 @@ cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/stream
 # This allows us to add fields locally before they're available in CN releases
 if [ -d "${bn_api_path}/../proto-overrides" ]; then
   echo "Applying local proto overrides from ${bn_api_path}/../proto-overrides"
-  cp -r ${bn_api_path}/../proto-overrides/* "$output_dir/"
+  cp -r "${bn_api_path}/../proto-overrides/"* "$output_dir/"
 fi
 
 if $include_bn_api; then
