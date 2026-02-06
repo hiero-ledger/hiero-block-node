@@ -19,7 +19,6 @@ import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
-import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 /**
@@ -44,11 +43,6 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
     @SuppressWarnings("unused")
     @Parameters(index = "0..1", description = "Block files, directories, or zip archives to process")
     private File[] files;
-
-    @Option(
-            names = {"-n", "--network"},
-            description = "Network name for network-specific validation (mainnet, testnet, none). Default: mainnet")
-    private String network = "mainnet";
 
     @Override
     public Integer call() {
@@ -93,7 +87,6 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
                 Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|yellow Input directory:|@ " + inputDir.toAbsolutePath()));
-        System.out.println(Ansi.AUTO.string("@|yellow Network:|@ " + network));
         System.out.println(Ansi.AUTO.string("@|yellow Block range:|@ " + firstBlock + " - " + lastBlock));
         System.out.println(Ansi.AUTO.string("@|yellow Total blocks:|@ " + totalBlocks));
         if (startsAtZero) {
@@ -118,8 +111,7 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
             try {
                 final var block = BlockReader.readBlock(inputDir, blockNumber);
-                WrappedBlockValidator.validateBlock(
-                        block, blockNumber, previousBlockHash, network, streamingHasher, balanceMap);
+                WrappedBlockValidator.validateBlock(block, blockNumber, previousBlockHash, streamingHasher, balanceMap);
 
                 // Compute block hash and update state for the next block's validation
                 previousBlockHash = hashBlock(block);

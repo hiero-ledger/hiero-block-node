@@ -4,12 +4,13 @@ The `blocks` command contains utilities for working with Block Stream files (.bl
 
 ### Available Subcommands
 
-|  Command   |                                    Description                                    |
-|------------|-----------------------------------------------------------------------------------|
-| `json`     | Converts a binary Block Stream to JSON                                            |
-| `ls`       | Prints info for block files (supports .blk, .blk.gz, .blk.zstd, and zip archives) |
-| `validate` | Validates a wrapped Block Stream (hash chain and signatures)                      |
-| `wrap`     | Convert record file blocks in day files to wrapped Block Stream blocks            |
+|      Command       |                                     Description                                     |
+|--------------------|-------------------------------------------------------------------------------------|
+| `json`             | Converts a binary Block Stream to JSON                                              |
+| `ls`               | Prints info for block files (supports .blk, .blk.gz, .blk.zstd, and zip archives)   |
+| `validate`         | Validates a wrapped Block Stream (hash chain and signatures)                        |
+| `validate-wrapped` | Validates wrapped blocks produced by `wrap` (chain, merkle tree, structure, supply) |
+| `wrap`             | Convert record file blocks in day files to wrapped Block Stream blocks              |
 
 ---
 
@@ -115,6 +116,47 @@ blocks validate --skip-signatures /path/to/blocks/
 
 ---
 
+### The `validate-wrapped` Subcommand
+
+Validates wrapped block stream files produced by the `wrap` command. Walks all blocks in the input directory in order and performs the following checks:
+
+- **Blockchain chain validation** — each block's `previousBlockRootHash` in the footer matches the computed hash of the preceding block.
+- **Historical block tree root** — the `rootHashOfAllBlockHashesTree` in the footer matches the expected merkle tree root computed from all preceding block hashes (only when starting from block 0).
+- **Required items** — every block contains at least one `BlockHeader`, `RecordFile`, `BlockFooter`, and `BlockProof`.
+- **Item ordering** — items appear in the correct order: `BlockHeader`, optional `StateChanges`, `RecordFile`, `BlockFooter`, one or more `BlockProof` items, with no duplicates or misplaced items.
+- **50 billion HBAR supply** — tracks account balances across all blocks (from `StateChanges` and `RecordFile` transfer lists) and verifies the total equals exactly 50 billion HBAR after each block (only when starting from block 0).
+
+#### Usage
+
+```
+blocks validate-wrapped [-n=<network>] [<files>...]
+```
+
+#### Options
+
+|          Option          |                                           Description                                            |
+|--------------------------|--------------------------------------------------------------------------------------------------|
+| `-n`, `--network <name>` | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
+| `<files>...`             | Block files, directories, or zip archives to process.                                            |
+
+#### Notes
+
+- When starting from block 0, a `StreamingHasher` is created to validate the historical block hash merkle tree and a balance map is maintained for 50 billion HBAR supply validation. When starting from a later block, both are skipped because the prior state is unavailable.
+- Supports both individual block files (nested directories of `.blk.zstd`) and zip archives produced by the `wrap` command.
+- Progress is printed every 1000 blocks with an ETA.
+
+#### Example
+
+```bash
+# Validate wrapped blocks in a directory
+blocks validate-wrapped /path/to/wrappedBlocks
+
+# Validate with explicit network
+blocks validate-wrapped -n mainnet /path/to/wrappedBlocks
+```
+
+---
+
 ### The `wrap` Subcommand
 
 Converts record file blocks organized in daily tar.zstd files into wrapped Block Stream `Block` protobufs. This is a key command in the record-to-block conversion pipeline.
@@ -122,7 +164,7 @@ Converts record file blocks organized in daily tar.zstd files into wrapped Block
 #### Usage
 
 ```
-blocks wrap [-u] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<inputDir>] [-o=<outputDir>]
+blocks wrap [-u] [-n=<network>] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<inputDir>] [-o=<outputDir>]
 ```
 
 #### Options
@@ -131,6 +173,7 @@ blocks wrap [-u] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<inputDir>] [-o=
 |----------------------------------|---------------------------------------------------------------------------------------------------------------|
 | `-b`, `--blocktimes-file <file>` | BlockTimes file for mapping record file times to blocks (default: `metadata/block_times.bin`).                |
 | `-d`, `--day-blocks <file>`      | Path to the day blocks JSON file (default: `metadata/day_blocks.json`).                                       |
+| `-n`, `--network <name>`         | Network name for applying amendments (`mainnet`, `testnet`, `none`). Default: `mainnet`.                      |
 | `-u`, `--unzipped`               | Write output files as individual files in nested directories, rather than in uncompressed zip batches of 10k. |
 | `-i`, `--input-dir <dir>`        | Directory of record file tar.zstd days to process (default: `compressedDays`).                                |
 | `-o`, `--output-dir <dir>`       | Directory to write the output wrapped blocks (default: `wrappedBlocks`).                                      |

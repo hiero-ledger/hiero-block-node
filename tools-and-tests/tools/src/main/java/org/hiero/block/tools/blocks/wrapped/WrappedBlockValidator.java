@@ -23,6 +23,26 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>This class provides static validation methods that can be called from the CLI subcommand
  * {@link ValidateWrappedBlocksCommand} or from any other code that needs to validate wrapped blocks.
+ *
+ * <p>The validations performed on each block are, in order:
+ *
+ * <ol>
+ *   <li><strong>Blockchain chain validation</strong> ({@link #validateBlockChain}) – verifies the
+ *       previous-block hash stored in the block footer matches the hash of the preceding block.
+ *   <li><strong>Historical block tree root</strong> ({@link #validateHistoricalBlockTreeRoot}) –
+ *       verifies the all-blocks merkle tree root hash in the footer matches the expected root
+ *       computed from all preceding block hashes via a {@link StreamingHasher}.
+ *   <li><strong>Required items</strong> ({@link #validateRequiredItems}) – ensures the block
+ *       contains at least one {@code BlockHeader}, {@code RecordFile}, {@code BlockFooter}, and
+ *       {@code BlockProof}.
+ *   <li><strong>No extra items</strong> ({@link #validateNoExtraItems}) – enforces the strict
+ *       wrapped block item ordering and rejects duplicate or misplaced items.
+ *   <li><strong>50 billion HBAR supply</strong> ({@link #validate50Billion}) – tracks account
+ *       balances across blocks and verifies the total supply equals exactly 50 billion HBAR.
+ * </ol>
+ *
+ * <p>All methods are stateless and static. Cross-block state (previous block hash, streaming hasher,
+ * balance map) is managed by the caller (typically {@link ValidateWrappedBlocksCommand}).
  */
 public final class WrappedBlockValidator {
 
@@ -36,46 +56,50 @@ public final class WrappedBlockValidator {
      * Validates a single wrapped block.
      *
      * <p>When {@code streamingHasher} is non-null, the historical block hash merkle tree is validated
-     * by computing the expected all-blocks merkle tree root hash from the hasher's current state.
-     * After a successful validation, the block's hash is added to the streaming hasher so it is ready
-     * for the next block. When {@code streamingHasher} is null, the all-blocks merkle tree portion
-     * of the block hash cannot be validated (e.g. when starting validation from a block other than
-     * block zero).
+     * by computing the expected all-blocks merkle tree root hash from the hasher's current state. After a successful
+     * validation, the block's hash is added to the streaming hasher so it is ready for the next block. When
+     * {@code streamingHasher} is null, the all-blocks merkle tree portion of the block hash cannot be validated (e.g.
+     * when starting validation from a block other than block zero).
      *
      * <p>When {@code balanceMap} is non-null, account balances are tracked across blocks and the
-     * total supply is verified to equal 50 billion HBAR (in tinybar) after each block. The map is
-     * mutated in place so the caller can pass the same map across successive blocks. When null,
-     * the 50 billion HBAR validation is skipped.
+     * total supply is verified to equal 50 billion HBAR (in tinybar) after each block. The map is mutated in place so
+     * the caller can pass the same map across successive blocks. When null, the 50 billion HBAR validation is skipped.
      *
-     * @param block the block to validate
-     * @param blockNumber the expected block number
+     * @param block             the block to validate
+     * @param blockNumber       the expected block number
      * @param previousBlockHash the hash of the previous block, or null for the first block being validated
-     * @param network the network name (e.g., "mainnet", "testnet") for network-specific validation
-     * @param streamingHasher the streaming hasher tracking the all-blocks merkle tree, or null if
-     *                        merkle tree validation should be skipped
-     * @param balanceMap mutable map of account number to tinybar balance, or null to skip supply validation
+     * @param streamingHasher   the streaming hasher tracking the all-blocks merkle tree, or null if merkle tree
+     *                          validation should be skipped
+     * @param balanceMap        mutable map of account number to tinybar balance, or null to skip supply validation
      * @throws ValidationException if the block fails validation
      */
     public static void validateBlock(
             final Block block,
             final long blockNumber,
             final byte[] previousBlockHash,
-            final String network,
             final @Nullable StreamingHasher streamingHasher,
             final @Nullable Map<Long, Long> balanceMap)
             throws ValidationException {
-        System.out.println(
-                "WrappedBlockValidator.validateBlock " + blockNumber + ": network=" + network + " streamingHasher="
-                        + streamingHasher + " balanceMap.size="
-                        + (balanceMap == null ? "null" : balanceMap.size()));
         validateBlockChain(blockNumber, block, previousBlockHash);
         validateHistoricalBlockTreeRoot(blockNumber, block, streamingHasher);
-        validateAmendments(blockNumber, block, network);
         validateRequiredItems(blockNumber, block);
         validateNoExtraItems(blockNumber, block);
         validate50Billion(blockNumber, block, balanceMap);
     }
 
+    /**
+     * Validates the blockchain chain by comparing the previous block hash stored in this block's
+     * footer with the expected hash of the preceding block.
+     *
+     * <p>When {@code previousBlockHash} is {@code null} (e.g. for the first block being validated),
+     * this check is skipped entirely. The caller is responsible for computing the hash of each
+     * validated block and passing it as the {@code previousBlockHash} for the next block.
+     *
+     * @param blockNumber the block number for error reporting
+     * @param block the block whose footer contains the previous block hash to verify
+     * @param previousBlockHash the expected hash of the preceding block, or {@code null} to skip
+     * @throws ValidationException if the previous block hash in the footer does not match
+     */
     public static void validateBlockChain(final long blockNumber, final Block block, final byte[] previousBlockHash)
             throws ValidationException {
         if (previousBlockHash != null) {
@@ -95,6 +119,22 @@ public final class WrappedBlockValidator {
         }
     }
 
+    /**
+     * Validates the historical block hash merkle tree root stored in this block's footer.
+     *
+     * <p>The {@link StreamingHasher} maintains a running merkle tree of all block hashes seen so
+     * far. Before adding the current block's hash, the hasher's root should match the
+     * {@code rootHashOfAllBlockHashesTree} field in the block footer. This ensures the block was
+     * produced against the correct history of all prior blocks.
+     *
+     * <p>When {@code streamingHasher} is {@code null} (e.g. when validation starts from a block
+     * other than block zero), this check is skipped because the prior tree state is unavailable.
+     *
+     * @param blockNumber the block number for error reporting
+     * @param block the block whose footer contains the tree root hash to verify
+     * @param streamingHasher the streaming hasher with the current tree state, or {@code null} to skip
+     * @throws ValidationException if the tree root hash in the footer does not match the expected value
+     */
     public static void validateHistoricalBlockTreeRoot(
             final long blockNumber, final Block block, final StreamingHasher streamingHasher)
             throws ValidationException {
@@ -113,11 +153,6 @@ public final class WrappedBlockValidator {
                         + "expectedHash= " + simpleHash(expectedHash) + " readHash= " + simpleHash(readHash));
             }
         }
-    }
-
-    @SuppressWarnings({"unused", "StatementWithEmptyBody"})
-    public static void validateAmendments(final long blockNumber, final Block block, final String network) {
-        if (network.equals("mainnet")) {}
     }
 
     /**
@@ -241,8 +276,12 @@ public final class WrappedBlockValidator {
     }
 
     /**
-     * Returns a human-readable description of the item at the given index, or "end of block" if
-     * the index is past the end.
+     * Returns a human-readable description of the block item at the given index for use in error
+     * messages. Returns {@code "end of block"} if the index is past the end of the items list.
+     *
+     * @param items the list of block items
+     * @param index the index of the item to describe
+     * @return a short string identifying the item type (e.g. "BlockHeader", "RecordFile")
      */
     private static String describeItem(final List<BlockItem> items, final int index) {
         if (index >= items.size()) {

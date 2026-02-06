@@ -145,7 +145,7 @@ public class ToWrappedBlocksCommand implements Runnable {
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
 
-        // Create amendment provider based on network selection
+        // Create an amendment provider based on network selection
         final AmendmentProvider amendmentProvider = createAmendmentProvider(network);
 
         // load block times
@@ -219,18 +219,20 @@ public class ToWrappedBlocksCommand implements Runnable {
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
                             () -> {
-                                System.err.println("Shutdown: address book to " + addressBookFile);
-                                addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-                                // write merkle tree states
+                                if (!Files.isDirectory(outputBlocksDir)) {
+                                    System.err.println("Shutdown: output directory no longer exists, skipping save: "
+                                            + outputBlocksDir);
+                                    return;
+                                }
                                 try {
+                                    System.err.println("Shutdown: address book to " + addressBookFile);
+                                    addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                     streamingHasher.save(streamingMerkleTreeFile);
                                     inMemoryTreeHasher.save(inMemoryMerkleTreeFile);
                                     System.err.println("Shutdown: saved merkle tree states. To "
                                             + streamingMerkleTreeFile + " and " + inMemoryMerkleTreeFile);
                                 } catch (Exception e) {
-                                    System.err.println(
-                                            "Failed to save merkle tree states on shutdown: " + e.getMessage());
-                                    e.printStackTrace();
+                                    System.err.println("Shutdown: could not save state: " + e.getMessage());
                                 }
                             },
                             "wrap-shutdown-hook"));

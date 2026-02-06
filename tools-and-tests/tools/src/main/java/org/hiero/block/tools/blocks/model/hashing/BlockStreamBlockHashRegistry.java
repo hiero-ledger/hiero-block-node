@@ -63,6 +63,7 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
             randomAccessFile.seek(blockNumber * Sha384.SHA_384_HASH_SIZE);
             randomAccessFile.write(blockHash);
             highestBlockNumberStored = blockNumber;
+            mostRecentBlockHash = blockHash;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

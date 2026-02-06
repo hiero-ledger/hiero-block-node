@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks.wrapped;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -16,6 +17,8 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -122,18 +125,30 @@ class ValidateWrappedBlocksCommandTest {
                         blockTimesFile.toString(),
                         "-d",
                         dayBlocksFile.toString(),
-                        "-u",
-                        "-n",
-                        "mainnet");
+                        "-u");
         assertEquals(0, wrapExitCode, "Wrap command should exit with code 0");
 
         // ===== Phase 2: Validate using ValidateWrappedBlocksCommand via picocli =====
-        // The 50 billion HBAR supply check will fail until wrapping includes all genesis
-        // amendments with initial account balances. Change to expect 0 once that is fixed.
 
-        int validateExitCode =
-                new CommandLine(new ValidateWrappedBlocksCommand()).execute(outputDir.toString(), "-n", "mainnet");
-        assertEquals(1, validateExitCode, "Validation should fail: 50 billion check requires genesis amendments");
+        // Capture stderr to verify no validation errors occurred
+        final PrintStream originalErr = System.err;
+        final ByteArrayOutputStream errCapture = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(errCapture));
+        int validateExitCode;
+        try {
+            validateExitCode = new CommandLine(new ValidateWrappedBlocksCommand()).execute(outputDir.toString());
+        } finally {
+            System.setErr(originalErr);
+        }
+
+        // Echo captured stderr so it's visible in test output, then assert no errors
+        final String errorOutput = errCapture.toString();
+        if (!errorOutput.isEmpty()) {
+            System.err.print(errorOutput);
+        }
+        assertFalse(errorOutput.contains("Blockchain is not valid"), "Chain validation failed: " + errorOutput);
+        assertFalse(errorOutput.contains("HBAR supply mismatch"), "50 billion HBAR check failed: " + errorOutput);
+        assertEquals(0, validateExitCode, "Validation should pass for all blocks. Errors: " + errorOutput);
     }
 
     // ===== validateRequiredItems tests =====

@@ -9,6 +9,7 @@ Available subcommands include:
 - `addNewerBlockTimes` - Extend an existing `block_times.bin` with newer block times by listing GCP
 - `fixBlockTime` - Repair incorrect entries in `block_times.bin` by querying the Mirror Node
 - `fetchMissingTransactions` - Download and compile mainnet errata for missing transactions
+- `update` - Update `block_times.bin` and `day_blocks.json` with newer blocks from mirror node REST API
 - `extractDayBlocks` - (utility) Extract per-day block info from CSV/other sources
 - `generateAddressBook` - Generate address book history JSON from Mirror Node CSV export
 - `compareAddressBooks` - Compare two address book history JSON files
@@ -93,6 +94,47 @@ Options:
 
 Notes:
 - The command verifies the last file seen for each day against the Mirror Node REST-derived record file name for the calculated last block of the day.
+
+---
+
+### `update`
+
+Update `block_times.bin` and `day_blocks.json` with newer blocks from the Mirror Node REST API. This is the simplest way to create or extend the metadata files required by the `blocks wrap` command. It fetches block data in batches from the public Mirror Node API (no GCP credentials required).
+
+Usage:
+
+```
+mirror update [--block-times=<file>] [--day-blocks=<file>] [--end-date=<date>]
+```
+
+Options:
+- `--block-times <file>` — Path to the block times `.bin` file (default: `metadata/block_times.bin`).
+- `--day-blocks <file>` — Path to the day blocks `.json` file (default: `metadata/day_blocks.json`).
+- `--end-date <date>` — Stop after fetching all blocks through this date inclusive (format: `YYYY-MM-DD`). If not specified, fetches all available blocks up to the latest.
+
+Features:
+- Creates files from scratch if they don't exist (including parent directories).
+- Resumes from the highest block already present in the files.
+- Fetches blocks in batches of 100 from the mainnet Mirror Node REST API.
+- Excludes the current UTC day from `day_blocks.json` since it is incomplete.
+
+Example:
+
+```bash
+# Update metadata files with all available blocks
+mirror update
+
+# Fetch only the first two days of mainnet (for testing)
+mirror update --end-date 2019-09-14
+
+# Use custom file paths
+mirror update --block-times /path/to/block_times.bin --day-blocks /path/to/day_blocks.json
+```
+
+Notes:
+- Does not require GCP credentials — uses the public Mirror Node REST API.
+- Progress is printed every 1000 blocks and for the first few blocks.
+- The `block_times.bin` file is flushed to disk after each batch.
 
 ---
 
