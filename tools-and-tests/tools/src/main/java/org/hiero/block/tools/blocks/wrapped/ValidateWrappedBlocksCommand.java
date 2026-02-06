@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.wrapped;
 
+import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -104,6 +106,12 @@ public class ValidateWrappedBlocksCommand implements Runnable {
             try {
                 final var block = BlockReader.readBlock(inputDir, blockNumber);
                 WrappedBlockValidator.validateBlock(block, blockNumber, previousBlockHash, network, streamingHasher);
+
+                // Compute block hash and update state for the next block's validation
+                previousBlockHash = hashBlock(block);
+                if (streamingHasher != null) {
+                    streamingHasher.addNodeByHash(previousBlockHash);
+                }
 
                 blocksValidated++;
 

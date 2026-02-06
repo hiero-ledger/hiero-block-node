@@ -53,8 +53,7 @@ public final class WrappedBlockValidator {
         validate50Billion(blockNumber, block);
     }
 
-    public static void validateBlockChain(
-            final long blockNumber, final Block block, final byte[] previousBlockHash)
+    public static void validateBlockChain(final long blockNumber, final Block block, final byte[] previousBlockHash)
             throws ValidationException {
         if (previousBlockHash != null) {
             byte[] readHash = block.items().stream()
