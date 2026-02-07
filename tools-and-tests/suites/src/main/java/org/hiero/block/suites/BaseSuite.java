@@ -199,11 +199,13 @@ public abstract class BaseSuite {
         List<String> portBindings = new ArrayList<>();
         portBindings.add(String.format("%d:%2d", blockNodePort, blockNodePort));
         portBindings.add(String.format("%d:%2d", blockNodeMetricsPort, blockNodeMetricsPort));
+        String pluginsContainerPath = "/opt/hiero/block-node/app-" + blockNodeVersion + "/plugins";
         blockNodeContainer = new GenericContainer<>(DockerImageName.parse("block-node-server:" + blockNodeVersion))
                 .withExposedPorts(blockNodePort)
                 .withNetworkAliases("block-node-source")
                 .withNetwork(network)
                 .withEnv("VERSION", blockNodeVersion)
+                .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
                 .waitingFor(Wait.forListeningPort())
                 .waitingFor(Wait.forHealthcheck());
         blockNodeContainer.setPortBindings(portBindings);
@@ -221,6 +223,7 @@ public abstract class BaseSuite {
         String loggingPropertiesFile = Paths.get("src/main/resources/logging.properties")
                 .toAbsolutePath()
                 .toString();
+        String pluginsContainerPath = "/opt/hiero/block-node/app-" + blockNodeVersion + "/plugins";
 
         GenericContainer<?> container = new GenericContainer<>(
                         DockerImageName.parse("block-node-server:" + blockNodeVersion))
@@ -232,6 +235,7 @@ public abstract class BaseSuite {
                 .withEnv("SERVER_PORT", String.valueOf(blockNodePort))
                 .withEnv(config.envOverrides())
                 .withEnv("JAVA_TOOL_OPTIONS", "'-Djava.util.logging.config.file=/resources/logging.properties'")
+                .withFileSystemBind(getPluginsDir(), pluginsContainerPath)
                 .withFileSystemBind(
                         Paths.get("src/main/resources/block-nodes.json")
                                 .toAbsolutePath()
@@ -301,5 +305,18 @@ public abstract class BaseSuite {
                     "block.node.version system property is not set. This should be set by Gradle.");
         }
         return version;
+    }
+
+    /**
+     * Retrieves the plugins directory path from the system property.
+     *
+     * @return the absolute path to the directory containing prepared plugin JARs
+     */
+    private static String getPluginsDir() {
+        String pluginsDir = System.getProperty("plugins.dir");
+        if (pluginsDir == null) {
+            throw new IllegalStateException("plugins.dir system property is not set. This should be set by Gradle.");
+        }
+        return pluginsDir;
     }
 }
