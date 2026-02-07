@@ -59,7 +59,7 @@ Plugin jars are built and assembled through Gradle configurations defined in
 
 ### `blockNodePlugins` Configuration
 
-The `blockNodePlugins` configuration in the app module is the authoritative list of all block node
+The `blockNodePlugins` configuration in the app module is the authoritative list of all Block Node
 plugins. It is both **consumable** (other projects like E2E suites can depend on it) and
 **resolvable** (Gradle can resolve it into actual jar files). Transitive dependencies (gRPC,
 Helidon, Swirlds libraries, etc.) are included automatically.
