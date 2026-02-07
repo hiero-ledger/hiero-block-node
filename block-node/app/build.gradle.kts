@@ -59,24 +59,16 @@ mainModuleInfo {
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
 }
 
-// =============================================================================
-// Plugin Configuration for Dynamic Loading
-// =============================================================================
-// Plugins are NOT bundled in the OCI image - they are loaded at runtime from the
-// plugins directory, which can be populated via Helm chart, docker mount, or Gradle.
-// Profile-specific plugin selection (minimal, lfh, rfh) is handled by Helm chart
-// values-overrides. For local docker-compose, the prepareDockerPlugins task below
-// copies plugin jars into the docker build directory.
-//
-// This is the authoritative list of block node plugins. When adding a new plugin,
-// add it here and in testModuleInfo below. Transitive dependencies (e.g. gRPC,
-// Helidon, Swirlds libraries) are resolved automatically and filtered against the
-// core runtime to avoid duplicates.
+// Authoritative list of block node plugins. When adding a new plugin, add it here
+// and in testModuleInfo below. See docs/block-node/architecture/plugins.md for details.
 
 val blockNodePlugins: Configuration by
     configurations.creating {
+        // Other projects (e.g. suites) can depend on this configuration's artifacts
         isCanBeConsumed = true
+        // This configuration can be resolved into actual jar files
         isCanBeResolved = true
+        // Include transitive dependencies (e.g. gRPC, Helidon) alongside direct plugin jars
         isTransitive = true
     }
 

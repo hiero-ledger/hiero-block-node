@@ -52,6 +52,39 @@ public class MyCustomPlugin implements BlockNodePlugin {
 }
 ```
 
+## Gradle Build Configuration
+
+Plugin jars are built and assembled through Gradle configurations defined in
+[`block-node/app/build.gradle.kts`](../../../block-node/app/build.gradle.kts).
+
+### `blockNodePlugins` Configuration
+
+The `blockNodePlugins` configuration in the app module is the authoritative list of all block node
+plugins. It is both **consumable** (other projects like E2E suites can depend on it) and
+**resolvable** (Gradle can resolve it into actual jar files). Transitive dependencies (gRPC,
+Helidon, Swirlds libraries, etc.) are included automatically.
+
+When adding a new plugin, update two places in `block-node/app/build.gradle.kts`:
+1. Add the project dependency to the `blockNodePlugins` configuration in `dependencies`.
+2. Add the module to `testModuleInfo` so integration tests can load it.
+
+### Core vs Plugin Jar Filtering
+
+The OCI image contains only core runtime jars (`mainModuleInfo` dependencies). Plugin jars and
+their transitive dependencies are kept separate. At build time, tasks like `prepareDockerPlugins`
+(for local Docker) and `prepareTestPlugins` (in the suites module) resolve the full plugin
+classpath, then filter out any jars already present in the core runtime to avoid duplicates.
+
+### How Other Projects Consume Plugins
+
+The E2E suites module ([`tools-and-tests/suites/build.gradle.kts`](../../../tools-and-tests/suites/build.gradle.kts))
+declares two local configurations:
+- **`appCoreRuntime`** — resolves the app's core jars for exclusion filtering.
+- **`testPlugins`** — resolves plugin jars from the app's `blockNodePlugins` configuration.
+
+The `prepareTestPlugins` task subtracts core jars from plugin jars and copies the result into a
+directory that gets mounted into E2E test containers.
+
 ## Deployment Configuration
 
 The Block Node OCI image is published without plugins. Plugins are downloaded during deployment
