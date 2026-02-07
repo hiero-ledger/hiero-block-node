@@ -105,6 +105,14 @@ spec:
               {{- $groupId := .Values.plugins.groupId }}
               {{- $repository := .Values.plugins.repository }}
 
+              # Check if plugins are already resolved for this config
+              DESIRED_HASH=$(echo "{{ $pluginVersion }}:{{ .Values.plugins.names }}" | sha256sum | cut -d' ' -f1)
+              if [ -f /plugins/.resolved-hash ] && [ "$(cat /plugins/.resolved-hash)" = "$DESIRED_HASH" ]; then
+                echo "Plugins already resolved (config unchanged). Skipping."
+                exit 0
+              fi
+              rm -f /plugins/*.jar /plugins/.resolved-hash
+
               echo "Generating POM for plugin resolution..."
               cat > /tmp/pom.xml << 'POMEOF'
               <?xml version="1.0" encoding="UTF-8"?>
@@ -172,6 +180,7 @@ spec:
               done
 
               rm -f /plugins/.core-modules.txt
+              echo "$DESIRED_HASH" > /plugins/.resolved-hash
               echo "Plugin resolution complete: ${copied} jars copied, ${skipped} duplicates skipped"
           volumeMounts:
             - name: {{ default "plugins" .Values.plugins.volumeName }}

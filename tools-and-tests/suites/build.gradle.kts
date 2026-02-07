@@ -86,6 +86,8 @@ val prepareTestPlugins by
             // Normalize jar names by stripping Gradle's "-module" suffix so that
             // e.g. "lazysodium-java-5.1.4-module.jar" (core) matches
             // "lazysodium-java-5.1.4.jar" (plugin transitive dep).
+            // NOTE: This filtering logic is duplicated in block-node/app/build.gradle.kts
+            // (prepareDockerPlugins task). Keep both in sync when changing.
             val normalizeJarName = { name: String -> name.replace("-module.jar", ".jar") }
             val coreJarNames: Set<String> =
                 coreFiles.files.map { normalizeJarName(it.name) }.toSet()

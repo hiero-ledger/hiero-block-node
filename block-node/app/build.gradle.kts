@@ -65,7 +65,8 @@ mainModuleInfo {
 // Plugins are NOT bundled in the OCI image - they are loaded at runtime from the
 // plugins directory, which can be populated via Helm chart, docker mount, or Gradle.
 // Profile-specific plugin selection (minimal, lfh, rfh) is handled by Helm chart
-// values-overrides and the prepare-plugins.sh script for local docker-compose.
+// values-overrides. For local docker-compose, the prepareDockerPlugins task below
+// copies plugin jars into the docker build directory.
 //
 // This is the authoritative list of block node plugins. When adding a new plugin,
 // add it here and in testModuleInfo below. Transitive dependencies (e.g. gRPC,
@@ -229,6 +230,8 @@ val prepareDockerPlugins =
             // Normalize jar names by stripping Gradle's "-module" suffix so that
             // e.g. "lazysodium-java-5.1.4-module.jar" (core) matches
             // "lazysodium-java-5.1.4.jar" (plugin transitive dep).
+            // NOTE: This filtering logic is duplicated in tools-and-tests/suites/build.gradle.kts
+            // (prepareTestPlugins task). Keep both in sync when changing.
             val normalizeJarName = { name: String -> name.replace("-module.jar", ".jar") }
             val coreJarNames: Set<String> =
                 coreFiles.files.map { normalizeJarName(it.name) }.toSet()

@@ -315,7 +315,8 @@ public abstract class BaseSuite {
     private static String getPluginsDir() {
         String pluginsDir = System.getProperty("plugins.dir");
         if (pluginsDir == null) {
-            throw new IllegalStateException("plugins.dir system property is not set. This should be set by Gradle.");
+            throw new IllegalStateException("System property 'plugins.dir' is not set. Run E2E tests via Gradle "
+                    + "(e.g., ./gradlew :suites:runSuites) which sets this automatically.");
         }
         return pluginsDir;
     }

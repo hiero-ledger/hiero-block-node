@@ -103,7 +103,7 @@ plugins:
   # Defaults to Chart.AppVersion if empty
   version: ""
   names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill"
-  mavenImage: "maven:4.0.0-rc-5-eclipse-temurin-25-alpine"
+  mavenImage: "maven:3.9-eclipse-temurin-21-alpine"
 
 blockNode:
   # Optional hostPort mappings keyed by container port name.
