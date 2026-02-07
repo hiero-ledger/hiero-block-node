@@ -214,24 +214,20 @@ Create your own values file to select specific plugins:
 
 ```yaml
 plugins:
-  enabled: true
-  # Comma-separated list of plugin names
-  names: "facility-messaging,health,server-status,block-access-service,stream-publisher,verification,blocks-file-recent"
-  # Optional: override the plugin version (defaults to Chart.AppVersion)
-  # version: "0.27.0"
-  # Optional: override Maven repository URL
-  # baseUrl: "https://repo1.maven.org/maven2/org/hiero/block-node"
+  # Comma-separated list of plugin names (defaults to Chart.AppVersion)
+  # Append :<version> to override the version for a specific plugin
+  names: "facility-messaging,health,server-status,block-access-service:0.27.0,stream-publisher,verification,blocks-file-recent"
 ```
 
 **Note:** `facility-messaging` is required for the application to start. The `health` plugin is recommended for Kubernetes liveness/readiness probes.
 
 #### Disabling Plugins
 
-To deploy without any plugins (bare image):
+To deploy without any plugins (bare image), set `plugins.names` to an empty string:
 
 ```yaml
 plugins:
-  enabled: false
+  names: ""
 ```
 
 ### Enable Prometheus + Grafana Stack

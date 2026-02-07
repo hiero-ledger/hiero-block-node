@@ -67,12 +67,12 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.blockNode.persistence.verification.existingClaim }}
         {{- end }}
-      {{- if or .Values.blockNode.initContainers (and .Values.plugins.enabled .Values.plugins.names) }}
+      {{- if or .Values.blockNode.initContainers .Values.plugins.names }}
       initContainers:
         {{- with .Values.blockNode.initContainers }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- if and .Values.plugins.enabled .Values.plugins.names }}
+        {{- if .Values.plugins.names }}
         - name: list-core-modules
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           command:
@@ -101,12 +101,10 @@ spec:
             - -c
             - |
               set -e
-              {{- $pluginVersion := .Values.plugins.version | default .Chart.AppVersion }}
-              {{- $groupId := .Values.plugins.groupId }}
-              {{- $repository := .Values.plugins.repository }}
+              {{- $defaultVersion := .Chart.AppVersion }}
 
               # Check if plugins are already resolved for this config
-              DESIRED_HASH=$(echo "{{ $pluginVersion }}:{{ .Values.plugins.names }}" | sha256sum | cut -d' ' -f1)
+              DESIRED_HASH=$(echo "{{ $defaultVersion }}:{{ .Values.plugins.names }}" | sha256sum | cut -d' ' -f1)
               if [ -f /plugins/.resolved-hash ] && [ "$(cat /plugins/.resolved-hash)" = "$DESIRED_HASH" ]; then
                 echo "Plugins already resolved (config unchanged). Skipping."
                 exit 0
@@ -126,7 +124,7 @@ spec:
                 <repositories>
                   <repository>
                     <id>plugin-repo</id>
-                    <url>{{ $repository }}</url>
+                    <url>https://repo1.maven.org/maven2</url>
                   </repository>
                   <repository>
                     <id>besu-maven</id>
@@ -146,13 +144,22 @@ spec:
                 </repositories>
                 <dependencies>
               {{- range (splitList "," .Values.plugins.names) }}
-              {{- $plugin := . | trim }}
-              {{- if $plugin }}
+              {{- $entry := . | trim }}
+              {{- if $entry }}
+              {{- if contains ":" $entry }}
+              {{- $parts := splitList ":" $entry }}
                   <dependency>
-                    <groupId>{{ $groupId }}</groupId>
-                    <artifactId>{{ $plugin }}</artifactId>
-                    <version>{{ $pluginVersion }}</version>
+                    <groupId>org.hiero.block-node</groupId>
+                    <artifactId>{{ index $parts 0 }}</artifactId>
+                    <version>{{ index $parts 1 }}</version>
                   </dependency>
+              {{- else }}
+                  <dependency>
+                    <groupId>org.hiero.block-node</groupId>
+                    <artifactId>{{ $entry }}</artifactId>
+                    <version>{{ $defaultVersion }}</version>
+                  </dependency>
+              {{- end }}
               {{- end }}
               {{- end }}
                 </dependencies>
@@ -236,7 +243,7 @@ spec:
             mountPath: {{ .Values.blockNode.backfill.path }}
             readOnly: true
           {{- end }}
-          {{- if and .Values.plugins.enabled .Values.plugins.names }}
+          {{- if .Values.plugins.names }}
           - name: {{ default "plugins" .Values.plugins.volumeName }}
             mountPath: /opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/plugins
             readOnly: true
@@ -328,7 +335,7 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.verification.storageClass }}
         {{- end }}
     {{- end }}
-    {{- if and .Values.plugins.enabled .Values.plugins.names }}
+    {{- if .Values.plugins.names }}
     - metadata:
         name: {{ default "plugins" .Values.plugins.volumeName }}
       spec:

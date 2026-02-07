@@ -96,13 +96,10 @@ affinity: {}
 
 plugins:
   volumeName: "plugins"
-  size: 2Gi
-  enabled: true
-  groupId: "org.hiero.block-node"
-  repository: "https://repo1.maven.org/maven2"
-  # Defaults to Chart.AppVersion if empty
-  version: ""
+  size: 1Gi
   names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill"
+  # image for resolving and downloading the above plugins, should have java 21+ and maven
+  # consider using java 25 image once GA version is released.
   mavenImage: "maven:3.9-eclipse-temurin-21-alpine"
 
 blockNode:
