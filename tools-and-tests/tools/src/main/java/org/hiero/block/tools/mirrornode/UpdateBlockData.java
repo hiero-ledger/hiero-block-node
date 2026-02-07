@@ -48,6 +48,12 @@ public class UpdateBlockData implements Runnable {
             description = "Path to the day blocks \".json\" file.")
     private Path dayBlocksFile = MetadataFiles.DAY_BLOCKS_FILE;
 
+    /** Optional end date - stop after all blocks for this date have been fetched. */
+    @Option(
+            names = {"--end-date"},
+            description = "Stop after fetching all blocks through this date (inclusive, format: YYYY-MM-DD)")
+    private LocalDate endDate = null;
+
     /** The batch size for fetching blocks from the mirror node. */
     private static final int BATCH_SIZE = 100;
 
@@ -56,7 +62,17 @@ public class UpdateBlockData implements Runnable {
      */
     @Override
     public void run() {
-        updateMirrorNodeData(blockTimesFile, dayBlocksFile);
+        updateMirrorNodeData(blockTimesFile, dayBlocksFile, endDate);
+    }
+
+    /**
+     * Update block data files with newer blocks from the mirror node, fetching all available blocks.
+     *
+     * @param blockTimesFile the path to the block times file
+     * @param dayBlocksFile  the path to the day blocks file
+     */
+    public static void updateMirrorNodeData(Path blockTimesFile, Path dayBlocksFile) {
+        updateMirrorNodeData(blockTimesFile, dayBlocksFile, null);
     }
 
     /**
@@ -64,8 +80,45 @@ public class UpdateBlockData implements Runnable {
      *
      * @param blockTimesFile the path to the block times file
      * @param dayBlocksFile  the path to the day blocks file
+     * @param endDate        if non-null, stop after fetching all blocks through this date (inclusive)
      */
-    public static void updateMirrorNodeData(Path blockTimesFile, Path dayBlocksFile) {
+    public static void updateMirrorNodeData(Path blockTimesFile, Path dayBlocksFile, LocalDate endDate) {
+        long latestBlockNumber = getLatestBlockNumber();
+        updateMirrorNodeData(
+                blockTimesFile, dayBlocksFile, endDate, latestBlockNumber, UpdateBlockData::fetchBlockBatch);
+    }
+
+    /**
+     * Functional interface for fetching a batch of blocks, used to decouple the core update logic
+     * from the network layer for testability.
+     */
+    @FunctionalInterface
+    interface BlockBatchFetcher {
+        /**
+         * Fetch a batch of blocks starting from the given block number.
+         *
+         * @param startBlock the starting block number (inclusive)
+         * @param limit      the maximum number of blocks to fetch
+         * @return the JSON array of block objects
+         */
+        JsonArray fetch(long startBlock, int limit);
+    }
+
+    /**
+     * Core update logic with injectable latest block number and batch fetcher for testability.
+     *
+     * @param blockTimesFile    the path to the block times file
+     * @param dayBlocksFile     the path to the day blocks file
+     * @param endDate           if non-null, stop after fetching all blocks through this date (inclusive)
+     * @param latestBlockNumber the latest known block number (replaces mirror node query)
+     * @param fetcher           fetcher function for retrieving block batches
+     */
+    static void updateMirrorNodeData(
+            Path blockTimesFile,
+            Path dayBlocksFile,
+            LocalDate endDate,
+            long latestBlockNumber,
+            BlockBatchFetcher fetcher) {
         try {
             System.out.println(Ansi.AUTO.string("@|bold,green UpdateBlockData - reading existing block data files|@"));
 
@@ -83,10 +136,11 @@ public class UpdateBlockData implements Runnable {
             long startBlockNumber = Math.min(highestBlockInTimesFile, highestBlockInDayBlocks) + 1;
             System.out.println(Ansi.AUTO.string("@|yellow Starting from block number:|@ " + startBlockNumber));
 
-            // Query the latest block number from the mirror node
-            long latestBlockNumber = getLatestBlockNumber();
-            System.out.println(
-                    Ansi.AUTO.string("@|yellow Latest block number from mirror node:|@ " + latestBlockNumber));
+            System.out.println(Ansi.AUTO.string("@|yellow Latest block number:|@ " + latestBlockNumber));
+
+            if (endDate != null) {
+                System.out.println(Ansi.AUTO.string("@|yellow End date:|@ " + endDate));
+            }
 
             if (startBlockNumber > latestBlockNumber) {
                 System.out.println(
@@ -98,6 +152,14 @@ public class UpdateBlockData implements Runnable {
             Map<LocalDate, DayBlockInfo> dayBlocksMap =
                     Files.exists(dayBlocksFile) ? loadDayBlocksMap(dayBlocksFile) : new HashMap<>();
 
+            // Ensure parent directories exist so new files can be created
+            if (blockTimesFile.getParent() != null) {
+                Files.createDirectories(blockTimesFile.getParent());
+            }
+            if (dayBlocksFile.getParent() != null) {
+                Files.createDirectories(dayBlocksFile.getParent());
+            }
+
             // Fetch and update blocks in batches
             long currentBlock = startBlockNumber;
             try (RandomAccessFile blockTimesRaf = new RandomAccessFile(blockTimesFile.toFile(), "rw")) {
@@ -106,10 +168,11 @@ public class UpdateBlockData implements Runnable {
                     System.out.println(Ansi.AUTO.string(
                             "@|cyan Fetching blocks |@" + currentBlock + " @|cyan to|@ " + batchEndBlock));
 
-                    // Fetch batch from the mirror node
-                    JsonArray blocks = fetchBlockBatch(currentBlock, BATCH_SIZE);
+                    // Fetch batch
+                    JsonArray blocks = fetcher.fetch(currentBlock, BATCH_SIZE);
 
                     // Process each block in the batch
+                    boolean reachedEndDate = false;
                     for (int i = 0; i < blocks.size(); i++) {
                         JsonObject block = blocks.get(i).getAsJsonObject();
                         long blockNumber = block.get("number").getAsLong();
@@ -124,14 +187,22 @@ public class UpdateBlockData implements Runnable {
                         Instant blockInstant = extractRecordFileTime(recordFileName);
                         long blockTimeLong = instantToBlockTimeLong(blockInstant);
 
+                        // Check if this block is past the end date
+                        LocalDate blockDate =
+                                blockInstant.atZone(ZoneOffset.UTC).toLocalDate();
+                        if (endDate != null && blockDate.isAfter(endDate)) {
+                            System.out.println(Ansi.AUTO.string("@|bold,green Reached end date " + endDate
+                                    + ", stopping at block |@" + blockNumber));
+                            reachedEndDate = true;
+                            break;
+                        }
+
                         // Write to block_times.bin at the correct position for this block number
                         // Each block time is 8 bytes (long), so block N goes at position N*8
                         blockTimesRaf.seek(blockNumber * Long.BYTES);
                         blockTimesRaf.writeLong(blockTimeLong);
 
                         // Update day_blocks.json data
-                        LocalDate blockDate =
-                                blockInstant.atZone(ZoneOffset.UTC).toLocalDate();
                         updateDayBlockInfo(dayBlocksMap, blockDate, blockNumber, blockHash, blockInstant);
 
                         // Print progress every 1000 blocks or for the first few
@@ -144,6 +215,10 @@ public class UpdateBlockData implements Runnable {
 
                     // Flush the file periodically
                     blockTimesRaf.getChannel().force(false);
+
+                    if (reachedEndDate) {
+                        break;
+                    }
 
                     currentBlock = batchEndBlock + 1;
                 }
@@ -184,7 +259,7 @@ public class UpdateBlockData implements Runnable {
      *
      * @return the highest block number in the file, or -1 if the file is empty or doesn't exist
      */
-    private static long readHighestBlockFromDayBlocks(Path dayBlocksFile) throws IOException {
+    static long readHighestBlockFromDayBlocks(Path dayBlocksFile) throws IOException {
         if (!Files.exists(dayBlocksFile)) {
             System.out.println(Ansi.AUTO.string("@|yellow day_blocks.json does not exist, starting from block 0|@"));
             return -1;
@@ -237,7 +312,7 @@ public class UpdateBlockData implements Runnable {
      *
      * @return the map of LocalDate to DayBlockInfo
      */
-    private static Map<LocalDate, DayBlockInfo> loadDayBlocksMap(Path dayBlocksFile) throws IOException {
+    static Map<LocalDate, DayBlockInfo> loadDayBlocksMap(Path dayBlocksFile) throws IOException {
         if (!Files.exists(dayBlocksFile)) {
             return new HashMap<>();
         }
@@ -253,7 +328,7 @@ public class UpdateBlockData implements Runnable {
      * @param blockHash    the block hash
      * @param blockInstant the block instant
      */
-    private static void updateDayBlockInfo(
+    static void updateDayBlockInfo(
             Map<LocalDate, DayBlockInfo> dayBlocksMap,
             LocalDate date,
             long blockNumber,
@@ -293,8 +368,7 @@ public class UpdateBlockData implements Runnable {
      *
      * @param dayBlocksMap the map of day blocks
      */
-    private static void writeDayBlocksJson(Map<LocalDate, DayBlockInfo> dayBlocksMap, Path dayBlocksFile)
-            throws IOException {
+    static void writeDayBlocksJson(Map<LocalDate, DayBlockInfo> dayBlocksMap, Path dayBlocksFile) throws IOException {
         // Get today's date in UTC - we exclude it because the day is not complete yet
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
 

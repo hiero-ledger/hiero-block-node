@@ -77,7 +77,7 @@ import org.hiero.block.tools.utils.Sha384;
 public class BlockStreamBlockHasher {
 
     /**
-     * Computes the root hash of a block.
+     * Computes the root hash of a block. Using the `rootHashOfAllBlockHashesTree` from the block footer.
      *
      * <p>The computation follows the Block Merkle Tree Design:
      * <ol>
@@ -87,11 +87,10 @@ public class BlockStreamBlockHasher {
      * </ol>
      *
      * @param block the block to hash (must contain BlockHeader and BlockFooter)
-     * @param allBlocksMerkleTreeRootHash the root hash of the tree containing all previous block hashes
      * @return the 48-byte SHA-384 block root hash
-     * @throws IllegalArgumentException if the block is missing required header or footer
+     * @throws IllegalArgumentException if the block is missing the required header or footer
      */
-    public static byte[] hashBlock(Block block, byte[] allBlocksMerkleTreeRootHash) {
+    public static byte[] hashBlock(Block block) {
         // create SHA-384 digest instance for all hashing
         final MessageDigest digest = Sha384.sha384Digest();
         // extract block header and footer
@@ -153,7 +152,7 @@ public class BlockStreamBlockHasher {
                     hashInternalNode(digest,
                         hashInternalNode(digest,
                             previousBlockHash,
-                            allBlocksMerkleTreeRootHash
+                            blockFooter.rootHashOfAllBlockHashesTree().toByteArray()
                         ),
                         hashInternalNode(digest,
                             stateRootHash,

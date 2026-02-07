@@ -145,7 +145,7 @@ public class ToWrappedBlocksCommand implements Runnable {
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
 
-        // Create amendment provider based on network selection
+        // Create an amendment provider based on network selection
         final AmendmentProvider amendmentProvider = createAmendmentProvider(network);
 
         // load block times
@@ -157,8 +157,9 @@ public class ToWrappedBlocksCommand implements Runnable {
             long highestStoredBlockNumber = blockRegistry.highestBlockNumberStored();
             System.out.println(Ansi.AUTO.string("@|yellow Starting from block:|@ " + highestStoredBlockNumber + " @|"));
             // Print highest stored block time
+            // Use a time just before the first block so block 0 passes the isAfter filter
             final Instant highestStoredBlockTime = highestStoredBlockNumber == -1
-                    ? FIRST_BLOCK_TIME_INSTANT
+                    ? FIRST_BLOCK_TIME_INSTANT.minusNanos(1)
                     : blockTimeReader.getBlockInstant(highestStoredBlockNumber);
             System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockTime + " @|"));
 
@@ -218,18 +219,20 @@ public class ToWrappedBlocksCommand implements Runnable {
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
                             () -> {
-                                System.err.println("Shutdown: address book to " + addressBookFile);
-                                addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-                                // write merkle tree states
+                                if (!Files.isDirectory(outputBlocksDir)) {
+                                    System.err.println("Shutdown: output directory no longer exists, skipping save: "
+                                            + outputBlocksDir);
+                                    return;
+                                }
                                 try {
+                                    System.err.println("Shutdown: address book to " + addressBookFile);
+                                    addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                     streamingHasher.save(streamingMerkleTreeFile);
                                     inMemoryTreeHasher.save(inMemoryMerkleTreeFile);
                                     System.err.println("Shutdown: saved merkle tree states. To "
                                             + streamingMerkleTreeFile + " and " + inMemoryMerkleTreeFile);
                                 } catch (Exception e) {
-                                    System.err.println(
-                                            "Failed to save merkle tree states on shutdown: " + e.getMessage());
-                                    e.printStackTrace();
+                                    System.err.println("Shutdown: could not save state: " + e.getMessage());
                                 }
                             },
                             "wrap-shutdown-hook"));
@@ -297,8 +300,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                         System.exit(1);
                                     }
                                     // add block hash to merkle tree hashers
-                                    final byte[] blockStreamBlockHash =
-                                            hashBlock(wrapped, streamingHasher.computeRootHash());
+                                    final byte[] blockStreamBlockHash = hashBlock(wrapped);
                                     streamingHasher.addNodeByHash(blockStreamBlockHash);
                                     inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
                                     // add the block hash to the registry
