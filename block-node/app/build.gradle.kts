@@ -96,12 +96,6 @@ dependencies {
     blockNodePlugins(project(":s3-archive"))
 }
 
-// =============================================================================
-// Run Tasks with Plugin Profiles
-// =============================================================================
-// These tasks run the block node with different plugin configurations.
-// Plugins are copied to a build directory and added to the module path.
-
 /** Sets block node storage environment variables for the given data directory. */
 fun JavaExec.configureBlockNodeEnvironment(serverDataDir: Directory) {
     environment("FILES_HISTORIC_ROOT_PATH", "${serverDataDir}/files-historic")
