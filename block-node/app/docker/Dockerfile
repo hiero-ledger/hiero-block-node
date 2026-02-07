@@ -1,11 +1,12 @@
 # Use a base image with java on it already
-FROM eclipse-temurin:25-jre-ubi10-minimal
+FROM eclipse-temurin:25-jre-ubi10-minimal AS builder
 
+RUN ls /opt/java/openjdk
+
+# Add the app into the builder image
+ARG BN_WORKDIR="/opt/hiero/block-node"
 # Define version
 ARG VERSION
-ARG UID=2000
-ARG GID=2000
-ARG BN_WORKDIR="/opt/hiero/block-node"
 
 # Set the working directory inside the container
 WORKDIR ${BN_WORKDIR}
@@ -30,35 +31,26 @@ RUN mkdir -p ${BN_WORKDIR}/logs/config
 # Copy the logging properties file
 COPY logging.properties ${BN_WORKDIR}/logs/config/logging.properties
 
-WORKDIR /
+# Stage 2: Final stage (using the ubi-micro image)
+FROM redhat/ubi10-micro:10.1
 
-# Ensure proper file permissions
-RUN chown -R $UID:$GID ${BN_WORKDIR}
+## Copy the Java runtime from the builder stage into the micro image
+COPY --from=builder /opt/hiero/block-node /opt/hiero/block-node
 
-########################################################################################################################
-#
-# Build Final Image
-#
-########################################################################################################################
+# Set JAVA_HOME environment variable
+ENV JAVA_HOME=/opt/java/openjdk
 
-# Define Build Arguments
-ARG SOURCE_DATE_EPOCH
+ENV PATH=${JAVA_HOME}/bin:${PATH}
 
-# Define Standard Environment Variables
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
-ENV BN_WORKDIR="/opt/hiero/block-node"
+## Copy the Java runtime from the builder stage into the micro image
+COPY --from=builder ${JAVA_HOME} ${JAVA_HOME}
 
 # Expose the port that the application will run on
 EXPOSE 40840/tcp
-
-WORKDIR ${BN_WORKDIR}
 
 # HEALTHCHECK for liveness and readiness
 HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
   CMD curl -f http://localhost:40840/healthz/livez || exit 1 && \
       curl -f http://localhost:40840/healthz/readyz || exit 1
-
-#CMD ["ls", "-l", "/opt/hiero/block-node"]
 
 CMD ["java", "--module-path", "/opt/hiero/block-node/app/lib", "--module", "org.hiero.block.node.app/org.hiero.block.node.app.BlockNodeApp"]
