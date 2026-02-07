@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.streams.RecordStreamItem;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -58,19 +59,13 @@ class AmendmentProviderTest {
         }
 
         @Test
-        @DisplayName("hasTransactionAmendments returns false (not implemented yet)")
-        void testHasTransactionAmendments() {
+        @DisplayName("getMissingRecordStreamItems returns empty list when index not available")
+        void testGetMissingRecordStreamItemsNoIndex() {
+            // When missing_transactions.gz doesn't exist, should return empty list
             MainnetAmendmentProvider provider = new MainnetAmendmentProvider();
-            assertFalse(provider.hasTransactionAmendments(0), "Block 0 should not have transaction amendments yet");
-            assertFalse(provider.hasTransactionAmendments(1), "Block 1 should not have transaction amendments yet");
-        }
-
-        @Test
-        @DisplayName("getTransactionAmendments returns empty list (not implemented yet)")
-        void testGetTransactionAmendments() {
-            MainnetAmendmentProvider provider = new MainnetAmendmentProvider();
-            assertTrue(provider.getTransactionAmendments(0).isEmpty(), "Transaction amendments should be empty");
-            assertTrue(provider.getTransactionAmendments(1).isEmpty(), "Transaction amendments should be empty");
+            List<RecordStreamItem> items = provider.getMissingRecordStreamItems(100);
+            assertNotNull(items, "Should return non-null list");
+            assertTrue(items.isEmpty(), "Should return empty list when index not available");
         }
     }
 
@@ -110,21 +105,48 @@ class AmendmentProviderTest {
         }
 
         @Test
-        @DisplayName("hasTransactionAmendments always returns false")
-        void testHasTransactionAmendments() {
+        @DisplayName("getMissingRecordStreamItems always returns empty list (default implementation)")
+        void testGetMissingRecordStreamItems() {
             NoOpAmendmentProvider provider = new NoOpAmendmentProvider();
-            assertFalse(provider.hasTransactionAmendments(0), "Block 0 should not have transaction amendments");
-            assertFalse(provider.hasTransactionAmendments(1), "Block 1 should not have transaction amendments");
+            List<RecordStreamItem> items0 = provider.getMissingRecordStreamItems(0);
+            List<RecordStreamItem> items1 = provider.getMissingRecordStreamItems(100);
+
+            assertNotNull(items0, "Should return non-null list");
+            assertTrue(items0.isEmpty(), "Block 0 missing items should be empty");
+            assertNotNull(items1, "Should return non-null list");
+            assertTrue(items1.isEmpty(), "Block 100 missing items should be empty");
         }
+    }
+
+    @Nested
+    @DisplayName("AmendmentProvider interface default methods")
+    class InterfaceDefaultMethodTests {
 
         @Test
-        @DisplayName("getTransactionAmendments always returns empty list")
-        void testGetTransactionAmendments() {
-            NoOpAmendmentProvider provider = new NoOpAmendmentProvider();
-            assertTrue(
-                    provider.getTransactionAmendments(0).isEmpty(), "Block 0 transaction amendments should be empty");
-            assertTrue(
-                    provider.getTransactionAmendments(1).isEmpty(), "Block 1 transaction amendments should be empty");
+        @DisplayName("Default getMissingRecordStreamItems returns empty list")
+        void testDefaultGetMissingRecordStreamItems() {
+            // Create a minimal implementation that only implements required methods
+            AmendmentProvider minimalProvider = new AmendmentProvider() {
+                @Override
+                public String getNetworkName() {
+                    return "test";
+                }
+
+                @Override
+                public boolean hasGenesisAmendments(long blockNumber) {
+                    return false;
+                }
+
+                @Override
+                public List<BlockItem> getGenesisAmendments(long blockNumber) {
+                    return List.of();
+                }
+            };
+
+            // The default method should return empty list
+            List<RecordStreamItem> items = minimalProvider.getMissingRecordStreamItems(42);
+            assertNotNull(items, "Default method should return non-null list");
+            assertTrue(items.isEmpty(), "Default method should return empty list");
         }
     }
 }

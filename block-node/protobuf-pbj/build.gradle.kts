@@ -25,6 +25,9 @@ pbj { generateTestClasses = false }
 sourceSets {
     main {
         pbj {
+            // Local overrides take precedence - adds RecordFileItem.amendments field not yet in CN
+            // TODO: Remove this once we upgrade the protobuf version to include amendments field
+            srcDir(layout.projectDirectory.dir("../../protobuf-sources/src/main/proto-overrides"))
             // use sources from 'protobuf' module
             srcDir(layout.projectDirectory.dir("../../protobuf-sources/src/main/proto"))
             // use sources from CN repository cloned by 'protobuf' module (see task dependency)
@@ -38,6 +41,9 @@ sourceSets {
 // jjohannes: remove cross-project task dependency once the following issue is addressed
 // https://github.com/hiero-ledger/hiero-gradle-conventions/issues/185
 tasks.generatePbjSource { dependsOn(":protobuf-sources:generateBlockNodeProtoArtifact") }
+
+// Handle duplicate proto files from overrides - use EXCLUDE so first occurrence wins
+tasks.withType<Jar>().configureEach { duplicatesStrategy = DuplicatesStrategy.EXCLUDE }
 
 tasks.test {
     // we can exclude the standard protobuf generated tests as we don't need to test them again here

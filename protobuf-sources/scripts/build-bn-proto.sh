@@ -122,6 +122,13 @@ cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/servic
 # Copy CN 'streams' protobuf files to the output_dir directory
 cp -r ./hiero-consensus-node/hapi/hedera-protobuf-java-api/src/main/proto/streams "$output_dir"
 
+# Copy local proto overrides (if any) to replace CN versions
+# This allows us to add fields locally before they're available in CN releases
+if [ -d "${bn_api_path}/../proto-overrides" ]; then
+  echo "Applying local proto overrides from ${bn_api_path}/../proto-overrides"
+  cp -r "${bn_api_path}/../proto-overrides/"* "$output_dir/"
+fi
+
 if $include_bn_api; then
   # create artifact file if BN APIs are included
   tar -czf "block-node-protobuf-$release_version.tgz" -C "$output_dir" . -C ${bn_api_path} ./block-node

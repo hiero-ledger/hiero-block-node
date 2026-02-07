@@ -86,9 +86,20 @@ public class RecordBlockConverter {
                 // different from the record file time
                 firstTransactionTimestamp,
                 BlockHashAlgorithm.SHA2_384);
-        // create RecordFileItem
+
+        // Get missing transactions as amendments (if any)
+        // TODO: Once hiero-consensus-node releases a stable version after v0.70.0 that includes the
+        //       `amendments` field in RecordFileItem (see PR #23259), remove the local proto override
+        //       at protobuf-sources/src/main/proto-overrides/block/stream/record_file_item.proto
+        final List<RecordStreamItem> amendments = amendmentProvider.getMissingRecordStreamItems(blockNumber);
+        if (!amendments.isEmpty()) {
+            System.out.println(
+                    "Adding " + amendments.size() + " missing transaction amendments to block " + blockNumber);
+        }
+
+        // create RecordFileItem with amendments
         final RecordFileItem recordFileItem = new RecordFileItem(
-                recordFileTimestamp, universalRecordFile.recordStreamFile(), recordBlock.sidecarFiles());
+                recordFileTimestamp, universalRecordFile.recordStreamFile(), recordBlock.sidecarFiles(), amendments);
         // For block 0, use EMPTY_TREE_HASH for stateRootHash since there's no previous state.
         // For subsequent blocks, use also use EMPTY_TREE_HASH to indicate there is no state hash available
         // in the wrapped record files (state hashes were not included in the original format).

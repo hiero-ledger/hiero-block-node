@@ -2,6 +2,7 @@
 package org.hiero.block.tools.blocks;
 
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.streams.RecordStreamItem;
 import java.util.List;
 
 /**
@@ -15,8 +16,8 @@ import java.util.List;
  * <ul>
  *   <li><b>Genesis amendments</b> - STATE_CHANGES for block 0 representing initial network state.
  *       These are inserted after BLOCK_HEADER and before the stream of block items.</li>
- *   <li><b>Transaction amendments</b> - Amendments within blocks for specific transactions.
- *       These are inserted into the stream of block items at appropriate positions.</li>
+ *   <li><b>Missing transaction amendments</b> - RecordStreamItems that were missing from the
+ *       original record stream. These are merged into the RecordStreamFile within the block.</li>
  * </ul>
  *
  * <p>Implementations of this interface can be selected via CLI flags to support
@@ -30,8 +31,6 @@ public interface AmendmentProvider {
      * @return the network name (e.g., "mainnet", "testnet", "none")
      */
     String getNetworkName();
-
-    // ========== Genesis Amendments ==========
 
     /**
      * Checks if the specified block requires genesis amendments.
@@ -53,27 +52,19 @@ public interface AmendmentProvider {
      */
     List<BlockItem> getGenesisAmendments(long blockNumber);
 
-    // ========== Transaction Amendments ==========
-
     /**
-     * Checks if the specified block requires transaction amendments.
-     * Transaction amendments are modifications within the stream of block items.
+     * Gets the missing RecordStreamItems that should be merged into the specified block.
      *
-     * @param blockNumber the block number to check
-     * @return true if this block needs transaction amendments
+     * <p>Missing transactions are transactions that were not included in the original
+     * record stream but should have been. These are loaded from the mirror node errata
+     * data and merged into the RecordStreamFile within the block.
+     *
+     * @param blockNumber the block number to get missing transactions for
+     * @return the list of RecordStreamItems to merge, or empty list if none
      */
-    boolean hasTransactionAmendments(long blockNumber);
-
-    /**
-     * Gets the transaction amendments for the specified block.
-     *
-     * <p>Transaction amendments are inserted into the stream of block items
-     * at appropriate positions based on the specific amendments needed.
-     *
-     * @param blockNumber the block number to get amendments for
-     * @return the list of BlockItems to insert as transaction amendments, or empty list if none
-     */
-    List<BlockItem> getTransactionAmendments(long blockNumber);
+    default List<RecordStreamItem> getMissingRecordStreamItems(long blockNumber) {
+        return List.of();
+    }
 
     /**
      * Creates an amendment provider based on the network name.
