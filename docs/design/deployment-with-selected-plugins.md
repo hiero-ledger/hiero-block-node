@@ -39,8 +39,38 @@ just lists the required maven dependencies in their values file and those plugin
 into that deployment by the init container and script defined in the Helm chart.
 
 To achieve that we will have Minimal, RFH, LFH and all-plugins overrides in values-overrides folder.
-Each override file will specify the required plugins for that deployment to be used by scripts defined for the Init Container where
-the required plugins will be downloaded and added to the /lib folder in block-node-app.
+Each override file will specify the required plugins for that deployment. An init container in the
+Helm chart downloads the specified plugins from Maven Central and places them in a shared volume
+that is mounted to the application container's plugin directory.
+
+### Deployment Profiles
+
+|            Profile            |        Purpose        |                   Description                    |
+|-------------------------------|-----------------------|--------------------------------------------------|
+| **all-plugins**               | Development & Testing | Full functionality with all available plugins    |
+| **minimal**                   | Development & Testing | Minimum viable node without archival or backfill |
+| **lfh** (Local File History)  | Production            | Stores all blocks locally on persistent volumes  |
+| **rfh** (Remote File History) | Production            | Stores blocks in S3; no local historic storage   |
+
+### Plugin Dependencies
+
+- **Required:** `facility-messaging` - Core messaging; application will not start without it
+- **Recommended:** `health` - Required for Kubernetes probes
+- **Recommended:** `server-status` - Metrics and status endpoints
+
+### Custom Configurations
+
+Operators can create custom plugin combinations by specifying a comma-separated list of plugin names
+in their values file:
+
+```yaml
+plugins:
+  enabled: true
+  names: "facility-messaging,health,server-status,block-access-service,verification"
+```
+
+See the [Helm chart README](../../charts/block-node-server/README.md#plugin-configuration) for
+complete plugin configuration documentation.
 
 ## Acceptance Tests
 

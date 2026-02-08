@@ -21,7 +21,7 @@ run_bn() {
     cd ../../
     $GRADLEW clean &> /dev/null # todo we should be able to skip this clean, but locally, too many caching errors...
     $GRADLEW :app:stopDockerContainer &> /dev/null
-    $GRADLEW :app:startDockerContainerCI &> /dev/null
+    $GRADLEW :app:startDockerContainer &> /dev/null
     )
 }
 

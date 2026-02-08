@@ -51,17 +51,29 @@ jobs:
         if: steps.list-changed.outputs.changed == 'true'
         run: ${CGEXEC} ct lint --config ct.yaml
 
+      - name: Check if version bump PR
+        id: version-bump
+        run: |
+          # Check if version.txt is in the changed files
+          changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
+          if echo "$changed_files" | grep -q "^version.txt$"; then
+            echo "is_version_bump=true" >> "$GITHUB_OUTPUT"
+            echo "Detected version.txt change - skipping ct install"
+          else
+            echo "is_version_bump=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create kind cluster
-        if: steps.list-changed.outputs.changed == 'true'
+        if: steps.list-changed.outputs.changed == 'true' && steps.version-bump.outputs.is_version_bump != 'true'
         uses: helm/kind-action@92086f6be054225fa813e0a4b13787fc9088faab # v1.13.0
 
       - name: Update chart dependency
-        if: steps.list-changed.outputs.changed == 'true'
+        if: steps.list-changed.outputs.changed == 'true' && steps.version-bump.outputs.is_version_bump != 'true'
         run: |
           helm repo add prometheus-community  https://prometheus-community.github.io/helm-charts
           helm repo add grafana https://grafana.github.io/helm-charts
           helm dependency update charts/block-node-server
 
       - name: Run chart-testing (install)
-        if: steps.list-changed.outputs.changed == 'true'
+        if: steps.list-changed.outputs.changed == 'true' && steps.version-bump.outputs.is_version_bump != 'true'
         run: ${CGEXEC} ct install --config ct.yaml

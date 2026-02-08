@@ -121,6 +121,115 @@ or passed at the command line:
 helm install "${RELEASE}" hiero-block-node/block-node-server --set blockNode.secret.PRIVATE_KEY="<Secret>"
 ```
 
+### Plugin Configuration
+
+The Block Node uses a plugin architecture where functionality is loaded dynamically at deployment time. The OCI image is published without plugins, and the Helm chart downloads the required plugins during pod initialization.
+
+#### Available Plugins
+
+|         Plugin         |                            Description                            |
+|------------------------|-------------------------------------------------------------------|
+| `facility-messaging`   | Core messaging facility for inter-plugin communication (required) |
+| `health`               | Health check endpoints (`/healthz/livez`, `/healthz/readyz`)      |
+| `server-status`        | Server status API and metrics                                     |
+| `block-access-service` | gRPC API for block queries                                        |
+| `stream-publisher`     | Publishes blocks to downstream subscribers                        |
+| `stream-subscriber`    | Subscribes to upstream block streams                              |
+| `verification`         | Cryptographic verification of blocks                              |
+| `blocks-file-recent`   | Local storage for recent/live blocks                              |
+| `blocks-file-historic` | Local storage for historical blocks                               |
+| `backfill`             | Fetches missing historical blocks from other nodes                |
+| `s3-archive`           | Archives blocks to S3-compatible storage                          |
+
+#### Pre-defined Profiles
+
+The chart includes pre-defined value override files in `values-overrides/`:
+
+##### all-plugins.yaml
+
+Full functionality for development and testing.
+* `facility-messaging`
+* `block-access-service`
+* `health`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+* `verification`
+* `blocks-file-historic`
+* `blocks-file-recent`
+* `backfill`
+* `s3-archive`
+
+##### minimal.yaml
+
+Minimal functional node for development and testing.
+* `facility-messaging`
+* `block-access-service`
+* `health`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+* `verification`
+* `blocks-file-historic`
+* `blocks-file-recent`
+
+##### lfh.yaml
+
+Local File History - stores all blocks on local persistent volumes.
+* `facility-messaging`
+* `block-access-service`
+* `health`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+* `verification`
+* `blocks-file-historic`
+* `blocks-file-recent`
+* `backfill`
+
+##### rfh.yaml
+
+Remote File History - stores blocks in S3-compatible storage.
+* `facility-messaging`
+* `block-access-service`
+* `health`
+* `server-status`
+* `stream-publisher`
+* `stream-subscriber`
+* `verification`
+* `blocks-file-recent`
+* `backfill`
+* `s3-archive`
+
+Deploy with a profile:
+
+```bash
+helm install "${RELEASE}" charts/block-node-server \
+  -f charts/block-node-server/values-overrides/all-plugins.yaml
+```
+
+#### Custom Plugin Selection
+
+Create your own values file to select specific plugins:
+
+```yaml
+plugins:
+  # Comma-separated list of plugin names (defaults to Chart.AppVersion)
+  # Append :<version> to override the version for a specific plugin
+  names: "facility-messaging,health,server-status,block-access-service:0.27.0,stream-publisher,verification,blocks-file-recent"
+```
+
+**Note:** `facility-messaging` is required for the application to start. The `health` plugin is recommended for Kubernetes liveness/readiness probes.
+
+#### Disabling Plugins
+
+To deploy without any plugins (bare image), set `plugins.names` to an empty string:
+
+```yaml
+plugins:
+  names: ""
+```
+
 ### Enable Prometheus + Grafana Stack
 
 By default the stack includes a chart dependency that includes a prometheus + grafana + node-exporter stack, also adds 3 provisioned dashboards
