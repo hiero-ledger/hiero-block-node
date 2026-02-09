@@ -807,7 +807,7 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ !cancelled()  &&  inputs.run-tck-regression-tests }}
         with:
-          name: SDK TCK Regression Test Report
+          name: SDK TCK Regression Test Report-${{ inputs.topology }}
           path: "**/sdk-tck/regression/mochawesome-report/mochawesome.*"
           retention-days: 7
 
@@ -932,7 +932,7 @@ jobs:
         id: upload_logs_cn
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: cn-logs
+          name: cn-logs-${{ inputs.topology }}
           path: ${{ env.CN_LOG_FOLDER }}/
 
       - name: Upload BN Logs
@@ -941,7 +941,7 @@ jobs:
         id: upload_logs_bn
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: BN-logs
+          name: BN-logs-${{ inputs.topology }}
           path: bn-logs/
 
       - name: Upload MN Logs
@@ -950,7 +950,7 @@ jobs:
         id: upload_logs_mn
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: MN-logs
+          name: MN-logs-${{ inputs.topology }}
           path: mn-logs/
 
       - name: Add Logs and Status to Summary
