@@ -205,7 +205,8 @@ public abstract class BaseSuite {
                 .withNetwork(network)
                 .withEnv("VERSION", blockNodeVersion)
                 .waitingFor(Wait.forListeningPort())
-                .waitingFor(Wait.forHealthcheck());
+                .waitingFor(Wait.forHttp("/healthz/readyz"))
+                .waitingFor(Wait.forHttp("/healthz/livez"));
         blockNodeContainer.setPortBindings(portBindings);
         return blockNodeContainer;
     }

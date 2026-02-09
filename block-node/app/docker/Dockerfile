@@ -1,7 +1,7 @@
 # Use a base image with java on it already
 FROM eclipse-temurin:25-jre-ubi10-minimal AS builder
 
-RUN ls /opt/java/openjdk
+#RUN ls /opt/java/openjdk
 
 # Add the app into the builder image
 ARG BN_WORKDIR="/opt/hiero/block-node"
@@ -26,7 +26,7 @@ RUN rm -f app-${VERSION}.tar
 RUN mv app-${VERSION} app
 
 # Create a log directory
-RUN mkdir -p ${BN_WORKDIR}/logs/config
+#RUN mkdir -p ${BN_WORKDIR}/logs/config
 
 # Copy the logging properties file
 COPY logging.properties ${BN_WORKDIR}/logs/config/logging.properties
@@ -47,10 +47,5 @@ COPY --from=builder ${JAVA_HOME} ${JAVA_HOME}
 
 # Expose the port that the application will run on
 EXPOSE 40840/tcp
-
-# HEALTHCHECK for liveness and readiness
-HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
-  CMD curl -f http://localhost:40840/healthz/livez || exit 1 && \
-      curl -f http://localhost:40840/healthz/readyz || exit 1
 
 CMD ["java", "--module-path", "/opt/hiero/block-node/app/lib", "--module", "org.hiero.block.node.app/org.hiero.block.node.app.BlockNodeApp"]
