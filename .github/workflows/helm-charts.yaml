@@ -57,10 +57,10 @@ jobs:
           # Check if version.txt is in the changed files
           changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
           if echo "$changed_files" | grep -q "^version.txt$"; then
-            echo "is_version_bump=true" >> "$GITHUB_OUTPUT"
+            echo "is_version_bump=true" >> "${GITHUB_OUTPUT}"
             echo "Detected version.txt change - skipping ct install"
           else
-            echo "is_version_bump=false" >> "$GITHUB_OUTPUT"
+            echo "is_version_bump=false" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Create kind cluster
