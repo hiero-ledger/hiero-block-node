@@ -6,6 +6,7 @@ import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.hiero.block.tools.utils.Sha384;
 
@@ -35,7 +36,7 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
     public BlockStreamBlockHashRegistry(Path blockHashesFilePath) {
         try {
             randomAccessFile = new RandomAccessFile(blockHashesFilePath.toFile(), "rw");
-            if (randomAccessFile.length() > 0) {
+            if (Files.exists(blockHashesFilePath) && randomAccessFile.length() > 0) {
                 // compute the highestBlockNumberStored based on file size
                 highestBlockNumberStored = (randomAccessFile.length() / Sha384.SHA_384_HASH_SIZE) - 1;
                 // read mostRecentBlockHash

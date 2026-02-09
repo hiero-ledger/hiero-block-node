@@ -3,9 +3,11 @@ package org.hiero.block.tools.blocks.model.hashing;
 
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import org.hiero.block.tools.utils.Sha384;
@@ -33,6 +35,22 @@ class BlockStreamBlockHashRegistryTest {
             assertEquals(-1, registry.highestBlockNumberStored());
             assertArrayEquals(EMPTY_TREE_HASH, registry.mostRecentBlockHash());
         }
+    }
+
+    @Test
+    void existingEmptyFile_doesNotThrow() throws Exception {
+        // Create an empty file first (simulates the bug scenario where file exists but is empty)
+        Path emptyFile = tempDir.resolve("existing-empty.bin");
+        Files.createFile(emptyFile);
+        assertEquals(0, Files.size(emptyFile), "File should be empty");
+
+        // Opening should not throw - this was the bug
+        assertDoesNotThrow(() -> {
+            try (var registry = new BlockStreamBlockHashRegistry(emptyFile)) {
+                assertEquals(-1, registry.highestBlockNumberStored());
+                assertArrayEquals(EMPTY_TREE_HASH, registry.mostRecentBlockHash());
+            }
+        });
     }
 
     @Test
