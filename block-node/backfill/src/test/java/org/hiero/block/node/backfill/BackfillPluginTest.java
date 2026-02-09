@@ -15,11 +15,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
-import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
@@ -46,7 +47,7 @@ import org.junit.jupiter.api.io.TempDir;
  * Integration tests for {@link BackfillPlugin}.
  */
 @Timeout(value = 30, unit = TimeUnit.SECONDS)
-class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
+class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService, ScheduledExecutorService> {
 
     /** TempDir for the current test */
     private final Path testTempDir;
@@ -55,8 +56,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, BlockingExecutor
 
     public BackfillPluginTest(@TempDir final Path tempDir) {
         super(
-                new BlockingExecutor(new LinkedBlockingQueue<>()),
-                new ScheduledBlockingExecutor(2, new LinkedBlockingQueue<>()));
+                Executors.newVirtualThreadPerTaskExecutor(),
+                new ScheduledThreadPoolExecutor(2, Thread.ofVirtual().factory()));
         this.testTempDir = Objects.requireNonNull(tempDir);
     }
 
