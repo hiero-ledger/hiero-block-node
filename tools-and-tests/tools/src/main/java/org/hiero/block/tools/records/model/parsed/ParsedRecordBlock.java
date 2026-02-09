@@ -52,7 +52,7 @@ public record ParsedRecordBlock(
                         .map(sigFile -> {
                             try {
                                 return new ParsedSignatureFile(sigFile);
-                            } catch (Exception e) {
+                            } catch (RuntimeException e) {
                                 System.err.println("Warning: Skipping corrupted signature file: " + sigFile.path()
                                         + " (" + sigFile.data().length + " bytes) - " + e.getMessage());
                                 return null;
