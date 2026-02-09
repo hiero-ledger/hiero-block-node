@@ -38,7 +38,7 @@ class BlockStreamBlockHashRegistryTest {
     }
 
     @Test
-    void existingEmptyFile_doesNotThrow() throws Exception {
+    void existingEmptyFileDoesNotThrow() throws Exception {
         // Create an empty file first (simulates the bug scenario where file exists but is empty)
         Path emptyFile = tempDir.resolve("existing-empty.bin");
         Files.createFile(emptyFile);
