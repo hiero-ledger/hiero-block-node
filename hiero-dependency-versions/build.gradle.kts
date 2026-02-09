@@ -14,7 +14,7 @@ dependencies.constraints {
     val mockitoVersion = "5.21.0"
     val testContainersVersion = "1.21.4"
 
-    api("com.github.luben:zstd-jni:1.5.7-6") { because("com.github.luben.zstd_jni") }
+    api("com.github.luben:zstd-jni:1.5.7-7") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.8") {
         because("com.github.spotbugs.annotations")
     }
