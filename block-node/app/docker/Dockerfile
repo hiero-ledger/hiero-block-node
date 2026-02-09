@@ -28,7 +28,7 @@ RUN tar -xvf app-${VERSION}.tar
 # Extract the TAR file
 RUN rm -f app-${VERSION}.tar
 
-# Extract the TAR file
+# Remove the TAR file
 RUN mv app-${VERSION} app
 
 # Copy the logging properties file
