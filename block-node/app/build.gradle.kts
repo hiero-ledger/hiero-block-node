@@ -72,6 +72,7 @@ val blockNodePlugins: Configuration by
         isTransitive = true
     }
 
+// If you want to test locally with a new plugin or without some plugins, comment or add them here.
 dependencies {
     // Version constraints for transitive dependency resolution
     blockNodePlugins(platform(project(":hiero-dependency-versions")))

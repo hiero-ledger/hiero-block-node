@@ -126,14 +126,17 @@ spec:
                     <id>plugin-repo</id>
                     <url>https://repo1.maven.org/maven2</url>
                   </repository>
+                  <!-- Required for org.hyperledger.besu:secp256k1, transitive dep of com.swirlds:swirlds-common -->
                   <repository>
                     <id>besu-maven</id>
                     <url>https://hyperledger.jfrog.io/artifactory/besu-maven</url>
                   </repository>
+                  <!-- Required for ConsenSys artifacts that are transitive dependencies of org.hyperledger.besu libs -->
                   <repository>
                     <id>consensys</id>
                     <url>https://artifacts.consensys.net/public/maven/maven/</url>
                   </repository>
+                  <!-- Required for resolving SNAPSHOT versions of hiero-block-node plugins during development -->
                   <repository>
                     <id>sonatype-snapshots</id>
                     <url>https://central.sonatype.com/repository/maven-snapshots</url>
