@@ -138,7 +138,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: solo-network
+  group: solo-network-${{ inputs.topology }}
   cancel-in-progress: true
 
 env:
