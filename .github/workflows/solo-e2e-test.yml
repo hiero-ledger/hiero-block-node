@@ -136,7 +136,6 @@ defaults:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: solo-network
