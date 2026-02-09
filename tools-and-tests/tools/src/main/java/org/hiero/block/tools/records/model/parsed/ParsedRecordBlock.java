@@ -49,7 +49,16 @@ public record ParsedRecordBlock(
         return new ParsedRecordBlock(
                 ParsedRecordFile.parse(recordFileBlock.primaryRecordFile()),
                 recordFileBlock.signatureFiles().stream()
-                        .map(ParsedSignatureFile::new)
+                        .map(sigFile -> {
+                            try {
+                                return new ParsedSignatureFile(sigFile);
+                            } catch (Exception e) {
+                                System.err.println("Warning: Skipping corrupted signature file: " + sigFile.path()
+                                        + " (" + sigFile.data().length + " bytes) - " + e.getMessage());
+                                return null;
+                            }
+                        })
+                        .filter(sig -> sig != null)
                         .toList(),
                 recordFileBlock.primarySidecarFiles().stream()
                         .map(ps -> {

@@ -10,9 +10,11 @@ import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
+import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlockV6;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -322,5 +324,39 @@ public class ParsedRecordBlockTest {
                         "Written V5 signature file for node " + nodeId + " should match original");
             }
         }
+    }
+
+    @Test
+    @Order(14)
+    @DisplayName("Test corrupted signature files are skipped gracefully")
+    void testCorruptedSignatureFilesAreSkipped() {
+        // Create a valid record file
+        final InMemoryFile recordFile = new InMemoryFile(Path.of(V6_TEST_BLOCK_RECORD_FILE_NAME), V6_TEST_BLOCK_BYTES);
+
+        // Create mix of valid and corrupted signature files
+        List<InMemoryFile> signatureFiles = List.of(
+                // Empty file (0 bytes) - simulates corrupted download
+                new InMemoryFile(Path.of("node_0.0.3.rcd_sig"), new byte[0]),
+                // Invalid version byte (-1/0xFF)
+                new InMemoryFile(Path.of("node_0.0.4.rcd_sig"), new byte[] {(byte) 0xFF, 0x00, 0x00}),
+                // Truncated file (too short)
+                new InMemoryFile(Path.of("node_0.0.5.rcd_sig"), new byte[] {0x06}));
+
+        // Create unparsed block with corrupted signatures
+        UnparsedRecordBlockV6 unparsedBlock = new UnparsedRecordBlockV6(
+                Instant.parse(V6_TEST_BLOCK_DATE_STR.replace('_', ':')),
+                recordFile,
+                Collections.emptyList(),
+                signatureFiles,
+                Collections.emptyList(),
+                Collections.emptyList());
+
+        // Should not throw - corrupted files should be skipped
+        assertDoesNotThrow(() -> {
+            ParsedRecordBlock parsedBlock = ParsedRecordBlock.parse(unparsedBlock);
+            assertNotNull(parsedBlock);
+            // All corrupted signatures should be skipped
+            assertEquals(0, parsedBlock.signatureFiles().size(), "All corrupted signatures should be skipped");
+        });
     }
 }
