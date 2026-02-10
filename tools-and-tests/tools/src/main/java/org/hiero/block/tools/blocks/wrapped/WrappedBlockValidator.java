@@ -344,12 +344,24 @@ public final class WrappedBlockValidator {
                     }
                 }
             } else if (item.hasRecordFile()) {
+                final var recordFile = item.recordFileOrThrow();
+                // Process original record stream items
                 for (final RecordStreamItem recordStreamItem :
-                        item.recordFileOrThrow().recordFileContentsOrThrow().recordStreamItems()) {
+                        recordFile.recordFileContentsOrThrow().recordStreamItems()) {
                     for (final AccountAmount accountAmount : recordStreamItem
                             .recordOrThrow()
                             .transferListOrThrow()
                             .accountAmounts()) {
+                        balanceMap.merge(
+                                accountAmount.accountIDOrThrow().accountNumOrThrow(),
+                                accountAmount.amount(),
+                                Long::sum);
+                    }
+                }
+                // Process amendments (missing transactions)
+                for (final RecordStreamItem amendment : recordFile.amendments()) {
+                    for (final AccountAmount accountAmount :
+                            amendment.recordOrThrow().transferListOrThrow().accountAmounts()) {
                         balanceMap.merge(
                                 accountAmount.accountIDOrThrow().accountNumOrThrow(),
                                 accountAmount.amount(),
