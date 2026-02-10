@@ -241,8 +241,8 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             if (Files.exists(verifiedBlockPath)) {
                 // we have the block so return it
                 try {
-                    final BlockFileBlockAccessor accessor = new BlockFileBlockAccessor(
-                            verifiedBlockPath, config.compression(), linksRootPath, blockNumber);
+                    final BlockFileBlockAccessor accessor =
+                            new BlockFileBlockAccessor(verifiedBlockPath, linksRootPath, blockNumber);
                     blocksReadCounter.increment();
                     return accessor;
                 } catch (final IOException e) {

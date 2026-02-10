@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -338,6 +339,67 @@ class BlockFileRecentPluginTest {
                         filesRecentConfigOverride.compression(),
                         filesRecentConfigOverride.maxFilesPerDir());
                 assertThat(persistedBlock).exists();
+            }
+        }
+
+        /**
+         * This test verifies that {@link BlockFileBlockAccessor#determineCompressionType} correctly
+         * identifies the actual compression type by reading magic bytes from file content, regardless of
+         * the file extension. This ensures that if someone adds a new CompressionType with incorrect
+         * magic bytes, or if files are misnamed with wrong extensions, the system will detect the mismatch.
+         */
+        @Test
+        @DisplayName("Test compression type is determined regardless of extension and config")
+        void testCompressionTypeIsDetermined() throws IOException {
+            final CompressionType[] compressionTypes = CompressionType.values();
+
+            // Create sample block content to compress
+            final BlockItem[] blockItems = createNumberOfVerySimpleBlocks(1);
+            final Block block = new Block(List.of(blockItems));
+            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
+
+            // Create blocks with all combinations of actual compression (i) vs file extension (j)
+            for (int compressionIdx = 0; compressionIdx < compressionTypes.length; compressionIdx++) {
+                for (int extensionIdx = 0; extensionIdx < compressionTypes.length; extensionIdx++) {
+                    final int blockNumber = compressionIdx * compressionTypes.length + extensionIdx;
+                    // Create file path with extension suggesting compression type extensionIdx
+                    final Path blockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                            blocksRootPath,
+                            blockNumber,
+                            compressionTypes[extensionIdx],
+                            filesRecentConfig.maxFilesPerDir());
+                    // Create parent directories
+                    Files.createDirectories(blockPath.getParent());
+                    // Write content compressed with compression type compressionIdx
+                    final byte[] compressedData = compressionTypes[compressionIdx].compress(protoBytes.toByteArray());
+                    Files.write(blockPath, compressedData);
+                }
+            }
+
+            // Verify that for each combination, the actual compression (compressionIdx) is correctly detected
+            // by reading magic bytes, regardless of the file extension (extensionIdx)
+            for (int compressionIdx = 0; compressionIdx < compressionTypes.length; compressionIdx++) {
+                for (int extensionIdx = 0; extensionIdx < compressionTypes.length; extensionIdx++) {
+                    final int blockNumber = compressionIdx * compressionTypes.length + extensionIdx;
+                    // Get the block file path (with extension suggesting extensionIdx)
+                    final Path blockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                            blocksRootPath,
+                            blockNumber,
+                            compressionTypes[extensionIdx],
+                            filesRecentConfig.maxFilesPerDir());
+                    // Create accessor which should detect the actual compression by magic bytes
+                    try (BlockFileBlockAccessor accessor =
+                            new BlockFileBlockAccessor(blockPath, linksRootPath, blockNumber)) {
+                        // Verify that the detected compression type matches the actual compression used
+                        // (compressionIdx)
+                        // not the file extension (extensionIdx)
+                        assertThat(accessor.compressionType())
+                                .as(
+                                        "Block %d: actual compression %s, extension %s",
+                                        blockNumber, compressionTypes[compressionIdx], compressionTypes[extensionIdx])
+                                .isEqualTo(compressionTypes[compressionIdx]);
+                    }
+                }
             }
         }
 
