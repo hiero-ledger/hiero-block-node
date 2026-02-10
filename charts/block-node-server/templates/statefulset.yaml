@@ -73,24 +73,9 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         {{- if .Values.plugins.names }}
-        - name: list-core-modules
+        - name: copy-core-modules
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          command:
-            - sh
-            - -c
-            - |
-              set -e
-              APP_DIR="/opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}"
-              echo "Listing JPMS modules from core jars in ${APP_DIR}/lib/ ..."
-              : > /plugins/.core-modules.txt
-              for jar in "${APP_DIR}"/lib/*.jar; do
-                [ -f "$jar" ] || continue
-                mod=$(jar --describe-module --file="$jar" 2>/dev/null | head -1 | sed 's/@.*//' | awk '{print $1}')
-                if [ -n "$mod" ] && [ "$mod" != "No" ]; then
-                  echo "$mod" >> /plugins/.core-modules.txt
-                fi
-              done
-              echo "Found $(wc -l < /plugins/.core-modules.txt | tr -d ' ') core modules"
+          command: ["cp", "/opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/lib/.core-modules.txt", "/plugins/.core-modules.txt"]
           volumeMounts:
             - name: {{ default "plugins" .Values.plugins.volumeName }}
               mountPath: /plugins
