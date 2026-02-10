@@ -126,11 +126,12 @@ public class BalanceFileBucket {
     /**
      * Normalize a timestamp string with underscores to ISO-8601 format.
      * Handles variable nanosecond precision (6 or 9 digits).
+     * Package-private for testing.
      *
      * @param timestampStr timestamp like "2019-09-13T22_00_00.000081Z"
      * @return ISO-8601 format like "2019-09-13T22:00:00.000081Z"
      */
-    private String normalizeTimestamp(String timestampStr) {
+    String normalizeTimestamp(String timestampStr) {
         // Replace underscores with colons for ISO-8601 format
         String normalized = timestampStr.replace('_', ':');
         // Ensure nanoseconds are 9 digits for proper parsing
@@ -189,11 +190,12 @@ public class BalanceFileBucket {
 
     /**
      * Format an Instant to the balance file timestamp format.
+     * Package-private for testing.
      *
      * @param timestamp the timestamp to format
      * @return formatted string like "2019-09-13T22_00_00.000081000Z"
      */
-    private String formatTimestamp(Instant timestamp) {
+    String formatTimestamp(Instant timestamp) {
         return BALANCE_TIMESTAMP_FORMATTER.format(timestamp);
     }
 
@@ -226,7 +228,7 @@ public class BalanceFileBucket {
             }
             return rawBytes;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to download: " + path, e);
+            throw new IllegalStateException("Failed to download: " + path, e);
         }
     }
 
@@ -250,11 +252,11 @@ public class BalanceFileBucket {
                     Thread.sleep(delay);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    throw new RuntimeException("Interrupted while downloading: " + path, e);
+                    throw new IllegalStateException("Interrupted while downloading: " + path, e);
                 }
                 delay *= 2;
             }
         }
-        throw new RuntimeException("Blob not found after " + MAX_RETRIES + " attempts: " + path);
+        throw new IllegalStateException("Blob not found after " + MAX_RETRIES + " attempts: " + path);
     }
 }
