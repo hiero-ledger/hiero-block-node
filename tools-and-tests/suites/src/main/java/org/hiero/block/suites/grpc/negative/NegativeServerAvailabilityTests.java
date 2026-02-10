@@ -52,7 +52,7 @@ public class NegativeServerAvailabilityTests extends BaseSuite {
     @DisplayName("Should fail to start with invalid configuration")
     public void serverStartupThrowsForInvalidConfiguration() {
         blockNodeContainer.stop();
-        blockNodeContainer.addEnv("PATH", "Wrong!");
+        blockNodeContainer.addEnv("VERSION", "Wrong!");
         assertThrows(
                 ContainerLaunchException.class,
                 () -> blockNodeContainer.start(),
