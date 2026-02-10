@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -17,7 +16,6 @@ import org.junit.jupiter.api.Test;
  * Unit tests for {@link BalanceCsvValidator}.
  *
  * <p>Tests the balance comparison logic without requiring actual GCP access.
- * Uses reflection to test private methods where necessary.
  */
 class BalanceCsvValidatorTest {
 
@@ -27,7 +25,7 @@ class BalanceCsvValidatorTest {
 
         @Test
         @DisplayName("All balances match returns empty mismatches")
-        void allBalancesMatch() throws Exception {
+        void allBalancesMatch() {
             Map<Long, Long> fileBalances = new HashMap<>();
             fileBalances.put(100L, 1_000_000_000L);
             fileBalances.put(200L, 2_000_000_000L);
@@ -38,7 +36,8 @@ class BalanceCsvValidatorTest {
             computedBalances.put(200L, 2_000_000_000L);
             computedBalances.put(300L, 500_000_000L);
 
-            ComparisonResult result = invokeCompareBalances(fileBalances, computedBalances);
+            BalanceCsvValidator.ComparisonResult result =
+                    createValidator().compareBalances(fileBalances, computedBalances);
 
             assertEquals(3, result.matchCount());
             assertTrue(result.mismatches().isEmpty());
@@ -46,7 +45,7 @@ class BalanceCsvValidatorTest {
 
         @Test
         @DisplayName("Single mismatch is detected")
-        void singleMismatchDetected() throws Exception {
+        void singleMismatchDetected() {
             Map<Long, Long> fileBalances = new HashMap<>();
             fileBalances.put(100L, 1_000_000_000L);
             fileBalances.put(200L, 2_000_000_000L);
@@ -55,7 +54,8 @@ class BalanceCsvValidatorTest {
             computedBalances.put(100L, 1_000_000_000L);
             computedBalances.put(200L, 1_500_000_000L); // Mismatch
 
-            ComparisonResult result = invokeCompareBalances(fileBalances, computedBalances);
+            BalanceCsvValidator.ComparisonResult result =
+                    createValidator().compareBalances(fileBalances, computedBalances);
 
             assertEquals(1, result.matchCount());
             assertEquals(1, result.mismatches().size());
@@ -66,7 +66,7 @@ class BalanceCsvValidatorTest {
 
         @Test
         @DisplayName("Missing account in computed balances is detected")
-        void missingAccountDetected() throws Exception {
+        void missingAccountDetected() {
             Map<Long, Long> fileBalances = new HashMap<>();
             fileBalances.put(100L, 1_000_000_000L);
             fileBalances.put(200L, 2_000_000_000L);
@@ -75,7 +75,8 @@ class BalanceCsvValidatorTest {
             computedBalances.put(100L, 1_000_000_000L);
             // Account 200 is missing
 
-            ComparisonResult result = invokeCompareBalances(fileBalances, computedBalances);
+            BalanceCsvValidator.ComparisonResult result =
+                    createValidator().compareBalances(fileBalances, computedBalances);
 
             assertEquals(1, result.matchCount());
             assertEquals(1, result.mismatches().size());
@@ -86,7 +87,7 @@ class BalanceCsvValidatorTest {
 
         @Test
         @DisplayName("Extra accounts in computed balances are ignored")
-        void extraAccountsIgnored() throws Exception {
+        void extraAccountsIgnored() {
             Map<Long, Long> fileBalances = new HashMap<>();
             fileBalances.put(100L, 1_000_000_000L);
 
@@ -94,7 +95,8 @@ class BalanceCsvValidatorTest {
             computedBalances.put(100L, 1_000_000_000L);
             computedBalances.put(999L, 5_000_000_000L); // Extra account
 
-            ComparisonResult result = invokeCompareBalances(fileBalances, computedBalances);
+            BalanceCsvValidator.ComparisonResult result =
+                    createValidator().compareBalances(fileBalances, computedBalances);
 
             assertEquals(1, result.matchCount());
             assertTrue(result.mismatches().isEmpty());
@@ -102,7 +104,7 @@ class BalanceCsvValidatorTest {
 
         @Test
         @DisplayName("Multiple mismatches are all detected")
-        void multipleMismatchesDetected() throws Exception {
+        void multipleMismatchesDetected() {
             Map<Long, Long> fileBalances = new HashMap<>();
             fileBalances.put(100L, 1_000_000_000L);
             fileBalances.put(200L, 2_000_000_000L);
@@ -113,7 +115,8 @@ class BalanceCsvValidatorTest {
             computedBalances.put(200L, 2_000_000_000L); // Match
             computedBalances.put(300L, 3_001_000_000L); // Mismatch
 
-            ComparisonResult result = invokeCompareBalances(fileBalances, computedBalances);
+            BalanceCsvValidator.ComparisonResult result =
+                    createValidator().compareBalances(fileBalances, computedBalances);
 
             assertEquals(1, result.matchCount());
             assertEquals(2, result.mismatches().size());
@@ -123,13 +126,14 @@ class BalanceCsvValidatorTest {
 
         @Test
         @DisplayName("Empty file balances results in zero matches")
-        void emptyFileBalances() throws Exception {
+        void emptyFileBalances() {
             Map<Long, Long> fileBalances = new HashMap<>();
 
             Map<Long, Long> computedBalances = new HashMap<>();
             computedBalances.put(100L, 1_000_000_000L);
 
-            ComparisonResult result = invokeCompareBalances(fileBalances, computedBalances);
+            BalanceCsvValidator.ComparisonResult result =
+                    createValidator().compareBalances(fileBalances, computedBalances);
 
             assertEquals(0, result.matchCount());
             assertTrue(result.mismatches().isEmpty());
@@ -188,43 +192,10 @@ class BalanceCsvValidatorTest {
         }
     }
 
-    // Helper records to match internal structure
-    private record BalanceMismatch(long expected, long computed) {}
-
-    private record ComparisonResult(int matchCount, Map<Long, BalanceMismatch> mismatches) {}
-
     /**
-     * Invokes the private compareBalances method via reflection.
+     * Creates a minimal validator instance for testing.
      */
-    private ComparisonResult invokeCompareBalances(Map<Long, Long> fileBalances, Map<Long, Long> computedBalances)
-            throws Exception {
-        // Create a minimal validator instance (GCP access not needed for this test)
-        BalanceCsvValidator validator = new BalanceCsvValidator(null, 3, 34, null, null, false);
-
-        // Get the private method
-        Method method = BalanceCsvValidator.class.getDeclaredMethod("compareBalances", Map.class, Map.class);
-        method.setAccessible(true);
-
-        // Invoke and convert result
-        Object result = method.invoke(validator, fileBalances, computedBalances);
-
-        // Extract fields from the private record
-        Class<?> resultClass = result.getClass();
-        int matchCount = (int) resultClass.getMethod("matchCount").invoke(result);
-        @SuppressWarnings("unchecked")
-        Map<Long, Object> rawMismatches =
-                (Map<Long, Object>) resultClass.getMethod("mismatches").invoke(result);
-
-        // Convert mismatches
-        Map<Long, BalanceMismatch> mismatches = new HashMap<>();
-        for (Map.Entry<Long, Object> entry : rawMismatches.entrySet()) {
-            Object mismatch = entry.getValue();
-            Class<?> mismatchClass = mismatch.getClass();
-            long expected = (long) mismatchClass.getMethod("expected").invoke(mismatch);
-            long computed = (long) mismatchClass.getMethod("computed").invoke(mismatch);
-            mismatches.put(entry.getKey(), new BalanceMismatch(expected, computed));
-        }
-
-        return new ComparisonResult(matchCount, mismatches);
+    private BalanceCsvValidator createValidator() {
+        return new BalanceCsvValidator(null, 3, 34, null, null, false);
     }
 }
