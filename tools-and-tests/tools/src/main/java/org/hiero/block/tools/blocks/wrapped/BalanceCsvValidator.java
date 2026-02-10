@@ -306,15 +306,16 @@ public class BalanceCsvValidator {
                 }
             }
         } catch (Exception e) {
-            throw new RuntimeException("Failed to parse protobuf balances", e);
+            throw new IllegalStateException("Failed to parse protobuf balances", e);
         }
         return balances;
     }
 
     /**
      * Compare file balances with computed balances.
+     * Package-private for testing.
      */
-    private ComparisonResult compareBalances(Map<Long, Long> fileBalances, Map<Long, Long> computedBalances) {
+    ComparisonResult compareBalances(Map<Long, Long> fileBalances, Map<Long, Long> computedBalances) {
         Map<Long, BalanceMismatch> mismatches = new TreeMap<>();
         int matchCount = 0;
 
@@ -391,9 +392,9 @@ public class BalanceCsvValidator {
             int mismatchCount,
             int validSignatures) {}
 
-    /** A balance mismatch between expected and computed values */
-    private record BalanceMismatch(long expected, long computed) {}
+    /** A balance mismatch between expected and computed values. Package-private for testing. */
+    record BalanceMismatch(long expected, long computed) {}
 
-    /** Result of comparing balances */
-    private record ComparisonResult(int matchCount, Map<Long, BalanceMismatch> mismatches) {}
+    /** Result of comparing balances. Package-private for testing. */
+    record ComparisonResult(int matchCount, Map<Long, BalanceMismatch> mismatches) {}
 }
