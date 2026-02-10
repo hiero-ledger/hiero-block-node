@@ -430,7 +430,7 @@ class BlockPathTest {
                 for (int configIdx = 0; configIdx < compressionTypes.length; configIdx++) {
                     // Use config with compression type j (matching the file extension)
                     final BlockPath blockPathSameConfigCompression = BlockPath.computeExistingBlockPath(
-                            new FilesHistoricConfig(dataRoot, compressionTypes[configIdx], 4, 0L, 3, true),
+                            new FilesHistoricConfig(dataRoot, compressionTypes[configIdx], 4, 0L, 3),
                             compressionIdx + configIdx);
                     // Verify that the actual compression type i is detected from magic bytes or lack thereof
                     assertThat(blockPathSameConfigCompression)
