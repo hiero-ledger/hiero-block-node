@@ -295,10 +295,21 @@ public class ParsedSignatureFile {
      *
      * @param hash the file hash to validate against (expected SHA-384)
      * @param addressBook the address book used to resolve the public key for the signature
-     * @return true if the provided hash matches the embedded hash and the RSA signature verifies; false otherwise
+     * @return true if the provided hash matches the embedded hash and the RSA signature verifies; false otherwise.
+     *         Returns false if the node is not in the address book (with a warning logged).
      */
     public boolean isValid(byte[] hash, NodeAddressBook addressBook) {
-        return isValid(hash, getRsaPubKey(addressBook));
+        String rsaPubKey;
+        try {
+            rsaPubKey = getRsaPubKey(addressBook);
+        } catch (RuntimeException e) {
+            // Node not in address book - log warning and return false so this signature is skipped
+            System.err.println(
+                    "Warning: Skipping signature from node 0.0." + accountNum + " - not found in address book with "
+                            + addressBook.nodeAddress().size() + " nodes");
+            return false;
+        }
+        return isValid(hash, rsaPubKey);
     }
 
     /**
