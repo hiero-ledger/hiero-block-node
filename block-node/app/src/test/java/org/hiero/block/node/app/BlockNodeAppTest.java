@@ -155,6 +155,7 @@ class BlockNodeAppTest {
 
         // Case 1: Test in parallel
         BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        assertNotNull(blockNodeApp);
         startBlockNode(blockNodeApp);
 
         // Case 2: Start plugins in ServiceLoader order
