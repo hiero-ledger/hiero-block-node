@@ -202,7 +202,7 @@ class BlockNodeAppTest {
     @Test
     @DisplayName("Test plugin startup in shuffled order")
     void testPluginStartupIndependence() throws IOException {
-        final int SHUFFLE_COUNT = 10;
+        final int SHUFFLE_COUNT = 100;
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
 
         // Case 4: Test in reverse order returned by the service loader.
