@@ -3,7 +3,6 @@ package org.hiero.block.node.archive.s3;
 
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static java.util.logging.Level.FINEST;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed;
 import static org.hiero.block.node.archive.s3.S3ArchivePlugin.LATEST_ARCHIVED_BLOCK_FILE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -30,7 +29,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -41,11 +39,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.logging.TestLogHandler;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
-import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
@@ -340,22 +338,13 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
      */
     @SuppressWarnings("UnusedReturnValue")
     private Instant sendBlocks(Instant firstBlockTime, long startBlockNumber, long endBlockNumber) {
-        final BlockItemUnparsed[] blockItems =
-                createNumberOfVerySimpleBlocksUnparsed(startBlockNumber, endBlockNumber, firstBlockTime, ONE_DAY);
+        final List<TestBlock> blocks =
+                TestBlockBuilder.generateBlocksInRange(startBlockNumber, endBlockNumber, firstBlockTime, ONE_DAY);
         // split into blocks
-        List<BlockItemUnparsed> blockItemList = new ArrayList<>();
-        long blockNumber = startBlockNumber;
         Instant blockTime = firstBlockTime;
-        for (BlockItemUnparsed blockItem : blockItems) {
-            if (blockItem.hasBlockHeader()) {
-                blockItemList = new ArrayList<>();
-            }
-            blockItemList.add(blockItem);
-            if (blockItem.hasBlockProof()) {
-                blockMessaging.sendBlockItems(new BlockItems(blockItemList, blockNumber));
-                blockNumber++;
-                blockTime = blockTime.plus(ONE_DAY);
-            }
+        for (final TestBlock block : blocks) {
+            blockMessaging.sendBlockItems(block.asBlockItems());
+            blockTime = blockTime.plus(ONE_DAY);
         }
         return blockTime;
     }

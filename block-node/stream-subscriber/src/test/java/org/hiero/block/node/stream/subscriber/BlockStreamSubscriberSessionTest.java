@@ -4,9 +4,9 @@ package org.hiero.block.node.stream.subscriber;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockHeaderUnparsed;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleBlockProofUnparsed;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.sampleRoundHeaderUnparsed;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleHeaderUnparsed;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleProofUnparsed;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.sampleRoundHeaderUnparsed;
 
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -1238,7 +1238,7 @@ class BlockStreamSubscriberSessionTest {
             // Create a small block that fits in one chunk (3 items, ~200 bytes total)
             // 100KB chunk size easily fits these small items
             final List<BlockItemUnparsed> smallBlock =
-                    List.of(sampleBlockHeaderUnparsed(0), sampleRoundHeaderUnparsed(0), sampleBlockProofUnparsed(0));
+                    List.of(sampleHeaderUnparsed(0), sampleRoundHeaderUnparsed(0), sampleProofUnparsed(0));
 
             // Create session with chunking config
             final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
@@ -1279,11 +1279,11 @@ class BlockStreamSubscriberSessionTest {
             // Create a block with large items that will exceed the 100KB chunk size
             // Each item is ~50KB, so 3 items should require at least 2 chunks
             final List<BlockItemUnparsed> largeBlock = new java.util.ArrayList<>();
-            largeBlock.add(sampleBlockHeaderUnparsed(0));
+            largeBlock.add(sampleHeaderUnparsed(0));
             largeBlock.add(createLargeBlockItem(50_000)); // ~50KB
             largeBlock.add(createLargeBlockItem(50_000)); // ~50KB
             largeBlock.add(createLargeBlockItem(50_000)); // ~50KB
-            largeBlock.add(sampleBlockProofUnparsed(0));
+            largeBlock.add(sampleProofUnparsed(0));
 
             // Create session with chunking config
             final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
@@ -1334,9 +1334,9 @@ class BlockStreamSubscriberSessionTest {
         @DisplayName("should send oversized item alone")
         void testOversizedItemShipsAlone() {
             // Create a block with one small item and one large item that exceeds chunk size (100KB)
-            final BlockItemUnparsed smallItem = sampleBlockHeaderUnparsed(0);
+            final BlockItemUnparsed smallItem = sampleHeaderUnparsed(0);
             final BlockItemUnparsed largeItem = createLargeBlockItem(TEST_CHUNK_SIZE_BYTES + 1000);
-            final BlockItemUnparsed anotherSmallItem = sampleBlockProofUnparsed(0);
+            final BlockItemUnparsed anotherSmallItem = sampleProofUnparsed(0);
 
             final List<BlockItemUnparsed> mixedBlock = List.of(smallItem, largeItem, anotherSmallItem);
 

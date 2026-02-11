@@ -14,6 +14,7 @@ import com.swirlds.metrics.api.IntegerGauge;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.BlockingDeque;
@@ -35,6 +36,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemSetUnparsed;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -800,7 +802,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                                     currentBlockNumber,
                                     currentBatch.blockItems().size());
                             // send the batch to the messaging facility
-                            messaging.sendBlockItems(new BlockItems(currentBatch.blockItems(), currentBlockNumber));
+                            // @todo(2159) when we add support for the end of block message we might change
+                            //    the way we send the block items
+                            final boolean hasBlockProof =
+                                    currentBatch.blockItems().getLast().hasBlockProof();
+                            if (hasBlockProof) {
+                                messaging.sendBlockItems(buildBlockItems(currentBatch, currentBlockNumber, true));
+                            } else {
+                                messaging.sendBlockItems(buildBlockItems(currentBatch, currentBlockNumber, false));
+                            }
                             publisherManager
                                     .metrics
                                     .blockItemsMessaged()
@@ -810,7 +820,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             batchesSent++;
                             forwardingLimitReached = batchesSent >= publisherConfiguration.batchForwardLimit();
                             // If we reach end of block, update counters and stop sending this block.
-                            if (currentBatch.blockItems().getLast().hasBlockProof()) {
+                            if (hasBlockProof) {
                                 // If the last item in the batch is a block proof,
                                 // we need to remove the queue from the queueByBlockMap.
                                 queueByBlockMap.remove(currentBlockNumber);
@@ -840,6 +850,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 }
             }
             return batchesSent;
+        }
+        // @todo(2159) when we add support for the end of block message we might no longer need this
+        private BlockItems buildBlockItems(
+                final BlockItemSetUnparsed currentBatch, final long currentBlockNumber, final boolean endOfBLock) {
+            final List<BlockItemUnparsed> items = currentBatch.blockItems();
+            return new BlockItems(items, currentBlockNumber, items.getFirst().hasBlockHeader(), endOfBLock);
         }
     }
 

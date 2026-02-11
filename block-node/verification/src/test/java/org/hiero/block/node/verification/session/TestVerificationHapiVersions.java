@@ -55,7 +55,7 @@ class TestVerificationHapiVersions {
         final VerificationNotification note = assertTimeoutPreemptively(
                 Duration.ofSeconds(3),
                 () -> {
-                    BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber);
+                    BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber, true, true);
                     return session.processBlockItems(blockItemsMessage);
                 },
                 sampleName + ": processing block items exceeded time budget");

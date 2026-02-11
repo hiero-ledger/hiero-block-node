@@ -5,13 +5,14 @@ import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
-import static org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder.toBlockItems;
+import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.toBlockItems;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -22,9 +23,11 @@ import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -113,11 +116,9 @@ class SubscriberServicePluginTest {
                     @DisplayName("Test Subscriber: Valid Request Single Block Already Existing")
                     void testSuccessfulRequestSingleBlock() {
                         // First we create the block
-                        final List<Block> blockZero =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
+                        final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
                         // Supply the needed items
-                        final List<BlockItem> expected = blockZero.getFirst().items();
-                        blockMessaging.sendBlockItems(toBlockItems(expected));
+                        blockMessaging.sendBlockItems(blockZero.asBlockItems());
                         // Then, we create the request for block 0
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(0L)
@@ -140,7 +141,7 @@ class SubscriberServicePluginTest {
                                 .apply(fromPluginBytes.getFirst())
                                 .blockItems()
                                 .blockItems();
-                        assertBlockReceived(expected, actual);
+                        assertBlockReceived(blockZero.block().items(), actual);
                     }
 
                     /**
@@ -158,15 +159,12 @@ class SubscriberServicePluginTest {
                     @DisplayName("Test Subscriber: Valid Request Single Block Future From History")
                     void testSuccessfulRequestSingleBlockFutureFromHistory() {
                         // First we create the block
-                        final List<Block> blockZero =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
+                        final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
                         // Supply a block, otherwise if there is no data at all, we
                         // cannot fulfill the request, because we cannot determine
                         // how much in the future the requested block is
-                        final List<BlockItem> blockZeroItems =
-                                blockZero.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
-                        // Then, we create the request for block 0
+                        historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
+                        // Then, we create the request for block 1
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(1L)
                                 .endBlockNumber(1L)
@@ -174,10 +172,8 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Now supply the requested block to history
-                        final List<Block> blockOne =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(1, 1);
-                        final List<BlockItem> expected = blockOne.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(expected));
+                        final TestBlock blockOne = TestBlockBuilder.generateBlockWithNumber(1);
+                        historicalBlockFacility.handleBlockItemsReceived(blockOne.asBlockItems());
                         // Wait for responses
                         final int expectedResponses = 3; // one with items, end of block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
@@ -193,7 +189,7 @@ class SubscriberServicePluginTest {
                                 .apply(fromPluginBytes.getFirst())
                                 .blockItems()
                                 .blockItems();
-                        assertBlockReceived(expected, actual);
+                        assertBlockReceived(blockOne.block().items(), actual);
                     }
 
                     /**
@@ -211,15 +207,12 @@ class SubscriberServicePluginTest {
                     @DisplayName("Test Subscriber: Valid Request Single Block Future From Live")
                     void testSuccessfulRequestSingleBlockFutureFromLive() {
                         // First we create the block
-                        final List<Block> blockZero =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
+                        final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
                         // Supply a block, otherwise if there is no data at all, we
                         // cannot fulfill the request, because we cannot determine
                         // how much in the future the requested block is
-                        final List<BlockItem> blockZeroItems =
-                                blockZero.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
-                        // Then, we create the request for block 0
+                        historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
+                        // Then, we create the request for block 1
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(1L)
                                 .endBlockNumber(1L)
@@ -230,10 +223,8 @@ class SubscriberServicePluginTest {
                         // block will be supplied from live
                         historicalBlockFacility.setDisablePlugin();
                         // Now supply the requested block to history
-                        final List<Block> blockOne =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(1, 1);
-                        final List<BlockItem> expected = blockOne.getFirst().items();
-                        blockMessaging.sendBlockItems(toBlockItems(expected));
+                        final TestBlock blockOne = TestBlockBuilder.generateBlockWithNumber(1);
+                        blockMessaging.sendBlockItems(blockOne.asBlockItems());
                         // Wait for responses
                         final int expectedResponses = 3; // one with items, end of block, one with success status
                         awaitResponse(fromPluginBytes, expectedResponses);
@@ -249,7 +240,7 @@ class SubscriberServicePluginTest {
                                 .apply(fromPluginBytes.getFirst())
                                 .blockItems()
                                 .blockItems();
-                        assertBlockReceived(expected, actual);
+                        assertBlockReceived(blockOne.block().items(), actual);
                     }
 
                     /**
@@ -270,14 +261,11 @@ class SubscriberServicePluginTest {
                     @DisplayName("Test Subscriber: Valid Request Single Block Future From Live In Batches")
                     void testSuccessfulRequestSingleBlockFutureFromLiveInBatches() {
                         // First we create the block
-                        final List<Block> blockZero =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
+                        final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
                         // Supply a block, otherwise if there is no data at all, we
                         // cannot fulfill the request, because we cannot determine
                         // how much in the future the requested block is
-                        final List<BlockItem> blockZeroItems =
-                                blockZero.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
+                        historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
                         // Then, we create the request for block 0
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(1L)
@@ -289,20 +277,19 @@ class SubscriberServicePluginTest {
                         // block will be supplied from live
                         historicalBlockFacility.setDisablePlugin();
                         // Now supply the requested block to history in multiple batches
-                        final List<Block> blockOne =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(1, 1);
-                        final List<BlockItem> expected = blockOne.getFirst().items();
+                        final TestBlock blockOne = TestBlockBuilder.generateBlockWithNumber(1);
+                        final Block expected = blockOne.block();
                         // Now, send to live only the header as a first batch
-                        final List<BlockItem> headerOnly = expected.subList(0, 1);
-                        blockMessaging.sendBlockItems(toBlockItems(headerOnly));
+                        final List<BlockItem> headerOnly = expected.items().subList(0, 1);
+                        final long expectedNumber = blockOne.number();
+                        final BlockItems blockItems = toBlockItems(headerOnly, expectedNumber, true, false);
+                        blockMessaging.sendBlockItems(blockItems);
                         // we expect that a response will be sent
                         awaitResponse(fromPluginBytes, 1);
                         // Now send the rest of the block in one batch
-                        final List<BlockItem> restOfBlock = expected.subList(1, expected.size());
-                        blockMessaging.sendBlockItems(toBlockItems(
-                                restOfBlock,
-                                false,
-                                headerOnly.getFirst().blockHeader().number()));
+                        final List<BlockItem> restOfBlock =
+                                expected.items().subList(1, expected.items().size());
+                        blockMessaging.sendBlockItems(toBlockItems(restOfBlock, expectedNumber, false, true));
                         // Wait for all responses, now we expect two responses,
                         // one is for the rest of the block items, the other is
                         // the success status
@@ -350,11 +337,10 @@ class SubscriberServicePluginTest {
                     @DisplayName("Test Subscriber: Valid Request Multiple Blocks Already Existing")
                     void testSuccessfulRequestMultipleBlocksClosedRange() {
                         // First we create the blocks
-                        final List<Block> blocksZeroToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                        final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
                         // Supply the needed items
-                        for (final Block block : blocksZeroToTwo) {
-                            blockMessaging.sendBlockItems(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksZeroToTwo) {
+                            blockMessaging.sendBlockItems(block.asBlockItems());
                         }
                         // Then, we create the request for blocks 0 to 2
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
@@ -394,16 +380,12 @@ class SubscriberServicePluginTest {
                     @DisplayName("Test Subscriber: Valid Request Multiple Blocks Future From History")
                     void testSuccessfulRequestMultipleBlocksClosedRangeFutureFromHistory() {
                         // First we create the blocks
-                        final List<Block> blocksOneToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(1, 2);
+                        final List<TestBlock> blocksOneToTwo = TestBlockBuilder.generateBlocksInRange(1, 2);
                         // Supply a block, otherwise if there is no data at all, we
                         // cannot fulfill the request, because we cannot determine
                         // how much in the future the requested block is
-                        final List<Block> blockZero =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
-                        final List<BlockItem> blockZeroItems =
-                                blockZero.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
+                        final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+                        historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
                         // Then, we create the request for blocks 1 to 2
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(1L)
@@ -412,8 +394,8 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Now supply the requested blocks to history
-                        for (final Block block : blocksOneToTwo) {
-                            historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksOneToTwo) {
+                            historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems());
                         }
                         // Wait for responses
                         final int expectedResponses = (2 * blocksOneToTwo.size())
@@ -446,16 +428,12 @@ class SubscriberServicePluginTest {
                     @DisplayName("Test Subscriber: Valid Request Multiple Blocks Future From Live")
                     void testSuccessfulRequestMultipleBlocksClosedRangeFutureFromLive() {
                         // First we create the blocks
-                        final List<Block> blocksOneToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(1, 2);
+                        final List<TestBlock> blocksOneToTwo = TestBlockBuilder.generateBlocksInRange(1, 2);
                         // Supply a block, otherwise if there is no data at all, we
                         // cannot fulfill the request, because we cannot determine
                         // how much in the future the requested block is
-                        final List<Block> blockZero =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
-                        final List<BlockItem> blockZeroItems =
-                                blockZero.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
+                        final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+                        historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
                         // Then, we create the request for blocks 1 to 2
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(1L)
@@ -467,8 +445,8 @@ class SubscriberServicePluginTest {
                         // blocks will be supplied from live
                         historicalBlockFacility.setDisablePlugin();
                         // Now supply the requested blocks to history
-                        for (final Block block : blocksOneToTwo) {
-                            blockMessaging.sendBlockItems(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksOneToTwo) {
+                            blockMessaging.sendBlockItems(block.asBlockItems());
                         }
                         // Wait for responses
                         final int expectedResponses = (2 * blocksOneToTwo.size())
@@ -507,11 +485,10 @@ class SubscriberServicePluginTest {
                             "Test Subscriber: Valid Request Multiple Blocks Start Defined - End Open Ranged, Start Already Existing")
                     void testSuccessfulRequestMultipleBlocksStartDefinedEndOpenRange() {
                         // First we create the blocks
-                        final List<Block> blocksZeroToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                        final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
                         // Supply the needed items
-                        for (final Block block : blocksZeroToTwo) {
-                            historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksZeroToTwo) {
+                            historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems());
                         }
                         // Then, we create the request for blocks 0 to open
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
@@ -558,16 +535,12 @@ class SubscriberServicePluginTest {
                             "Test Subscriber: Valid Request Multiple Blocks Start Defined - End Open Range, Future From History")
                     void testSuccessfulRequestMultipleBlocksStartDefinedEndOpenRangeFutureFromHistory() {
                         // First we create the blocks
-                        final List<Block> blocksOneToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(1, 2);
+                        final List<TestBlock> blocksOneToTwo = TestBlockBuilder.generateBlocksInRange(1, 2);
                         // Supply a block, otherwise if there is no data at all, we
                         // cannot fulfill the request, because we cannot determine
                         // how much in the future the requested block is
-                        final List<Block> blockZero =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
-                        final List<BlockItem> blockZeroItems =
-                                blockZero.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
+                        final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+                        historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
                         // Then, we create the request for blocks 1 to open
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(1L)
@@ -576,8 +549,8 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Now supply the requested blocks to history
-                        for (final Block block : blocksOneToTwo) {
-                            historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksOneToTwo) {
+                            historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems());
                         }
                         // Wait for responses
                         final int expectedBlockItemResponses =
@@ -617,16 +590,12 @@ class SubscriberServicePluginTest {
                             "Test Subscriber: Valid Request Multiple Blocks Start Defined - End Open Range, Future From Live")
                     void testSuccessfulRequestMultipleBlocksStartDefinedEndOpenRangeFutureFromLive() {
                         // First we create the blocks
-                        final List<Block> blocksOneToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(1, 2);
+                        final List<TestBlock> blocksOneToTwo = TestBlockBuilder.generateBlocksInRange(1, 2);
                         // Supply a block, otherwise if there is no data at all, we
                         // cannot fulfill the request, because we cannot determine
                         // how much in the future the requested block is
-                        final List<Block> blockZero =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
-                        final List<BlockItem> blockZeroItems =
-                                blockZero.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
+                        final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+                        historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
                         // Then, we create the request for blocks 1 to open
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(1L)
@@ -638,8 +607,8 @@ class SubscriberServicePluginTest {
                         // blocks will be supplied from live
                         historicalBlockFacility.setDisablePlugin();
                         // Now supply the requested blocks to history
-                        for (final Block block : blocksOneToTwo) {
-                            blockMessaging.sendBlockItems(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksOneToTwo) {
+                            blockMessaging.sendBlockItems(block.asBlockItems());
                         }
                         // Wait for responses
                         final int expectedBlockItemResponses =
@@ -685,11 +654,10 @@ class SubscriberServicePluginTest {
                             "Test Subscriber: Valid Request Multiple Blocks Start From First Available - End Defined Range, Blocks Already Existing")
                     void testSuccessfulRequestMultipleBlocksStartFromFirstAvailableEndDefinedRange() {
                         // First we create the blocks
-                        final List<Block> blocksZeroToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                        final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
                         // Supply the needed items
-                        for (final Block block : blocksZeroToTwo) {
-                            historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksZeroToTwo) {
+                            historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems());
                         }
                         // Then, we create the request for blocks first available (0) to 2
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
@@ -732,14 +700,12 @@ class SubscriberServicePluginTest {
                             "Test Subscriber: Valid Request Multiple Blocks Start From First Available - End Defined Range Future From History")
                     void testSuccessfulRequestMultipleBlocksStartFromFirstAvailableEndDefinedRangeFutureFromHistory() {
                         // First we create the blocks
-                        final List<Block> blocksZeroToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                        final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
                         // Supply a block, otherwise if there is no data at all, we
                         // cannot fulfill the request, because we cannot determine
                         // how much in the future the requested block is
-                        final List<BlockItem> blockZeroItems =
-                                blocksZeroToTwo.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
+                        historicalBlockFacility.handleBlockItemsReceived(
+                                blocksZeroToTwo.getFirst().asBlockItems());
                         // Then, we create the request for blocks first available (0) to 2
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(-1L)
@@ -748,8 +714,8 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Now supply the requested blocks to history
-                        for (final Block block : blocksZeroToTwo.subList(1, blocksZeroToTwo.size())) {
-                            historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksZeroToTwo.subList(1, blocksZeroToTwo.size())) {
+                            historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems());
                         }
                         // Wait for responses
                         final int expectedResponses =
@@ -785,14 +751,12 @@ class SubscriberServicePluginTest {
                             "Test Subscriber: Valid Request Multiple Blocks Start From First Available - End Defined Range Future From Live")
                     void testSuccessfulRequestMultipleBlocksStartFromFirstAvailableEndDefinedRangeFutureFromLive() {
                         // First we create the blocks
-                        final List<Block> blocksZeroToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                        final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
                         // Supply a block, otherwise if there is no data at all, we
                         // cannot fulfill the request, because we cannot determine
                         // how much in the future the requested block is
-                        final List<BlockItem> blockZeroItems =
-                                blocksZeroToTwo.getFirst().items();
-                        historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
+                        historicalBlockFacility.handleBlockItemsReceived(
+                                blocksZeroToTwo.getFirst().asBlockItems());
                         // Then, we create the request for blocks first available (0) to 2
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(-1L)
@@ -804,8 +768,8 @@ class SubscriberServicePluginTest {
                         // blocks will be supplied from live
                         historicalBlockFacility.setDisablePlugin();
                         // Now supply the requested blocks to live ring buffer
-                        for (final Block block : blocksZeroToTwo.subList(1, blocksZeroToTwo.size())) {
-                            blockMessaging.sendBlockItems(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksZeroToTwo.subList(1, blocksZeroToTwo.size())) {
+                            blockMessaging.sendBlockItems(block.asBlockItems());
                         }
                         // Wait for responses
                         final int expectedResponses = (2 * blocksZeroToTwo.size())
@@ -841,8 +805,7 @@ class SubscriberServicePluginTest {
                     @DisplayName("Test Subscriber: Valid Request Live Stream")
                     void testSuccessfulRequestLiveStream() {
                         // First we create the blocks
-                        final List<Block> blocksZeroToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                        final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
                         // Then, we create the request for live stream
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(-1L)
@@ -854,8 +817,8 @@ class SubscriberServicePluginTest {
                         // blocks will be supplied from live
                         historicalBlockFacility.setDisablePlugin();
                         // Now supply the requested blocks to live ring buffer
-                        for (final Block block : blocksZeroToTwo) {
-                            blockMessaging.sendBlockItems(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksZeroToTwo) {
+                            blockMessaging.sendBlockItems(block.asBlockItems());
                         }
                         // Wait for responses for block items
                         final int expectedBlockItemResponses =
@@ -889,8 +852,7 @@ class SubscriberServicePluginTest {
                             "@todo(1673) should not be failing, we fail because history not permitted, we think we jump ahead")
                     void testSuccessfulRequestLiveStreamFromLiveThenHistory() {
                         // First we create the blocks
-                        final List<Block> blocksZeroToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                        final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
                         // Then, we create the request for live stream
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(-1L)
@@ -899,14 +861,12 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Send the first block from live
-                        final List<BlockItem> blockZeroItems =
-                                blocksZeroToTwo.getFirst().items();
-                        blockMessaging.sendBlockItems(toBlockItems(blockZeroItems));
+                        blockMessaging.sendBlockItems(blocksZeroToTwo.getFirst().asBlockItems());
                         // Await the first response
                         awaitResponse(fromPluginBytes, 1);
                         // Now supply the following blocks from history
-                        for (final Block block : blocksZeroToTwo.subList(1, blocksZeroToTwo.size())) {
-                            historicalBlockFacility.handleBlockItemsReceived(toBlockItems(block.items()));
+                        for (final TestBlock block : blocksZeroToTwo.subList(1, blocksZeroToTwo.size())) {
+                            historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems());
                         }
                         // Wait for responses for block items
                         awaitResponse(fromPluginBytes, 2);
@@ -942,8 +902,7 @@ class SubscriberServicePluginTest {
                     @DisplayName("Test Subscriber: Valid Request Live Stream Mid-Block Subscription")
                     void testSuccessfulRequestLiveStreamMidBlockSubscription() {
                         // First we create the blocks
-                        final List<Block> blocksZeroToTwo =
-                                SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                        final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
                         // Then, we create the request for live stream
                         final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                                 .startBlockNumber(-1L)
@@ -952,16 +911,20 @@ class SubscriberServicePluginTest {
                         // Send the request
                         toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                         // Send a partial block from live, simulating a mid-block subscription
-                        final List<BlockItem> firstBlock =
-                                blocksZeroToTwo.getFirst().items();
-                        blockMessaging.sendBlockItems(toBlockItems(
-                                firstBlock,
+                        final TestBlock blockZero = blocksZeroToTwo.getFirst();
+                        final BlockItems blockItems = toBlockItems(
+                                blockZero
+                                        .block()
+                                        .items()
+                                        .subList(1, blockZero.block().items().size()), // remove the header
+                                blockZero.number(), // supply the correct block number
                                 false,
-                                firstBlock.getFirst().blockHeader().number()));
+                                true);
+                        blockMessaging.sendBlockItems(blockItems);
                         // Now supply the following blocks from history
-                        final List<Block> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
-                        for (final Block block : blocksOneToTwo) {
-                            blockMessaging.sendBlockItems(toBlockItems(block.items()));
+                        final List<TestBlock> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
+                        for (final TestBlock block : blocksOneToTwo) {
+                            blockMessaging.sendBlockItems(block.asBlockItems());
                         }
                         // Wait for responses for block items
                         final int expectedBlockItemResponses =
@@ -996,8 +959,7 @@ class SubscriberServicePluginTest {
                 @DisplayName("Test Subscriber: Valid Request Live Stream Subscription With Some Blocks Without Headers")
                 void testSuccessfulRequestLiveStreamWithBlockAndSomeBlocksWithoutHeadersSubscription() {
                     // First we create the blocks
-                    final List<Block> blocksZeroToTwo =
-                            SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 2);
+                    final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
                     // Then, we create the request for live stream
                     final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                             .startBlockNumber(-1L)
@@ -1006,19 +968,18 @@ class SubscriberServicePluginTest {
                     // Send the request
                     toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
                     // Send a block 0
-                    final List<BlockItem> firstBlock =
-                            blocksZeroToTwo.getFirst().items();
-                    blockMessaging.sendBlockItems(toBlockItems(
-                            firstBlock,
-                            true,
-                            firstBlock.getFirst().blockHeader().number()));
+                    final TestBlock blockZero = blocksZeroToTwo.getFirst();
+                    blockMessaging.sendBlockItems(blockZero.asBlockItems());
                     // Now supply the following blocks without headers
-                    final List<Block> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
-                    for (final Block block : blocksOneToTwo) {
+                    final List<TestBlock> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
+                    for (final TestBlock block : blocksOneToTwo) {
                         blockMessaging.sendBlockItems(toBlockItems(
-                                block.items(),
+                                block.block()
+                                        .items()
+                                        .subList(1, block.block().items().size()), // remove the header from the block
+                                blockZero.number(), // put block number of last one streamed
                                 false,
-                                firstBlock.getFirst().blockHeader().number()));
+                                true));
                     }
                     // Wait for responses for block items
                     final int expectedBlockItemResponses = 2; // only one with items and end block
@@ -1036,8 +997,63 @@ class SubscriberServicePluginTest {
                             .returns(Code.SUCCESS, responseStatusExtractor);
                     // Extract and assert block items response
                     final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
-                    assertBlockItemsMatch(List.of(blocksZeroToTwo.getFirst()), blockItemResponses);
+                    assertBlockItemsMatch(List.of(blockZero), blockItemResponses);
                 }
+            }
+
+            /**
+             * This test aims to assert that when we have partial blocks supplied, they will still be sent
+             */
+            @Test
+            @DisplayName("Test Subscriber: Valid Request Live Stream Subscription With Partial Blocks")
+            void testSuccessfulRequestLiveStreamWithPartialBlocksSubscription() {
+                // First we create the blocks
+                final List<TestBlock> blocksZeroToTwo = TestBlockBuilder.generateBlocksInRange(0, 2);
+                // Then, we create the request for live stream
+                final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
+                        .startBlockNumber(-1L)
+                        .endBlockNumber(-1L)
+                        .build();
+                // Send the request
+                toPluginPipe.onNext(SubscribeStreamRequest.PROTOBUF.toBytes(request));
+                // Send a block 0
+                final List<TestBlock> expected = new ArrayList<>();
+                expected.add(blocksZeroToTwo.getFirst());
+                final TestBlock blockZero = blocksZeroToTwo.getFirst();
+                blockMessaging.sendBlockItems(blockZero.asBlockItems());
+                // Now supply the following blocks without headers
+                final List<TestBlock> blocksOneToTwo = blocksZeroToTwo.subList(1, blocksZeroToTwo.size());
+                for (final TestBlock block : blocksOneToTwo) {
+                    // remove the header from the block
+                    final List<BlockItem> itemsToSend = block.block()
+                            .items()
+                            .subList(1, block.block().items().size());
+                    blockMessaging.sendBlockItems(toBlockItems(
+                            itemsToSend,
+                            block.number(), // the correct block number
+                            false,
+                            true));
+                    expected.add(new TestBlock(
+                            block.number(),
+                            Block.newBuilder().items(itemsToSend).build()));
+                }
+                // Wait for responses for block items
+                final int expectedBlockItemResponses = 6; // only one with items and end block
+                awaitResponse(fromPluginBytes, expectedBlockItemResponses);
+                // now we need to stop the plugin to end the live stream request and
+                // receive the success status response
+                plugin.stop();
+                final int expectedResponses = expectedBlockItemResponses + 1; // items and one with success status
+                // Assert responses count and status success
+                assertThat(fromPluginBytes)
+                        .hasSize(expectedResponses)
+                        .last()
+                        .extracting(responseExtractor)
+                        .isNotNull()
+                        .returns(Code.SUCCESS, responseStatusExtractor);
+                final List<Bytes> blockItemResponses = fromPluginBytes.subList(0, fromPluginBytes.size());
+                // Extract and assert block items response
+                assertBlockItemsMatch(expected, blockItemResponses);
             }
 
             /**
@@ -1058,10 +1074,8 @@ class SubscriberServicePluginTest {
                     // Supply a block, otherwise if there is no data at all, we
                     // cannot fulfill the request, because we cannot determine
                     // how much in the future the requested block is
-                    final List<Block> blockZero =
-                            SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksBatched(0, 0);
-                    final List<BlockItem> blockZeroItems = blockZero.getFirst().items();
-                    historicalBlockFacility.handleBlockItemsReceived(toBlockItems(blockZeroItems));
+                    final TestBlock blockZero = TestBlockBuilder.generateBlockWithNumber(0);
+                    historicalBlockFacility.handleBlockItemsReceived(blockZero.asBlockItems());
                     // Then, we create the request for block 10_000, which is too far in the future
                     final SubscribeStreamRequest request = SubscribeStreamRequest.newBuilder()
                             .startBlockNumber(10_000L)
@@ -1182,9 +1196,10 @@ class SubscriberServicePluginTest {
         }
     }
 
-    private static void assertBlockItemsMatch(final List<Block> expectedBlocks, final List<Bytes> blocksFromPipeline) {
+    private static void assertBlockItemsMatch(
+            final List<TestBlock> expectedBlocks, final List<Bytes> blocksFromPipeline) {
         final List<List<BlockItem>> expectedBlockItems =
-                expectedBlocks.stream().map(Block::items).toList();
+                expectedBlocks.stream().map(tb -> tb.block().items()).toList();
         // Block items and end of block for each block
         long currentBlockNumber = -1;
         for (int i = 0, j = 0; i < expectedBlockItems.size(); i++) {

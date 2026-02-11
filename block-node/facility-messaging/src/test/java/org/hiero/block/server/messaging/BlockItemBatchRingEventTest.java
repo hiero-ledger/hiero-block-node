@@ -36,7 +36,7 @@ public class BlockItemBatchRingEventTest {
         BlockItemUnparsed item1 = new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, Bytes.wrap("fake")));
         BlockItemUnparsed item2 = new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_PROOF, Bytes.wrap("fake")));
         List<BlockItemUnparsed> items = List.of(item1, item2);
-        final BlockItems blockItems = new BlockItems(items, 0);
+        final BlockItems blockItems = new BlockItems(items, 0, true, true);
         // set the items
         event.set(blockItems);
         // verify that the get method returns the same notification
@@ -46,7 +46,7 @@ public class BlockItemBatchRingEventTest {
         assertEquals(
                 "BlockItemBatchRingEvent{BlockItems[blockItems=["
                         + items.stream().map(BlockItemUnparsed::toString).collect(Collectors.joining(", "))
-                        + "], blockNumber=0]}",
+                        + "], blockNumber=0, isStartOfNewBlock=true, isEndOfBlock=true]}",
                 event.toString(),
                 "The toString method should return a non-empty string");
     }

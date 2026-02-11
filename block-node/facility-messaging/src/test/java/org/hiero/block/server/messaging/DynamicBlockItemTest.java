@@ -117,7 +117,10 @@ public class DynamicBlockItemTest {
         // send 2000 items to the service, in lock step with fast handler
         for (int i = 0; i < TEST_DATA_COUNT; i++) {
             messagingService.sendBlockItems(new BlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))), -1));
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),
+                    i,
+                    true,
+                    false));
             // notify the fast handler that we are done sending an item, so we stay in lock step
             try {
                 barrier.await(5, TimeUnit.SECONDS);
@@ -207,7 +210,10 @@ public class DynamicBlockItemTest {
                 }
             }
             messagingService.sendBlockItems(new BlockItems(
-                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))), -1));
+                    List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, intToBytes(i)))),
+                    i,
+                    true,
+                    false));
             // have to slow down production to make test reliable
             try {
                 Thread.sleep(1);

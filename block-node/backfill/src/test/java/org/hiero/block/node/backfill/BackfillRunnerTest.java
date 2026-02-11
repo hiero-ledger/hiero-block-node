@@ -14,10 +14,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hedera.hapi.block.stream.Block;
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.LongGauge;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -26,8 +24,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -93,8 +90,7 @@ class BackfillRunnerTest {
      * Uses testFixtures utilities instead of manual construction.
      */
     private static BlockUnparsed createTestBlock(long blockNumber) {
-        Block block = new Block(Arrays.asList(SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(blockNumber)));
-        return BlockUtils.toBlockUnparsed(block);
+        return TestBlockBuilder.generateBlockWithNumber(blockNumber).blockUnparsed();
     }
 
     @Nested

@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -17,14 +16,13 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import org.hiero.block.node.app.fixtures.blocks.InMemoryBlockAccessor;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
@@ -354,8 +352,8 @@ class ZipBlockArchiveTest {
             final int batchSize = StrictMath.toIntExact(intPowerOfTen(testConfig.powersOfTenPerZipFileContents()));
             final BlockAccessorBatch batch = new BlockAccessorBatch();
             for (int i = firstBlockNumber; i < batchSize; i++) {
-                final List<BlockItem> blockItems = List.of(SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(i));
-                batch.add(new InMemoryBlockAccessor(blockItems));
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
+                batch.add(block.asBlockAccessor());
             }
             // before test assert that all the blocks are batched
             assertThat(batch).hasSize(batchSize);
@@ -394,8 +392,8 @@ class ZipBlockArchiveTest {
             final Map<String, Bytes> first10BlocksWithExpectedEntryNames = new TreeMap<>();
             final BlockAccessorBatch batch = new BlockAccessorBatch();
             for (int i = firstBlockNumber; i < batchSize; i++) {
-                final List<BlockItem> blockItems = List.of(SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(i));
-                final InMemoryBlockAccessor accessor = new InMemoryBlockAccessor(blockItems);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
+                final BlockAccessor accessor = block.asBlockAccessor();
                 batch.add(accessor);
                 final String key = BlockFile.blockFileName(i, testConfig.compression());
                 final Bytes value = accessor.blockBytes(Format.PROTOBUF);
@@ -432,10 +430,8 @@ class ZipBlockArchiveTest {
 
     private ZipBlockAccessor createAndAddBlockEntry(final long blockNumber) throws IOException {
         final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, blockNumber);
-        final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createSimpleBlockWithNumber(blockNumber);
-        final Block block = new Block(List.of(blockItems));
-        final Bytes blockBytes = Block.PROTOBUF.toBytes(block);
-        return createAndAddBlockEntry(blockPath, blockBytes.toByteArray());
+        final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
+        return createAndAddBlockEntry(blockPath, block.bytes().toByteArray());
     }
 
     private ZipBlockAccessor createAndAddBlockEntry(final BlockPath blockPath, final byte[] bytesToWrite)

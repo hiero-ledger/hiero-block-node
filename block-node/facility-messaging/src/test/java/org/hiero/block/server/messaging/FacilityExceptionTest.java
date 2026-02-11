@@ -97,10 +97,10 @@ public class FacilityExceptionTest {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        service.sendBlockItems(
-                new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), -1));
-        service.sendBlockItems(
-                new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), -1));
+        service.sendBlockItems(new BlockItems(
+                List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), 0, true, false));
+        service.sendBlockItems(new BlockItems(
+                List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), 0, true, false));
         service.stop();
         // wait for the log handler to process the log messages
         for (int i = 0; i < 10 && logHandler.getLogMessages().isEmpty(); i++) {

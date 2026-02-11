@@ -20,8 +20,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import org.hiero.block.internal.BlockItemUnparsed;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
@@ -29,7 +29,6 @@ import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
-import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
@@ -1238,8 +1237,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
             if (i == 10) {
                 continue;
             }
-            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-            gappyStorage.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
+            gappyStorage.handleBlockItemsReceived(block.asBlockItems(), false);
         }
 
         testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), gappyStorage));
@@ -1342,8 +1341,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
         // Create a new historical block facility with the specified start and end blocks
         SimpleInMemoryHistoricalBlockFacility historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
         for (long i = startBlock; i <= endBlock; i++) {
-            final BlockItemUnparsed[] block = SimpleTestBlockItemBuilder.createSimpleBlockUnparsedWithNumber(i);
-            historicalBlockFacility.handleBlockItemsReceived(new BlockItems(List.of(block), i), false);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
+            historicalBlockFacility.handleBlockItemsReceived(block.asBlockItems(), false);
         }
         return historicalBlockFacility;
     }

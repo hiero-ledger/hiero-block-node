@@ -9,9 +9,6 @@ import static org.assertj.core.api.Assertions.from;
 
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
 import java.io.IOException;
 import java.nio.file.FileSystem;
@@ -23,7 +20,8 @@ import java.util.List;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.base.CompressionType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -456,11 +454,9 @@ class BlockPathTest {
             }
         }
 
-        private byte[] getBytesToWrite(CompressionType compressionType) {
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
-            final Block block = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(block);
-            return compressionType.compress(protoBytes.toByteArray());
+        private byte[] getBytesToWrite(final CompressionType compressionType) {
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+            return compressionType.compress(block.bytes().toByteArray());
         }
     }
 

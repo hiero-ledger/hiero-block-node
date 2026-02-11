@@ -8,8 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
-import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -18,12 +16,11 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.app.fixtures.blocks.SimpleTestBlockItemBuilder;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
 import org.junit.jupiter.api.AfterEach;
@@ -112,12 +109,10 @@ class ZipBlockAccessorTest {
         @SuppressWarnings("DataFlowIssue")
         void testBlockBytesHappyPathFormat(final CompressionType compressionType) throws IOException {
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final BlockPath blockPath = BlockPath.computeBlockPath(
-                    testConfig, blockItems[0].blockHeader().number());
-            final Block block = new Block(List.of(blockItems));
-            final Bytes expected = Block.PROTOBUF.toBytes(block);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final Bytes expected = block.bytes();
             // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             final Format format = getHappyPathFormat(compressionType);
@@ -142,12 +137,10 @@ class ZipBlockAccessorTest {
         @SuppressWarnings("DataFlowIssue")
         void testBlockBytesHappyPathFormatConsecutiveCalls(final CompressionType compressionType) throws IOException {
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final BlockPath blockPath = BlockPath.computeBlockPath(
-                    testConfig, blockItems[0].blockHeader().number());
-            final Block block = new Block(List.of(blockItems));
-            final Bytes expected = Block.PROTOBUF.toBytes(block);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final Bytes expected = block.bytes();
             // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             final Format format = getHappyPathFormat(compressionType);
@@ -184,12 +177,10 @@ class ZipBlockAccessorTest {
         @SuppressWarnings("DataFlowIssue")
         void testBlockBytesZSTDPROTOBUFFormat(final CompressionType compressionType) throws IOException {
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final BlockPath blockPath = BlockPath.computeBlockPath(
-                    testConfig, blockItems[0].blockHeader().number());
-            final Block block = new Block(List.of(blockItems));
-            final Bytes expected = Block.PROTOBUF.toBytes(block);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final Bytes expected = block.bytes();
             // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             // The blockBytes method should return the bytes of the block with the
@@ -220,12 +211,10 @@ class ZipBlockAccessorTest {
         void testBlockBytesZSTDPROTOBUFFormatConsecutiveCalls(final CompressionType compressionType)
                 throws IOException {
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final BlockPath blockPath = BlockPath.computeBlockPath(
-                    testConfig, blockItems[0].blockHeader().number());
-            final Block block = new Block(List.of(blockItems));
-            final Bytes expected = Block.PROTOBUF.toBytes(block);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final Bytes expected = block.bytes();
             // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             // The blockBytes method should return the bytes of the block with the
@@ -268,12 +257,10 @@ class ZipBlockAccessorTest {
         @SuppressWarnings("DataFlowIssue")
         void testBlockBytesProtobufFormat(final CompressionType compressionType) throws IOException {
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final BlockPath blockPath = BlockPath.computeBlockPath(
-                    testConfig, blockItems[0].blockHeader().number());
-            final Block block = new Block(List.of(blockItems));
-            final Bytes expected = Block.PROTOBUF.toBytes(block);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final Bytes expected = block.bytes();
             // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             // The blockBytes method should return the bytes of the block with the
@@ -300,12 +287,10 @@ class ZipBlockAccessorTest {
         @SuppressWarnings("DataFlowIssue")
         void testBlockBytesProtobufFormatConsecutiveCalls(final CompressionType compressionType) throws IOException {
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final BlockPath blockPath = BlockPath.computeBlockPath(
-                    testConfig, blockItems[0].blockHeader().number());
-            final Block block = new Block(List.of(blockItems));
-            final Bytes expected = Block.PROTOBUF.toBytes(block);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final Bytes expected = block.bytes();
             // test zipBlockAccessor.blockBytes()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, expected);
             // The blockBytes method should return the bytes of the block with the
@@ -340,12 +325,11 @@ class ZipBlockAccessorTest {
         @SuppressWarnings("DataFlowIssue")
         void testBlockParsedFromUnparsed(final CompressionType compressionType) throws IOException, ParseException {
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final BlockPath blockPath = BlockPath.computeBlockPath(
-                    testConfig, blockItems[0].blockHeader().number());
-            final Block expected = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final Block expected = block.block();
+            final Bytes protoBytes = block.bytes();
             // test zipBlockAccessor.blockUnparsed() and parse
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final BlockUnparsed unparsed = toTest.blockUnparsed();
@@ -366,12 +350,11 @@ class ZipBlockAccessorTest {
         void testBlockParsedFromUnparsedConsecutiveCalls(final CompressionType compressionType)
                 throws IOException, ParseException {
             // build a test block
-            final BlockItem[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocks(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final BlockPath blockPath = BlockPath.computeBlockPath(
-                    testConfig, blockItems[0].blockHeader().number());
-            final Block expected = new Block(List.of(blockItems));
-            final Bytes protoBytes = Block.PROTOBUF.toBytes(expected);
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final Block expected = block.block();
+            final Bytes protoBytes = block.bytes();
             // test zipBlockAccessor.blockUnparsed() and parse
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final BlockUnparsed unparsed = toTest.blockUnparsed();
@@ -402,18 +385,13 @@ class ZipBlockAccessorTest {
         @ParameterizedTest
         @EnumSource(CompressionType.class)
         @DisplayName("Test blockUnparsed() returns correctly a persisted block unparsed")
-        @SuppressWarnings("DataFlowIssue")
         void testBlockUnparsed(final CompressionType compressionType) throws IOException, ParseException {
             // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final Bytes blockHeaderBytes = blockItems[0].blockHeader();
-            final long blockNumber =
-                    BlockHeader.PROTOBUF.parse(blockHeaderBytes).number();
-            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, blockNumber);
-            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final BlockUnparsed expected = block.blockUnparsed();
             final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
-            // test zipBlockAccessor.blockUnparsed()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);
             final BlockUnparsed actual = toTest.blockUnparsed();
             assertThat(actual).isEqualTo(expected);
@@ -429,17 +407,13 @@ class ZipBlockAccessorTest {
         @ParameterizedTest
         @EnumSource(CompressionType.class)
         @DisplayName("Test blockUnparsed() returns correctly a persisted block unparsed - consecutive calls")
-        @SuppressWarnings("DataFlowIssue")
         void testBlockUnparsedConsecutiveCalls(final CompressionType compressionType)
                 throws IOException, ParseException {
             // build a test block
-            final BlockItemUnparsed[] blockItems = SimpleTestBlockItemBuilder.createNumberOfVerySimpleBlocksUnparsed(1);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
             final FilesHistoricConfig testConfig = createTestConfiguration(dataTempDir, compressionType);
-            final Bytes blockHeaderBytes = blockItems[0].blockHeader();
-            final long blockNumber =
-                    BlockHeader.PROTOBUF.parse(blockHeaderBytes).number();
-            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, blockNumber);
-            final BlockUnparsed expected = new BlockUnparsed(List.of(blockItems));
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, block.number());
+            final BlockUnparsed expected = block.blockUnparsed();
             final Bytes protoBytes = BlockUnparsed.PROTOBUF.toBytes(expected);
             // test zipBlockAccessor.blockUnparsed()
             final ZipBlockAccessor toTest = createBlockAndGetAssociatedAccessor(testConfig, blockPath, protoBytes);

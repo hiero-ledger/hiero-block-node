@@ -70,7 +70,7 @@ class VerificationServicePluginTest
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber));
+        blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber, true, true));
 
         // check we received a block verification
         VerificationNotification blockNotification =
@@ -108,7 +108,7 @@ class VerificationServicePluginTest
         blockItems.remove(3);
         long blockNumber = sampleBlockInfo.blockNumber();
 
-        blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber));
+        blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber, true, true));
 
         // check we received a block verification
         VerificationNotification blockNotification =
@@ -142,7 +142,7 @@ class VerificationServicePluginTest
         // remove the header to simulate a case where receive items and have never received a header
         blockItems.removeFirst();
         // send some items to the plugin, they should be ignored
-        plugin.handleBlockItemsReceived(new BlockItems(blockItems, blockNumber));
+        plugin.handleBlockItemsReceived(new BlockItems(blockItems, blockNumber, false, true));
         // check we did not receive a block verification
         assertEquals(0, blockMessaging.getSentVerificationNotifications().size());
     }
@@ -153,8 +153,8 @@ class VerificationServicePluginTest
         // make the server state not running
         ((TestHealthFacility) blockNodeContext.serverHealth()).isRunning.set(false);
         // send some items to the plugin, they should be ignored
-        plugin.handleBlockItemsReceived(
-                new BlockItems(List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), -1));
+        plugin.handleBlockItemsReceived(new BlockItems(
+                List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), 0, true, false));
         // check we did not receive a block verification
         assertEquals(0, blockMessaging.getSentVerificationNotifications().size());
     }
@@ -225,7 +225,7 @@ class VerificationServicePluginTest
 
         long blockNumber = blockHeader.number() + 1;
         plugin.handleBlockItemsReceived(
-                new BlockItems(sampleBlockInfo.blockUnparsed().blockItems(), blockNumber));
+                new BlockItems(sampleBlockInfo.blockUnparsed().blockItems(), blockNumber, true, true));
 
         // check we don't received a block verification notification
         long blockNotifications =
