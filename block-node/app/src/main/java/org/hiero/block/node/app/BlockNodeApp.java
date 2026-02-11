@@ -236,13 +236,8 @@ public class BlockNodeApp implements HealthFacility {
         webServer.start();
         // Start metrics
         metricsProvider.start();
-        // Start all the facilities & plugins asynchronously
-        LOGGER.log(INFO, "Asynchronously Starting plugins:");
-        // Asynchronously start the plugins
-        loadedPlugins.parallelStream().forEach(plugin -> {
-            LOGGER.log(INFO, "    " + plugin.name());
-            plugin.start();
-        });
+        // start the plugins
+        startPlugins(loadedPlugins);
         // mark the server as started
         state.set(State.RUNNING);
         // log the server has started
@@ -307,7 +302,13 @@ public class BlockNodeApp implements HealthFacility {
         if (metricsProvider != null) metricsProvider.stop();
         // finally exit
         LOGGER.log(INFO, "Bye bye");
-        if (shouldExitJvmOnShutdown) System.exit(0);
+        if (shouldExitJvmOnShutdown) {
+            System.exit(0);
+        } else {
+            while (webServer != null && webServer.isRunning()) {
+                // wait for webserver to stop
+            }
+        }
     }
 
     /**
@@ -319,5 +320,18 @@ public class BlockNodeApp implements HealthFacility {
     public static void main(final String[] args) throws IOException {
         BlockNodeApp server = new BlockNodeApp(new ServiceLoaderFunction(), true);
         server.start();
+    }
+
+    /**
+     *  Start the loadedPlugins. Use a separate method to make starting plugins testable
+     */
+    protected void startPlugins(List<BlockNodePlugin> plugins) {
+        // Start all the facilities & plugins asynchronously
+        LOGGER.log(INFO, "Asynchronously Starting plugins:");
+        // Asynchronously start the plugins
+        plugins.parallelStream().forEach(plugin -> {
+            LOGGER.log(INFO, "    " + plugin.name());
+            plugin.start();
+        });
     }
 }

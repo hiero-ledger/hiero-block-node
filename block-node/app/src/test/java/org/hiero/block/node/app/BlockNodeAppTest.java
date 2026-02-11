@@ -12,6 +12,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -131,5 +133,72 @@ class BlockNodeAppTest {
     void testMain() throws IOException {
         // Attempts to start the app with some test configuration (see app-test.properties)
         assertDoesNotThrow(() -> BlockNodeApp.main(new String[] {}));
+    }
+
+    /**
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * <p/>
+     * There are currently 13 plugins that get loaded. Not all permutations can be tested as that is 6.2B tests.
+     * 4 test cases come to mind, that should produce errors if there are any startup dependencies:
+     * <p/>
+     *  - Test in parallel.
+     *  - Test in ServiceLoader Order
+     *  - Test in reverse order returned by the service loader. This guarantees the worst case that any dependencies on previously loaded plugins will not be there.
+     *  - Use {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness. I've chosen 5
+     *    as this greatly increases the unit test time.
+     */
+    @Test
+    @DisplayName("Test plugin startup order independence")
+    void testPluginStartupIndependence() throws IOException {
+        final int SHUFFLED_COUNT = 5;
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+
+        // Case 1: Test in parallel
+        BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        startBlockNode(blockNodeApp);
+
+        // Case 2: Start plugins in ServiceLoader order
+        blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+            @Override
+            protected void startPlugins(List<BlockNodePlugin> plugins) {
+                for (BlockNodePlugin plugin : loadedPlugins) {
+                    plugin.start();
+                }
+            }
+        };
+        startBlockNode(blockNodeApp);
+
+        // Case 3: Test in reverse order returned by the service loader.
+        blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+            @Override
+            protected void startPlugins(List<BlockNodePlugin> plugins) {
+                for (BlockNodePlugin plugin : plugins.reversed()) {
+                    plugin.start();
+                }
+            }
+        };
+        startBlockNode(blockNodeApp);
+
+        // Case 4: Test in reverse order returned by the service loader.
+        for (int i = 0; i < SHUFFLED_COUNT; i++) {
+            blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+                @Override
+                protected void startPlugins(List<BlockNodePlugin> plugins) {
+                    List<BlockNodePlugin> shuffledPlugins = new ArrayList<>(plugins);
+                    Collections.shuffle(shuffledPlugins);
+                    for (BlockNodePlugin plugin : shuffledPlugins) {
+                        plugin.start();
+                    }
+                }
+            };
+            startBlockNode(blockNodeApp);
+        }
+    }
+
+    protected void startBlockNode(BlockNodeApp blockNodeApp) {
+        assertDoesNotThrow(blockNodeApp::start);
+        assertEquals(State.RUNNING, blockNodeApp.blockNodeState());
+        blockNodeApp.shutdown("BlockNodeTestApp", "testPluginStartupIndependence");
+        assertEquals(State.SHUTTING_DOWN, blockNodeApp.blockNodeState());
     }
 }
