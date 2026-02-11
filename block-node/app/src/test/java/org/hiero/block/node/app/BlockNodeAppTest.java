@@ -12,6 +12,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
@@ -131,5 +133,99 @@ class BlockNodeAppTest {
     void testMain() throws IOException {
         // Attempts to start the app with some test configuration (see app-test.properties)
         assertDoesNotThrow(() -> BlockNodeApp.main(new String[] {}));
+    }
+
+    /**
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Validate that starting plugins in parallel works
+     */
+    @Test
+    @DisplayName("Test plugin startup in parallel")
+    void testPluginStartupParallel() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        // Case 1: Test in parallel
+        BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        assertNotNull(blockNodeApp);
+        startBlockNode(blockNodeApp);
+    }
+
+    /**
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Test in ServiceLoader Order to make sure plugins load correctly
+     */
+    @Test
+    @DisplayName("Test plugin startup in ServiceLoader order")
+    void testPluginStartupInOrder() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+
+        // Case 2: Start plugins in ServiceLoader order
+        blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+            @Override
+            protected void startPlugins(List<BlockNodePlugin> plugins) {
+                for (BlockNodePlugin plugin : loadedPlugins) {
+                    plugin.start();
+                }
+            }
+        };
+        assertNotNull(blockNodeApp);
+        startBlockNode(blockNodeApp);
+    }
+
+    /**
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Test in reverse ServiceLoader Order to make sure plugins load correctly
+     * This should identify any dependencies on ServiceLoader order
+     */
+    @Test
+    @DisplayName("Test plugin startup in reverse order")
+    void testPluginStartupReverseOrder() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+
+        // Case 3: Test in reverse order returned by the service loader.
+        blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+            @Override
+            protected void startPlugins(List<BlockNodePlugin> plugins) {
+                for (BlockNodePlugin plugin : plugins.reversed()) {
+                    plugin.start();
+                }
+            }
+        };
+        assertNotNull(blockNodeApp);
+        startBlockNode(blockNodeApp);
+    }
+
+    /**
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Use {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness.
+     * as this greatly increases the unit test time.
+     */
+    @Test
+    @DisplayName("Test plugin startup in shuffled order")
+    void testPluginStartupIndependence() throws IOException {
+        final int SHUFFLE_COUNT = 100;
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+
+        // Case 4: Test in reverse order returned by the service loader.
+        for (int i = 0; i < SHUFFLE_COUNT; i++) {
+            blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+                @Override
+                protected void startPlugins(List<BlockNodePlugin> plugins) {
+                    List<BlockNodePlugin> shuffledPlugins = new ArrayList<>(plugins);
+                    Collections.shuffle(shuffledPlugins);
+                    for (BlockNodePlugin plugin : shuffledPlugins) {
+                        plugin.start();
+                    }
+                }
+            };
+            assertNotNull(blockNodeApp);
+            startBlockNode(blockNodeApp);
+        }
+    }
+
+    protected void startBlockNode(BlockNodeApp blockNodeApp) {
+        assertDoesNotThrow(blockNodeApp::start);
+        assertEquals(State.RUNNING, blockNodeApp.blockNodeState());
+        blockNodeApp.shutdown("BlockNodeTestApp", "testPluginStartupIndependence");
+        assertEquals(State.SHUTTING_DOWN, blockNodeApp.blockNodeState());
     }
 }
