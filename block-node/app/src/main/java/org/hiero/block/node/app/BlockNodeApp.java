@@ -302,13 +302,7 @@ public class BlockNodeApp implements HealthFacility {
         if (metricsProvider != null) metricsProvider.stop();
         // finally exit
         LOGGER.log(INFO, "Bye bye");
-        if (shouldExitJvmOnShutdown) {
-            System.exit(0);
-        } else {
-            while (webServer != null && webServer.isRunning()) {
-                // wait for webserver to stop
-            }
-        }
+        if (shouldExitJvmOnShutdown) System.exit(0);
     }
 
     /**

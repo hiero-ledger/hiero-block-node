@@ -144,13 +144,13 @@ class BlockNodeAppTest {
      *  - Test in parallel.
      *  - Test in ServiceLoader Order
      *  - Test in reverse order returned by the service loader. This guarantees the worst case that any dependencies on previously loaded plugins will not be there.
-     *  - Use {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness. I've chosen 5
+     *  - Use {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness.
      *    as this greatly increases the unit test time.
      */
     @Test
     @DisplayName("Test plugin startup order independence")
     void testPluginStartupIndependence() throws IOException {
-        final int SHUFFLED_COUNT = 5;
+        final int SHUFFLE_COUNT = 10;
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
 
         // Case 1: Test in parallel
@@ -180,7 +180,7 @@ class BlockNodeAppTest {
         startBlockNode(blockNodeApp);
 
         // Case 4: Test in reverse order returned by the service loader.
-        for (int i = 0; i < SHUFFLED_COUNT; i++) {
+        for (int i = 0; i < SHUFFLE_COUNT; i++) {
             blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
                 @Override
                 protected void startPlugins(List<BlockNodePlugin> plugins) {
