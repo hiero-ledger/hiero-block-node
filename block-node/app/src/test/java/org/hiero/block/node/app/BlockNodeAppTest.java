@@ -4,6 +4,7 @@ package org.hiero.block.node.app;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -137,62 +138,100 @@ class BlockNodeAppTest {
 
     /**
      * This test aims to insure the independence of plugins by starting them in varying order.
-     * <p/>
-     * There are currently 13 plugins that get loaded. Not all permutations can be tested as that is 6.2B tests.
-     * 4 test cases come to mind, that should produce errors if there are any startup dependencies:
-     * <p/>
-     *  - Test in parallel.
-     *  - Test in ServiceLoader Order
-     *  - Test in reverse order returned by the service loader. This guarantees the worst case that any dependencies on previously loaded plugins will not be there.
-     *  - Use {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness.
-     *    as this greatly increases the unit test time.
+     * Validate that starting plugins in parallel works
      */
     @Test
-    @DisplayName("Test plugin startup order independence")
-    void testPluginStartupIndependence() throws IOException {
-        final int SHUFFLE_COUNT = 10;
+    @DisplayName("Test plugin startup in parallel")
+    void testPluginStartupParallel() {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        // Case 1: Test in parallel
+        try {
+            BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+            startBlockNode(blockNodeApp);
+        } catch (IOException e) {
+            fail(e);
+        }
+    }
+
+    /**
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Test in ServiceLoader Order to make sure plugins load correctly
+     */
+    @Test
+    @DisplayName("Test plugin startup in ServiceLoader order")
+    void testPluginStartupInOrder() {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
 
-        // Case 1: Test in parallel
-        BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
-        assertNotNull(blockNodeApp);
-        startBlockNode(blockNodeApp);
-
         // Case 2: Start plugins in ServiceLoader order
-        blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
-            @Override
-            protected void startPlugins(List<BlockNodePlugin> plugins) {
-                for (BlockNodePlugin plugin : loadedPlugins) {
-                    plugin.start();
-                }
-            }
-        };
-        startBlockNode(blockNodeApp);
-
-        // Case 3: Test in reverse order returned by the service loader.
-        blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
-            @Override
-            protected void startPlugins(List<BlockNodePlugin> plugins) {
-                for (BlockNodePlugin plugin : plugins.reversed()) {
-                    plugin.start();
-                }
-            }
-        };
-        startBlockNode(blockNodeApp);
-
-        // Case 4: Test in reverse order returned by the service loader.
-        for (int i = 0; i < SHUFFLE_COUNT; i++) {
+        try {
             blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
                 @Override
                 protected void startPlugins(List<BlockNodePlugin> plugins) {
-                    List<BlockNodePlugin> shuffledPlugins = new ArrayList<>(plugins);
-                    Collections.shuffle(shuffledPlugins);
-                    for (BlockNodePlugin plugin : shuffledPlugins) {
+                    for (BlockNodePlugin plugin : loadedPlugins) {
                         plugin.start();
                     }
                 }
             };
             startBlockNode(blockNodeApp);
+        } catch (IOException e) {
+            fail(e);
+        }
+    }
+
+    /**
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Test in reverse ServiceLoader Order to make sure plugins load correctly
+     * This should identify any dependencies on ServiceLoader order
+     */
+    @Test
+    @DisplayName("Test plugin startup in reverse order")
+    void testPluginStartupReverseOrder() {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+
+        // Case 3: Test in reverse order returned by the service loader.
+        try {
+            blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+                @Override
+                protected void startPlugins(List<BlockNodePlugin> plugins) {
+                    for (BlockNodePlugin plugin : plugins.reversed()) {
+                        plugin.start();
+                    }
+                }
+            };
+            startBlockNode(blockNodeApp);
+        } catch (IOException e) {
+            fail(e);
+        }
+    }
+
+    /**
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Use {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness.
+     * as this greatly increases the unit test time.
+     */
+    @Test
+    @DisplayName("Test plugin startup in shuffled order")
+    void testPluginStartupIndependence() {
+        final int SHUFFLE_COUNT = 10;
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+
+        // Case 4: Test in reverse order returned by the service loader.
+        for (int i = 0; i < SHUFFLE_COUNT; i++) {
+            try {
+                blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+                    @Override
+                    protected void startPlugins(List<BlockNodePlugin> plugins) {
+                        List<BlockNodePlugin> shuffledPlugins = new ArrayList<>(plugins);
+                        Collections.shuffle(shuffledPlugins);
+                        for (BlockNodePlugin plugin : shuffledPlugins) {
+                            plugin.start();
+                        }
+                    }
+                };
+                startBlockNode(blockNodeApp);
+            } catch (IOException e) {
+                fail(e);
+            }
         }
     }
 
