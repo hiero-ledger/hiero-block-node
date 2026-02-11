@@ -200,31 +200,28 @@ final class BlockFileBlockAccessor implements BlockAccessor {
      *         is not compressed or uses a compression type without magic bytes
      * @throws IOException if an I/O error occurs while reading the file header
      */
-    CompressionType determineCompressionType(Path verifiedBlockPath) throws IOException {
+    static CompressionType determineCompressionType(Path verifiedBlockPath) throws IOException {
         // Get all available compression types to check
-        final CompressionType[] compressionOpts = CompressionType.class.getEnumConstants();
+        final CompressionType[] compressionOpts = CompressionType.values();
         // Find the longest magic bytes sequence to determine how many bytes we need to read
-        final int max = Stream.of(compressionOpts)
-                .map(ct -> ct.magicBytes().length)
-                .max(Integer::compare)
-                .orElse(0);
+        int max = 0;
+        for (CompressionType ct : compressionOpts) {
+            if (ct.magicBytes().length > max) {
+                max = ct.magicBytes().length;
+            }
+        }
 
         // Read the file header once with enough bytes to check all compression types
-        final byte[] fileHeader = new byte[max];
+        final byte[] fileHeader;
         try (final InputStream is = Files.newInputStream(verifiedBlockPath)) {
-            final int _ = is.read(fileHeader);
+            fileHeader = is.readNBytes(max);
         }
 
         // Check each compression type's magic bytes against the file header
         for (CompressionType currentOpt : compressionOpts) {
             final byte[] magicBytes = currentOpt.magicBytes();
-            if (magicBytes != null && magicBytes.length > 0) {
-                // Extract the relevant portion of the header for this compression type
-                final byte[] headerChunk = Arrays.copyOf(fileHeader, magicBytes.length);
-                if (Arrays.equals(headerChunk, magicBytes)) {
-                    // Magic bytes match, return this compression type
+            if (magicBytes.length > 0 && fileHeader.length >= magicBytes.length && Arrays.compare(fileHeader, 0, magicBytes.length, magicBytes, 0, magicBytes.length) == 0) {
                     return currentOpt;
-                }
             }
         }
 
