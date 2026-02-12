@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import java.lang.module.ModuleFinder
-
 plugins {
     id("org.hiero.gradle.module.library")
     id("org.hiero.gradle.feature.test-fixtures")
@@ -50,20 +48,18 @@ tasks.distTar {
         dir.mkdirs()
         File(dir, ".keep").writeText("")
 
-        // Generate .core-modules.txt from the runtime classpath using ModuleFinder.
-        // This replaces the Dockerfile's jar --describe-module loop which requires
-        // a full JDK (not available in the JRE-only base image).
+        // Generate .core-modules.txt with normalized jar names (strip Gradle's "-module"
+        // suffix) so resolve-plugins can deduplicate by jar name. This replaces the
+        // Dockerfile's jar --describe-module loop which required a full JDK.
         val moduleDir = coreModulesDir.get().asFile
         moduleDir.mkdirs()
-        val jarPaths: List<java.nio.file.Path> = runtimeJars.files.map { it.toPath() }
-        @Suppress("SpreadOperator") val moduleFinder = ModuleFinder.of(*jarPaths.toTypedArray())
-        val moduleNames: List<String> =
-            moduleFinder.findAll().map { it.descriptor().name() }.sorted()
-        require(moduleNames.isNotEmpty()) {
-            ".core-modules.txt would be empty — no JPMS modules found in runtime classpath"
+        val normalizedJarNames: List<String> =
+            runtimeJars.files.map { it.name.replace("-module.jar", ".jar") }.sorted()
+        require(normalizedJarNames.isNotEmpty()) {
+            ".core-modules.txt would be empty — no jars found in runtime classpath"
         }
-        File(moduleDir, ".core-modules.txt").writeText(moduleNames.joinToString("\n") + "\n")
-        logger.lifecycle("Generated .core-modules.txt with ${moduleNames.size} module names")
+        File(moduleDir, ".core-modules.txt").writeText(normalizedJarNames.joinToString("\n") + "\n")
+        logger.lifecycle("Generated .core-modules.txt with ${normalizedJarNames.size} jar names")
     }
 }
 
