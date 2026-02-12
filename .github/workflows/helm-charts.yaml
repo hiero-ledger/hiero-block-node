@@ -39,6 +39,12 @@ jobs:
       - name: Set up chart-testing
         uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
 
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 25.0.2
+
       - name: Run chart-testing (list-changed)
         id: list-changed
         run: |
@@ -51,29 +57,42 @@ jobs:
         if: steps.list-changed.outputs.changed == 'true'
         run: ${CGEXEC} ct lint --config ct.yaml
 
-      - name: Check if version bump PR
-        id: version-bump
+      - name: Check if install test is needed
+        id: install-needed
         run: |
-          # Check if version.txt is in the changed files
           changed_files=$(git diff --name-only origin/${{ github.event.repository.default_branch }}...HEAD)
-          if echo "$changed_files" | grep -q "^version.txt$"; then
-            echo "is_version_bump=true" >> "${GITHUB_OUTPUT}"
-            echo "Detected version.txt change - skipping ct install"
+          if echo "$changed_files" | grep -qE "^(block-node/app/(docker/|build\.gradle\.kts)|charts/|tools-and-tests/simulator/(docker/|build\.gradle\.kts))"; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Image/chart/build files changed - will build and test"
           else
-            echo "is_version_bump=false" >> "${GITHUB_OUTPUT}"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "No relevant changes - skipping ct install"
           fi
 
       - name: Create kind cluster
-        if: steps.version-bump.outputs.is_version_bump != 'true'
+        if: steps.install-needed.outputs.needed == 'true'
         uses: helm/kind-action@92086f6be054225fa813e0a4b13787fc9088faab # v1.13.0
 
+      - name: Build Docker images
+        if: steps.install-needed.outputs.needed == 'true'
+        run: ${CGEXEC} ./gradlew :app:createDockerImage :simulator:createDockerImage
+
+      - name: Load images into kind
+        if: steps.install-needed.outputs.needed == 'true'
+        run: |
+          APP_VERSION=$(cat version.txt)
+          docker tag "block-node-server:${APP_VERSION}" "ghcr.io/hiero-ledger/hiero-block-node:${APP_VERSION}"
+          docker tag "hedera-block-simulator:latest" "ghcr.io/hiero-ledger/hiero-block-node/simulator-image:${APP_VERSION}"
+          kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node:${APP_VERSION}"
+          kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node/simulator-image:${APP_VERSION}"
+
       - name: Update chart dependency
-        if: steps.version-bump.outputs.is_version_bump != 'true'
+        if: steps.install-needed.outputs.needed == 'true'
         run: |
           helm repo add prometheus-community  https://prometheus-community.github.io/helm-charts
           helm repo add grafana https://grafana.github.io/helm-charts
           helm dependency update charts/block-node-server
 
       - name: Run chart-testing (install)
-        if: steps.version-bump.outputs.is_version_bump != 'true'
+        if: steps.install-needed.outputs.needed == 'true'
         run: ${CGEXEC} ct install --config ct.yaml --all

@@ -29,37 +29,19 @@ distributions {
     main {
         contents {
             val pluginsDir = layout.buildDirectory.dir("tmp/plugins")
-            val coreModulesDir = layout.buildDirectory.dir("tmp/core-modules")
-
             from(pluginsDir) { into("plugins") }
-            from(coreModulesDir) { into("lib") }
         }
     }
 }
 
 tasks.distTar {
     val pluginsDir = layout.buildDirectory.dir("tmp/plugins")
-    val coreModulesDir = layout.buildDirectory.dir("tmp/core-modules")
-    val runtimeJars: FileCollection = configurations.runtimeClasspath.get()
 
     doFirst {
         // Create an empty plugins directory with a .keep file so it exists in the distribution
         val dir = pluginsDir.get().asFile
         dir.mkdirs()
         File(dir, ".keep").writeText("")
-
-        // Generate .core-modules.txt with normalized jar names (strip Gradle's "-module"
-        // suffix) so resolve-plugins can deduplicate by jar name. This replaces the
-        // Dockerfile's jar --describe-module loop which required a full JDK.
-        val moduleDir = coreModulesDir.get().asFile
-        moduleDir.mkdirs()
-        val normalizedJarNames: List<String> =
-            runtimeJars.files.map { it.name.replace("-module.jar", ".jar") }.sorted()
-        require(normalizedJarNames.isNotEmpty()) {
-            ".core-modules.txt would be empty — no jars found in runtime classpath"
-        }
-        File(moduleDir, ".core-modules.txt").writeText(normalizedJarNames.joinToString("\n") + "\n")
-        logger.lifecycle("Generated .core-modules.txt with ${normalizedJarNames.size} jar names")
     }
 }
 

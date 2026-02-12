@@ -7,6 +7,24 @@ ARG SOURCE_DATE_EPOCH="0"
 
 ########################################################################################################################
 #
+# Generate .core-modules.txt — lists every Java package exported by core jars.
+# The resolve-plugins init container (Helm chart) uses this list to skip any
+# Maven-resolved jar whose packages already exist in the core runtime, preventing
+# JPMS split-package errors at boot.  This stage needs a JDK for `jar
+# --describe-module`; only the generated text file is copied into the final image.
+#
+########################################################################################################################
+FROM eclipse-temurin:25-jdk-alpine AS module-lister
+ARG VERSION
+COPY --from=distributions app-${VERSION}/lib/ /jars/
+RUN for jar in /jars/*.jar; do \
+      jar --describe-module --file="$jar" 2>/dev/null \
+        | grep -E "^(exports |contains )" \
+        | awk '{print $2}'; \
+    done | sort -u > /core-modules.txt
+
+########################################################################################################################
+#
 # Setup Builder Image
 #
 ########################################################################################################################
@@ -38,6 +56,9 @@ WORKDIR ${BN_WORKDIR}
 # UBI-minimal's tar fails under QEMU emulation on linux/arm64).
 # The `distributions` build context is set on the command line (see docker-build.sh).
 COPY --from=distributions app-${VERSION}/ app-${VERSION}/
+
+# Copy the generated core-packages list into the distribution lib directory
+COPY --from=module-lister /core-modules.txt ${BN_WORKDIR}/app-${VERSION}/lib/.core-modules.txt
 
 # Create a log directory
 RUN mkdir -p ${BN_WORKDIR}/logs/config
