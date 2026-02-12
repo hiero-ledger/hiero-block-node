@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import java.lang.module.ModuleFinder
+
 plugins {
     id("org.hiero.gradle.module.library")
     id("org.hiero.gradle.feature.test-fixtures")
@@ -29,22 +31,52 @@ distributions {
     main {
         contents {
             val pluginsDir = layout.buildDirectory.dir("tmp/plugins")
+            val coreModulesDir = layout.buildDirectory.dir("tmp/core-modules")
 
             from(pluginsDir) { into("plugins") }
+            from(coreModulesDir) { into("lib") }
         }
     }
 }
 
 tasks.distTar {
     val pluginsDir = layout.buildDirectory.dir("tmp/plugins")
+    val coreModulesDir = layout.buildDirectory.dir("tmp/core-modules")
+    val runtimeJars: FileCollection = configurations.runtimeClasspath.get()
 
-    // Create an empty plugins directory with a .keep file so it exists in the distribution
     doFirst {
+        // Create an empty plugins directory with a .keep file so it exists in the distribution
         val dir = pluginsDir.get().asFile
         dir.mkdirs()
         File(dir, ".keep").writeText("")
+
+        // Generate .core-modules.txt from the runtime classpath using ModuleFinder.
+        // This replaces the Dockerfile's jar --describe-module loop which requires
+        // a full JDK (not available in the JRE-only base image).
+        val moduleDir = coreModulesDir.get().asFile
+        moduleDir.mkdirs()
+        val jarPaths: List<java.nio.file.Path> = runtimeJars.files.map { it.toPath() }
+        @Suppress("SpreadOperator") val moduleFinder = ModuleFinder.of(*jarPaths.toTypedArray())
+        val moduleNames: List<String> =
+            moduleFinder.findAll().map { it.descriptor().name() }.sorted()
+        require(moduleNames.isNotEmpty()) {
+            ".core-modules.txt would be empty — no JPMS modules found in runtime classpath"
+        }
+        File(moduleDir, ".core-modules.txt").writeText(moduleNames.joinToString("\n") + "\n")
+        logger.lifecycle("Generated .core-modules.txt with ${moduleNames.size} module names")
     }
 }
+
+// Extract the distribution tar into build/distributions/ so Docker can COPY the
+// directory directly. UBI-minimal's tar fails under QEMU emulation on linux/arm64.
+val extractDistForDocker =
+    tasks.register<Copy>("extractDistForDocker") {
+        dependsOn(tasks.distTar)
+        from(tarTree(tasks.distTar.flatMap { it.archiveFile }))
+        into(layout.buildDirectory.dir("distributions"))
+    }
+
+tasks.distTar { finalizedBy(extractDistForDocker) }
 
 application {
     mainModule = "org.hiero.block.node.app"
