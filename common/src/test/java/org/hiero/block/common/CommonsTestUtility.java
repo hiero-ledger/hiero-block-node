@@ -338,5 +338,25 @@ public final class CommonsTestUtility {
                 Arguments.of(10_100));
     }
 
+    /**
+     * Provides valid test data for cases where the value to test is greater than or equal to the base value.
+     *
+     * @return a stream of arguments where each argument is a pair of {@code (toTest, base)} values,
+     *         such that {@code toTest >= base}.
+     */
+    public static Stream<Arguments> goodAndBadSemanticVersions() {
+        return Stream.of(
+                Arguments.of("", false),
+                Arguments.of("..", false),
+                Arguments.of("..-+", false),
+                Arguments.of("0.0.0-+", false),
+                Arguments.of("0.0.0-", false),
+                Arguments.of("0.0.0", true),
+                Arguments.of("v0.0.0", true),
+                Arguments.of("0.1.0-alpha+", false),
+                Arguments.of("0.1.0-alpha", true),
+                Arguments.of("0.1.0-alpha+123A72", true));
+    }
+
     private CommonsTestUtility() {}
 }

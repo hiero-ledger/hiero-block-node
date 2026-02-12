@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -113,7 +114,8 @@ public abstract class PluginTestBase<
                 blockMessaging,
                 historicalBlockFacility,
                 new ServiceLoaderFunction(),
-                testThreadPoolManager);
+                testThreadPoolManager,
+                BlockNodeVersions.DEFAULT);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this

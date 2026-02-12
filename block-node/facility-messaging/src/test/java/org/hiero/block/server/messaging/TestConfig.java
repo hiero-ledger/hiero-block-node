@@ -6,6 +6,7 @@ import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
 import java.util.concurrent.LinkedBlockingQueue;
+import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -40,10 +41,12 @@ public class TestConfig {
             null,
             new TestThreadPoolManager<>(
                     new BlockingExecutor(new LinkedBlockingQueue<>()),
-                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())));
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
+            BlockNodeVersions.DEFAULT);
 
     public static BlockNodeContext generateContext(final ThreadPoolManager threadPoolManager) {
-        return new BlockNodeContext(getConfig(), getMetrics(), null, null, null, null, threadPoolManager);
+        return new BlockNodeContext(
+                getConfig(), getMetrics(), null, null, null, null, threadPoolManager, BlockNodeVersions.DEFAULT);
     }
 
     /**
