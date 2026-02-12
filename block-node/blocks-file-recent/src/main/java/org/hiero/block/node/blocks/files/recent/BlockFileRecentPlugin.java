@@ -5,7 +5,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
-import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
+import static org.hiero.block.node.blocks.files.recent.RecentBlockPath.nestedDirectoriesAllBlockNumbers;
 import static org.hiero.block.node.spi.blockmessaging.BlockSource.UNKNOWN;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -166,7 +165,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             availableBlocks.add(blockNumber);
             // Initialize total bytes stored counter
             try {
-                Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
+                Path blockFilePath = RecentBlockPath.nestedDirectoriesBlockFilePath(
                         liveRootPath, blockNumber, config.compression(), config.maxFilesPerDir());
                 if (Files.exists(blockFilePath)) {
                     totalBytesStored.addAndGet(Files.size(blockFilePath));
@@ -236,7 +235,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     public BlockAccessor block(final long blockNumber) {
         if (availableBlocks.contains(blockNumber)) {
             // we should have this block stored so go file the file and return accessor to it
-            final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+            final Path verifiedBlockPath = RecentBlockPath.nestedDirectoriesBlockFilePath(
                     config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
             if (Files.exists(verifiedBlockPath)) {
                 // we have the block so return it
@@ -334,7 +333,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                             headerNumber);
                     sendBlockNotification(blockNumber, false, effectiveSource);
                 } else {
-                    final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
+                    final Path verifiedBlockPath = RecentBlockPath.nestedDirectoriesBlockFilePath(
                             config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
                     createDirectoryOrFail(verifiedBlockPath);
                     writeBlockOrFail(block, blockNumber, effectiveSource, verifiedBlockPath);
@@ -403,7 +402,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
      */
     private void delete(final long blockNumber) {
         // compute file path for the block
-        final Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
+        final Path blockFilePath = RecentBlockPath.nestedDirectoriesBlockFilePath(
                 config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
         if (Files.exists(blockFilePath)) {
             // log we are deleting the block file
