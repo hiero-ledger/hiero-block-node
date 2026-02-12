@@ -201,6 +201,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             LOGGER.log(Level.INFO, message, expectedBlockNumber, blockNumber);
         }
         metrics.receiveBlockTimeLatencyNs.add(System.nanoTime() - currentStreamingBlockHeaderReceivedTime);
+        publisherManager.endOfBlockReceived(blockNumber);
         publisherManager.closeBlock(handlerId);
         unacknowledgedStreamedBlocks.add(blockNumber);
         resetState();
