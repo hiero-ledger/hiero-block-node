@@ -47,6 +47,8 @@ public abstract class GrpcPluginTestBase<
     protected Pipeline<Bytes> fromPluginPipe;
     /** The GRPC service interface for the plugin. */
     protected ServiceInterface serviceInterface;
+    /// The gRPC method used
+    protected Method method;
 
     protected GrpcPluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
         super(executorService, scheduledExecutorService);
@@ -71,6 +73,12 @@ public abstract class GrpcPluginTestBase<
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final Map<String, String> configOverrides) {
         super.start(plugin, historicalBlockFacility, configOverrides);
+        this.method = Objects.requireNonNull(method);
+        setupNewPipelines();
+    }
+
+    /// Setup new pipelines to be used.
+    public void setupNewPipelines() {
         // setup to receive bytes from the plugin
         fromPluginPipe = new Pipeline<>() {
             @Override

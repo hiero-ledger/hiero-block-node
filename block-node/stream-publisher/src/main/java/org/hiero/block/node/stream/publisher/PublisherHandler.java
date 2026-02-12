@@ -199,8 +199,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         if (blockNumber != expectedBlockNumber) {
             final String message = "Expected to close block {0}, but received close for block {1}.";
             LOGGER.log(Level.INFO, message, expectedBlockNumber, blockNumber);
+            // @todo(2159) should we take another action as part of the additional handling of the end of block message?
         }
         metrics.receiveBlockTimeLatencyNs.add(System.nanoTime() - currentStreamingBlockHeaderReceivedTime);
+        publisherManager.endOfBlock(blockNumber);
         publisherManager.closeBlock(handlerId);
         unacknowledgedStreamedBlocks.add(blockNumber);
         resetState();
