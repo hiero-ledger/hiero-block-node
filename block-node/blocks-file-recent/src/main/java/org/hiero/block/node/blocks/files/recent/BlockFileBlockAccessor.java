@@ -16,7 +16,6 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Stream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
@@ -220,8 +219,10 @@ final class BlockFileBlockAccessor implements BlockAccessor {
         // Check each compression type's magic bytes against the file header
         for (CompressionType currentOpt : compressionOpts) {
             final byte[] magicBytes = currentOpt.magicBytes();
-            if (magicBytes.length > 0 && fileHeader.length >= magicBytes.length && Arrays.compare(fileHeader, 0, magicBytes.length, magicBytes, 0, magicBytes.length) == 0) {
-                    return currentOpt;
+            if (magicBytes.length > 0
+                    && fileHeader.length >= magicBytes.length
+                    && Arrays.compare(fileHeader, 0, magicBytes.length, magicBytes, 0, magicBytes.length) == 0) {
+                return currentOpt;
             }
         }
 
