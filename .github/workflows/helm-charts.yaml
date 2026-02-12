@@ -83,8 +83,8 @@ jobs:
           APP_VERSION=$(cat version.txt)
           docker tag "block-node-server:${APP_VERSION}" "ghcr.io/hiero-ledger/hiero-block-node:${APP_VERSION}"
           docker tag "hedera-block-simulator:latest" "ghcr.io/hiero-ledger/hiero-block-node/simulator-image:${APP_VERSION}"
-          kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node:${APP_VERSION}"
-          kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node/simulator-image:${APP_VERSION}"
+          kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node:${APP_VERSION}" --name chart-testing
+          kind load docker-image "ghcr.io/hiero-ledger/hiero-block-node/simulator-image:${APP_VERSION}" --name chart-testing
 
       - name: Update chart dependency
         if: steps.install-needed.outputs.needed == 'true'
