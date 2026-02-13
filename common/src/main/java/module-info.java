@@ -7,5 +7,6 @@ module org.hiero.block.common {
     requires transitive com.hedera.pbj.runtime;
     requires transitive org.hiero.block.protobuf.pbj;
     requires com.swirlds.common;
+    requires java.management;
     requires static com.github.spotbugs.annotations;
 }

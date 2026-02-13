@@ -234,7 +234,7 @@ public class BlockNodeApp implements HealthFacility {
      * Build the BlockNodeVersions for this BlockNodeServer
      */
     protected final BlockNodeVersions versionInfo(final List<BlockNodePlugin> plugins) {
-        List<PluginVersion> pluginVersions = new ArrayList<>();
+        final List<PluginVersion> pluginVersions = new ArrayList<>();
         for (final BlockNodePlugin plugin : plugins) {
             pluginVersions.add(plugin.version());
         }

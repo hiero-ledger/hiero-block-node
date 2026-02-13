@@ -14,7 +14,6 @@ import "services/basic_types.proto";
  */
 message ServerStatusRequest {}
 
-// @todo(1947) This detail API is not yet implemented
 /**
  * A response to a server status detail request.
  *

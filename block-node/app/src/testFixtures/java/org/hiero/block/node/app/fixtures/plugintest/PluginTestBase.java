@@ -8,11 +8,15 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
+import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.common.utils.SemanticVersionUtilities;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -115,7 +119,7 @@ public abstract class PluginTestBase<
                 historicalBlockFacility,
                 new ServiceLoaderFunction(),
                 testThreadPoolManager,
-                BlockNodeVersions.DEFAULT);
+                buildBlockNodeVersions());
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
@@ -154,5 +158,16 @@ public abstract class PluginTestBase<
     public void tearDown() {
         metricsProvider.stop();
         testThreadPoolManager.shutdownNow();
+    }
+
+    /**
+     * Build a BlockNodeVersions instance to be used for testing
+     */
+    private BlockNodeVersions buildBlockNodeVersions() {
+        List<PluginVersion> pluginVersions = Stream.of(plugin.version()).toList();
+        return BlockNodeVersions.newBuilder()
+                .blockNodeVersion(SemanticVersionUtilities.from(this.getClass()))
+                .installedPluginVersions(pluginVersions)
+                .build();
     }
 }

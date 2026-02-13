@@ -2,10 +2,9 @@
 package org.hiero.block.common.utils;
 
 import com.hedera.hapi.node.base.SemanticVersion;
-import java.io.InputStream;
-import java.net.URL;
-import java.util.jar.Attributes;
-import java.util.jar.Manifest;
+import java.lang.module.ModuleDescriptor;
+import java.lang.module.ModuleDescriptor.Version;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -24,36 +23,24 @@ public final class SemanticVersionUtilities {
     }
 
     /**
-     * This method parses an input {@link String} tries to create a {@link SemanticVersion}.
+     * This method returns the {@link SemanticVersion} of a {@link Class}
      *
-     * @param clazz a {@link Class} to look up its version and convert to a SemanticVersion
+     * @param clazz a {@link Class} to look up its module version and convert to a SemanticVersion
      * @return {@link SemanticVersion} if the given {@link Class} has a valid version otherwise null
      */
-    public static SemanticVersion from(final Class clazz) {
-        String version = null;
+    public static SemanticVersion from(final Class<?> clazz) {
+        return from(clazz.getModule().getDescriptor());
+    }
 
-        final Package appPackage = clazz.getPackage();
-        if (appPackage != null) {
-            version = appPackage.getImplementationVersion();
-        }
-
-        // More robust approach by manually reading the manifest
-        if (version == null) {
-            String className = clazz.getSimpleName() + ".class";
-            String classPath = clazz.getResource(className).toString();
-            if (classPath.startsWith("jar")) {
-                // Extract the manifest URL
-                String manifestPath = classPath.substring(0, classPath.lastIndexOf("!") + 1) + "/META-INF/MANIFEST.MF";
-                try (InputStream is = new URL(manifestPath).openStream()) {
-                    Manifest manifest = new Manifest(is);
-                    Attributes mainAttribs = manifest.getMainAttributes();
-                    version = mainAttribs.getValue("Implementation-Version");
-                } catch (Exception e) {
-                    System.err.println("Could not read manifest for version lookup: " + e.getMessage());
-                }
-            }
-        }
-
+    /**
+     * This method returns the {@link SemanticVersion} of a ModuleDescriptor
+     *
+     * @param moduleDescriptor a {@link ModuleDescriptor} to look up version and convert to a SemanticVersion
+     * @return {@link SemanticVersion} if the given {@link Class} has a valid version otherwise null
+     */
+    public static SemanticVersion from(final ModuleDescriptor moduleDescriptor) {
+        Optional<Version> moduleVersion = moduleDescriptor.version();
+        String version = moduleVersion.isEmpty() ? null : moduleVersion.get().toString();
         return from(version);
     }
 

@@ -2,11 +2,10 @@
 package org.hiero.block.node.spi;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
-import org.hiero.block.common.utils.SemanticVersionUtilities;
+import org.hiero.block.common.utils.ModuleInfo;
 
 /**
  * Interface for all block node plugins to implement. Plugins are registered as module services that provide this interface.
@@ -81,10 +80,12 @@ public interface BlockNodePlugin {
      */
     default PluginVersion version() {
         Class<?> clazz = this.getClass();
+        ModuleInfo moduleInfo = ModuleInfo.getInstance(clazz);
+
         return PluginVersion.newBuilder()
                 .pluginId(clazz.getName())
-                .pluginSoftwareVersion(SemanticVersionUtilities.from(this.getClass()))
-                .pluginFeatureNames(new ArrayList<>())
+                .pluginSoftwareVersion(moduleInfo.version())
+                .pluginFeatureNames(moduleInfo.provides(clazz))
                 .build();
     }
 }

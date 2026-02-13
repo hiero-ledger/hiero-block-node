@@ -3,7 +3,9 @@ package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -234,25 +236,32 @@ class BlockNodeAppTest {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
 
-        SemanticVersion blockNodeVersion =
+        final SemanticVersion blockNodeVersion =
                 blockNodeApp.blockNodeContext.blockNodeVersions().blockNodeVersion();
         assertNotNull(blockNodeVersion);
         // This will need to be changed to 1 at some point
         assertEquals(0, blockNodeVersion.major());
 
         // In dev, the plugins should have the same SemVer as the plugins
-        List<PluginVersion> pluginVersions =
+        final List<PluginVersion> pluginVersions =
                 blockNodeApp.blockNodeContext.blockNodeVersions().installedPluginVersions();
         for (PluginVersion pluginVersion : pluginVersions) {
             assertNotNull(pluginVersion.pluginId());
 
-            SemanticVersion softwareVersion = pluginVersion.pluginSoftwareVersion();
+            final SemanticVersion softwareVersion = pluginVersion.pluginSoftwareVersion();
             assertNotNull(softwareVersion);
             assertEquals(blockNodeVersion, pluginVersion.pluginSoftwareVersion());
             // just to be sure
             assertEquals(blockNodeVersion.major(), softwareVersion.major());
             assertEquals(blockNodeVersion.minor(), softwareVersion.minor());
             assertEquals(blockNodeVersion.patch(), softwareVersion.patch());
+
+            // every plugin should have at least one provided service
+            final List<String> features = pluginVersion.pluginFeatureNames();
+            // special case for HistoricalBlockFacilityImpl which is not a real plugin
+            if (pluginVersion.pluginId().equals("org.hiero.block.node.app.HistoricalBlockFacilityImpl"))
+                assertTrue(pluginVersion.pluginFeatureNames().isEmpty());
+            else assertFalse(pluginVersion.pluginFeatureNames().isEmpty());
         }
     }
 
