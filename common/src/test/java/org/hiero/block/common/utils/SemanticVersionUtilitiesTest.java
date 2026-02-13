@@ -3,8 +3,10 @@
 package org.hiero.block.common.utils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.hedera.hapi.node.base.SemanticVersion;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -24,5 +26,16 @@ public class SemanticVersionUtilitiesTest {
     void testRequireNotBlankPass(final String input, final boolean shouldPass) {
         final SemanticVersion semVer = SemanticVersionUtilities.from(input);
         assertThat((semVer != null && shouldPass) || (semVer == null && !shouldPass));
+    }
+
+    /**
+     * This test aims to verify that the {@link SemanticVersionUtilities#from(Class)}
+     * returns a valid version.
+     */
+    @Test
+    void testClassVersions() {
+        final SemanticVersion semVer1 = SemanticVersionUtilities.from(SemanticVersionUtilitiesTest.class);
+        final SemanticVersion semVer2 = SemanticVersionUtilities.from(SemanticVersionUtilities.class);
+        assertEquals(semVer1, semVer2);
     }
 }
