@@ -489,7 +489,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // add the batch of blocks to the in progress ranges
             inProgressZipRanges.add(batchRange);
             // move the batch of blocks to a zip file (submit a task)
-            zipMoveExecutorService.submit(() -> new BatchToZipFileMover(batchRange, this).run());
+            zipMoveExecutorService.submit(new BatchToZipFileMover(batchRange, this));
         }
     }
 
