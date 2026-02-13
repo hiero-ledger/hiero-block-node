@@ -7,10 +7,12 @@ import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
 
 import com.hedera.hapi.block.stream.Block;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -214,6 +216,8 @@ public class ToWrappedBlocksCommand implements Runnable {
             if (Files.exists(inMemoryMerkleTreeFile)) {
                 inMemoryTreeHasher.load(inMemoryMerkleTreeFile);
             }
+            // File to store the last merkle leaf (block number + hash) for quick CN access
+            final Path lastMerkleLeafFile = outputBlocksDir.resolve("lastMerkleLeaf.bin");
 
             // Register a shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
             Runtime.getRuntime()
@@ -305,6 +309,8 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
                                     // add the block hash to the registry
                                     blockRegistry.addBlock(blockNum, blockStreamBlockHash);
+                                    // save the last merkle leaf for quick CN access
+                                    saveLastMerkleLeaf(lastMerkleLeafFile, blockNum, blockStreamBlockHash);
 
                                     printUpdatedProgress(
                                             recordBlock,
@@ -415,6 +421,30 @@ public class ToWrappedBlocksCommand implements Runnable {
         if (blockMinute != lastReportedMinute.get()) {
             PrettyPrint.printProgressWithEta(percent, progressString, remainingMillis);
             lastReportedMinute.set(blockMinute);
+        }
+    }
+
+    /**
+     * Save the last merkle leaf (block number + block hash) to a file for quick access.
+     * This allows the Consensus Node to get the starting hash without loading the full merkle tree.
+     *
+     * <p>File format:
+     * <ul>
+     *   <li>Block number (8 bytes, long)</li>
+     *   <li>Block hash (48 bytes, SHA-384)</li>
+     * </ul>
+     *
+     * @param file the file to write to
+     * @param blockNumber the block number
+     * @param blockHash the block hash (SHA-384, 48 bytes)
+     */
+    private static void saveLastMerkleLeaf(Path file, long blockNumber, byte[] blockHash) {
+        try (DataOutputStream out = new DataOutputStream(
+                Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))) {
+            out.writeLong(blockNumber);
+            out.write(blockHash);
+        } catch (IOException e) {
+            System.err.println("Warning: could not save lastMerkleLeaf.bin: " + e.getMessage());
         }
     }
 }
