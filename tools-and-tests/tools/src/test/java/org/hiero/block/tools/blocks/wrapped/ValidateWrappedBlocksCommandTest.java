@@ -136,7 +136,9 @@ class ValidateWrappedBlocksCommandTest {
         System.setErr(new PrintStream(errCapture));
         int validateExitCode;
         try {
-            validateExitCode = new CommandLine(new ValidateWrappedBlocksCommand()).execute(outputDir.toString());
+            // Disable balance validation for this test (no GCP access in test environment)
+            validateExitCode = new CommandLine(new ValidateWrappedBlocksCommand())
+                    .execute(outputDir.toString(), "--validate-balances=false");
         } finally {
             System.setErr(originalErr);
         }
@@ -148,6 +150,9 @@ class ValidateWrappedBlocksCommandTest {
         }
         assertFalse(errorOutput.contains("Blockchain is not valid"), "Chain validation failed: " + errorOutput);
         assertFalse(errorOutput.contains("HBAR supply mismatch"), "50 billion HBAR check failed: " + errorOutput);
+        assertFalse(
+                errorOutput.contains("Address book file not found"),
+                "Balance validation should be disabled: " + errorOutput);
         assertEquals(0, validateExitCode, "Validation should pass for all blocks. Errors: " + errorOutput);
     }
 
