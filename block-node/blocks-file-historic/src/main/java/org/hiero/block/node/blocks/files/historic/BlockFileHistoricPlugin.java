@@ -32,6 +32,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
@@ -77,6 +78,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private final Deque<LongRange> inProgressZipRanges = new ConcurrentLinkedDeque<>();
     /** Running total of bytes stored in the historic tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
+    /** The total number of zip files created */
+    private final AtomicLong totalZipFiles = new AtomicLong(0);
     /** The config used for this plugin */
     private FilesHistoricConfig config;
     /** The Storage Retention Policy Threshold */
@@ -170,6 +173,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // Initialize total bytes stored by querying the zip block archive
                 totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());
             }
+            totalZipFiles.set(zipBlockArchive.count());
             // Register gauge updater
             context.metrics().addUpdater(this::updateGauges);
         } catch (IOException e) {
@@ -299,7 +303,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         }
         try {
             attemptZipping();
-            cleanup();
         } catch (final RuntimeException e) {
             final String message = "Failed to handle persistence notification due to %s".formatted(e);
             LOGGER.log(WARNING, message, e);
@@ -426,15 +429,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private void cleanup() {
         // we only take action if the threshold is greater than 0L
         if (blockRetentionThreshold > 0L) {
-            final long totalStored = availableBlocks.size();
+            final long totalStored = totalZipFiles.get();
             // calculate excess blocks to delete, the retention threshold
             // is the number of zips (archived batches) to retain
-            long excess = totalStored - (blockRetentionThreshold * numberOfBlocksPerZipFile);
-            // the numberOfBlocksPerZipFile should generally be immutable once set
-            // for the first time when the block node was originally started
-            // we can rely on the check below to ensure we are deleting the correct
-            // number of blocks
-            while (excess >= numberOfBlocksPerZipFile) {
+            long excess = totalStored - blockRetentionThreshold;
+            while (excess > 0) {
                 // if we have passed the above check, we can delete at least one zip file
                 // we assume there are no gaps in the zips, the number of blocks per zip file
                 // setting is not possible to change after starting the system for the first time,
@@ -446,27 +445,30 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // no need to compute existing below, we need the path to the zip file, we do not need to
                 // check if the minBlockNumberStored exists, moreover we do not need to know actual block compression
                 // type.
-                final Path zipToDelete =
-                        BlockPath.computeBlockPath(config, minBlockNumberStored).zipFilePath();
-                if (Files.exists(zipToDelete)) {
-                    try {
-                        // since we keep track of the whole zip file size, that is
-                        // what we should decrement the total bytes stored by
-                        final long zipFileSize = Files.size(zipToDelete);
-                        Files.delete(zipToDelete);
-                        totalBytesStored.addAndGet(-zipFileSize);
-                        // we know that the minBlockNumberStored is for sure the beginning of the batch
-                        // of blocks that we are deleting, also we know that the numberOfBlocksPerZipFile
-                        // is immutable once set originally when we first started the block node,
-                        // so we can safely calculate and remove the range of blocks from the available blocks
-                        availableBlocks.remove(
-                                minBlockNumberStored, minBlockNumberStored + numberOfBlocksPerZipFile - 1);
-                    } catch (final IOException e) {
-                        LOGGER.log(INFO, "Failed to delete zip file: %s".formatted(zipToDelete), e);
-                        zipsDeletedFailedCounter.increment();
+                try {
+                    final Optional<Path> zipToDeleteOpt =
+                            zipBlockArchive.minStoredArchive().filter(Files::exists);
+                    if (zipToDeleteOpt.isPresent()) {
+                        final Path zipToDelete = zipToDeleteOpt.get();
+                        try {
+                            // since we keep track of the whole zip file size, that is
+                            // what we should decrement the total bytes stored by
+                            final long zipFileSize = Files.size(zipToDelete);
+                            Files.delete(zipToDelete);
+                            totalBytesStored.addAndGet(-zipFileSize);
+                            availableBlocks.remove(
+                                    minBlockNumberStored, minBlockNumberStored + numberOfBlocksPerZipFile - 1);
+                            totalZipFiles.decrementAndGet();
+                        } catch (final IOException e) {
+                            LOGGER.log(INFO, "Failed to delete zip file: %s".formatted(zipToDelete), e);
+                            zipsDeletedFailedCounter.increment();
+                        }
                     }
+                } catch (final IOException e) {
+                    LOGGER.log(INFO, "Failed to determine minimal block to delete.", e);
+                    zipsDeletedFailedCounter.increment();
                 }
-                excess -= numberOfBlocksPerZipFile;
+                excess--;
             }
             updateGauges();
         }
@@ -561,6 +563,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // zipped and the staging files removed.
                 // Now we need to update the first and last block numbers
                 availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
+                totalZipFiles.incrementAndGet();
                 final String successMessage = "Successfully moved batch of blocks[{0} -> {1}] to zip file.";
                 LOGGER.log(Level.TRACE, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
                 // now all the blocks are in the zip file and accessible, send notification
@@ -568,6 +571,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 context.blockMessaging()
                         .sendBlockPersisted(new PersistedNotification(
                                 batchLastBlockNumber, true, defaultPriority(), BlockSource.HISTORY));
+                cleanup();
             }
         } catch (final IOException e) {
             final String failMessage = "Failed to move batch of blocks [%d -> %d] to zip file"
