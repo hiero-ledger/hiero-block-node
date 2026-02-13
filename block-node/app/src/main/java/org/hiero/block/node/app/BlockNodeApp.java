@@ -236,16 +236,12 @@ public class BlockNodeApp implements HealthFacility {
     protected final BlockNodeVersions versionInfo(final List<BlockNodePlugin> plugins) {
         List<PluginVersion> pluginVersions = new ArrayList<>();
         for (final BlockNodePlugin plugin : plugins) {
-            final Class<?> pluginClass = plugin.getClass();
-            final PluginVersion pluginVersion = PluginVersion.newBuilder()
-                    .pluginSoftwareVersion(plugin.version())
-                    .build();
-            pluginVersions.add(pluginVersion);
+            pluginVersions.add(plugin.version());
         }
 
         return BlockNodeVersions.newBuilder()
                 .installedPluginVersions(pluginVersions)
-                .blockNodeVersion(SemanticVersionUtilities.from(this.getClass()))
+                .blockNodeVersion(SemanticVersionUtilities.from(BlockNodeApp.class))
                 .build();
     }
 

@@ -2,6 +2,10 @@
 package org.hiero.block.common.utils;
 
 import com.hedera.hapi.node.base.SemanticVersion;
+import java.io.InputStream;
+import java.net.URL;
+import java.util.jar.Attributes;
+import java.util.jar.Manifest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,6 +35,23 @@ public final class SemanticVersionUtilities {
         final Package appPackage = clazz.getPackage();
         if (appPackage != null) {
             version = appPackage.getImplementationVersion();
+        }
+
+        // More robust approach by manually reading the manifest
+        if (version == null) {
+            String className = clazz.getSimpleName() + ".class";
+            String classPath = clazz.getResource(className).toString();
+            if (classPath.startsWith("jar")) {
+                // Extract the manifest URL
+                String manifestPath = classPath.substring(0, classPath.lastIndexOf("!") + 1) + "/META-INF/MANIFEST.MF";
+                try (InputStream is = new URL(manifestPath).openStream()) {
+                    Manifest manifest = new Manifest(is);
+                    Attributes mainAttribs = manifest.getMainAttributes();
+                    version = mainAttribs.getValue("Implementation-Version");
+                } catch (Exception e) {
+                    System.err.println("Could not read manifest for version lookup: " + e.getMessage());
+                }
+            }
         }
 
         return from(version);

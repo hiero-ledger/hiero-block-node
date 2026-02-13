@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi;
 
-import com.hedera.hapi.node.base.SemanticVersion;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.common.utils.SemanticVersionUtilities;
 
 /**
@@ -75,10 +76,15 @@ public interface BlockNodePlugin {
     default void stop() {}
 
     /**
-     * The version of the plugin as specified by the Implementation-Version field in the MANIFEST.MF of the jar
+     * The version of the plugin as specified by the classname and the Implementation-Version field in the MANIFEST.MF of the jar
      * containing this class.
      */
-    default SemanticVersion version() {
-        return SemanticVersionUtilities.from(this.getClass());
+    default PluginVersion version() {
+        Class<?> clazz = this.getClass();
+        return PluginVersion.newBuilder()
+                .pluginId(clazz.getName())
+                .pluginSoftwareVersion(SemanticVersionUtilities.from(this.getClass()))
+                .pluginFeatureNames(new ArrayList<>())
+                .build();
     }
 }

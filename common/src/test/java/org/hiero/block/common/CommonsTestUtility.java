@@ -355,7 +355,8 @@ public final class CommonsTestUtility {
                 Arguments.of("v0.0.0", true),
                 Arguments.of("0.1.0-alpha+", false),
                 Arguments.of("0.1.0-alpha", true),
-                Arguments.of("0.1.0-alpha+123A72", true));
+                Arguments.of("0.1.0-alpha+123A72", true),
+                Arguments.of("0.28.0-SNAPSHOT", true));
     }
 
     private CommonsTestUtility() {}

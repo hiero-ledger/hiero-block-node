@@ -11,11 +11,13 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hedera.hapi.node.base.SemanticVersion;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -144,7 +146,7 @@ class BlockNodeAppTest {
     void testPluginStartupParallel() throws IOException {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         // Case 1: Test in parallel
-        BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
         assertNotNull(blockNodeApp);
         startBlockNode(blockNodeApp);
     }
@@ -159,7 +161,7 @@ class BlockNodeAppTest {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
 
         // Case 2: Start plugins in ServiceLoader order
-        blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
             @Override
             protected void startPlugins(List<BlockNodePlugin> plugins) {
                 for (BlockNodePlugin plugin : loadedPlugins) {
@@ -182,7 +184,7 @@ class BlockNodeAppTest {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
 
         // Case 3: Test in reverse order returned by the service loader.
-        blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
             @Override
             protected void startPlugins(List<BlockNodePlugin> plugins) {
                 for (BlockNodePlugin plugin : plugins.reversed()) {
@@ -205,12 +207,13 @@ class BlockNodeAppTest {
         final int SHUFFLE_COUNT = 100;
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
 
+        BlockNodeApp blockNodeApp;
         // Case 4: Test in reverse order returned by the service loader.
         for (int i = 0; i < SHUFFLE_COUNT; i++) {
             blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false) {
                 @Override
                 protected void startPlugins(List<BlockNodePlugin> plugins) {
-                    List<BlockNodePlugin> shuffledPlugins = new ArrayList<>(plugins);
+                    final List<BlockNodePlugin> shuffledPlugins = new ArrayList<>(plugins);
                     Collections.shuffle(shuffledPlugins);
                     for (BlockNodePlugin plugin : shuffledPlugins) {
                         plugin.start();
@@ -219,6 +222,37 @@ class BlockNodeAppTest {
             };
             assertNotNull(blockNodeApp);
             startBlockNode(blockNodeApp);
+        }
+    }
+
+    /**
+     * Test the BlockNodeVersions.
+     */
+    @Test
+    @DisplayName("Test BlockNodeVersions")
+    void testBlockNodeVersions() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+
+        SemanticVersion blockNodeVersion =
+                blockNodeApp.blockNodeContext.blockNodeVersions().blockNodeVersion();
+        assertNotNull(blockNodeVersion);
+        // This will need to be changed to 1 at some point
+        assertEquals(0, blockNodeVersion.major());
+
+        // In dev, the plugins should have the same SemVer as the plugins
+        List<PluginVersion> pluginVersions =
+                blockNodeApp.blockNodeContext.blockNodeVersions().installedPluginVersions();
+        for (PluginVersion pluginVersion : pluginVersions) {
+            assertNotNull(pluginVersion.pluginId());
+
+            SemanticVersion softwareVersion = pluginVersion.pluginSoftwareVersion();
+            assertNotNull(softwareVersion);
+            assertEquals(blockNodeVersion, pluginVersion.pluginSoftwareVersion());
+            // just to be sure
+            assertEquals(blockNodeVersion.major(), softwareVersion.major());
+            assertEquals(blockNodeVersion.minor(), softwareVersion.minor());
+            assertEquals(blockNodeVersion.patch(), softwareVersion.patch());
         }
     }
 
