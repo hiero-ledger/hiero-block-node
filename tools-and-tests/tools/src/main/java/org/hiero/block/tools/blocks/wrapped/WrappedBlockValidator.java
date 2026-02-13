@@ -5,6 +5,7 @@ import static org.hiero.block.tools.utils.PrettyPrint.simpleHash;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.MapChangeKey;
 import com.hedera.hapi.block.stream.output.MapChangeValue;
 import com.hedera.hapi.block.stream.output.MapUpdateChange;
@@ -344,7 +345,7 @@ public final class WrappedBlockValidator {
                     }
                 }
             } else if (item.hasRecordFile()) {
-                final var recordFile = item.recordFileOrThrow();
+                final RecordFileItem recordFile = item.recordFileOrThrow();
                 // Process original record stream items
                 for (final RecordStreamItem recordStreamItem :
                         recordFile.recordFileContentsOrThrow().recordStreamItems()) {

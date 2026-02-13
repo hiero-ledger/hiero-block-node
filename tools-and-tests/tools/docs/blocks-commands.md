@@ -4,13 +4,14 @@ The `blocks` command contains utilities for working with Block Stream files (.bl
 
 ### Available Subcommands
 
-|      Command       |                                     Description                                     |
-|--------------------|-------------------------------------------------------------------------------------|
-| `json`             | Converts a binary Block Stream to JSON                                              |
-| `ls`               | Prints info for block files (supports .blk, .blk.gz, .blk.zstd, and zip archives)   |
-| `validate`         | Validates a wrapped Block Stream (hash chain and signatures)                        |
-| `validate-wrapped` | Validates wrapped blocks produced by `wrap` (chain, merkle tree, structure, supply) |
-| `wrap`             | Convert record file blocks in day files to wrapped Block Stream blocks              |
+|          Command          |                                     Description                                     |
+|---------------------------|-------------------------------------------------------------------------------------|
+| `json`                    | Converts a binary Block Stream to JSON                                              |
+| `ls`                      | Prints info for block files (supports .blk, .blk.gz, .blk.zstd, and zip archives)   |
+| `validate`                | Validates a wrapped Block Stream (hash chain and signatures)                        |
+| `validate-wrapped`        | Validates wrapped blocks produced by `wrap` (chain, merkle tree, structure, supply) |
+| `wrap`                    | Convert record file blocks in day files to wrapped Block Stream blocks              |
+| `fetchBalanceCheckpoints` | Fetch balance checkpoint files from GCP and compile into a resource file            |
 
 ---
 
@@ -129,30 +130,59 @@ Validates wrapped block stream files produced by the `wrap` command. Walks all b
 #### Usage
 
 ```
-blocks validate-wrapped [-n=<network>] [<files>...]
+blocks validate-wrapped [-n=<network>] [--[no-]validate-balances] [--balance-checkpoints=<file>]
+                        [--custom-balances-dir=<dir>] [--balance-check-interval-days=<days>] [<files>...]
 ```
 
 #### Options
 
-|          Option          |                                           Description                                            |
-|--------------------------|--------------------------------------------------------------------------------------------------|
-| `-n`, `--network <name>` | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
-| `<files>...`             | Block files, directories, or zip archives to process.                                            |
+|                      Option                      |                                           Description                                            |
+|--------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| `-n`, `--network <name>`                         | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
+| `--validate-balances` / `--no-validate-balances` | Enable or disable balance checkpoint validation. Default: enabled.                               |
+| `--balance-checkpoints <file>`                   | Path to pre-fetched balance checkpoints file (`balance_checkpoints.zstd`).                       |
+| `--custom-balances-dir <dir>`                    | Directory containing custom balance files (`accountBalances_{blockNumber}.pb.gz`).               |
+| `--balance-check-interval-days <days>`           | Only validate balance checkpoints every N days (default: 30 = monthly).                          |
+| `<files>...`                                     | Block files, directories, or zip archives to process.                                            |
+
+#### Balance Validation
+
+When balance validation is enabled (default), the command validates computed account balances against pre-fetched balance checkpoints. This ensures the 50 billion HBAR supply is correctly tracked through all transactions.
+
+Balance checkpoints can be loaded from:
+- A compiled checkpoint file created by `fetchBalanceCheckpoints` (recommended)
+- `balance_checkpoints_monthly.zstd` - 32 checkpoints, ~14MB (default, faster)
+- `balance_checkpoints_weekly.zstd` - 136 checkpoints, ~20MB (more thorough)
+- A directory of custom balance files extracted from saved states
+
+The `--balance-check-interval-days` option controls how often checkpoints are validated. The default of 30 days (monthly) provides a good balance between validation coverage and performance. Use smaller intervals for more thorough validation or larger intervals for faster runs.
+
+**Important:** The validation interval can only be as granular as the checkpoints that were fetched. For example, if checkpoints were fetched with `--interval-days 30` (monthly), you cannot validate weekly since weekly checkpoints don't exist in the file. To validate at a smaller interval, you must first re-fetch checkpoints using `fetchBalanceCheckpoints` with a matching `--interval-days` value.
 
 #### Notes
 
 - When starting from block 0, a `StreamingHasher` is created to validate the historical block hash merkle tree and a balance map is maintained for 50 billion HBAR supply validation. When starting from a later block, both are skipped because the prior state is unavailable.
 - Supports both individual block files (nested directories of `.blk.zstd`) and zip archives produced by the `wrap` command.
 - Progress is printed every 1000 blocks with an ETA.
+- If no balance checkpoints are loaded, balance validation is automatically skipped with a warning.
 
 #### Example
 
 ```bash
-# Validate wrapped blocks in a directory
+# Validate wrapped blocks in a directory (balance validation enabled by default)
 blocks validate-wrapped /path/to/wrappedBlocks
 
-# Validate with explicit network
-blocks validate-wrapped -n mainnet /path/to/wrappedBlocks
+# Validate with explicit balance checkpoint file
+blocks validate-wrapped --balance-checkpoints data/balance_checkpoints.zstd /path/to/wrappedBlocks
+
+# Validate balances weekly instead of monthly
+blocks validate-wrapped --balance-check-interval-days 7 /path/to/wrappedBlocks
+
+# Skip balance validation for faster runs
+blocks validate-wrapped --no-validate-balances /path/to/wrappedBlocks
+
+# Validate with custom balance files from saved states
+blocks validate-wrapped --custom-balances-dir /path/to/balance_files /path/to/wrappedBlocks
 ```
 
 ---
@@ -217,3 +247,74 @@ blocks wrap -i /path/to/compressedDays -o /path/to/wrappedBlocks
 # Output as individual unzipped files
 blocks wrap -u -i /path/to/compressedDays -o /path/to/wrappedBlocks
 ```
+
+---
+
+### The `fetchBalanceCheckpoints` Subcommand
+
+Fetches balance checkpoint files from GCP, optionally verifies signatures, and compiles them into a single zstd-compressed resource file for offline balance validation. This command downloads the `accountBalances` files from the Hedera mainnet GCP bucket and processes them into a compact binary format.
+
+#### Usage
+
+```
+blocks fetchBalanceCheckpoints [-o=<outputFile>] [--start-day=<date>] [--end-day=<date>]
+                               [--interval-days=<days>] [--interval-hours=<hours>]
+                               [--skip-signatures] [--block-times=<file>] [--address-book=<file>]
+```
+
+#### Options
+
+|           Option           |                                                 Description                                                  |
+|----------------------------|--------------------------------------------------------------------------------------------------------------|
+| `-o`, `--output <file>`    | Output zstd-compressed file path (default: `balance_checkpoints.zstd`).                                      |
+| `--start-day <date>`       | Start day in format `YYYY-MM-DD` (default: `2019-09-13`).                                                    |
+| `--end-day <date>`         | End day in format `YYYY-MM-DD` (default: `2023-10-23`).                                                      |
+| `--interval-days <days>`   | Only include one checkpoint every N days (e.g., 7 for weekly, 30 for monthly). Overrides `--interval-hours`. |
+| `--interval-hours <hours>` | Only include checkpoints at this hour interval (default: 24 = one per day).                                  |
+| `--skip-signatures`        | Skip signature verification (not recommended for production use).                                            |
+| `--block-times <file>`     | Path to `block_times.bin` file for timestamp to block mapping (default: `data/block_times.bin`).             |
+| `--address-book <file>`    | Path to address book history JSON file for signature verification (default: `data/addressBookHistory.json`). |
+| `--gcp-project <project>`  | GCP project for requester-pays bucket access (default: from `GCP_PROJECT_ID` env var).                       |
+| `--cache-dir <dir>`        | Directory for caching downloaded files (default: `data/gcp-cache`).                                          |
+| `--min-node <id>`          | Minimum node account ID (default: 3).                                                                        |
+| `--max-node <id>`          | Maximum node account ID (default: 34).                                                                       |
+
+#### Prerequisites
+
+- **GCP authentication** - Run `gcloud auth application-default login` before using this command
+- **block_times.bin** - Required for mapping timestamps to block numbers
+- **addressBookHistory.json** - Required for signature verification (unless `--skip-signatures` is used)
+
+#### Output Format
+
+The output file is a zstd-compressed binary file containing checkpoint records:
+
+- Block number (8 bytes, long)
+- Account count (4 bytes, int)
+- For each account: accountNum (8 bytes, long) + balance (8 bytes, long)
+
+This format avoids protobuf parsing limits and supports files with millions of accounts.
+
+#### Example
+
+```bash
+# Fetch monthly checkpoints (recommended for validation)
+blocks fetchBalanceCheckpoints --interval-days 30 -o balance_checkpoints.zstd
+
+# Fetch weekly checkpoints for more thorough validation
+blocks fetchBalanceCheckpoints --interval-days 7 -o balance_checkpoints_weekly.zstd
+
+# Fetch checkpoints for a specific date range
+blocks fetchBalanceCheckpoints --start-day 2022-01-01 --end-day 2022-12-31 -o balance_2022.zstd
+
+# Skip signature verification (faster but less secure)
+blocks fetchBalanceCheckpoints --skip-signatures -o balance_checkpoints.zstd
+```
+
+#### Notes
+
+- The command handles large balance files (2M+ accounts) that exceed standard protobuf parsing limits by using a custom wire-format parser.
+- Downloaded files are cached locally to avoid re-downloading on subsequent runs.
+- Signature verification ensures checkpoint integrity but requires an address book history file.
+- The compiled output file can be used with `validate-wrapped --balance-checkpoints` for offline validation.
+- The `--interval-days` value determines the granularity of validation possible. For example, monthly checkpoints (`--interval-days 30`) only allow monthly validation, not weekly. Choose the fetch interval based on your validation needs.

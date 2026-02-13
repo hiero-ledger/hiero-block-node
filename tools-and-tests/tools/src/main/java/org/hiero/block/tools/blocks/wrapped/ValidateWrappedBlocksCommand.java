@@ -4,13 +4,10 @@ package org.hiero.block.tools.blocks.wrapped;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
-import com.hedera.hapi.node.base.Timestamp;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -19,7 +16,6 @@ import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.tools.blocks.model.BlockReader;
 import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
-import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
@@ -38,6 +34,9 @@ import picocli.CommandLine.Parameters;
  * <p>When the directory starts at block zero a {@link StreamingHasher} is created to validate the
  * historical block hash merkle tree. When starting from a later block, merkle tree validation is
  * skipped because the prior tree state is unavailable.
+ *
+ * <p>Balance validation uses pre-fetched checkpoint files created by
+ * {@link FetchBalanceCheckpointsCommand} or custom balance files from saved states.
  */
 @SuppressWarnings({"FieldCanBeLocal", "DuplicatedCode"})
 @Command(
@@ -52,52 +51,26 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
 
     @Option(
             names = {"--validate-balances"},
-            description = "Enable validation of account balances against CSV balance files from GCP")
-    private boolean validateBalances = false;
+            description = "Enable validation of account balances (enabled by default)",
+            defaultValue = "true",
+            negatable = true)
+    private boolean validateBalances = true;
 
     @Option(
-            names = {"--balance-start-day"},
-            description = "Start day for balance validation in format YYYY-MM-DD (e.g., 2019-09-13)")
-    private String balanceStartDay;
+            names = {"--balance-checkpoints"},
+            description = "Path to pre-fetched balance checkpoints file (balance_checkpoints.zstd)")
+    private Path balanceCheckpointsFile;
 
     @Option(
-            names = {"--balance-end-day"},
-            description = "End day for balance validation in format YYYY-MM-DD (e.g., 2024-12-31)")
-    private String balanceEndDay;
+            names = {"--custom-balances-dir"},
+            description = "Directory containing custom balance files (accountBalances_{blockNumber}.pb.gz)")
+    private Path customBalancesDir;
 
     @Option(
-            names = {"--gcp-project"},
-            description = "GCP project for requester-pays bucket access")
-    private String gcpProject;
-
-    @Option(
-            names = {"--cache-dir"},
-            description = "Directory for caching downloaded files",
-            defaultValue = "data/gcp-cache")
-    private Path cacheDir;
-
-    @Option(
-            names = {"--min-node"},
-            description = "Minimum node account ID",
-            defaultValue = "3")
-    private int minNodeAccountId;
-
-    @Option(
-            names = {"--max-node"},
-            description = "Maximum node account ID",
-            defaultValue = "34")
-    private int maxNodeAccountId;
-
-    @Option(
-            names = {"--address-book"},
-            description = "Path to address book history JSON file for signature verification")
-    private Path addressBookPath;
-
-    @Option(
-            names = {"--verify-signatures"},
-            description = "Verify balance file signatures (requires --address-book)",
-            defaultValue = "false")
-    private boolean verifySignatures;
+            names = {"--balance-check-interval-days"},
+            description = "Only validate balance checkpoints every N days (default: 30 = monthly)",
+            defaultValue = "30")
+    private int balanceCheckIntervalDays;
 
     @Override
     public Integer call() {
@@ -152,37 +125,44 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
                     "@|yellow Historical Block hash tree validation:|@ disabled (starts at block " + firstBlock + ")"));
         }
 
-        // Initialize balance CSV validator if enabled
-        BalanceCsvValidator balanceCsvValidator = null;
+        // Initialize balance validator if enabled
+        BalanceCheckpointValidator balanceCheckpointValidator = null;
+
         if (validateBalances) {
-            if (balanceStartDay == null || balanceEndDay == null) {
-                System.err.println(
-                        Ansi.AUTO.string(
-                                "@|red Error:|@ --balance-start-day and --balance-end-day are required when --validate-balances is enabled"));
-                return 1;
-            }
-            if (verifySignatures && addressBookPath == null) {
-                System.err.println(Ansi.AUTO.string(
-                        "@|red Error:|@ --address-book is required when --verify-signatures is enabled"));
-                return 1;
-            }
             System.out.println(Ansi.AUTO.string("@|yellow Balance validation:|@ enabled"));
             System.out.println(
-                    Ansi.AUTO.string("@|yellow Balance date range:|@ " + balanceStartDay + " to " + balanceEndDay));
-            if (verifySignatures) {
-                System.out.println(Ansi.AUTO.string("@|yellow Signature verification:|@ enabled"));
-            }
+                    Ansi.AUTO.string("@|yellow Balance check interval:|@ every " + balanceCheckIntervalDays + " days"));
 
-            // Load address book registry if signature verification is enabled
-            AddressBookRegistry addressBookRegistry = null;
-            if (verifySignatures && addressBookPath != null) {
-                System.out.println(Ansi.AUTO.string("@|yellow Loading address book:|@ " + addressBookPath));
-                addressBookRegistry = new AddressBookRegistry(addressBookPath);
-            }
+            try {
+                balanceCheckpointValidator = new BalanceCheckpointValidator();
+                balanceCheckpointValidator.setCheckIntervalDays(balanceCheckIntervalDays);
 
-            balanceCsvValidator = new BalanceCsvValidator(
-                    cacheDir, minNodeAccountId, maxNodeAccountId, gcpProject, addressBookRegistry, verifySignatures);
-            balanceCsvValidator.loadCheckpoints(balanceStartDay, balanceEndDay);
+                // Load from checkpoint file if specified
+                if (balanceCheckpointsFile != null && Files.exists(balanceCheckpointsFile)) {
+                    System.out.println(
+                            Ansi.AUTO.string("@|yellow Balance source:|@ checkpoint file: " + balanceCheckpointsFile));
+                    balanceCheckpointValidator.loadFromFile(balanceCheckpointsFile);
+                }
+
+                // Load from custom balances directory if specified
+                if (customBalancesDir != null && Files.isDirectory(customBalancesDir)) {
+                    System.out.println(Ansi.AUTO.string("@|yellow Custom balances dir:|@ " + customBalancesDir));
+                    balanceCheckpointValidator.loadFromDirectory(customBalancesDir);
+                }
+
+                // If no checkpoints loaded, disable balance validation
+                if (balanceCheckpointValidator.getCheckpointCount() == 0) {
+                    System.out.println(Ansi.AUTO.string(
+                            "@|yellow Warning:|@ No balance checkpoints loaded, skipping balance validation"));
+                    System.out.println(Ansi.AUTO.string(
+                            "@|yellow Hint:|@ Run 'blocks fetchBalanceCheckpoints' to download checkpoints, "
+                                    + "or specify --balance-checkpoints or --custom-balances-dir"));
+                    balanceCheckpointValidator = null;
+                }
+            } catch (IOException e) {
+                System.err.println(Ansi.AUTO.string("@|red Error loading balance checkpoints:|@ " + e.getMessage()));
+                return 1;
+            }
         }
         System.out.println();
 
@@ -201,12 +181,9 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
                 final Block block = BlockReader.readBlock(inputDir, blockNumber);
                 WrappedBlockValidator.validateBlock(block, blockNumber, previousBlockHash, streamingHasher, balanceMap);
 
-                // Validate against balance CSV checkpoints if enabled
-                if (balanceCsvValidator != null && balanceMap != null) {
-                    Instant blockTimestamp = extractBlockTimestamp(block);
-                    if (blockTimestamp != null) {
-                        balanceCsvValidator.checkBlock(blockTimestamp, balanceMap);
-                    }
+                // Validate against balance checkpoints if enabled
+                if (balanceCheckpointValidator != null && balanceMap != null) {
+                    balanceCheckpointValidator.checkBlock(blockNumber, balanceMap);
                 }
 
                 // Compute block hash and update state for the next block's validation
@@ -260,9 +237,9 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         System.out.println(Ansi.AUTO.string("@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
 
         // Print balance validation summary if enabled
-        if (balanceCsvValidator != null) {
-            balanceCsvValidator.printSummary();
-            if (!balanceCsvValidator.allPassed()) {
+        if (balanceCheckpointValidator != null) {
+            balanceCheckpointValidator.printSummary();
+            if (!balanceCheckpointValidator.allPassed()) {
                 return 1;
             }
         }
@@ -270,25 +247,5 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|bold,green VALIDATION PASSED|@"));
         return 0;
-    }
-
-    /**
-     * Extract the consensus timestamp from a block's header.
-     *
-     * @param block the block to extract timestamp from
-     * @return the block timestamp as Instant, or null if not found
-     */
-    private static Instant extractBlockTimestamp(Block block) {
-        return block.items().stream()
-                .filter(BlockItem::hasBlockHeader)
-                .findFirst()
-                .map(item -> {
-                    Timestamp ts = item.blockHeaderOrThrow().blockTimestamp();
-                    if (ts == null) {
-                        return null;
-                    }
-                    return Instant.ofEpochSecond(ts.seconds(), ts.nanos());
-                })
-                .orElse(null);
     }
 }
