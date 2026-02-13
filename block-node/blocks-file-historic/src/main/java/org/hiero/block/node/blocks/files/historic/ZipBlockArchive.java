@@ -292,10 +292,7 @@ class ZipBlockArchive {
                     .filter(path -> isNumericDirectory(path.getParent()))
                     .count();
         } catch (final Exception e) {
-            LOGGER.log(ERROR, "Error walking directory structure to count zip files", e);
-            final String shutdownMessage =
-                    "Error walking directory structure to count zip files because %s".formatted(e.getMessage());
-            context.serverHealth().shutdown(ZipBlockArchive.class.getName(), shutdownMessage);
+            LOGGER.log(INFO, "Error walking directory structure to count zip files", e);
             return 0;
         }
     }

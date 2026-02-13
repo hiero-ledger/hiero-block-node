@@ -6,8 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.mockito.Mockito.mock;
 
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
@@ -33,11 +31,11 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -1215,10 +1213,9 @@ class BlockFileHistoricPluginTest {
             // Add first batch of 100 blocks (100-199) to simulate an initial archive
             // set that fills the retention threshold exactly
             for (int i = 100; i < 200; i++) {
-                final BlockItemUnparsed[] block =
-                        TestBlockBuilder.generateBlockWithNumber(i).asBlockItemUnparsedArray();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute all pending archival tasks to zip the first batch
@@ -1235,10 +1232,9 @@ class BlockFileHistoricPluginTest {
             // Add a second batch of 10 blocks (200-209). This will push us over the
             // retention threshold, triggering cleanup of the oldest blocks.
             for (int i = 200; i < 210; i++) {
-                final BlockItemUnparsed[] block =
-                        TestBlockBuilder.generateBlockWithNumber(i).asBlockItemUnparsedArray();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute all pending archival tasks. The retention policy should kick in
@@ -1292,10 +1288,9 @@ class BlockFileHistoricPluginTest {
             // Add 10 new blocks (90-99) to reach exactly the retention threshold of 100 blocks.
             // No cleanup should occur yet since we are exactly at the limit.
             for (int i = 90; i < 100; i++) {
-                final BlockItemUnparsed[] block =
-                        TestBlockBuilder.generateBlockWithNumber(i).asBlockItemUnparsedArray();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute archival tasks for blocks 90-99
@@ -1312,10 +1307,9 @@ class BlockFileHistoricPluginTest {
             // Add 10 more blocks (100-109) to exceed the retention threshold.
             // This should trigger the retention policy to remove the oldest 10 blocks (0-9).
             for (int i = 100; i < 110; i++) {
-                final BlockItemUnparsed[] block =
-                        TestBlockBuilder.generateBlockWithNumber(i).asBlockItemUnparsedArray();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(List.of(block)), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute archival tasks. Retention policy should kick in and remove blocks 0-9.
@@ -1357,10 +1351,9 @@ class BlockFileHistoricPluginTest {
             // Send the first set of block verification notifications (blocks 0-9).
             // This represents the initial arrival of blocks that need to be archived.
             for (int i = 0; i < 10; i++) {
-                final BlockUnparsed block =
-                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute all pending archival tasks. This should zip blocks 0-9 into a single archive.
@@ -1383,10 +1376,9 @@ class BlockFileHistoricPluginTest {
             // With allowZippingMultipleTimes enabled, this should trigger re-archiving
             // instead of being skipped as it would be with the default configuration.
             for (int i = 0; i < 10; i++) {
-                final BlockUnparsed block =
-                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute pending tasks. With allowZippingMultipleTimes = true, this should
@@ -1412,10 +1404,8 @@ class BlockFileHistoricPluginTest {
          */
         private void createPreExistingZipEntry(final long blockNumber) throws IOException {
             final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, blockNumber);
-            final BlockItem[] blockItems =
-                    TestBlockBuilder.generateBlockWithNumber(blockNumber).asBlockItemArray();
-            final Block block = new Block(List.of(blockItems));
-            final Bytes blockBytes = Block.PROTOBUF.toBytes(block);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
+            final Bytes blockBytes = block.bytes();
             final byte[] bytesToWrite = blockBytes.toByteArray();
 
             // Create directory structure
