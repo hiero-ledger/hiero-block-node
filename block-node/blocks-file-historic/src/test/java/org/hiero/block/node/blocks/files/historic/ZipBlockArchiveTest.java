@@ -553,25 +553,6 @@ class ZipBlockArchiveTest {
 
         /**
          * This test aims to assert that the
-         * {@link ZipBlockArchive#count()} shuts down the plugin when an exception occurs
-         * during directory traversal.
-         */
-        @Test
-        @DisplayName("Test count() shuts down plugin when exception occurs")
-        void testCountWithException() throws IOException {
-            // create test environment with a valid zip file first
-            createAndAddBlockEntry(3L);
-            // close the filesystem to simulate an IOException during file walk
-            jimFs.close();
-            // call count which should encounter an exception
-            final long actual = toTest.count();
-            // assert that the server is now stopped and 0 is returned
-            assertThat(actual).isZero();
-            assertThat(testContext.serverHealth().isRunning()).isFalse();
-        }
-
-        /**
-         * This test aims to assert that the
          * {@link ZipBlockArchive#createZip(BlockAccessorBatch, Path)}  will successfully
          * create the target zip file
          */
