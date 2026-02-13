@@ -240,6 +240,66 @@ class ZipBlockArchive {
         return -1;
     }
 
+    Optional<Path> minStoredArchive() throws IOException {
+        return findMinArchive(config.rootPath());
+    }
+
+    private Optional<Path> findMinArchive(Path currentPath) throws IOException {
+        try (Stream<Path> childrenStream = Files.list(currentPath)) {
+            List<Path> children = childrenStream.toList();
+
+            // Get numeric directories sorted by their numeric value (minimum first)
+            List<Path> numericDirs = children.stream()
+                    .filter(this::isNumericDirectory)
+                    .sorted(Comparator.comparingLong(
+                            path -> Long.parseLong(path.getFileName().toString())))
+                    .toList();
+
+            // Get zip files sorted by their numeric value (minimum first)
+            List<Path> zipFiles = children.stream()
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".zip"))
+                    .filter(path -> isNumericDirectory(path.getParent()))
+                    .sorted(Comparator.comparingLong(filePath -> {
+                        String fileName = filePath.getFileName().toString();
+                        return Long.parseLong(fileName.substring(0, fileName.lastIndexOf('.')));
+                    }))
+                    .toList();
+
+            // If this directory has zip files, return the minimum
+            if (!zipFiles.isEmpty()) {
+                return Optional.of(zipFiles.getFirst());
+            }
+
+            // Otherwise, recursively search numeric subdirectories in order (minimum first)
+            for (Path dir : numericDirs) {
+                Optional<Path> result = findMinArchive(dir);
+                if (result.isPresent()) {
+                    return result;
+                }
+                // Directory (and its subtree) was empty, continue to next sibling
+            }
+
+            return Optional.empty();
+        }
+    }
+
+    long count() {
+        try (Stream<Path> pathStream = Files.walk(config.rootPath())) {
+            return pathStream
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".zip"))
+                    .filter(path -> isNumericDirectory(path.getParent()))
+                    .count();
+        } catch (final Exception e) {
+            LOGGER.log(ERROR, "Error walking directory structure to count zip files", e);
+            final String shutdownMessage =
+                    "Error walking directory structure to count zip files because %s".formatted(e.getMessage());
+            context.serverHealth().shutdown(ZipBlockArchive.class.getName(), shutdownMessage);
+            return 0;
+        }
+    }
+
     /**
      * Attempt to quarantine a corrupted zip file and decide whether processing can continue.
      *
