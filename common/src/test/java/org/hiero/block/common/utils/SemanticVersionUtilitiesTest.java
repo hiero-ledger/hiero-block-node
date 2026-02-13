@@ -22,7 +22,7 @@ public class SemanticVersionUtilitiesTest {
     @ParameterizedTest
     @MethodSource("org.hiero.block.common.CommonsTestUtility#goodAndBadSemanticVersions")
     void testRequireNotBlankPass(final String input, final boolean shouldPass) {
-        SemanticVersion semVer = SemanticVersionUtilities.from(input);
+        final SemanticVersion semVer = SemanticVersionUtilities.from(input);
         assertThat((semVer != null && shouldPass) || (semVer == null && !shouldPass));
     }
 }

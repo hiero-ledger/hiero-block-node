@@ -242,7 +242,7 @@ class BlockNodeAppTest {
         // This will need to be changed to 1 at some point
         assertEquals(0, blockNodeVersion.major());
 
-        // In dev, the plugins should have the same SemVer as the plugins
+        // In dev, the plugins should have the same SemVer as the BlockNodeApp
         final List<PluginVersion> pluginVersions =
                 blockNodeApp.blockNodeContext.blockNodeVersions().installedPluginVersions();
         for (PluginVersion pluginVersion : pluginVersions) {

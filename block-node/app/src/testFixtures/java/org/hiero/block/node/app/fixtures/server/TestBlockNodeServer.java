@@ -141,9 +141,8 @@ public class TestBlockNodeServer {
 
         @Override
         @NonNull
-        public @org.jspecify.annotations.NonNull ServerStatusDetailResponse serverStatusDetail(
-                @org.jspecify.annotations.NonNull ServerStatusRequest request) {
-            return null;
+        public ServerStatusDetailResponse serverStatusDetail(@NonNull ServerStatusRequest request) {
+            return ServerStatusDetailResponse.DEFAULT;
         }
     }
 }

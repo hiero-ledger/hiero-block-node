@@ -39,8 +39,9 @@ public final class SemanticVersionUtilities {
      * @return {@link SemanticVersion} if the given {@link Class} has a valid version otherwise null
      */
     public static SemanticVersion from(final ModuleDescriptor moduleDescriptor) {
-        Optional<Version> moduleVersion = moduleDescriptor.version();
-        String version = moduleVersion.isEmpty() ? null : moduleVersion.get().toString();
+        final Optional<Version> moduleVersion = moduleDescriptor.version();
+        final String version =
+                moduleVersion.isEmpty() ? null : moduleVersion.get().toString();
         return from(version);
     }
 
@@ -62,14 +63,14 @@ public final class SemanticVersionUtilities {
         if (!matcher.matches()) return null;
 
         // Grab values from matcher groups
-        int major = Integer.parseInt(matcher.group("major"));
-        int minor = Integer.parseInt(matcher.group("minor"));
-        int patch = Integer.parseInt(matcher.group("patch"));
-        String preRelease = matcher.group("preRelease");
-        String build = matcher.group("build");
+        final int major = Integer.parseInt(matcher.group("major"));
+        final int minor = Integer.parseInt(matcher.group("minor"));
+        final int patch = Integer.parseInt(matcher.group("patch"));
+        final String preRelease = matcher.group("preRelease");
+        final String build = matcher.group("build");
 
         // Build the SemanticVersion from the matcher values
-        SemanticVersion.Builder semanticVersionBuilder = new SemanticVersion.Builder();
+        final SemanticVersion.Builder semanticVersionBuilder = new SemanticVersion.Builder();
         semanticVersionBuilder.major(major).minor(minor).patch(patch);
         if (!StringUtilities.isBlank(preRelease)) semanticVersionBuilder.pre(preRelease);
         if (!StringUtilities.isBlank(build)) semanticVersionBuilder.build(build);

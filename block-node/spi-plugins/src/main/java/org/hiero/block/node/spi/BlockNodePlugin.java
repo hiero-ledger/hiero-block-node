@@ -75,12 +75,12 @@ public interface BlockNodePlugin {
     default void stop() {}
 
     /**
-     * The version of the plugin as specified by the classname and the Implementation-Version field in the MANIFEST.MF of the jar
-     * containing this class.
+     * The version of the plugin as specified by the classname and the Implementation-Version field in the MANIFEST.MF
+     * of the jar containing this class.
      */
     default PluginVersion version() {
-        Class<?> clazz = this.getClass();
-        ModuleInfo moduleInfo = ModuleInfo.getInstance(clazz);
+        final Class<?> clazz = this.getClass();
+        final ModuleInfo moduleInfo = ModuleInfo.getInstance(clazz);
 
         return PluginVersion.newBuilder()
                 .pluginId(clazz.getName())
