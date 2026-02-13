@@ -48,6 +48,9 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
      */
     void closeBlock(final long handlerId);
 
+    ///  Calling this method indicates that the end of block message is received for said block.
+    void endOfBlockReceived(final long blockNumber);
+
     /**
      * Return the latest known valid and persisted block number.
      * <p>
