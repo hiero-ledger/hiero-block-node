@@ -218,6 +218,9 @@ public class ToWrappedBlocksCommand implements Runnable {
             }
             // File to store the last merkle leaf (block number + hash) for quick CN access
             final Path lastMerkleLeafFile = outputBlocksDir.resolve("lastMerkleLeaf.bin");
+            // Track the last block number and hash in memory, write once at the end
+            final AtomicLong lastMerkleLeafBlockNumber = new AtomicLong(-1);
+            final AtomicReference<byte[]> lastMerkleLeafBlockHash = new AtomicReference<>(null);
 
             // Register a shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
             Runtime.getRuntime()
@@ -233,6 +236,13 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                     streamingHasher.save(streamingMerkleTreeFile);
                                     inMemoryTreeHasher.save(inMemoryMerkleTreeFile);
+                                    // Save last merkle leaf if we processed any blocks
+                                    if (lastMerkleLeafBlockHash.get() != null) {
+                                        saveLastMerkleLeaf(
+                                                lastMerkleLeafFile,
+                                                lastMerkleLeafBlockNumber.get(),
+                                                lastMerkleLeafBlockHash.get());
+                                    }
                                     System.err.println("Shutdown: saved merkle tree states. To "
                                             + streamingMerkleTreeFile + " and " + inMemoryMerkleTreeFile);
                                 } catch (Exception e) {
@@ -309,8 +319,9 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
                                     // add the block hash to the registry
                                     blockRegistry.addBlock(blockNum, blockStreamBlockHash);
-                                    // save the last merkle leaf for quick CN access
-                                    saveLastMerkleLeaf(lastMerkleLeafFile, blockNum, blockStreamBlockHash);
+                                    // update the last merkle leaf in memory (written once at the end)
+                                    lastMerkleLeafBlockNumber.set(blockNum);
+                                    lastMerkleLeafBlockHash.set(blockStreamBlockHash);
 
                                     printUpdatedProgress(
                                             recordBlock,
@@ -337,6 +348,11 @@ public class ToWrappedBlocksCommand implements Runnable {
             // Clear progress line and print summary
             PrettyPrint.clearProgress();
             System.out.println("Conversion complete. Blocks written: " + blocksProcessed.get());
+
+            // Save the last merkle leaf once at the end
+            if (lastMerkleLeafBlockHash.get() != null) {
+                saveLastMerkleLeaf(lastMerkleLeafFile, lastMerkleLeafBlockNumber.get(), lastMerkleLeafBlockHash.get());
+            }
 
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
         } catch (Exception e) {
