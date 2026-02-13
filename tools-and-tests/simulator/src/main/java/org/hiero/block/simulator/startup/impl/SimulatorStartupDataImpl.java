@@ -61,21 +61,23 @@ public final class SimulatorStartupDataImpl implements SimulatorStartupData {
                     case 2 -> {
                         // entering here means that both files exist, so now we
                         // must attempt to read the startup data from the files.
-                        // If successful, we can finish initialization, otherwise
-                        // we have broken state and cannot continue.
+                        // If both files are empty (e.g. pod restarted before any
+                        // blocks were processed), treat as initial state and use
+                        // defaults. Otherwise, read the persisted values.
                         final String blockNumberFromFile = Files.readString(latestAckBlockNumberPath);
-                        if (!StringUtilities.isBlank(blockNumberFromFile)) {
-                            localStartupDataBlockNumber = Long.parseLong(blockNumberFromFile);
-                        } else {
-                            throw new IllegalStateException(
-                                    "Failed to initialize latest ack block number from Simulator Startup Data");
-                        }
                         final byte[] previousHashFromFile = Files.readAllBytes(latestAckBlockHashPath);
-                        if (previousHashFromFile.length == StreamingTreeHasher.HASH_LENGTH) {
+                        final boolean blockNumberEmpty = StringUtilities.isBlank(blockNumberFromFile);
+                        final boolean blockHashEmpty = previousHashFromFile.length == 0;
+                        if (blockNumberEmpty && blockHashEmpty) {
+                            LOGGER.log(DEBUG, "Both startup data files are empty, treating as initial state");
+                        } else if (!blockNumberEmpty
+                                && previousHashFromFile.length == StreamingTreeHasher.HASH_LENGTH) {
+                            localStartupDataBlockNumber = Long.parseLong(blockNumberFromFile);
                             localStartupDataBlockHash = previousHashFromFile;
                         } else {
                             throw new IllegalStateException(
-                                    "Failed to initialize latest ack block hash from Simulator Startup Data");
+                                    "Inconsistent Simulator Startup Data: block number empty=%s, hash length=%d"
+                                            .formatted(blockNumberEmpty, previousHashFromFile.length));
                         }
                     }
                     default ->

@@ -34,24 +34,10 @@ ARG VERSION
 # Set the working directory inside the container
 WORKDIR ${BN_WORKDIR}
 
-# Copy Distribution TAR file
-# Ignore Codacy, the `distributions` context is set on command line and
-# _must be_ so set in order to work with the wonky CI setup.
-COPY --from=distributions app-${VERSION}.tar .
-
-# Extract the TAR file
-RUN tar -xvf app-${VERSION}.tar
-
-# Remove the TAR file
-RUN rm -f app-${VERSION}.tar
-
-# Generate JPMS module list from core jars (used at runtime to deduplicate plugin jars)
-RUN for jar in app-${VERSION}/lib/*.jar; do \
-      [ -f "$jar" ] || continue; \
-      mod=$(/usr/local/java/bin/jar --describe-module --file="$jar" 2>/dev/null | head -1 | sed 's/@.*//' | awk '{print $1}'); \
-      case "$mod" in ""|No|releases:*) continue;; esac; \
-      echo "$mod"; \
-    done > app-${VERSION}/lib/.core-modules.txt
+# Copy pre-extracted distribution directory (extracted in Gradle because
+# UBI-minimal's tar fails under QEMU emulation on linux/arm64).
+# The `distributions` build context is set on the command line (see docker-build.sh).
+COPY --from=distributions app-${VERSION}/ app-${VERSION}/
 
 # Create a log directory
 RUN mkdir -p ${BN_WORKDIR}/logs/config
