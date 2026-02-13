@@ -45,9 +45,13 @@ public class BalanceFileBucket {
     /** Initial delay in milliseconds between retries */
     private static final long INITIAL_RETRY_DELAY_MS = 1000;
 
-    /** Formatter for balance file timestamps (e.g., 2019-09-13T22_00_00.000081Z) */
+    /** Formatter for balance file timestamps with 9-digit nanoseconds (e.g., 2019-09-13T22_00_00.000081000Z) */
     private static final DateTimeFormatter BALANCE_TIMESTAMP_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH_mm_ss.SSSSSSSSS'Z'").withZone(ZoneOffset.UTC);
+
+    /** Formatter for balance file timestamps with 6-digit nanoseconds (e.g., 2019-09-13T22_00_00.000081Z) */
+    private static final DateTimeFormatter BALANCE_TIMESTAMP_FORMATTER_6 =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH_mm_ss.SSSSSS'Z'").withZone(ZoneOffset.UTC);
 
     /** The cache enabled switch */
     private final boolean cacheEnabled;
@@ -154,17 +158,23 @@ public class BalanceFileBucket {
      * @return the protobuf file bytes (decompressed if gzipped), or null if not found
      */
     public byte[] downloadBalanceFile(Instant timestamp) {
-        String timestampStr = formatTimestamp(timestamp);
+        // Try multiple timestamp formats (6-digit and 9-digit nanoseconds) due to varying precision in GCP
+        String[] timestampFormats = {
+            formatTimestamp6(timestamp), // 6-digit nanoseconds (most common)
+            formatTimestamp(timestamp) // 9-digit nanoseconds
+        };
 
         // Try each node until we find one with the file
         for (int nodeId = minNodeAccountId; nodeId <= maxNodeAccountId; nodeId++) {
-            // Try gzipped first, then plain
-            for (String suffix : new String[] {"_Balances.pb.gz", "_Balances.pb"}) {
-                String path = "accountBalances/balance0.0." + nodeId + "/" + timestampStr + suffix;
-                try {
-                    return download(path);
-                } catch (Exception ignored) {
-                    // Try next node/format
+            // Try gzipped first, then plain, with both timestamp formats
+            for (String timestampStr : timestampFormats) {
+                for (String suffix : new String[] {"_Balances.pb.gz", "_Balances.pb"}) {
+                    String path = "accountBalances/balance0.0." + nodeId + "/" + timestampStr + suffix;
+                    try {
+                        return download(path);
+                    } catch (Exception ignored) {
+                        // Try next format/node
+                    }
                 }
             }
         }
@@ -189,7 +199,7 @@ public class BalanceFileBucket {
     }
 
     /**
-     * Format an Instant to the balance file timestamp format.
+     * Format an Instant to the balance file timestamp format with 9-digit nanoseconds.
      * Package-private for testing.
      *
      * @param timestamp the timestamp to format
@@ -197,6 +207,18 @@ public class BalanceFileBucket {
      */
     String formatTimestamp(Instant timestamp) {
         return BALANCE_TIMESTAMP_FORMATTER.format(timestamp);
+    }
+
+    /**
+     * Format an Instant to the balance file timestamp format with 6-digit nanoseconds.
+     * Many GCP balance files use 6-digit (microsecond) precision.
+     * Package-private for testing.
+     *
+     * @param timestamp the timestamp to format
+     * @return formatted string like "2019-09-13T22_00_00.000081Z"
+     */
+    String formatTimestamp6(Instant timestamp) {
+        return BALANCE_TIMESTAMP_FORMATTER_6.format(timestamp);
     }
 
     /**

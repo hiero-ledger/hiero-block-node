@@ -61,7 +61,9 @@ subcommands
 │   ├── json                  # Convert binary Block Stream to JSON
 │   ├── ls                    # List/inspect block files
 │   ├── validate              # Validate block hash chain and signatures
-│   └── wrap                  # Convert record files to wrapped blocks
+│   ├── validate-wrapped      # Validate wrapped blocks with balance checks
+│   ├── wrap                  # Convert record files to wrapped blocks
+│   └── fetchBalanceCheckpoints # Fetch balance checkpoints from GCP
 │
 ├── records                   # Tools for Record Stream files
 │   └── ls                    # List record file info
