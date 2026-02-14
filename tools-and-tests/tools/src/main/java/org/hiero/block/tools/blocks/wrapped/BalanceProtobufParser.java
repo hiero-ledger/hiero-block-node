@@ -24,7 +24,11 @@ import java.util.Map;
  *   <li>Field 3 (tokenUnitBalances): repeated - skipped</li>
  * </ul>
  */
+@SuppressWarnings("CyclomaticComplexity")
 public class BalanceProtobufParser {
+
+    /** Holds parsed account balance data */
+    private record AccountBalance(long accountNum, long balance) {}
 
     /**
      * Parse AllAccountBalances protobuf and return as a Map.
@@ -36,57 +40,19 @@ public class BalanceProtobufParser {
         Map<Long, Long> balances = new HashMap<>();
         ByteBuffer buf = ByteBuffer.wrap(pbBytes);
 
-        int pos = 0;
-        while (pos < pbBytes.length) {
-            buf.position(pos);
+        while (buf.hasRemaining()) {
             int tag = readVarint32(buf);
             int fieldNum = tag >>> 3;
             int wireType = tag & 0x7;
 
             if (fieldNum == 2 && wireType == 2) {
-                // SingleAccountBalances
-                int len = readVarint32(buf);
-                int endPos = buf.position() + len;
-                long accountNum = 0;
-                long balance = 0;
-
-                // Parse SingleAccountBalances fields
-                while (buf.position() < endPos) {
-                    int innerTag = readVarint32(buf);
-                    int innerFieldNum = innerTag >>> 3;
-                    int innerWireType = innerTag & 0x7;
-
-                    if (innerFieldNum == 1 && innerWireType == 2) {
-                        // AccountID submessage
-                        int idLen = readVarint32(buf);
-                        int idEndPos = buf.position() + idLen;
-                        while (buf.position() < idEndPos) {
-                            int idTag = readVarint32(buf);
-                            int idFieldNum = idTag >>> 3;
-                            int idWireType = idTag & 0x7;
-                            if (idFieldNum == 3 && idWireType == 0) {
-                                // accountNum
-                                accountNum = readVarint64(buf);
-                            } else {
-                                skipField(buf, idWireType);
-                            }
-                        }
-                    } else if (innerFieldNum == 2 && innerWireType == 0) {
-                        // hbarBalance
-                        balance = readVarint64(buf);
-                    } else {
-                        skipField(buf, innerWireType);
-                    }
-                }
-                buf.position(endPos);
-
-                if (accountNum > 0) {
-                    balances.put(accountNum, balance);
+                AccountBalance account = parseSingleAccountBalances(buf);
+                if (account.accountNum > 0) {
+                    balances.put(account.accountNum, account.balance);
                 }
             } else {
                 skipField(buf, wireType);
             }
-            pos = buf.position();
         }
 
         return balances;
@@ -103,88 +69,105 @@ public class BalanceProtobufParser {
      */
     public static int parseAndWrite(byte[] pbBytes, DataOutputStream out) throws IOException {
         ByteBuffer buf = ByteBuffer.wrap(pbBytes);
-        int accountCount = 0;
 
         // First pass: count accounts
-        int pos = 0;
-        while (pos < pbBytes.length) {
-            buf.position(pos);
-            int tag = readVarint32(buf);
-            int fieldNum = tag >>> 3;
-            int wireType = tag & 0x7;
-
-            if (fieldNum == 2 && wireType == 2) {
-                // SingleAccountBalances - length delimited
-                accountCount++;
-                int len = readVarint32(buf);
-                buf.position(buf.position() + len); // skip content
-            } else {
-                skipField(buf, wireType);
-            }
-            pos = buf.position();
-        }
+        int accountCount = countAccounts(pbBytes);
 
         // Write account count
         out.writeInt(accountCount);
 
-        // Second pass: extract account data
-        buf.position(0);
-        pos = 0;
-        while (pos < pbBytes.length) {
-            buf.position(pos);
+        // Second pass: extract and write account data
+        while (buf.hasRemaining()) {
             int tag = readVarint32(buf);
             int fieldNum = tag >>> 3;
             int wireType = tag & 0x7;
 
             if (fieldNum == 2 && wireType == 2) {
-                // SingleAccountBalances
-                int len = readVarint32(buf);
-                int endPos = buf.position() + len;
-                long accountNum = 0;
-                long balance = 0;
-
-                // Parse SingleAccountBalances fields
-                while (buf.position() < endPos) {
-                    int innerTag = readVarint32(buf);
-                    int innerFieldNum = innerTag >>> 3;
-                    int innerWireType = innerTag & 0x7;
-
-                    if (innerFieldNum == 1 && innerWireType == 2) {
-                        // AccountID submessage
-                        int idLen = readVarint32(buf);
-                        int idEndPos = buf.position() + idLen;
-                        while (buf.position() < idEndPos) {
-                            int idTag = readVarint32(buf);
-                            int idFieldNum = idTag >>> 3;
-                            int idWireType = idTag & 0x7;
-                            if (idFieldNum == 3 && idWireType == 0) {
-                                // accountNum
-                                accountNum = readVarint64(buf);
-                            } else {
-                                skipField(buf, idWireType);
-                            }
-                        }
-                    } else if (innerFieldNum == 2 && innerWireType == 0) {
-                        // hbarBalance
-                        balance = readVarint64(buf);
-                    } else {
-                        skipField(buf, innerWireType);
-                    }
-                }
-                buf.position(endPos);
-
-                // Write account data
-                if (accountNum > 0) {
-                    out.writeLong(accountNum);
-                    out.writeLong(balance);
+                AccountBalance account = parseSingleAccountBalances(buf);
+                if (account.accountNum > 0) {
+                    out.writeLong(account.accountNum);
+                    out.writeLong(account.balance);
                 }
             } else {
                 skipField(buf, wireType);
             }
-            pos = buf.position();
         }
 
         return accountCount;
+    }
+
+    /**
+     * Count the number of account entries in the protobuf.
+     */
+    private static int countAccounts(byte[] pbBytes) {
+        ByteBuffer buf = ByteBuffer.wrap(pbBytes);
+        int count = 0;
+
+        while (buf.hasRemaining()) {
+            int tag = readVarint32(buf);
+            int fieldNum = tag >>> 3;
+            int wireType = tag & 0x7;
+
+            if (fieldNum == 2 && wireType == 2) {
+                count++;
+                int len = readVarint32(buf);
+                buf.position(buf.position() + len);
+            } else {
+                skipField(buf, wireType);
+            }
+        }
+
+        return count;
+    }
+
+    /**
+     * Parse a SingleAccountBalances submessage.
+     */
+    private static AccountBalance parseSingleAccountBalances(ByteBuffer buf) {
+        int len = readVarint32(buf);
+        int endPos = buf.position() + len;
+        long accountNum = 0;
+        long balance = 0;
+
+        while (buf.position() < endPos) {
+            int innerTag = readVarint32(buf);
+            int innerFieldNum = innerTag >>> 3;
+            int innerWireType = innerTag & 0x7;
+
+            if (innerFieldNum == 1 && innerWireType == 2) {
+                accountNum = parseAccountId(buf);
+            } else if (innerFieldNum == 2 && innerWireType == 0) {
+                balance = readVarint64(buf);
+            } else {
+                skipField(buf, innerWireType);
+            }
+        }
+        buf.position(endPos);
+
+        return new AccountBalance(accountNum, balance);
+    }
+
+    /**
+     * Parse an AccountID submessage and return the account number.
+     */
+    private static long parseAccountId(ByteBuffer buf) {
+        int idLen = readVarint32(buf);
+        int idEndPos = buf.position() + idLen;
+        long accountNum = 0;
+
+        while (buf.position() < idEndPos) {
+            int idTag = readVarint32(buf);
+            int idFieldNum = idTag >>> 3;
+            int idWireType = idTag & 0x7;
+
+            if (idFieldNum == 3 && idWireType == 0) {
+                accountNum = readVarint64(buf);
+            } else {
+                skipField(buf, idWireType);
+            }
+        }
+
+        return accountNum;
     }
 
     private static int readVarint32(ByteBuffer buf) {
