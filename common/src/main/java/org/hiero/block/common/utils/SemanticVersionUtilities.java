@@ -39,9 +39,9 @@ public final class SemanticVersionUtilities {
      * @return {@link SemanticVersion} if the given {@link Class} has a valid version otherwise null
      */
     public static SemanticVersion from(final ModuleDescriptor moduleDescriptor) {
+        String version = null;
         final Optional<Version> moduleVersion = moduleDescriptor.version();
-        final String version =
-                moduleVersion.isEmpty() ? null : moduleVersion.get().toString();
+        if (moduleVersion.isPresent()) version = moduleVersion.get().toString();
         return from(version);
     }
 

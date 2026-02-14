@@ -348,11 +348,13 @@ public final class CommonsTestUtility {
         return Stream.of(
                 Arguments.of("", false),
                 Arguments.of("..", false),
+                Arguments.of(null, false),
                 Arguments.of("..-+", false),
                 Arguments.of("0.0.0-+", false),
                 Arguments.of("0.0.0-", false),
                 Arguments.of("0.0.0", true),
                 Arguments.of("v0.0.0", true),
+                Arguments.of("V1.2.3", true),
                 Arguments.of("0.1.0-alpha+", false),
                 Arguments.of("0.1.0-alpha", true),
                 Arguments.of("0.1.0-alpha+123A72", true),
