@@ -216,11 +216,11 @@ public class ToWrappedBlocksCommand implements Runnable {
             if (Files.exists(inMemoryMerkleTreeFile)) {
                 inMemoryTreeHasher.load(inMemoryMerkleTreeFile);
             }
-            // File to store the last merkle leaf (block number + hash) for quick CN access
-            final Path lastMerkleLeafFile = outputBlocksDir.resolve("lastMerkleLeaf.bin");
+            // File to store jumpstart data (block number, hash, and streaming hasher state)
+            final Path jumpstartFile = outputBlocksDir.resolve("jumpstart.bin");
             // Track the last block number and hash in memory, write once at the end
-            final AtomicLong lastMerkleLeafBlockNumber = new AtomicLong(-1);
-            final AtomicReference<byte[]> lastMerkleLeafBlockHash = new AtomicReference<>(null);
+            final AtomicLong jumpstartBlockNumber = new AtomicLong(-1);
+            final AtomicReference<byte[]> jumpstartBlockHash = new AtomicReference<>(null);
 
             // Register a shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
             Runtime.getRuntime()
@@ -236,12 +236,13 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                     streamingHasher.save(streamingMerkleTreeFile);
                                     inMemoryTreeHasher.save(inMemoryMerkleTreeFile);
-                                    // Save last merkle leaf if we processed any blocks
-                                    if (lastMerkleLeafBlockHash.get() != null) {
-                                        saveLastMerkleLeaf(
-                                                lastMerkleLeafFile,
-                                                lastMerkleLeafBlockNumber.get(),
-                                                lastMerkleLeafBlockHash.get());
+                                    // Save jumpstart data if we processed any blocks
+                                    if (jumpstartBlockHash.get() != null) {
+                                        saveJumpstartData(
+                                                jumpstartFile,
+                                                jumpstartBlockNumber.get(),
+                                                jumpstartBlockHash.get(),
+                                                streamingHasher);
                                     }
                                     System.err.println("Shutdown: saved merkle tree states. To "
                                             + streamingMerkleTreeFile + " and " + inMemoryMerkleTreeFile);
@@ -319,9 +320,9 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
                                     // add the block hash to the registry
                                     blockRegistry.addBlock(blockNum, blockStreamBlockHash);
-                                    // update the last merkle leaf in memory (written once at the end)
-                                    lastMerkleLeafBlockNumber.set(blockNum);
-                                    lastMerkleLeafBlockHash.set(blockStreamBlockHash);
+                                    // update jumpstart data in memory (written once at the end)
+                                    jumpstartBlockNumber.set(blockNum);
+                                    jumpstartBlockHash.set(blockStreamBlockHash);
 
                                     printUpdatedProgress(
                                             recordBlock,
@@ -349,9 +350,9 @@ public class ToWrappedBlocksCommand implements Runnable {
             PrettyPrint.clearProgress();
             System.out.println("Conversion complete. Blocks written: " + blocksProcessed.get());
 
-            // Save the last merkle leaf once at the end
-            if (lastMerkleLeafBlockHash.get() != null) {
-                saveLastMerkleLeaf(lastMerkleLeafFile, lastMerkleLeafBlockNumber.get(), lastMerkleLeafBlockHash.get());
+            // Save jumpstart data once at the end
+            if (jumpstartBlockHash.get() != null) {
+                saveJumpstartData(jumpstartFile, jumpstartBlockNumber.get(), jumpstartBlockHash.get(), streamingHasher);
             }
 
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
@@ -441,26 +442,40 @@ public class ToWrappedBlocksCommand implements Runnable {
     }
 
     /**
-     * Save the last merkle leaf (block number + block hash) to a file for quick access.
-     * This allows the Consensus Node to get the starting hash without loading the full merkle tree.
+     * Saves jumpstart data to a binary file. This provides the Consensus Node with all data
+     * needed to continue block processing from where the wrap command left off.
      *
      * <p>File format:
      * <ul>
      *   <li>Block number (8 bytes, long)</li>
-     *   <li>Block hash (48 bytes, SHA-384)</li>
+     *   <li>Previous block root hash (48 bytes, SHA-384)</li>
+     *   <li>Streaming hasher leaf count (8 bytes, long)</li>
+     *   <li>Streaming hasher hash count (4 bytes, int)</li>
+     *   <li>Streaming hasher pending subtree hashes (48 bytes × hash count)</li>
      * </ul>
      *
      * @param file the file to write to
      * @param blockNumber the block number
-     * @param blockHash the block hash (SHA-384, 48 bytes)
+     * @param blockHash the block hash (SHA-384, 48 bytes) - this is the previous block root hash
+     * @param streamingHasher the streaming hasher containing the merkle tree state
      */
-    private static void saveLastMerkleLeaf(Path file, long blockNumber, byte[] blockHash) {
+    private static void saveJumpstartData(
+            Path file, long blockNumber, byte[] blockHash, StreamingHasher streamingHasher) {
         try (DataOutputStream out = new DataOutputStream(
                 Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))) {
+            // Block number and hash (previous block root hash for the next block)
             out.writeLong(blockNumber);
             out.write(blockHash);
+
+            // Streaming hasher state for subtree 2 continuation
+            out.writeLong(streamingHasher.leafCount());
+            List<byte[]> hashList = streamingHasher.intermediateHashingState();
+            out.writeInt(hashList.size());
+            for (byte[] hash : hashList) {
+                out.write(hash);
+            }
         } catch (IOException e) {
-            System.err.println("Warning: could not save lastMerkleLeaf.bin: " + e.getMessage());
+            System.err.println("Warning: could not save jumpstart.bin: " + e.getMessage());
         }
     }
 }
