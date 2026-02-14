@@ -51,14 +51,11 @@ public final class SemanticVersionUtilities {
      * @param input a {@link String} to parse into a SemanticVersion
      * @return {@link SemanticVersion} if the given {@link String} is a valid SemanticVersion otherwise null
      */
-    public static SemanticVersion from(String input) {
+    public static SemanticVersion from(final String input) {
         if (input == null || input.length() < 5) return null;
 
-        if (input.charAt(0) == 'v' || input.charAt(0) == 'V') {
-            input = input.substring(1);
-        }
-
-        final Matcher matcher = SEMVER_PATTERN.matcher(input);
+        final String versionString = (input.charAt(0) == 'v' || input.charAt(0) == 'V') ? input.substring(1) : input;
+        final Matcher matcher = SEMVER_PATTERN.matcher(versionString);
 
         if (!matcher.matches()) return null;
 
