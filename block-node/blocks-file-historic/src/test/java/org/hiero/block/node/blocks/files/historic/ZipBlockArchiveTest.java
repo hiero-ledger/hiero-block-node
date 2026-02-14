@@ -21,6 +21,7 @@ import java.util.TreeMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
@@ -68,7 +69,8 @@ class ZipBlockArchiveTest {
         testConfig = createTestConfiguration(blocksRoot, 1);
         // we need this test context because we need the health facility to be
         // available for the tests to run
-        testContext = new BlockNodeContext(null, null, new TestHealthFacility(), null, null, null, null);
+        testContext = new BlockNodeContext(
+                null, null, new TestHealthFacility(), null, null, null, null, BlockNodeVersions.DEFAULT);
         // the instance under test
         toTest = new ZipBlockArchive(testContext, testConfig);
     }

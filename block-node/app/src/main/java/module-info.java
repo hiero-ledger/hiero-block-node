@@ -23,6 +23,7 @@ module org.hiero.block.node.app {
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires org.hiero.block.node.spi;
+    requires org.hiero.block.protobuf.pbj;
     requires io.helidon.common;
     requires io.helidon.webserver.http2;
     requires io.helidon.webserver;

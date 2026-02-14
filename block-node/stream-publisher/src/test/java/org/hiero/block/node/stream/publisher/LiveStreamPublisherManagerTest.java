@@ -19,6 +19,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -1803,7 +1804,8 @@ class LiveStreamPublisherManagerTest {
                 blockMessagingFacility,
                 historicalBlockFacility,
                 serviceLoader,
-                threadPoolManager);
+                threadPoolManager,
+                BlockNodeVersions.DEFAULT);
     }
 
     private static Configuration createTestConfiguration() {

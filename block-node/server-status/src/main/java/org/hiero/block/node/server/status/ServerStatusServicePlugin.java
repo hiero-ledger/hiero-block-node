@@ -7,6 +7,7 @@ import static java.util.Objects.requireNonNull;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -24,8 +25,10 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private HistoricalBlockFacility blockProvider;
     /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
-    /** Counter for the number of requests */
-    private Counter requestCounter;
+    /** Counter for the number of status requests */
+    private Counter requestStatusCounter;
+    /** Counter for the number of detail requests */
+    private Counter requestDetailCounter;
 
     /**
      * Handle a request for server status
@@ -33,8 +36,10 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
      * @param request the request containing the available blocks, state snapshot status and software version
      * @return the response containing the block or an error status
      */
+    @Override
+    @NonNull
     public ServerStatusResponse serverStatus(@NonNull final ServerStatusRequest request) {
-        requestCounter.increment();
+        requestStatusCounter.increment();
 
         final ServerStatusResponse.Builder serverStatusResponseBuilder = ServerStatusResponse.newBuilder();
         final long firstAvailableBlock = blockProvider.availableBlocks().min();
@@ -62,6 +67,22 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         return response;
     }
 
+    /**
+     * Handle a request for server status details
+     *
+     * @param request the request containing the available blocks, state snapshot status and software version
+     * @return the response containing the block or an error status
+     */
+    @Override
+    @NonNull
+    public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusRequest request) {
+        requestDetailCounter.increment();
+
+        return ServerStatusDetailResponse.newBuilder()
+                .versionInformation(context.blockNodeVersions())
+                .build();
+    }
+
     // ==== BlockNodePlugin Methods ====================================================================================
     @Override
     public String name() {
@@ -74,9 +95,14 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         this.context = requireNonNull(context);
         this.blockProvider = requireNonNull(context.historicalBlockProvider());
 
-        // Create the metrics
-        requestCounter = context.metrics()
+        // Create the metrics for server status
+        requestStatusCounter = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "server_status_requests")
+                        .withDescription("Number of server status requests"));
+
+        // Create the metrics for server status
+        requestDetailCounter = context.metrics()
+                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "server_status_details_requests")
                         .withDescription("Number of server status requests"));
 
         // Register this service

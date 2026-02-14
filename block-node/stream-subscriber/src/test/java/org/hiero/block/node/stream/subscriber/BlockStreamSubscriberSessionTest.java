@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -1426,7 +1427,15 @@ class BlockStreamSubscriberSessionTest {
             final Configuration configuration,
             final TestBlockMessagingFacility messagingFacility,
             final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility) {
-        return new BlockNodeContext(configuration, null, null, messagingFacility, historicalBlockFacility, null, null);
+        return new BlockNodeContext(
+                configuration,
+                null,
+                null,
+                messagingFacility,
+                historicalBlockFacility,
+                null,
+                null,
+                BlockNodeVersions.DEFAULT);
     }
 
     /**

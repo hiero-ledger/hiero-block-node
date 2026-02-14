@@ -15,6 +15,7 @@ import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
+import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -136,6 +137,12 @@ public class TestBlockNodeServer {
                             historicalBlockFacility.availableBlocks().max())
                     .onlyLatestState(false)
                     .build();
+        }
+
+        @Override
+        @NonNull
+        public ServerStatusDetailResponse serverStatusDetail(@NonNull ServerStatusRequest request) {
+            return ServerStatusDetailResponse.DEFAULT;
         }
     }
 }
