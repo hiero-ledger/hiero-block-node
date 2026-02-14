@@ -3,8 +3,6 @@ package org.hiero.block.common.utils;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import java.lang.module.ModuleDescriptor;
-import java.lang.module.ModuleDescriptor.Version;
-import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,9 +37,7 @@ public final class SemanticVersionUtilities {
      * @return {@link SemanticVersion} if the given {@link Class} has a valid version otherwise null
      */
     public static SemanticVersion from(final ModuleDescriptor moduleDescriptor) {
-        final Optional<Version> moduleVersion = moduleDescriptor.version();
-        if (moduleVersion.isEmpty()) return null;
-        return from(moduleDescriptor.version().get().toString());
+        return from(moduleDescriptor.rawVersion().orElse(""));
     }
 
     /**
