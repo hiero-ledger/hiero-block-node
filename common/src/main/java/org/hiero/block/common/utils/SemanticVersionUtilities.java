@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  */
 public final class SemanticVersionUtilities {
     private static final Pattern SEMVER_PATTERN = Pattern.compile(
-            "^(?<major>0|[1-9]\\d*)\\.(?<minor>0|[1-9]\\d*)\\.(?<patch>0|[1-9]\\d*)(?:-(?<preRelease>(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+(?<build>[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$");
+            "^(?<major>0|[1-9]\\d*)\\.(?<minor>0|[1-9]\\d*)\\.(?<patch>0|[1-9]\\d*)(-(?<preRelease>[0-9a-zA-Z]+)(\\+(?<build>[0-9a-zA-Z]+))?)?$");
 
     /**
      * Private constructor. Instantiation not necessary as only static methods should be defined here

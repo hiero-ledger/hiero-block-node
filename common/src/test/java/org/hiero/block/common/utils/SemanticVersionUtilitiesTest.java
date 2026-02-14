@@ -2,8 +2,8 @@
 //  SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.common.utils;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import org.junit.jupiter.api.Test;
@@ -25,7 +25,8 @@ public class SemanticVersionUtilitiesTest {
     @MethodSource("org.hiero.block.common.CommonsTestUtility#goodAndBadSemanticVersions")
     void testRequireNotBlankPass(final String input, final boolean shouldPass) {
         final SemanticVersion semVer = SemanticVersionUtilities.from(input);
-        assertThat((semVer != null && shouldPass) || (semVer == null && !shouldPass));
+        if (semVer != null && !shouldPass) fail("Input <" + input + "> should have failed");
+        if (semVer == null && shouldPass) fail("Input <" + input + "> should have passed");
     }
 
     /**
