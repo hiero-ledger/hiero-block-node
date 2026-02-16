@@ -1276,60 +1276,24 @@ class BlockFileHistoricPluginTest {
 
             // Start the plugin. It should discover and register the 90 pre-existing archives.
             start(toTest, testHistoricalBlockFacility, getConfigOverrides());
+            verifyBlocksAreAvailableAndArchived(0, 90, 90L);
 
-            // Verify that the plugin recognized all 90 pre-existing blocks during startup
-            // and added them to the available blocks set
-            assertThat(plugin.availableBlocks().size()).isEqualTo(90);
-            for (int i = 0; i < 90; i++) {
-                assertThat(plugin.availableBlocks().contains(i)).isTrue();
-                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
-            }
-
-            // Add 10 new blocks (90-99) to reach exactly the retention threshold of 100 blocks.
-            // No cleanup should occur yet since we are exactly at the limit.
-            for (int i = 90; i < 100; i++) {
-                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
-                blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
-            }
-
-            // Execute archival tasks for blocks 90-99
+            // Add blocks to reach retention threshold
+            sendBlockVerificationNotifications(90, 100);
             pluginExecutor.executeSerially();
+            verifyBlocksAreAvailableAndArchived(0, 100, 100L);
 
-            // Verify we now have exactly 100 blocks (90 pre-existing + 10 new),
-            // which is at the retention threshold limit
-            assertThat(plugin.availableBlocks().size()).isEqualTo(100);
-            for (int i = 0; i < 100; i++) {
-                assertThat(plugin.availableBlocks().contains(i)).isTrue();
-                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
-            }
-
-            // Add 10 more blocks (100-109) to exceed the retention threshold.
-            // This should trigger the retention policy to remove the oldest 10 blocks (0-9).
-            for (int i = 100; i < 110; i++) {
-                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
-                blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
-            }
-
-            // Execute archival tasks. Retention policy should kick in and remove blocks 0-9.
+            // Add blocks to exceed retention threshold
+            sendBlockVerificationNotifications(100, 110);
             pluginExecutor.executeSerially();
 
             // Verify retention policy maintained the 100-block limit
-            final long blocksAfterRetention = plugin.availableBlocks().size();
-            assertThat(blocksAfterRetention).isEqualTo(100L);
-
-            // Verify that the oldest 10 pre-existing blocks (0-9) were removed by retention policy
+            assertThat(plugin.availableBlocks().size()).isEqualTo(100L);
             for (int i = 0; i < 10; i++) {
                 assertThat(plugin.availableBlocks().contains(i)).isFalse();
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
-
-            // Verify that the recently added blocks (100-109) are available
-            for (int i = 100; i < 110; i++) {
-                assertThat(plugin.availableBlocks().contains(i)).isTrue();
-                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
-            }
+            verifyBlocksAreAvailableAndArchived(100, 110, null);
         }
 
         /**
@@ -1393,6 +1357,38 @@ class BlockFileHistoricPluginTest {
             // confirms that with allowZippingMultipleTimes enabled, the plugin does re-archive
             // batches instead of maintaining idempotent behavior.
             assertThat(lastModifiedTime).isLessThan(lastModifiedTimeSecondPass);
+        }
+
+        /**
+         * Sends block verification notifications for a range of blocks.
+         *
+         * @param startInclusive start block number (inclusive)
+         * @param endExclusive end block number (exclusive)
+         */
+        private void sendBlockVerificationNotifications(final int startInclusive, final int endExclusive) {
+            for (int i = startInclusive; i < endExclusive; i++) {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+            }
+        }
+
+        /**
+         * Verifies that blocks in a range are available and archived.
+         *
+         * @param startInclusive start block number (inclusive)
+         * @param endExclusive end block number (exclusive)
+         * @param expectedTotalSize expected total size of available blocks (null to skip check)
+         */
+        private void verifyBlocksAreAvailableAndArchived(
+                final int startInclusive, final int endExclusive, final Long expectedTotalSize) throws IOException {
+            if (expectedTotalSize != null) {
+                assertThat(plugin.availableBlocks().size()).isEqualTo(expectedTotalSize);
+            }
+            for (int i = startInclusive; i < endExclusive; i++) {
+                assertThat(plugin.availableBlocks().contains(i)).isTrue();
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
         }
 
         /**
