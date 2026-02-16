@@ -22,7 +22,6 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.System.Logger.Level;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
 import java.nio.file.Files;
@@ -577,7 +576,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     // Now we need to update the first and last block numbers
                     plugin.availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
                     final String successMessage = "Successfully moved batch of blocks[{0} -> {1}] to zip file.";
-                    plugin.LOGGER.log(Level.TRACE, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
+                    plugin.LOGGER.log(TRACE, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
                     // now all the blocks are in the zip file and accessible, send notification
                     // @todo is this needed? Does anything actually care when a zip file is completed?
                     plugin.context
