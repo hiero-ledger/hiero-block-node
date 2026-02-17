@@ -13,7 +13,7 @@ import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
  * Factory for creating {@link VerificationSession} instances based on the requested HAPI version.
  */
 public final class HapiVersionSessionFactory {
-    private static final SemanticVersion V_0_72_0 = semanticVersion(0, 71, 0);
+    private static final SemanticVersion V_0_72_0 = semanticVersion(0, 72, 0);
     private static final SemanticVersion V_0_71_0 = semanticVersion(0, 71, 0);
     private static final SemanticVersion V_0_64_0 = semanticVersion(0, 64, 0);
 
@@ -46,7 +46,6 @@ public final class HapiVersionSessionFactory {
             return new DummyVerificationSession(blockNumber, blockSource);
         }
 
-        // @todo(2002): Implement proper verification for v0.71.0 with updated protobuf
         if (isGreaterThanOrEqual(hapiVersion, V_0_71_0)) {
             return new ExtendedMerkleTreeSession(
                     blockNumber, blockSource, previousBlockHash, allPreviousBlocksRootHash);

@@ -15,7 +15,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class ExtendedMerkleTreeSessionTest {
@@ -24,15 +23,13 @@ class ExtendedMerkleTreeSessionTest {
 
     @BeforeEach
     void setUp() throws IOException, ParseException {
-        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_69_0_BLOCK_240);
+        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_21);
         blockItems = sampleBlockInfo.blockUnparsed().blockItems();
     }
 
     /**
      * Happy path test for the BlockVerificationSession class.
      */
-    // @todo(2002): Re-enable once proper v0.71.0 verification is implemented with updated protobuf
-    @Disabled("Disabled until proper v0.71.0 verification is implemented - see @todo(2002)")
     @Test
     void happyPath() throws ParseException {
         BlockHeader blockHeader =

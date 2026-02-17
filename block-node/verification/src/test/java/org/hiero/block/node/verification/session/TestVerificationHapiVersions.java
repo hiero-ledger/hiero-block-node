@@ -65,14 +65,13 @@ class TestVerificationHapiVersions {
         assertEquals(blockNumber, note.blockNumber(), sampleName + ": Block number should match");
         assertTrue(note.success(), sampleName + ": Verification should be successful");
 
-        // @todo(2002): Enable hash verification for all sessions once proper v0.71.0 verification is implemented
         // DummyVerificationSession returns a dummy hash (0x00), so skip hash comparison for it
         if (!(session instanceof DummyVerificationSession)) {
             assertEquals(sampleBlockInfo.blockRootHash(), note.blockHash(), sampleName + ": Block hash should match");
         }
     }
 
-    /** Supply the concrete samples you want to cover. Add more here as they’re added to fixtures. */
+    /** Supply the concrete samples you want to cover. Add more here as they're added to fixtures. */
     private static Stream<Arguments> sampleBlocks() throws IOException, ParseException {
         // Use readable case names to make failures obvious in the parameterized display
         final BlockUtils.SampleBlockInfo s1 =
@@ -84,9 +83,13 @@ class TestVerificationHapiVersions {
         final BlockUtils.SampleBlockInfo s3 =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_69_0_BLOCK_240);
 
+        final BlockUtils.SampleBlockInfo s4 =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_21);
+
         return Stream.of(
-                Arguments.of("HAPI_0_68_0_BLOCK_14", s1), // Disabled due to protobuf mismatch
+                Arguments.of("HAPI_0_68_0_BLOCK_14", s1),
                 Arguments.of("HAPI_0_66_0_BLOCK_10", s2),
-                Arguments.of("HAPI_0_69_0_BLOCK_240", s3));
+                Arguments.of("HAPI_0_69_0_BLOCK_240", s3),
+                Arguments.of("HAPI_0_71_0_BLOCK_21", s4));
     }
 }

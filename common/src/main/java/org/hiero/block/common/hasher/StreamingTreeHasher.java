@@ -4,7 +4,6 @@ package org.hiero.block.common.hasher;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -17,23 +16,6 @@ public interface StreamingTreeHasher {
      * The length of the hash produced by this hasher.
      */
     int HASH_LENGTH = 48;
-
-    /**
-     * Describes the status of the tree hash computation.
-     * @param numLeaves the number of leaves added to the tree
-     * @param rightmostHashes the rightmost hashes of the tree at each depth
-     */
-    record Status(int numLeaves, @NonNull List<Bytes> rightmostHashes) {
-        public static Status EMPTY = new Status(0, List.of());
-
-        /**
-         * Returns whether the tree is empty.
-         * @return whether the tree is empty
-         */
-        public boolean isEmpty() {
-            return numLeaves == 0;
-        }
-    }
 
     /**
      * Adds a leaf hash to the implicit tree of items from the given buffer. The buffer's new position
@@ -50,14 +32,4 @@ public interface StreamingTreeHasher {
      * @return a future that completes with the root hash of the tree of items
      */
     CompletableFuture<Bytes> rootHash();
-
-    /**
-     * If supported, blocks until this hasher can give a deterministic summary of the status of the
-     * tree hash computation.
-     * @return the status of the tree hash computation
-     * @throws UnsupportedOperationException if the implementation does not support status reporting
-     */
-    default Status status() {
-        throw new UnsupportedOperationException();
-    }
 }
