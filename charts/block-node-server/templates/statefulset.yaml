@@ -160,13 +160,21 @@ spec:
                 -DincludeScope=runtime \
                 -q
 
-              echo "Filtering out jars whose JPMS module already exists in core..."
+              echo "Filtering out jars whose packages overlap with core..."
               copied=0
               skipped=0
               for jar in /tmp/deps/*.jar; do
                 [ -f "$jar" ] || continue
-                mod=$(jar --describe-module --file="$jar" 2>/dev/null | head -1 | sed 's/@.*//' | awk '{print $1}')
-                if [ -n "$mod" ] && [ "$mod" != "No" ] && grep -qx "$mod" /plugins/.core-modules.txt 2>/dev/null; then
+                packages=$(jar --describe-module --file="$jar" 2>/dev/null \
+                  | grep -E "^(exports |contains )" | awk '{print $2}')
+                is_dup=false
+                for pkg in $packages; do
+                  if grep -qx "$pkg" /plugins/.core-modules.txt 2>/dev/null; then
+                    is_dup=true
+                    break
+                  fi
+                done
+                if [ "$is_dup" = "true" ]; then
                   skipped=$((skipped + 1))
                 else
                   cp "$jar" /plugins/

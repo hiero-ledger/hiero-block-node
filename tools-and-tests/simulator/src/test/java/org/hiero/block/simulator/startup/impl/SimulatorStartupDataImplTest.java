@@ -138,6 +138,23 @@ class SimulatorStartupDataImplTest {
 
     /**
      * This test aims to verify that the {@link SimulatorStartupDataImpl} will
+     * return default values when both startup data files exist but are empty,
+     * simulating a pod restart before any blocks were processed.
+     */
+    @Test
+    void testDefaultValuesIfBothFilesExistButEmpty() throws IOException {
+        Files.createFile(latestAckBlockNumberPath);
+        Files.createFile(latestAckBlockHashPath);
+        final SimulatorStartupDataImpl toTest = newInstanceToTest(true);
+        assertThat(toTest)
+                .returns(-1L, from(SimulatorStartupDataImpl::getLatestAckBlockNumber))
+                .returns(
+                        new byte[StreamingTreeHasher.HASH_LENGTH],
+                        from(SimulatorStartupDataImpl::getLatestAckBlockHash));
+    }
+
+    /**
+     * This test aims to verify that the {@link SimulatorStartupDataImpl} will
      * return the correct values when the functionality is enabled and the startup
      * data files contain valid data.
      */

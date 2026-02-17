@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
+import java.lang.module.ModuleFinder
+
 plugins {
     id("org.hiero.gradle.module.library")
     id("org.hiero.gradle.feature.test-fixtures")
@@ -29,22 +31,57 @@ distributions {
     main {
         contents {
             val pluginsDir = layout.buildDirectory.dir("tmp/plugins")
+            val coreModulesDir = layout.buildDirectory.dir("tmp/core-modules")
 
             from(pluginsDir) { into("plugins") }
+            from(coreModulesDir) { into("lib") }
         }
     }
 }
 
 tasks.distTar {
     val pluginsDir = layout.buildDirectory.dir("tmp/plugins")
+    val coreModulesDir = layout.buildDirectory.dir("tmp/core-modules")
+    val runtimeJars: FileCollection = configurations.runtimeClasspath.get()
 
-    // Create an empty plugins directory with a .keep file so it exists in the distribution
     doFirst {
+        // Create an empty plugins directory with a .keep file so it exists in the distribution
         val dir = pluginsDir.get().asFile
         dir.mkdirs()
         File(dir, ".keep").writeText("")
+
+        // Generate .core-modules.txt listing every Java package in core jars.
+        // The resolve-plugins init container (Helm chart) uses this to skip any
+        // Maven-resolved jar whose packages already exist in core, preventing JPMS
+        // split-package errors.  Package-level comparison is more robust than jar-name
+        // or module-name matching because Gradle patches certain jars with a -module
+        // suffix that changes their JPMS module name (e.g. resource-loader becomes
+        // com.goterl.resourceloader instead of the automatic module name resource.loader).
+        val jarPaths: List<java.nio.file.Path> = runtimeJars.files.map { it.toPath() }
+        @Suppress("SpreadOperator")
+        val moduleFinder: ModuleFinder = ModuleFinder.of(*jarPaths.toTypedArray())
+        val corePackages: List<String> =
+            moduleFinder.findAll().flatMap { it.descriptor().packages() }.sorted()
+        require(corePackages.isNotEmpty()) {
+            ".core-modules.txt would be empty — no packages found in runtime classpath"
+        }
+        val moduleDir = coreModulesDir.get().asFile
+        moduleDir.mkdirs()
+        File(moduleDir, ".core-modules.txt").writeText(corePackages.joinToString("\n") + "\n")
+        logger.lifecycle("Generated .core-modules.txt with ${corePackages.size} packages")
     }
 }
+
+// Extract the distribution tar into build/distributions/ so Docker can COPY the
+// directory directly. UBI-minimal's tar fails under QEMU emulation on linux/arm64.
+val extractDistForDocker =
+    tasks.register<Copy>("extractDistForDocker") {
+        dependsOn(tasks.distTar)
+        from(tarTree(tasks.distTar.flatMap { it.archiveFile }))
+        into(layout.buildDirectory.dir("distributions"))
+    }
+
+tasks.distTar { finalizedBy(extractDistForDocker) }
 
 application {
     mainModule = "org.hiero.block.node.app"
