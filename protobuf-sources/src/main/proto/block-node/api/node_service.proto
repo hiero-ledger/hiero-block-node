@@ -29,12 +29,12 @@ message ServerStatusRequest {}
  * of block nodes based on supported features.
  */
 message ServerStatusDetailResponse {
-  /**
-   * Version information.<br/>
-   * Versions for the block network address book, block stream protocol
-   * buffer schema, and Block-Node software.
-   */
-  BlockNodeVersions version_information = 1;
+    /**
+     * Version information.<br/>
+     * Versions for the block network address book, block stream protocol
+     * buffer schema, and Block-Node software.
+     */
+    BlockNodeVersions version_information = 1;
 }
 
 /**
@@ -86,58 +86,78 @@ message ServerStatusResponse {
  * `plugin_id` field SHALL be populated for every registered plugin.
  */
 message BlockNodeVersions {
-  /**
-   * A version of the Block Stream specification.<br/>
-   * This is the Stream version currently supported by this Block-Node.
-   * <p>
-   * Implementations SHOULD make reasonable effort to ensure the latest
-   * released Block Stream version is supported.<br/>
-   * This version MUST be an officially released Block Stream version if
-   * the responding Block-Node is not private.
-   */
-  proto.SemanticVersion stream_proto_version = 1;
+    /**
+     * A version of the Block Stream specification.<br/>
+     * This is the Stream version currently supported by this Block-Node.
+     * <p>
+     * Implementations SHOULD make reasonable effort to ensure the latest
+     * released Block Stream version is supported.<br/>
+     * This version MUST be an officially released Block Stream version if
+     * the responding Block-Node is not private.
+     */
+    proto.SemanticVersion stream_proto_version = 1;
 
-  /**
-   * A version of the Block-Node software.<br/>
-   * This is the software version that this Block-Node is currently
-   * running.
-   * <p>
-   * This value is implementation-defined.
-   */
-  proto.SemanticVersion block_node_version = 2;
+    /**
+     * A version of the Block-Node software.<br/>
+     * This is the software version that this Block-Node is currently
+     * running.
+     * <p>
+     * This value is implementation-defined.
+     */
+    proto.SemanticVersion block_node_version = 2;
 
-  /**
-   * Version information for each registered plugin.
-   * <p>
-   * This MAY be empty.<br/>
-   * Providing version information is OPTIONAL for each plugin.
-   */
-  repeated PluginVersion installed_plugin_versions = 3;
+    /**
+     * Version information for each registered plugin.
+     * <p>
+     * This MAY be empty.<br/>
+     * Providing version information is OPTIONAL for each plugin.
+     */
+    repeated PluginVersion installed_plugin_versions = 3;
 
-  message PluginVersion {
-    string plugin_id = 1;
-    proto.SemanticVersion plugin_software_version = 2;
-    repeated string plugin_feature_names = 3;
-  }
+    /**
+     * Version information for a registered plugin.
+     * <p>
+     * This MAY be empty.<br/>
+     * Providing version information is OPTIONAL for each plugin, but defaults
+     * to the module version information.
+     */
+    message PluginVersion {
+        /**
+         * The id of the plugin.
+         * defaults to the class name of the plugin
+         */
+        string plugin_id = 1;
+        /**
+         * The `SemanticVersion` of the plugin.
+         * defaults to the `SemanticVersion` of the module the plugin is in.
+         */
+        proto.SemanticVersion plugin_software_version = 2;
+        /**
+         * The features of the plugin.
+         * defaults to the defined services provided by the plugin as defined in
+         * the module.
+         */
+        repeated string plugin_feature_names = 3;
+    }
 }
 
 /**
  * Remote procedure calls (RPCs) for the Block-Node ancillary services.
  */
 service BlockNodeService {
-  /**
-   * Read the status of this Block-Node.
-   * <p>
-   * A client SHOULD request server status prior to requesting block stream
-   * data or a state snapshot.
-   */
-  rpc serverStatus(ServerStatusRequest) returns (ServerStatusResponse);
+    /**
+     * Read the status of this Block-Node.
+     * <p>
+     * A client SHOULD request server status prior to requesting block stream
+     * data or a state snapshot.
+     */
+    rpc serverStatus(ServerStatusRequest) returns (ServerStatusResponse);
 
-  /**
-   * Read the status of this Block-Node.
-   * <p>
-   * A client SHOULD request server status prior to requesting block stream
-   * data or a state snapshot.
-   */
-  rpc serverStatusDetail(ServerStatusRequest) returns (ServerStatusDetailResponse);
+    /**
+     * Read the status of this Block-Node.
+     * <p>
+     * A client SHOULD request server status prior to requesting block stream
+     * data or a state snapshot.
+     */
+    rpc serverStatusDetail(ServerStatusRequest) returns (ServerStatusDetailResponse);
 }
