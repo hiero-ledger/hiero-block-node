@@ -131,8 +131,11 @@ message BlockNodeVersions {
          */
         string plugin_id = 1;
         /**
-         * The `SemanticVersion` of the plugin.
-         * defaults to the `SemanticVersion` of the module the plugin is in.
+         * A plugin version.<br/>
+         * Plugin versions follow semantic version format.
+         * <p>
+         * If not set by the plugin this value SHALL be set to the `SemanticVersion` of the
+         * module that provides the plugin.
          */
         proto.SemanticVersion plugin_software_version = 2;
         /**
