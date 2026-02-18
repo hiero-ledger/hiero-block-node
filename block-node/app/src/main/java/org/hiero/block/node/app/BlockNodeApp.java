@@ -28,7 +28,6 @@ import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
-import org.hiero.block.common.utils.SemanticVersionUtilities;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -41,6 +40,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.module.SemanticVersionUtilities;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /** Main class for the block node server */

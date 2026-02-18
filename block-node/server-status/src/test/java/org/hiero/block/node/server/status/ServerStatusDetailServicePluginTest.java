@@ -15,13 +15,13 @@ import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
-import org.hiero.block.common.utils.SemanticVersionUtilities;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.module.SemanticVersionUtilities;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -77,10 +77,8 @@ public class ServerStatusDetailServicePluginTest
         final PluginVersion pluginVersion = pluginVersions.getFirst();
         assertEquals(plugin.getClass().getName(), pluginVersion.pluginId());
         assertEquals(semanticVersion, pluginVersion.pluginSoftwareVersion());
-        assertEquals(1, pluginVersion.pluginFeatureNames().size());
-        assertEquals(
-                "org.hiero.block.node.spi.BlockNodePlugin",
-                pluginVersion.pluginFeatureNames().getFirst());
+        // Features default to empty list
+        assertEquals(0, pluginVersion.pluginFeatureNames().size());
     }
 
     /**

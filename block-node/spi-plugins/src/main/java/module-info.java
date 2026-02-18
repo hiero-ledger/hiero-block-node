@@ -5,6 +5,7 @@ module org.hiero.block.node.spi {
     exports org.hiero.block.node.spi.historicalblocks;
     exports org.hiero.block.node.spi.health;
     exports org.hiero.block.node.spi.threading;
+    exports org.hiero.block.node.spi.module;
 
     uses org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
     uses org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
@@ -15,7 +16,7 @@ module org.hiero.block.node.spi {
     requires transitive com.swirlds.metrics.api;
     requires transitive org.hiero.block.protobuf.pbj;
     requires transitive io.helidon.webserver;
-    requires org.hiero.block.common;
+    requires org.hiero.block.common; // javax.annotation.processing.Generated
     requires static transitive com.github.spotbugs.annotations;
-    requires static java.compiler; // javax.annotation.processing.Generated
+    requires static java.compiler;
 }

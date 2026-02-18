@@ -5,7 +5,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
-import org.hiero.block.common.utils.ModuleInfo;
+import org.hiero.block.node.spi.module.ModuleInfoAccessor;
 
 /**
  * Interface for all block node plugins to implement. Plugins are registered as module services that provide this interface.
@@ -80,7 +80,7 @@ public interface BlockNodePlugin {
      */
     default PluginVersion version() {
         final Class<?> clazz = this.getClass();
-        final ModuleInfo moduleInfo = ModuleInfo.getInstance(clazz);
+        final ModuleInfoAccessor moduleInfo = ModuleInfoAccessor.getInstance(clazz);
 
         return PluginVersion.newBuilder()
                 .pluginId(clazz.getName())

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.common.utils;
+package org.hiero.block.node.spi.module;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import java.lang.module.ModuleDescriptor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.hiero.block.common.utils.StringUtilities;
 
 /**
  * A class to facilitate constructing a SemanticVersion

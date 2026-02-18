@@ -3,7 +3,6 @@ package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
@@ -258,10 +257,8 @@ class BlockNodeAppTest {
 
             // every plugin should have at least one provided service
             final List<String> features = pluginVersion.pluginFeatureNames();
-            // special case for HistoricalBlockFacilityImpl which is not a real plugin
-            if (pluginVersion.pluginId().equals("org.hiero.block.node.app.HistoricalBlockFacilityImpl"))
-                assertTrue(pluginVersion.pluginFeatureNames().isEmpty());
-            else assertFalse(pluginVersion.pluginFeatureNames().isEmpty());
+            // plugins default to an empty list of features
+            assertTrue(pluginVersion.pluginFeatureNames().isEmpty());
         }
     }
 

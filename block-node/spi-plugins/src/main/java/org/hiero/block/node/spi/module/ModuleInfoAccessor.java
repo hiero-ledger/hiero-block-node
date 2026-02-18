@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //  SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.common.utils;
+package org.hiero.block.node.spi.module;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import java.lang.module.ModuleDescriptor;
@@ -12,15 +12,15 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * A class that makes it easier to retrieve the information from the module. It will cache module-info so that it can
- * be reused efficiently
+ * The ModuleInfoAccessor provides access to the module-info for a class. ModuleInfoAccessor caches module-info so that
+ * it can be accessed efficiently by modules with more than one class.
  */
-public final class ModuleInfo {
+public final class ModuleInfoAccessor {
 
     /**
      * Only process the module-infos once and cache them for later use.
      */
-    private static final ConcurrentHashMap<String, ModuleInfo> moduleInfos = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, ModuleInfoAccessor> moduleInfos = new ConcurrentHashMap<>();
 
     /**
      * The name of the module
@@ -41,7 +41,7 @@ public final class ModuleInfo {
      * Private constructor so that we only create on instance per module
      * @param module The module whose module-info we need to gather.
      */
-    private ModuleInfo(final Module module) {
+    private ModuleInfoAccessor(final Module module) {
         final ModuleDescriptor moduleDescriptor = module.getDescriptor();
         name = module.getName();
         version = SemanticVersionUtilities.from(moduleDescriptor);
@@ -53,16 +53,17 @@ public final class ModuleInfo {
     }
 
     /**
-     * Get the {@link ModuleInfo} associated with this class.
+     * Get the {@link ModuleInfoAccessor} associated with this class.
      * @param clazz The {@link Class} whose module-info we need to gather.
-     * @return {@link ModuleInfo} associated with this class.
+     * @return {@link ModuleInfoAccessor} associated with this class.
      */
-    public static ModuleInfo getInstance(final Class<?> clazz) {
-        return moduleInfos.computeIfAbsent(clazz.getModule().getName(), (k -> new ModuleInfo(clazz.getModule())));
+    public static ModuleInfoAccessor getInstance(final Class<?> clazz) {
+        return moduleInfos.computeIfAbsent(
+                clazz.getModule().getName(), (k -> new ModuleInfoAccessor(clazz.getModule())));
     }
 
     /**
-     * Get the module name associated with this {@link ModuleInfo}
+     * Get the module name associated with this {@link ModuleInfoAccessor}
      * @return the {@link String} name
      */
     public String name() {
@@ -70,7 +71,7 @@ public final class ModuleInfo {
     }
 
     /**
-     * Get the {@link SemanticVersion} associated with this {@link ModuleInfo}
+     * Get the {@link SemanticVersion} associated with this {@link ModuleInfoAccessor}
      * @return the {@link SemanticVersion}
      */
     public SemanticVersion version() {
@@ -78,7 +79,7 @@ public final class ModuleInfo {
     }
 
     /**
-     * Get the {@link List<String>} of services provided by this {@link Class} associated with this {@link ModuleInfo}
+     * Get the {@link List<String>} of services provided by this {@link Class} associated with this {@link ModuleInfoAccessor}
      * @return the {@link List<String>} of services for this {@link Class}. An empty list will be provided if no services exist.
      */
     public List<String> provides(final Class<?> clazz) {

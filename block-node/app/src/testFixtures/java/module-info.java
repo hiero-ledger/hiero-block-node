@@ -14,7 +14,6 @@ module org.hiero.block.node.app.test.fixtures {
     requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.metrics.api;
-    requires org.hiero.block.common;
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.spi;
     requires org.hiero.block.protobuf.pbj;
