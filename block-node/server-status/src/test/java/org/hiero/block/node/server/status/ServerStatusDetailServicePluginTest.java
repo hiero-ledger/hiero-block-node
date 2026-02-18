@@ -17,8 +17,6 @@ import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
-import org.hiero.block.node.app.fixtures.blocks.TestBlock;
-import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.module.SemanticVersionUtilities;
@@ -79,18 +77,5 @@ public class ServerStatusDetailServicePluginTest
         assertEquals(semanticVersion, pluginVersion.pluginSoftwareVersion());
         // Features default to empty list
         assertEquals(0, pluginVersion.pluginFeatureNames().size());
-    }
-
-    /**
-     * Helper method to send a specified number of test blocks to the block messaging system.
-     *
-     * @param numberOfBlocks the number of test blocks to create and send
-     */
-    private void sendBlocks(int numberOfBlocks) {
-        // Send some blocks
-        for (long bn = 0; bn < numberOfBlocks; bn++) {
-            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(bn);
-            blockMessaging.sendBlockItems(block.asBlockItems());
-        }
     }
 }
