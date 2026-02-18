@@ -1288,12 +1288,11 @@ class BlockFileHistoricPluginTest {
             pluginExecutor.executeSerially();
 
             // Verify retention policy maintained the 100-block limit
-            assertThat(plugin.availableBlocks().size()).isEqualTo(100L);
+            verifyBlocksAreAvailableAndArchived(100, 110, 100L);
             for (int i = 0; i < 10; i++) {
                 assertThat(plugin.availableBlocks().contains(i)).isFalse();
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
             }
-            verifyBlocksAreAvailableAndArchived(100, 110, null);
         }
 
         /**
@@ -1381,10 +1380,8 @@ class BlockFileHistoricPluginTest {
          * @param expectedTotalSize expected total size of available blocks (null to skip check)
          */
         private void verifyBlocksAreAvailableAndArchived(
-                final int startInclusive, final int endExclusive, final Long expectedTotalSize) throws IOException {
-            if (expectedTotalSize != null) {
-                assertThat(plugin.availableBlocks().size()).isEqualTo(expectedTotalSize);
-            }
+                final int startInclusive, final int endExclusive, final long expectedTotalSize) throws IOException {
+            assertThat(plugin.availableBlocks().size()).isEqualTo(expectedTotalSize);
             for (int i = startInclusive; i < endExclusive; i++) {
                 assertThat(plugin.availableBlocks().contains(i)).isTrue();
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();

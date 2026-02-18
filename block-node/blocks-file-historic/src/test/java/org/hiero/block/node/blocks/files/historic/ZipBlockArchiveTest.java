@@ -386,7 +386,7 @@ class ZipBlockArchiveTest {
             createAndAddBlockEntry(7L);
             final Path expectedZip = BlockPath.computeBlockPath(testConfig, 3L).zipFilePath();
             // call
-            final var actual = toTest.minStoredArchive();
+            final Optional<Path> actual = toTest.minStoredArchive();
             // assert returns the minimum (3)
             assertThat(actual).isPresent().hasValue(expectedZip);
         }

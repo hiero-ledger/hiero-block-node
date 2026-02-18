@@ -78,7 +78,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private final Deque<LongRange> inProgressZipRanges = new ConcurrentLinkedDeque<>();
     /** Running total of bytes stored in the historic tier */
     private final AtomicLong totalBytesStored = new AtomicLong(0);
-    /** The total number of zip files created */
+    /** The total number of zip files stored in the historic tier */
     private final AtomicLong totalZipFiles = new AtomicLong(0);
     /** The config used for this plugin */
     private FilesHistoricConfig config;
@@ -172,8 +172,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
 
                 // Initialize total bytes stored by querying the zip block archive
                 totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());
+                totalZipFiles.set(zipBlockArchive.count());
             }
-            totalZipFiles.set(zipBlockArchive.count());
             // Register gauge updater
             context.metrics().addUpdater(this::updateGauges);
         } catch (IOException e) {
@@ -446,8 +446,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // check if the minBlockNumberStored exists, moreover we do not need to know actual block compression
                 // type.
                 try {
-                    final Optional<Path> zipToDeleteOpt =
-                            zipBlockArchive.minStoredArchive().filter(Files::exists);
+                    final Optional<Path> zipToDeleteOpt = zipBlockArchive.minStoredArchive();
                     if (zipToDeleteOpt.isPresent()) {
                         final Path zipToDelete = zipToDeleteOpt.get();
                         try {

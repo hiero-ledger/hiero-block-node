@@ -291,7 +291,7 @@ class ZipBlockArchive {
                     .filter(path -> path.getFileName().toString().endsWith(".zip"))
                     .filter(path -> isNumericDirectory(path.getParent()))
                     .count();
-        } catch (final Exception e) {
+        } catch (final IOException e) {
             LOGGER.log(INFO, "Error walking directory structure to count zip files", e);
             return 0;
         }
