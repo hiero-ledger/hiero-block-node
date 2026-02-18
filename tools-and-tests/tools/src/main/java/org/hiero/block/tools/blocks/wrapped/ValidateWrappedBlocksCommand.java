@@ -8,8 +8,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.Callable;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
@@ -166,10 +164,9 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         }
         System.out.println();
 
-        // Create a streaming hasher and balance maps only if we start from block 0
+        // Create a streaming hasher and accounts state only if we start from block 0
         final StreamingHasher streamingHasher = startsAtZero ? new StreamingHasher() : null;
-        final Map<Long, Long> balanceMap = startsAtZero ? new HashMap<>() : null;
-        final Map<Long, Map<Long, Long>> tokenBalanceMap = startsAtZero ? new HashMap<>() : null;
+        final RunningAccountsState accounts = startsAtZero ? new RunningAccountsState() : null;
 
         // Validation tracking
         final long startNanos = System.nanoTime();
@@ -183,12 +180,12 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
 
                 // Validate against balance checkpoints BEFORE processing the block,
                 // since checkpoints represent state before the block's transactions
-                if (balanceCheckpointValidator != null && balanceMap != null) {
-                    balanceCheckpointValidator.checkBlock(blockNumber, balanceMap, tokenBalanceMap);
+                if (balanceCheckpointValidator != null && accounts != null) {
+                    balanceCheckpointValidator.checkBlock(
+                            blockNumber, accounts.getHbarBalances(), accounts.getTokenBalances());
                 }
 
-                WrappedBlockValidator.validateBlock(
-                        block, blockNumber, previousBlockHash, streamingHasher, balanceMap, tokenBalanceMap);
+                WrappedBlockValidator.validateBlock(block, blockNumber, previousBlockHash, streamingHasher, accounts);
 
                 // Compute block hash and update state for the next block's validation
                 previousBlockHash = hashBlock(block);
