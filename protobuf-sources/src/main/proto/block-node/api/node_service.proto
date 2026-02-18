@@ -123,8 +123,11 @@ message BlockNodeVersions {
      */
     message PluginVersion {
         /**
-         * The id of the plugin.
-         * defaults to the class name of the plugin
+         * A plugin identifier.<br/>
+         * This string is provided by the plugin as an identifier for that plugin.
+         * <p>
+         * This value SHALL be the canonical class name of the plugin implementation class
+         * if not provided by the plugin.
          */
         string plugin_id = 1;
         /**
