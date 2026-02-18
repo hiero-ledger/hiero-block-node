@@ -1,26 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.common.hasher;
 
-import static java.util.Objects.requireNonNull;
-import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
-
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * A naive implementation of {@link StreamingTreeHasher} that computes the root hash of a perfect binary Merkle tree of
- * {@link ByteBuffer} leaves. Used to test the correctness of more efficient implementations.
+ * A naive implementation of {@link StreamingTreeHasher} that computes the root hash of a Merkle tree
+ * using the streaming fold-up algorithm with domain-separated hashing.
+ * <p>
+ * The algorithm maintains a compact list of pending subtree roots. As each leaf is added,
+ * whenever two siblings at the same height are complete, they are combined into an internal
+ * node with the {@code 0x02} prefix. At finalization, remaining pending roots are folded
+ * right-to-left.
  */
 public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
-    private static final byte[] EMPTY_HASH = noThrowSha384HashOf(new byte[0]);
+    /**
+     * The hash returned for an empty tree (no leaves added). This is 48 zero bytes,
+     * matching the CN's ZERO_BLOCK_HASH convention.
+     */
+    private static final byte[] EMPTY_HASH = new byte[HashingUtilities.HASH_SIZE];
 
-    private final List<byte[]> leafHashes = new ArrayList<>();
+    private final LinkedList<byte[]> hashList = new LinkedList<>();
+    private long leafCount = 0;
     private boolean rootHashRequested = false;
 
     /**
@@ -38,37 +42,27 @@ public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
         }
         final byte[] bytes = new byte[HASH_LENGTH];
         hash.get(bytes);
-        leafHashes.add(bytes);
+        hashList.add(bytes);
+        // Fold-up: combine sibling pairs while the current position is odd
+        for (long n = leafCount; (n & 1L) == 1; n >>= 1) {
+            final byte[] right = hashList.removeLast();
+            final byte[] left = hashList.removeLast();
+            hashList.add(HashingUtilities.hashInternalNode(left, right));
+        }
+        leafCount++;
     }
 
     @Override
     public CompletableFuture<Bytes> rootHash() {
         rootHashRequested = true;
-        if (leafHashes.isEmpty()) {
+        if (hashList.isEmpty()) {
             return CompletableFuture.completedFuture(Bytes.wrap(EMPTY_HASH));
         }
-        Queue<byte[]> hashes = new LinkedList<>(leafHashes);
-        final int n = hashes.size();
-        if ((n & (n - 1)) != 0) {
-            final int paddedN = Integer.highestOneBit(n) << 1;
-            while (hashes.size() < paddedN) {
-                hashes.add(EMPTY_HASH);
-            }
+        // Fold remaining pending roots right-to-left
+        byte[] merkleRootHash = hashList.getLast();
+        for (int i = hashList.size() - 2; i >= 0; i--) {
+            merkleRootHash = HashingUtilities.hashInternalNode(hashList.get(i), merkleRootHash);
         }
-        while (hashes.size() > 1) {
-            final Queue<byte[]> newLeafHashes = new LinkedList<>();
-            while (!hashes.isEmpty()) {
-                final byte[] left = hashes.poll();
-                final byte[] right = hashes.poll();
-                // TODO this should be to use org.hiero.block.common.hasher.HashingUtilities.combine(byte[], byte[]) and
-                // avoid copies
-                final byte[] combined = new byte[left.length + requireNonNull(right).length];
-                System.arraycopy(left, 0, combined, 0, left.length);
-                System.arraycopy(right, 0, combined, left.length, right.length);
-                newLeafHashes.add(noThrowSha384HashOf(combined));
-            }
-            hashes = newLeafHashes;
-        }
-        return CompletableFuture.completedFuture(Bytes.wrap(requireNonNull(hashes.poll())));
+        return CompletableFuture.completedFuture(Bytes.wrap(merkleRootHash));
     }
 }

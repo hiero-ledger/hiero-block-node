@@ -12,7 +12,6 @@ import org.hiero.block.simulator.BlockStreamSimulatorApp;
 import org.hiero.block.suites.BaseSuite;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -53,8 +52,6 @@ public class VerificationCommonTests extends BaseSuite {
         assertEquals(true, consoleLog.contains("acknowledgement"), "acknowledgement not found in console log");
     }
 
-    // @todo(1422) should be able to re-enable this after publisher starts to handle failed verifications
-    @Disabled("Disabled because publisher rework does not support this yet.")
     @Test
     @DisplayName(
             "Send some corrupted/malformed block hash - Verify response is a VerificationFailure with resend block.")
@@ -73,13 +70,10 @@ public class VerificationCommonTests extends BaseSuite {
         Thread.sleep(2000);
         badHashSimulator.stop();
 
-        // Check the console log for the expected error message
-        final String consoleLog = badHashSimulator
-                .getStreamStatus()
-                .lastKnownPublisherClientStatuses()
-                .getFirst();
+        // Check the status log for a bad_block_proof response indicating verification failure
         assertTrue(
-                consoleLog.contains("resend_block") && consoleLog.contains("block_number: " + expectedNextBlockNumber),
-                "resend_block not found in console log for block_number " + expectedNextBlockNumber);
+                badHashSimulator.getStreamStatus().lastKnownPublisherClientStatuses().stream()
+                        .anyMatch(status -> status.toLowerCase().contains("bad_block_proof")),
+                "bad_block_proof not found in publisher statuses");
     }
 }

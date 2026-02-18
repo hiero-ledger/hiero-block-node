@@ -14,6 +14,14 @@ import org.hiero.block.internal.BlockItemUnparsed;
 
 /**
  * Provides common utility methods for hashing and combining hashes.
+ * <p>
+ * Domain-separated Merkle tree hashing uses single-byte prefixes to ensure leaf hashes
+ * and internal node hashes occupy distinct hash spaces:
+ * <ul>
+ *   <li>{@code 0x00} - Leaf node: {@code hash(0x00 || leafData)}</li>
+ *   <li>{@code 0x01} - Single-child internal node: {@code hash(0x01 || childHash)}</li>
+ *   <li>{@code 0x02} - Two-child internal node: {@code hash(0x02 || leftHash || rightHash)}</li>
+ * </ul>
  */
 public final class HashingUtilities {
 
@@ -26,16 +34,20 @@ public final class HashingUtilities {
      */
     public static final Bytes NULL_HASH = Bytes.wrap(new byte[HASH_SIZE]);
 
-    public static final Bytes DEPTH_2_NODE_2_COMBINED;
+    /**
+     * Prefix byte for leaf node hashes: {@code hash(0x00 || leafData)}.
+     */
+    public static final byte[] LEAF_PREFIX = new byte[] {0x00};
 
-    static {
-        // For the future reserved roots, compute the combined hash of the subroot at depth 2,node 2. This hash will
-        // then combine with the subroot containing the block data at the end of each round
-        final Bytes combinedNullHash = combine(NULL_HASH, NULL_HASH);
-        final Bytes depth3Node3 = combine(combinedNullHash, combinedNullHash);
-        final Bytes depth3Node4 = combine(combinedNullHash, combinedNullHash);
-        DEPTH_2_NODE_2_COMBINED = combine(depth3Node3, depth3Node4);
-    }
+    /**
+     * Prefix byte for single-child internal node hashes: {@code hash(0x01 || childHash)}.
+     */
+    public static final byte[] SINGLE_CHILD_PREFIX = new byte[] {0x01};
+
+    /**
+     * Prefix byte for two-child internal node hashes: {@code hash(0x02 || leftHash || rightHash)}.
+     */
+    public static final byte[] TWO_CHILDREN_NODE_PREFIX = new byte[] {0x02};
 
     /**
      * The standard name of the SHA2 384-bit hash algorithm.
@@ -126,6 +138,41 @@ public final class HashingUtilities {
     }
 
     /**
+     * Hash a leaf node with domain separation: {@code SHA384(0x00 || leafData)}.
+     * @param leafData the serialized leaf data
+     * @return the 48-byte SHA-384 hash of the prefixed leaf data
+     */
+    public static byte[] hashLeaf(@NonNull final byte[] leafData) {
+        final MessageDigest digest = sha384DigestOrThrow();
+        digest.update(LEAF_PREFIX);
+        return digest.digest(leafData);
+    }
+
+    /**
+     * Hash an internal node with two children using domain separation: {@code SHA384(0x02 || left || right)}.
+     * @param leftHash the hash of the left child
+     * @param rightHash the hash of the right child
+     * @return the 48-byte SHA-384 hash of the prefixed internal node
+     */
+    public static byte[] hashInternalNode(@NonNull final byte[] leftHash, @NonNull final byte[] rightHash) {
+        final MessageDigest digest = sha384DigestOrThrow();
+        digest.update(TWO_CHILDREN_NODE_PREFIX);
+        digest.update(leftHash);
+        return digest.digest(rightHash);
+    }
+
+    /**
+     * Hash an internal node with a single child using domain separation: {@code SHA384(0x01 || childHash)}.
+     * @param childHash the hash of the single child
+     * @return the 48-byte SHA-384 hash of the prefixed single-child node
+     */
+    public static byte[] hashInternalNodeSingleChild(@NonNull final byte[] childHash) {
+        final MessageDigest digest = sha384DigestOrThrow();
+        digest.update(SINGLE_CHILD_PREFIX);
+        return digest.digest(childHash);
+    }
+
+    /**
      * Returns the Hashes (input and output) of a list of block items.
      * @param blockItems the block items
      * @return the Hashes of the block items
@@ -156,26 +203,38 @@ public final class HashingUtilities {
         final var stateChangesHashes = ByteBuffer.allocate(HASH_SIZE * numStateChanges);
         final var traceDataHashes = ByteBuffer.allocate(HASH_SIZE * numTraceData);
 
-        final var digest = sha384DigestOrThrow();
+        final MessageDigest digest = sha384DigestOrThrow();
         for (int i = 0; i < itemSize; i++) {
             final BlockItemUnparsed item = blockItems.get(i);
             final BlockItemUnparsed.ItemOneOfType kind = item.item().kind();
             switch (kind) {
-                case ROUND_HEADER, EVENT_HEADER ->
+                case ROUND_HEADER, EVENT_HEADER -> {
+                    // Incrementally feed prefix then item bytes into a single hash computation.
+                    // This avoids concatenating byte arrays while producing the same digest.
+                    digest.update(LEAF_PREFIX);
                     consensusHeaderHashes.put(digest.digest(
                             BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
-                case SIGNED_TRANSACTION ->
+                }
+                case SIGNED_TRANSACTION -> {
+                    digest.update(LEAF_PREFIX);
                     inputHashes.put(digest.digest(
                             BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
-                case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER ->
+                }
+                case TRANSACTION_RESULT, TRANSACTION_OUTPUT, BLOCK_HEADER -> {
+                    digest.update(LEAF_PREFIX);
                     outputHashes.put(digest.digest(
                             BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
-                case STATE_CHANGES ->
+                }
+                case STATE_CHANGES -> {
+                    digest.update(LEAF_PREFIX);
                     stateChangesHashes.put(digest.digest(
                             BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
-                case TRACE_DATA ->
+                }
+                case TRACE_DATA -> {
+                    digest.update(LEAF_PREFIX);
                     traceDataHashes.put(digest.digest(
                             BlockItemUnparsed.PROTOBUF.toBytes(item).toByteArray()));
+                }
             }
         }
 
@@ -193,8 +252,9 @@ public final class HashingUtilities {
      * @return the ByteBuffer of the hash of the given block item
      */
     public static ByteBuffer getBlockItemHash(@NonNull BlockItemUnparsed blockItemUnparsed) {
-        final var digest = sha384DigestOrThrow();
+        final MessageDigest digest = sha384DigestOrThrow();
         ByteBuffer buffer = ByteBuffer.allocate(HASH_SIZE);
+        digest.update(LEAF_PREFIX);
         buffer.put(digest.digest(
                 BlockItemUnparsed.PROTOBUF.toBytes(blockItemUnparsed).toByteArray()));
 
@@ -234,29 +294,35 @@ public final class HashingUtilities {
         Objects.requireNonNull(stateChangesHasher);
         Objects.requireNonNull(traceDataHasher);
 
-        final Bytes rootOfConsensusHeaders = consensusHeaderHasher.rootHash().join();
-        final Bytes rootOfInputs = inputTreeHasher.rootHash().join();
-        final Bytes rootOfOutputs = outputTreeHasher.rootHash().join();
-        final Bytes rootOfStateChanges = stateChangesHasher.rootHash().join();
-        final Bytes rootOfTraceData = traceDataHasher.rootHash().join();
+        final byte[] rootOfConsensusHeaders =
+                consensusHeaderHasher.rootHash().join().toByteArray();
+        final byte[] rootOfInputs = inputTreeHasher.rootHash().join().toByteArray();
+        final byte[] rootOfOutputs = outputTreeHasher.rootHash().join().toByteArray();
+        final byte[] rootOfStateChanges = stateChangesHasher.rootHash().join().toByteArray();
+        final byte[] rootOfTraceData = traceDataHasher.rootHash().join().toByteArray();
 
-        // Compute depth four hashes
-        final var depth4Node1 = combine(previousBlockHash, rootHashOfAllPreviousBlockHashes);
-        final var depth4Node2 = combine(startOfBlockStateRootHash, rootOfConsensusHeaders);
-        final var depth4Node3 = combine(rootOfInputs, rootOfOutputs);
-        final var depth4Node4 = combine(rootOfStateChanges, rootOfTraceData);
-        // Compute depth three hashes
-        final var depth3Node1 = combine(depth4Node1, depth4Node2);
-        final var depth3Node2 = combine(depth4Node3, depth4Node4);
-        // Compute depth two hashes
-        final var depth2Node1 = combine(depth3Node1, depth3Node2);
-        // Compute depth one hash
-        final Bytes depth1Node1 = combine(depth2Node1, DEPTH_2_NODE_2_COMBINED);
-        // Compute the block's root hash
-        final var timestamp = Timestamp.PROTOBUF.toBytes(blockTimestamp);
-        final var depth1Node0 = noThrowSha384HashOf(timestamp);
-        final var rootHash = combine(depth1Node0, depth1Node1);
+        // Treat missing state root hash as zero hash, matching the CN convention
+        final byte[] stateRootHash =
+                startOfBlockStateRootHash.length() == 0 ? new byte[HASH_SIZE] : startOfBlockStateRootHash.toByteArray();
 
-        return rootHash;
+        // Depth 5: pair the 8 data leaves
+        final byte[] depth5Node1 =
+                hashInternalNode(previousBlockHash.toByteArray(), rootHashOfAllPreviousBlockHashes.toByteArray());
+        final byte[] depth5Node2 = hashInternalNode(stateRootHash, rootOfConsensusHeaders);
+        final byte[] depth5Node3 = hashInternalNode(rootOfInputs, rootOfOutputs);
+        final byte[] depth5Node4 = hashInternalNode(rootOfStateChanges, rootOfTraceData);
+        // Depth 4
+        final byte[] depth4Node1 = hashInternalNode(depth5Node1, depth5Node2);
+        final byte[] depth4Node2 = hashInternalNode(depth5Node3, depth5Node4);
+        // Depth 3
+        final byte[] depth3Node1 = hashInternalNode(depth4Node1, depth4Node2);
+        // Depth 2: reserved subtree (single child, right side is null/reserved)
+        final byte[] fixedRootTree = hashInternalNodeSingleChild(depth3Node1);
+        // Root: combine timestamp leaf with fixed root tree
+        final byte[] timestampLeaf =
+                hashLeaf(Timestamp.PROTOBUF.toBytes(blockTimestamp).toByteArray());
+        final byte[] rootHash = hashInternalNode(timestampLeaf, fixedRootTree);
+
+        return Bytes.wrap(rootHash);
     }
 }

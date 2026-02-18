@@ -33,7 +33,6 @@ import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -91,14 +90,11 @@ class VerificationServicePluginTest
                 "The block should be the same as the one sent");
     }
 
-    // @todo(2002): Re-enable once proper v0.71.0 verification is implemented with updated protobuf.
-    // DummyVerificationSession always returns success, so failed verification cannot be tested.
-    @Disabled("Disabled until proper v0.71.0 verification is implemented - see @todo(2002)")
     @Test
     void testFailedVerification() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_69_0_BLOCK_240);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_21);
         // get the original block items
         List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
         // make a mutable copy

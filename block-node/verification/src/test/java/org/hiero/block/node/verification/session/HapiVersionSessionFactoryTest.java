@@ -11,6 +11,7 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import java.util.stream.Stream;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.verification.session.impl.DummyVerificationSession;
+import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -51,7 +52,6 @@ class HapiVersionSessionFactoryTest {
         return Stream.of(Arguments.of(sv(0, 69, 0)), Arguments.of(sv(0, 69, 1)));
     }
 
-    // @todo(2002): Update to expect ExtendedMerkleTreeSession once proper v0.71.0 verification is implemented
     @ParameterizedTest(name = ">= 0.69.0 resolves to DummyVerificationSession for {0}")
     @MethodSource("latestImplVersions")
     void selectsLatestImplFor0690AndAbove(SemanticVersion v) {
@@ -68,11 +68,24 @@ class HapiVersionSessionFactoryTest {
                 Arguments.of(sv(0, 67, 999), Arguments.of(sv(0, 68, 999))));
     }
 
-    // @todo(1661): Fix this test when upgrading to CN 0.70+
     @Test
-    @DisplayName("Upcoming changes on 0.70.0 should resolve to DummyVerificationSession")
+    @DisplayName("0.70.0 resolves to DummyVerificationSession")
     void selectsDummyImplFor0700() {
         assertCreates(sv(0, 70, 0), DummyVerificationSession.class, blockSource);
+    }
+
+    @Test
+    @DisplayName("0.71.x resolves to ExtendedMerkleTreeSession")
+    void selectsExtendedMerkleTreeSessionFor0710() {
+        assertCreates(sv(0, 71, 0), ExtendedMerkleTreeSession.class, blockSource);
+        assertCreates(sv(0, 71, 5), ExtendedMerkleTreeSession.class, blockSource);
+    }
+
+    @Test
+    @DisplayName("0.72.0+ resolves to DummyVerificationSession")
+    void selectsDummyImplFor0720AndAbove() {
+        assertCreates(sv(0, 72, 0), DummyVerificationSession.class, blockSource);
+        assertCreates(sv(0, 73, 0), DummyVerificationSession.class, blockSource);
     }
 
     @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to DummyVerificationSession for {0}")
@@ -81,7 +94,6 @@ class HapiVersionSessionFactoryTest {
         assertCreates(v, DummyVerificationSession.class, blockSource);
     }
 
-    // @todo(2002): Update to expect ExtendedMerkleTreeSession at v0.69.0 once proper verification is implemented
     @Test
     @DisplayName("Boundary: 0.67.x and 0.69.0 both resolve to DummyVerificationSession")
     void boundaryFlipAt0680() {
@@ -130,7 +142,6 @@ class HapiVersionSessionFactoryTest {
 
     @Nested
     class BlockNumberAgnostic {
-        // @todo(2002): Update to expect ExtendedMerkleTreeSession once proper v0.71.0 verification is implemented
         @Test
         @DisplayName("Uses the same impl regardless of blockNumber (0 and large)")
         void blockNumberDoesNotAffectImpl() {

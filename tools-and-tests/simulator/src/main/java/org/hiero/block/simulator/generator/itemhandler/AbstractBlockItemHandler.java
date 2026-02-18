@@ -23,7 +23,7 @@ abstract class AbstractBlockItemHandler implements ItemHandler {
 
     /** Current HAPI version to craft blocks from **/
     final SemanticVersion HAPI_VERSION =
-            SemanticVersion.newBuilder().setMajor(0).setMinor(69).setPatch(0).build();
+            SemanticVersion.newBuilder().setMajor(0).setMinor(71).setPatch(0).build();
 
     @Override
     public BlockItem getItem() {

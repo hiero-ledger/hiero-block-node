@@ -91,7 +91,11 @@ public final class BlockUtils {
         HAPI_0_69_0_BLOCK_240(
                 "HAPI_0-69-0/240.blk.gz",
                 "325ee93ae5ba606903527674073931d5a33b8900ef720b0d34849b804e39198251995a9e20750ec84ce80e6fc0c361d5",
-                240);
+                240),
+        HAPI_0_71_0_BLOCK_21(
+                "HAPI_0_71_0/21.blk.gz",
+                "78a6bfeb2235741521165cf95a1ae4a0a51de157a379b4fb5827067ba59bbcf19ae35e1faa67f3f1976700d50324d7c4",
+                21);
 
         private final String blockName;
         private final Bytes blockHash;
