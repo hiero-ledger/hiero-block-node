@@ -43,7 +43,7 @@ import picocli.CommandLine.Option;
  * The compiled file can be loaded by {@link BalanceCheckpointsLoader} and used by the
  * validation command without requiring GCP access at runtime.
  */
-@SuppressWarnings({"FieldCanBeLocal", "CallToPrintStackTrace"})
+@SuppressWarnings({"FieldCanBeLocal", "CallToPrintStackTrace", "NPathComplexity"})
 @Command(
         name = "fetchBalanceCheckpoints",
         description = "Fetch balance checkpoint files from GCP and compile into a resource file",
