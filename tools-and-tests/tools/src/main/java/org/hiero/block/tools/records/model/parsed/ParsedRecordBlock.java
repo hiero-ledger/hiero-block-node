@@ -30,6 +30,9 @@ import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 public record ParsedRecordBlock(
         ParsedRecordFile recordFile, List<ParsedSignatureFile> signatureFiles, List<SidecarFile> sidecarFiles) {
 
+    /** Maximum size for parsing sidecar files (8MB). Some mainnet blocks have large sidecars. */
+    private static final int MAX_SIDECAR_SIZE = 8 * 1024 * 1024;
+
     /**
      * Get the consensus time of the block.
      *
@@ -63,7 +66,7 @@ public record ParsedRecordBlock(
                 recordFileBlock.primarySidecarFiles().stream()
                         .map(ps -> {
                             try {
-                                return SidecarFile.PROTOBUF.parse(Bytes.wrap(ps.data()));
+                                return SidecarFile.PROTOBUF.parse(Bytes.wrap(ps.data()), false, MAX_SIDECAR_SIZE);
                             } catch (ParseException e) {
                                 throw new RuntimeException(e);
                             }
