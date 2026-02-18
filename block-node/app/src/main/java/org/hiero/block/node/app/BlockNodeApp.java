@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
+import org.hiero.block.api.BlockNodeVersions;
+import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -38,6 +40,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /** Main class for the block node server */
@@ -165,7 +168,8 @@ public class BlockNodeApp implements HealthFacility {
                 blockMessagingService,
                 historicalBlockFacility,
                 serviceLoader,
-                threadPoolManager);
+                threadPoolManager,
+                versionInfo(loadedPlugins));
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
@@ -224,6 +228,21 @@ public class BlockNodeApp implements HealthFacility {
                         .withDescription("The newest block the BN has"));
         appStateStatus = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "app_state_status")
                 .withDescription("The current state of the BlockNode App"));
+    }
+
+    /**
+     * Build the BlockNodeVersions for this BlockNodeServer
+     */
+    protected final BlockNodeVersions versionInfo(final List<BlockNodePlugin> plugins) {
+        final List<PluginVersion> pluginVersions = new ArrayList<>();
+        for (final BlockNodePlugin plugin : plugins) {
+            pluginVersions.add(plugin.version());
+        }
+
+        return BlockNodeVersions.newBuilder()
+                .installedPluginVersions(pluginVersions)
+                .blockNodeVersion(SemanticVersionUtility.from(BlockNodeApp.class))
+                .build();
     }
 
     /**
