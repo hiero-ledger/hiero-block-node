@@ -85,7 +85,6 @@ public interface BlockNodePlugin {
         return PluginVersion.newBuilder()
                 .pluginId(clazz.getName())
                 .pluginSoftwareVersion(moduleInfo.version())
-                .pluginFeatureNames(moduleInfo.provides(clazz))
                 .build();
     }
 }
