@@ -157,7 +157,11 @@ Balance checkpoints can be loaded from:
 
 The `--balance-check-interval-days` option controls how often checkpoints are validated. The default of 30 days (monthly) provides a good balance between validation coverage and performance. Use smaller intervals for more thorough validation or larger intervals for faster runs.
 
-**Important:** The validation interval can only be as granular as the checkpoints that were fetched. For example, if checkpoints were fetched with `--interval-days 30` (monthly), you cannot validate weekly since weekly checkpoints don't exist in the file. To validate at a smaller interval, you must first re-fetch checkpoints using `fetchBalanceCheckpoints` with a matching `--interval-days` value.
+**Important:** The validation interval can only be as granular as the checkpoints that were fetched.
+For example, if checkpoints were fetched with `--interval-days 30` (monthly), you cannot validate
+weekly since weekly checkpoints don't exist in the file. To validate at a smaller interval, you
+must first re-fetch checkpoints using `fetchBalanceCheckpoints` with a matching `--interval-days`
+value.
 
 #### Notes
 
