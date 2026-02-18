@@ -12,6 +12,7 @@ import com.hedera.hapi.block.stream.output.MapUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.node.base.AccountAmount;
 import com.hedera.hapi.streams.RecordStreamItem;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -346,23 +347,15 @@ public final class WrappedBlockValidator {
                 }
             } else if (item.hasRecordFile()) {
                 final RecordFileItem recordFile = item.recordFileOrThrow();
-                // Process original record stream items
-                for (final RecordStreamItem recordStreamItem :
-                        recordFile.recordFileContentsOrThrow().recordStreamItems()) {
+                // Merge original items with amendments, sorted by consensus timestamp
+                final List<RecordStreamItem> mergedItems = mergeRecordStreamItems(
+                        recordFile.recordFileContentsOrThrow().recordStreamItems(), recordFile.amendments());
+                // Process merged record stream items
+                for (final RecordStreamItem recordStreamItem : mergedItems) {
                     for (final AccountAmount accountAmount : recordStreamItem
                             .recordOrThrow()
                             .transferListOrThrow()
                             .accountAmounts()) {
-                        balanceMap.merge(
-                                accountAmount.accountIDOrThrow().accountNumOrThrow(),
-                                accountAmount.amount(),
-                                Long::sum);
-                    }
-                }
-                // Process amendments (missing transactions)
-                for (final RecordStreamItem amendment : recordFile.amendments()) {
-                    for (final AccountAmount accountAmount :
-                            amendment.recordOrThrow().transferListOrThrow().accountAmounts()) {
                         balanceMap.merge(
                                 accountAmount.accountIDOrThrow().accountNumOrThrow(),
                                 accountAmount.amount(),
@@ -383,5 +376,29 @@ public final class WrappedBlockValidator {
                     + FIFTY_BILLION_HBAR_IN_TINYBAR + " tinybar but found " + totalBalance + " tinybar (difference: "
                     + difference + ")");
         }
+    }
+
+    /**
+     * Merges original record stream items with amendments, sorted by consensus timestamp.
+     *
+     * @param original the original record stream items from the record file
+     * @param amendments the amendment items (missing transactions) to merge in
+     * @return a new list containing all items sorted by consensus timestamp
+     */
+    private static List<RecordStreamItem> mergeRecordStreamItems(
+            final List<RecordStreamItem> original, final List<RecordStreamItem> amendments) {
+        if (amendments.isEmpty()) {
+            return original;
+        }
+        final List<RecordStreamItem> merged = new ArrayList<>(original.size() + amendments.size());
+        merged.addAll(original);
+        merged.addAll(amendments);
+        merged.sort((a, b) -> {
+            final var tsA = a.recordOrThrow().consensusTimestampOrThrow();
+            final var tsB = b.recordOrThrow().consensusTimestampOrThrow();
+            final int secCmp = Long.compare(tsA.seconds(), tsB.seconds());
+            return secCmp != 0 ? secCmp : Integer.compare(tsA.nanos(), tsB.nanos());
+        });
+        return merged;
     }
 }
