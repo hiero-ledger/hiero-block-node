@@ -139,9 +139,10 @@ message BlockNodeVersions {
          */
         proto.SemanticVersion plugin_software_version = 2;
         /**
-         * The features of the plugin.
-         * defaults to the defined services provided by the plugin as defined in
-         * the module.
+         * A set of plugin features.<br/>
+         * This set of one or more string values describes the features provided by the plugin.
+         * <p>
+         * If not set by the plugin, this SHALL NOT be set.
          */
         repeated string plugin_feature_names = 3;
     }
