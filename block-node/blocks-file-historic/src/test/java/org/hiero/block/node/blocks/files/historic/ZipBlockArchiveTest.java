@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -337,6 +338,217 @@ class ZipBlockArchiveTest {
                     .isExactlyInstanceOf(ZipBlockAccessor.class)
                     .extracting(BlockAccessor::blockUnparsed)
                     .isEqualTo(expected.blockUnparsed());
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#minStoredArchive()} returns empty Optional when no zip files are present.
+         */
+        @Test
+        @DisplayName("Test minStoredArchive() returns empty when no zip files present")
+        void testMinStoredArchiveNoZipFiles() throws IOException {
+            // call
+            final Optional<Path> actual = toTest.minStoredArchive();
+            // assert empty result and server still running
+            assertThat(actual).isEmpty();
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#minStoredArchive()} returns the only zip file when a single zip file exists.
+         */
+        @Test
+        @DisplayName("Test minStoredArchive() returns single zip file")
+        void testMinStoredArchiveSingleZipFile() throws IOException {
+            // create test environment with one zip file
+            createAndAddBlockEntry(5L);
+            final Path expectedZip = BlockPath.computeBlockPath(testConfig, 5L).zipFilePath();
+            // call
+            final Optional<Path> actual = toTest.minStoredArchive();
+            // assert
+            assertThat(actual).isPresent().hasValue(expectedZip);
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#minStoredArchive()} returns the minimum zip file
+         * when multiple zip files exist in the same directory.
+         */
+        @Test
+        @DisplayName("Test minStoredArchive() returns minimum from same directory")
+        void testMinStoredArchiveMultipleZipsSameDirectory() throws IOException {
+            // create test environment with multiple zip files in same directory
+            // Using powersOfTenPerZipFileContents=1, blocks 3 and 7 will be in the same directory
+            createAndAddBlockEntry(3L);
+            createAndAddBlockEntry(5L);
+            createAndAddBlockEntry(7L);
+            final Path expectedZip = BlockPath.computeBlockPath(testConfig, 3L).zipFilePath();
+            // call
+            final Optional<Path> actual = toTest.minStoredArchive();
+            // assert returns the minimum (3)
+            assertThat(actual).isPresent().hasValue(expectedZip);
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#minStoredArchive()} returns the zip file from the
+         * minimum directory when zip files exist in different directories.
+         */
+        @Test
+        @DisplayName("Test minStoredArchive() returns minimum across different directories")
+        void testMinStoredArchiveMultipleDirectories() throws IOException {
+            // create test environment with zip files in different nested directories
+            // Using powersOfTenPerZipFileContents=1, these will be in different directories
+            createAndAddBlockEntry(13L); // In a lower directory
+            createAndAddBlockEntry(103L); // In a higher directory
+            createAndAddBlockEntry(1003L); // In an even higher directory
+            final Path expectedZip = BlockPath.computeBlockPath(testConfig, 13L).zipFilePath();
+            // call
+            final var actual = toTest.minStoredArchive();
+            // assert returns the one from the minimum directory path (13)
+            assertThat(actual).isPresent().hasValue(expectedZip);
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#minStoredArchive()} skips empty directories and
+         * returns the minimum zip file from the next non-empty directory.
+         */
+        @Test
+        @DisplayName("Test minStoredArchive() skips empty directories")
+        void testMinStoredArchiveSkipsEmptyDirectories() throws IOException {
+            // create test environment with empty directories
+            // Create block files and then delete them to simulate empty directories
+            createAndAddBlockEntry(3L);
+            final Path zip3 = BlockPath.computeBlockPath(testConfig, 3L).zipFilePath();
+            Files.delete(zip3);
+            createAndAddBlockEntry(13L);
+            final Path zip13 = BlockPath.computeBlockPath(testConfig, 13L).zipFilePath();
+            Files.delete(zip13);
+            // Create a zip file in a higher directory than the empty ones
+            createAndAddBlockEntry(33L);
+            final Path expectedZip = BlockPath.computeBlockPath(testConfig, 33L).zipFilePath();
+            // call
+            final var actual = toTest.minStoredArchive();
+            // assert returns the zip from the first non-empty directory
+            assertThat(actual).isPresent().hasValue(expectedZip);
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#minStoredArchive()} handles deeply nested directory structures
+         * and returns the minimum zip file.
+         */
+        @Test
+        @DisplayName("Test minStoredArchive() handles deeply nested structure")
+        void testMinStoredArchiveDeeplyNested() throws IOException {
+            // create test environment with deeply nested directories
+            // Using powersOfTenPerZipFileContents=1 creates nested structure
+            createAndAddBlockEntry(1234L);
+            createAndAddBlockEntry(5678L);
+            createAndAddBlockEntry(123L);
+            final Path expectedZip =
+                    BlockPath.computeBlockPath(testConfig, 123L).zipFilePath();
+            // call
+            final var actual = toTest.minStoredArchive();
+            // assert returns the minimum (123)
+            assertThat(actual).isPresent().hasValue(expectedZip);
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#count()} returns 0L when no zip files are present.
+         */
+        @Test
+        @DisplayName("Test count() returns 0 when no zip files are present")
+        void testCountNoZipFiles() {
+            final long actual = toTest.count();
+            // assert that server is still running and 0 is returned
+            assertThat(actual).isZero();
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#count()} correctly returns 1 when a single zip file exists.
+         */
+        @Test
+        @DisplayName("Test count() returns 1 for single zip file")
+        void testCountSingleZipFile() throws IOException {
+            // create test environment, for this test we need one zip file
+            createAndAddBlockEntry(3L);
+            // call
+            final long actual = toTest.count();
+            // assert expected result
+            assertThat(actual).isEqualTo(1L);
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#count()} correctly returns the count of multiple zip files.
+         */
+        @Test
+        @DisplayName("Test count() returns correct count for multiple zip files")
+        void testCountMultipleZipFiles() throws IOException {
+            // create test environment, for this test we need two zip files
+            createAndAddBlockEntry(3L);
+            createAndAddBlockEntry(4L);
+            // zip size are 10 blocks, so the following 2 will be in another file in the same directory
+            createAndAddBlockEntry(13L);
+            createAndAddBlockEntry(14L);
+            // call
+            final long actual = toTest.count();
+            // assert expected result and still running server - should be 2 zip files
+            assertThat(actual).isEqualTo(2L);
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#count()} only counts zip files in numeric directories,
+         * excluding files in special directories like "stage" or "links".
+         */
+        @Test
+        @DisplayName("Test count() only counts zip files in numeric directories")
+        void testCountOnlyNumericDirectories() throws IOException {
+            // create test environment with zip files in numeric directories
+            createAndAddBlockEntry(3L);
+            createAndAddBlockEntry(13L);
+            // create a zip file in a non-numeric directory (should not be counted)
+            final Path stage = testConfig.rootPath().resolve("stage");
+            Files.createDirectories(stage);
+            final Path stageZip = stage.resolve("0.zip");
+            Files.createFile(stageZip);
+            // create a zip file in the links directory (should not be counted)
+            final Path linksZip = linksTempDir.resolve("0.zip");
+            Files.createFile(linksZip);
+            // assert that server is running before we call actual
+            assertThat(testContext.serverHealth().isRunning()).isTrue();
+            // call
+            final long actual = toTest.count();
+            // assert expected result - should only count 2 zip files in numeric directories
+            assertThat(actual).isEqualTo(2L);
+        }
+
+        /**
+         * This test aims to assert that the
+         * {@link ZipBlockArchive#count()} correctly counts zip files across different nested directories.
+         */
+        @Test
+        @DisplayName("Test count() counts zip files in different nested directories")
+        void testCountDifferentDirectories() throws IOException {
+            // create test environment with zip files in different nested directories
+            // Using testConfig with powersOfTenPerZipFileContents = 1, so each power of 10 gets its own directory
+            createAndAddBlockEntry(3L);
+            createAndAddBlockEntry(13L);
+            createAndAddBlockEntry(103L);
+            createAndAddBlockEntry(1003L);
+            // call
+            final long actual = toTest.count();
+            // assert expected result - should count 4 zip files across different directories
+            assertThat(actual).isEqualTo(4L);
         }
 
         /**

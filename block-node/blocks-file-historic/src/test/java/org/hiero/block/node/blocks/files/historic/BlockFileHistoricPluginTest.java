@@ -12,10 +12,12 @@ import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
@@ -27,10 +29,13 @@ import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.NoOpServiceBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -1102,7 +1107,7 @@ class BlockFileHistoricPluginTest {
             }
             // assert that none of the first 150 blocks are zipped yet and are
             // not present in the available blocks
-            assertThat(plugin.availableBlocks().size()).isEqualTo(0);
+            assertThat(plugin.availableBlocks().size()).isZero();
             for (int i = 0; i < 150; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
                 assertThat(plugin.availableBlocks().contains(i)).isFalse();
@@ -1111,8 +1116,12 @@ class BlockFileHistoricPluginTest {
             pluginExecutor.executeSerially();
             // assert that all blocks are now zipped and the available blocks
             // is updated accordingly (this is just before applying the retention)
-            assertThat(plugin.availableBlocks().size()).isEqualTo(150);
-            for (int i = 0; i < 150; i++) {
+            assertThat(plugin.availableBlocks().size()).isEqualTo(100);
+            for (int i = 0; i < 50; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+                assertThat(plugin.availableBlocks().contains(i)).isFalse();
+            }
+            for (int i = 50; i < 150; i++) {
                 assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
                 assertThat(plugin.availableBlocks().contains(i)).isTrue();
             }
@@ -1190,6 +1199,103 @@ class BlockFileHistoricPluginTest {
         }
 
         /**
+         * This test verifies that the retention policy correctly manages available blocks when
+         * blocks are added in multiple batches that exceed the retention threshold. The test
+         * simulates a scenario where an initial large set of blocks (100-199) is archived,
+         * followed by an additional smaller batch (200-209) that triggers the retention policy
+         * to clean up the oldest blocks while maintaining the configured threshold of 100 blocks.
+         * This ensures that the plugin properly prunes old archives while keeping the most recent
+         * blocks within the retention limit.
+         */
+        @Test
+        @DisplayName("Test retention policy with complex block additions spanning multiple batches")
+        void testRetentionPolicyWithComplexBlockAdditions() throws IOException {
+            // Add first batch of 100 blocks (100-199) to simulate an initial archive
+            // set that fills the retention threshold exactly
+            for (int i = 100; i < 200; i++) {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+            }
+
+            // Execute all pending archival tasks to zip the first batch
+            pluginExecutor.executeSerially();
+
+            // Verify that all 100 blocks from the first batch are now archived and available.
+            // At this point, we are exactly at the retention threshold (100 blocks).
+            assertThat(plugin.availableBlocks().size()).isEqualTo(100);
+            for (int i = 100; i < 200; i++) {
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+                assertThat(plugin.availableBlocks().contains(i)).isTrue();
+            }
+
+            // Add a second batch of 10 blocks (200-209). This will push us over the
+            // retention threshold, triggering cleanup of the oldest blocks.
+            for (int i = 200; i < 210; i++) {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+            }
+
+            // Execute all pending archival tasks. The retention policy should kick in
+            // and remove the oldest 10 blocks (100-109) to maintain the 100-block threshold.
+            pluginExecutor.executeSerially();
+
+            // Calculate the total blocks and range after retention policy cleanup
+            final long totalBlocksAfterRetention = plugin.availableBlocks().size();
+            final long minAvailableBlock =
+                    plugin.availableBlocks().stream().min().orElse(-1);
+            final long maxAvailableBlock =
+                    plugin.availableBlocks().stream().max().orElse(-1);
+
+            // Verify retention policy worked correctly: exactly 100 blocks should remain,
+            // ranging from 110 (oldest retained) to 209 (newest), with blocks 100-109 removed.
+            assertThat(totalBlocksAfterRetention).isEqualTo(100);
+            assertThat(minAvailableBlock).isEqualTo(110);
+            assertThat(maxAvailableBlock).isEqualTo(209);
+        }
+
+        /**
+         * This test verifies that the retention policy correctly handles pre-existing archived
+         * blocks that were created before plugin startup, combined with newly added blocks.
+         */
+        @Test
+        @DisplayName("Test retention policy with pre-existing archives and incremental additions")
+        void testRetentionPolicyWithPreExistingArchives() throws IOException {
+            // Create 90 pre-existing zip entries to simulate blocks that were archived
+            // in a previous session before this plugin instance started
+            for (int i = 0; i < 90; i++) {
+                createPreExistingZipEntry(i);
+            }
+
+            // Verify that all pre-existing zip files were created successfully on disk
+            for (int i = 0; i < 90; i++) {
+                final Path zipPath = BlockPath.computeBlockPath(testConfig, i).zipFilePath();
+                assertThat(zipPath).exists().isRegularFile();
+            }
+
+            // Start the plugin. It should discover and register the 90 pre-existing archives.
+            start(toTest, testHistoricalBlockFacility, getConfigOverrides());
+            verifyBlocksAreAvailableAndArchived(0, 90, 90L);
+
+            // Add blocks to reach retention threshold
+            sendBlockVerificationNotifications(90, 100);
+            pluginExecutor.executeSerially();
+            verifyBlocksAreAvailableAndArchived(0, 100, 100L);
+
+            // Add blocks to exceed retention threshold
+            sendBlockVerificationNotifications(100, 110);
+            pluginExecutor.executeSerially();
+
+            // Verify retention policy maintained the 100-block limit
+            verifyBlocksAreAvailableAndArchived(100, 110, 100L);
+            for (int i = 0; i < 10; i++) {
+                assertThat(plugin.availableBlocks().contains(i)).isFalse();
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNull();
+            }
+        }
+
+        /**
          * This test verifies that when the plugin is configured to allow zipping multiple times,
          * duplicate block verification notifications will result in re-archiving the batch,
          * which updates the zip file's modification timestamp. This behavior is controlled by
@@ -1208,10 +1314,9 @@ class BlockFileHistoricPluginTest {
             // Send the first set of block verification notifications (blocks 0-9).
             // This represents the initial arrival of blocks that need to be archived.
             for (int i = 0; i < 10; i++) {
-                final BlockUnparsed block =
-                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute all pending archival tasks. This should zip blocks 0-9 into a single archive.
@@ -1234,10 +1339,9 @@ class BlockFileHistoricPluginTest {
             // With allowZippingMultipleTimes enabled, this should trigger re-archiving
             // instead of being skipped as it would be with the default configuration.
             for (int i = 0; i < 10; i++) {
-                final BlockUnparsed block =
-                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute pending tasks. With allowZippingMultipleTimes = true, this should
@@ -1252,6 +1356,87 @@ class BlockFileHistoricPluginTest {
             // confirms that with allowZippingMultipleTimes enabled, the plugin does re-archive
             // batches instead of maintaining idempotent behavior.
             assertThat(lastModifiedTime).isLessThan(lastModifiedTimeSecondPass);
+        }
+
+        /**
+         * Sends block verification notifications for a range of blocks.
+         *
+         * @param startInclusive start block number (inclusive)
+         * @param endExclusive end block number (exclusive)
+         */
+        private void sendBlockVerificationNotifications(final int startInclusive, final int endExclusive) {
+            for (int i = startInclusive; i < endExclusive; i++) {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+            }
+        }
+
+        /**
+         * Verifies that blocks in a range are available and archived.
+         *
+         * @param startInclusive start block number (inclusive)
+         * @param endExclusive end block number (exclusive)
+         * @param expectedTotalSize expected total size of available blocks (null to skip check)
+         */
+        private void verifyBlocksAreAvailableAndArchived(
+                final int startInclusive, final int endExclusive, final long expectedTotalSize) throws IOException {
+            assertThat(plugin.availableBlocks().size()).isEqualTo(expectedTotalSize);
+            for (int i = startInclusive; i < endExclusive; i++) {
+                assertThat(plugin.availableBlocks().contains(i)).isTrue();
+                assertThat(BlockPath.computeExistingBlockPath(testConfig, i)).isNotNull();
+            }
+        }
+
+        /**
+         * Helper method to create a pre-existing zip entry for a block before plugin startup.
+         * This simulates blocks that were previously archived.
+         *
+         * @param blockNumber the block number to create
+         * @throws IOException if an error occurs creating the zip file
+         */
+        private void createPreExistingZipEntry(final long blockNumber) throws IOException {
+            final BlockPath blockPath = BlockPath.computeBlockPath(testConfig, blockNumber);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
+            final Bytes blockBytes = block.bytes();
+            final byte[] bytesToWrite = blockBytes.toByteArray();
+
+            // Create directory structure
+            Files.createDirectories(blockPath.dirPath());
+
+            // Create or append to zip file
+            if (Files.notExists(blockPath.zipFilePath())) {
+                // Create new zip file
+                Files.createFile(blockPath.zipFilePath());
+                try (final ZipOutputStream zipOut =
+                        new ZipOutputStream(Files.newOutputStream(blockPath.zipFilePath()))) {
+                    final ZipEntry zipEntry = new ZipEntry(blockPath.blockFileName());
+                    zipOut.putNextEntry(zipEntry);
+                    zipOut.write(bytesToWrite);
+                    zipOut.closeEntry();
+                }
+            } else {
+                // Append to existing zip file
+                final Path tempZip = blockPath.zipFilePath().resolveSibling("temp.zip");
+                try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath());
+                        final Stream<Path> entriesStream = Files.list(zipFs.getPath("/"));
+                        final ZipOutputStream zipOut = new ZipOutputStream(Files.newOutputStream(tempZip))) {
+                    // Copy existing entries
+                    for (final Path entry : entriesStream.toList()) {
+                        zipOut.putNextEntry(new ZipEntry(entry.getFileName().toString()));
+                        try (final InputStream inputStream = Files.newInputStream(entry)) {
+                            inputStream.transferTo(zipOut);
+                        }
+                        zipOut.closeEntry();
+                    }
+                    // Add the new entry
+                    final ZipEntry newEntry = new ZipEntry(blockPath.blockFileName());
+                    zipOut.putNextEntry(newEntry);
+                    zipOut.write(bytesToWrite);
+                    zipOut.closeEntry();
+                }
+                Files.move(tempZip, blockPath.zipFilePath(), StandardCopyOption.REPLACE_EXISTING);
+            }
         }
     }
 
