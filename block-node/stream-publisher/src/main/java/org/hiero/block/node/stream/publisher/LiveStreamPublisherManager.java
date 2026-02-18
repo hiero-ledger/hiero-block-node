@@ -41,6 +41,7 @@ import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
@@ -667,6 +668,20 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     });
                     lastPersistedBlockNumber.set(newLastPersistedBlock);
                     metrics.latestBlockNumberAcknowledged.set(newLastPersistedBlock);
+                    // Update nextUnstreamedBlockNumber if backfill has advanced past it.
+                    // Without this, after backfill fills gaps, the handler would still
+                    // expect the old nextUnstreamedBlockNumber and reject newer blocks
+                    // with BEHIND responses indefinitely.
+                    // This only applies to backfill - publisher-sourced blocks already
+                    // update nextUnstreamedBlockNumber when streamed.
+                    if (notification.blockSource() == BlockSource.BACKFILL) {
+                        final long nextUnstreamed = nextUnstreamedBlockNumber.get();
+                        if (newLastPersistedBlock >= nextUnstreamed) {
+                            final long newNextUnstreamed = newLastPersistedBlock + 1;
+                            nextUnstreamedBlockNumber.compareAndSet(nextUnstreamed, newNextUnstreamed);
+                            currentStreamingBlockNumber.compareAndSet(nextUnstreamed, newNextUnstreamed);
+                        }
+                    }
                 }
             } else {
                 queueByBlockMap.clear();

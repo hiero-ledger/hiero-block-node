@@ -22,7 +22,7 @@ import org.hiero.block.api.BlockNodeServiceInterface;
 public class BlockNodeClient {
     private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());
     // Default tuning values optimized for high-throughput block streaming
-    private static final int DEFAULT_2MB = 2 * 1024 * 1024;
+    private static final int DEFAULT_4MB = 4 * 1024 * 1024;
     private static final int DEFAULT_TIMEOUT_MS = 10_000; // 10 seconds
     private static final int DEFAULT_MAX_HEADER_LIST_SIZE = 8192;
     private static final int DEFAULT_PING_TIMEOUT_MS = 500;
@@ -87,9 +87,9 @@ public class BlockNodeClient {
 
     // HTTP/2 config specs
     private static final IntConfigSpec MAX_FRAME_SIZE = new IntConfigSpec(
-            "maxFrameSize", DEFAULT_2MB, HTTP2_MIN_FRAME_SIZE, HTTP2_MAX_FRAME_SIZE, GrpcWebClientTuning::maxFrameSize);
+            "maxFrameSize", DEFAULT_4MB, HTTP2_MIN_FRAME_SIZE, HTTP2_MAX_FRAME_SIZE, GrpcWebClientTuning::maxFrameSize);
     private static final IntConfigSpec INITIAL_WINDOW_SIZE = new IntConfigSpec(
-            "initialWindowSize", DEFAULT_2MB, 1, HTTP2_MAX_WINDOW_SIZE, GrpcWebClientTuning::initialWindowSize);
+            "initialWindowSize", DEFAULT_4MB, 1, HTTP2_MAX_WINDOW_SIZE, GrpcWebClientTuning::initialWindowSize);
     private static final IntConfigSpec MAX_HEADER_LIST_SIZE = new IntConfigSpec(
             "maxHeaderListSize",
             DEFAULT_MAX_HEADER_LIST_SIZE,
@@ -99,7 +99,7 @@ public class BlockNodeClient {
 
     // gRPC config specs
     private static final IntConfigSpec INITIAL_BUFFER_SIZE = new IntConfigSpec(
-            "initialBufferSize", DEFAULT_2MB, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE, GrpcWebClientTuning::initialBufferSize);
+            "initialBufferSize", DEFAULT_4MB, MIN_BUFFER_SIZE, MAX_BUFFER_SIZE, GrpcWebClientTuning::initialBufferSize);
 
     private record Options(Optional<String> authority, String contentType) implements ServiceInterface.RequestOptions {}
 
