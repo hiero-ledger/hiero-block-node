@@ -12,6 +12,7 @@ import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -43,7 +44,7 @@ import picocli.CommandLine.Option;
  * The compiled file can be loaded by {@link BalanceCheckpointsLoader} and used by the
  * validation command without requiring GCP access at runtime.
  */
-@SuppressWarnings({"FieldCanBeLocal", "CallToPrintStackTrace", "NPathComplexity"})
+@SuppressWarnings({"FieldCanBeLocal", "CallToPrintStackTrace"})
 @Command(
         name = "fetchBalanceCheckpoints",
         description = "Fetch balance checkpoint files from GCP and compile into a resource file",
@@ -120,169 +121,193 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
             description = "Skip signature verification (not recommended)")
     private boolean skipSignatures;
 
+    // Mutable state for processing
+    private int successCount;
+    private int errorCount;
+    private int sigFailCount;
+
     @Override
     public Integer call() {
         try {
-            System.out.println(
-                    Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
-            System.out.println(Ansi.AUTO.string("@|bold,cyan   FETCH BALANCE CHECKPOINTS|@"));
-            System.out.println(
-                    Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
-            System.out.println();
-
-            // Validate required files
-            if (!skipSignatures && !Files.exists(addressBookPath)) {
-                System.err.println(Ansi.AUTO.string("@|red Error:|@ Address book file not found: " + addressBookPath));
-                return 1;
-            }
-            if (!Files.exists(blockTimesPath)) {
-                System.err.println(Ansi.AUTO.string("@|red Error:|@ Block times file not found: " + blockTimesPath));
+            printHeader();
+            if (!validateRequiredFiles()) {
                 return 1;
             }
 
-            // Initialize components
             BalanceFileBucket bucket =
                     new BalanceFileBucket(true, cacheDir, minNodeAccountId, maxNodeAccountId, gcpProject);
             AddressBookRegistry addressBookRegistry = skipSignatures ? null : new AddressBookRegistry(addressBookPath);
             BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesPath);
 
-            System.out.println(Ansi.AUTO.string("@|yellow Date range:|@ " + startDay + " to " + endDay));
-            if (intervalDays > 0) {
-                System.out.println(Ansi.AUTO.string("@|yellow Checkpoint interval:|@ every " + intervalDays + " days"));
-            } else {
-                System.out.println(
-                        Ansi.AUTO.string("@|yellow Checkpoint interval:|@ every " + intervalHours + " hours"));
-            }
-            System.out.println(Ansi.AUTO.string(
-                    "@|yellow Signature verification:|@ " + (skipSignatures ? "disabled" : "enabled")));
-            System.out.println();
+            printConfiguration();
+            List<CheckpointData> checkpoints = discoverCheckpoints(bucket, blockTimeReader);
 
-            // Collect all checkpoints to process
-            List<CheckpointData> checkpoints = new ArrayList<>();
-            LocalDate start = LocalDate.parse(startDay);
-            LocalDate end = LocalDate.parse(endDay);
-
-            System.out.println(Ansi.AUTO.string("@|yellow Discovering balance checkpoints...|@"));
-
-            // Day increment based on interval-days option
-            int dayIncrement = intervalDays > 0 ? intervalDays : 1;
-
-            for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(dayIncrement)) {
-                List<Instant> dayCheckpoints = bucket.listBalanceTimestampsForDay(date.toString());
-
-                if (dayCheckpoints.isEmpty()) {
-                    continue;
-                }
-
-                if (intervalDays > 0) {
-                    // When using interval-days, just take the first available checkpoint for the day
-                    Instant timestamp = dayCheckpoints.getFirst();
-                    long blockTimeLong = instantToBlockTimeLong(timestamp);
-                    long blockNumber = blockTimeReader.getNearestBlockAfterTime(blockTimeLong);
-                    checkpoints.add(new CheckpointData(timestamp, blockNumber, null));
-                } else {
-                    // Filter by interval hours (e.g., one per day at midnight)
-                    for (Instant timestamp : dayCheckpoints) {
-                        int hour = timestamp.atZone(java.time.ZoneOffset.UTC).getHour();
-                        if (hour % intervalHours == 0) {
-                            // Map timestamp to block number
-                            long blockTimeLong = instantToBlockTimeLong(timestamp);
-                            long blockNumber = blockTimeReader.getNearestBlockAfterTime(blockTimeLong);
-                            checkpoints.add(new CheckpointData(timestamp, blockNumber, null));
-                        }
-                    }
-                }
-            }
-
-            // Sort by block number
-            checkpoints.sort(Comparator.comparingLong(c -> c.blockNumber));
-            System.out.println(Ansi.AUTO.string("@|yellow Found:|@ " + checkpoints.size() + " checkpoints"));
-            System.out.println();
-
-            // Process each checkpoint
-            int successCount = 0;
-            int errorCount = 0;
-            int sigFailCount = 0;
-
-            // Use ZSTD compression level 22 (ultra) for maximum compression
-            // Reduces ~650MB uncompressed to ~14MB (vs ~145MB at default level 3)
-            ZstdOutputStream zstdOut = new ZstdOutputStream(Files.newOutputStream(outputFile));
-            zstdOut.setLevel(22);
-            try (DataOutputStream out = new DataOutputStream(zstdOut)) {
-
-                for (int i = 0; i < checkpoints.size(); i++) {
-                    CheckpointData checkpoint = checkpoints.get(i);
-                    System.out.printf(
-                            "[%d/%d] Block %d at %s... ",
-                            i + 1, checkpoints.size(), checkpoint.blockNumber, checkpoint.timestamp);
-
-                    try {
-                        // Download balance file
-                        byte[] pbBytes = bucket.downloadBalanceFile(checkpoint.timestamp);
-                        if (pbBytes == null) {
-                            System.out.println(Ansi.AUTO.string("@|yellow SKIP|@ (file not found)"));
-                            errorCount++;
-                            continue;
-                        }
-
-                        // Verify signatures if enabled
-                        if (!skipSignatures && addressBookRegistry != null) {
-                            int validSigs = verifyBalanceFileSignatures(
-                                    checkpoint.timestamp, pbBytes, bucket, addressBookRegistry);
-                            NodeAddressBook addressBook =
-                                    addressBookRegistry.getAddressBookForBlock(checkpoint.timestamp);
-                            int totalNodes = addressBook.nodeAddress().size();
-                            int requiredSigs = (totalNodes / 3) + 1;
-
-                            if (validSigs < requiredSigs) {
-                                System.out.println(Ansi.AUTO.string(
-                                        "@|red FAIL|@ (signatures: " + validSigs + "/" + requiredSigs + " required)"));
-                                sigFailCount++;
-                                continue;
-                            }
-                        }
-
-                        // Write block number, then parse protobuf and write account data
-                        out.writeLong(checkpoint.blockNumber);
-                        int accountCount = BalanceProtobufParser.parseAndWrite(pbBytes, out);
-
-                        System.out.println(Ansi.AUTO.string(
-                                "@|green OK|@ (" + accountCount + " accounts, " + pbBytes.length + " bytes)"));
-                        successCount++;
-
-                    } catch (Exception e) {
-                        System.out.println(Ansi.AUTO.string("@|red ERROR|@ " + e.getMessage()));
-                        errorCount++;
-                    }
-                }
-            }
-
-            // Print summary
-            System.out.println();
-            System.out.println(
-                    Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
-            System.out.println(Ansi.AUTO.string("@|bold,cyan   SUMMARY|@"));
-            System.out.println(
-                    Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
-            System.out.println(Ansi.AUTO.string("@|yellow Total checkpoints:|@ " + checkpoints.size()));
-            System.out.println(Ansi.AUTO.string("@|green Successful:|@ " + successCount));
-            if (sigFailCount > 0) {
-                System.out.println(Ansi.AUTO.string("@|red Signature failures:|@ " + sigFailCount));
-            }
-            if (errorCount > 0) {
-                System.out.println(Ansi.AUTO.string("@|red Errors:|@ " + errorCount));
-            }
-            System.out.println(Ansi.AUTO.string("@|yellow Output file:|@ " + outputFile.toAbsolutePath()));
-            System.out.println(Ansi.AUTO.string("@|yellow Output size:|@ " + Files.size(outputFile) + " bytes"));
+            processCheckpoints(checkpoints, bucket, addressBookRegistry);
+            printSummary(checkpoints.size());
 
             blockTimeReader.close();
             return 0;
-
         } catch (Exception e) {
             System.err.println(Ansi.AUTO.string("@|red Fatal error:|@ " + e.getMessage()));
             e.printStackTrace();
             return 1;
         }
+    }
+
+    private void printHeader() {
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(Ansi.AUTO.string("@|bold,cyan   FETCH BALANCE CHECKPOINTS|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println();
+    }
+
+    private boolean validateRequiredFiles() {
+        if (!skipSignatures && !Files.exists(addressBookPath)) {
+            System.err.println(Ansi.AUTO.string("@|red Error:|@ Address book file not found: " + addressBookPath));
+            return false;
+        }
+        if (!Files.exists(blockTimesPath)) {
+            System.err.println(Ansi.AUTO.string("@|red Error:|@ Block times file not found: " + blockTimesPath));
+            return false;
+        }
+        return true;
+    }
+
+    private void printConfiguration() {
+        System.out.println(Ansi.AUTO.string("@|yellow Date range:|@ " + startDay + " to " + endDay));
+        if (intervalDays > 0) {
+            System.out.println(Ansi.AUTO.string("@|yellow Checkpoint interval:|@ every " + intervalDays + " days"));
+        } else {
+            System.out.println(Ansi.AUTO.string("@|yellow Checkpoint interval:|@ every " + intervalHours + " hours"));
+        }
+        System.out.println(
+                Ansi.AUTO.string("@|yellow Signature verification:|@ " + (skipSignatures ? "disabled" : "enabled")));
+        System.out.println();
+    }
+
+    private List<CheckpointData> discoverCheckpoints(BalanceFileBucket bucket, BlockTimeReader blockTimeReader)
+            throws IOException {
+        List<CheckpointData> checkpoints = new ArrayList<>();
+        LocalDate start = LocalDate.parse(startDay);
+        LocalDate end = LocalDate.parse(endDay);
+        int dayIncrement = intervalDays > 0 ? intervalDays : 1;
+
+        System.out.println(Ansi.AUTO.string("@|yellow Discovering balance checkpoints...|@"));
+
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(dayIncrement)) {
+            List<Instant> dayCheckpoints = bucket.listBalanceTimestampsForDay(date.toString());
+            if (dayCheckpoints.isEmpty()) {
+                continue;
+            }
+            addCheckpointsForDay(dayCheckpoints, blockTimeReader, checkpoints);
+        }
+
+        checkpoints.sort(Comparator.comparingLong(c -> c.blockNumber));
+        System.out.println(Ansi.AUTO.string("@|yellow Found:|@ " + checkpoints.size() + " checkpoints"));
+        System.out.println();
+        return checkpoints;
+    }
+
+    private void addCheckpointsForDay(
+            List<Instant> dayCheckpoints, BlockTimeReader blockTimeReader, List<CheckpointData> checkpoints) {
+        if (intervalDays > 0) {
+            Instant timestamp = dayCheckpoints.getFirst();
+            long blockTimeLong = instantToBlockTimeLong(timestamp);
+            long blockNumber = blockTimeReader.getNearestBlockAfterTime(blockTimeLong);
+            checkpoints.add(new CheckpointData(timestamp, blockNumber, null));
+        } else {
+            for (Instant timestamp : dayCheckpoints) {
+                int hour = timestamp.atZone(java.time.ZoneOffset.UTC).getHour();
+                if (hour % intervalHours == 0) {
+                    long blockTimeLong = instantToBlockTimeLong(timestamp);
+                    long blockNumber = blockTimeReader.getNearestBlockAfterTime(blockTimeLong);
+                    checkpoints.add(new CheckpointData(timestamp, blockNumber, null));
+                }
+            }
+        }
+    }
+
+    private void processCheckpoints(
+            List<CheckpointData> checkpoints, BalanceFileBucket bucket, AddressBookRegistry addressBookRegistry)
+            throws IOException {
+        ZstdOutputStream zstdOut = new ZstdOutputStream(Files.newOutputStream(outputFile));
+        zstdOut.setLevel(22); // Ultra compression: ~650MB → ~14MB
+        try (DataOutputStream out = new DataOutputStream(zstdOut)) {
+            for (int i = 0; i < checkpoints.size(); i++) {
+                processCheckpoint(checkpoints.get(i), i + 1, checkpoints.size(), bucket, addressBookRegistry, out);
+            }
+        }
+    }
+
+    private void processCheckpoint(
+            CheckpointData checkpoint,
+            int index,
+            int total,
+            BalanceFileBucket bucket,
+            AddressBookRegistry addressBookRegistry,
+            DataOutputStream out) {
+        System.out.printf("[%d/%d] Block %d at %s... ", index, total, checkpoint.blockNumber, checkpoint.timestamp);
+        try {
+            byte[] pbBytes = bucket.downloadBalanceFile(checkpoint.timestamp);
+            if (pbBytes == null) {
+                System.out.println(Ansi.AUTO.string("@|yellow SKIP|@ (file not found)"));
+                errorCount++;
+                return;
+            }
+            if (!verifySignaturesIfEnabled(checkpoint, pbBytes, bucket, addressBookRegistry)) {
+                return;
+            }
+            out.writeLong(checkpoint.blockNumber);
+            int accountCount = BalanceProtobufParser.parseAndWrite(pbBytes, out);
+            System.out.println(
+                    Ansi.AUTO.string("@|green OK|@ (" + accountCount + " accounts, " + pbBytes.length + " bytes)"));
+            successCount++;
+        } catch (Exception e) {
+            System.out.println(Ansi.AUTO.string("@|red ERROR|@ " + e.getMessage()));
+            errorCount++;
+        }
+    }
+
+    private boolean verifySignaturesIfEnabled(
+            CheckpointData checkpoint,
+            byte[] pbBytes,
+            BalanceFileBucket bucket,
+            AddressBookRegistry addressBookRegistry) {
+        if (skipSignatures || addressBookRegistry == null) {
+            return true;
+        }
+        int validSigs = verifyBalanceFileSignatures(checkpoint.timestamp, pbBytes, bucket, addressBookRegistry);
+        NodeAddressBook addressBook = addressBookRegistry.getAddressBookForBlock(checkpoint.timestamp);
+        int totalNodes = addressBook.nodeAddress().size();
+        int requiredSigs = (totalNodes / 3) + 1;
+        if (validSigs < requiredSigs) {
+            System.out.println(
+                    Ansi.AUTO.string("@|red FAIL|@ (signatures: " + validSigs + "/" + requiredSigs + " required)"));
+            sigFailCount++;
+            return false;
+        }
+        return true;
+    }
+
+    private void printSummary(int totalCheckpoints) throws IOException {
+        System.out.println();
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(Ansi.AUTO.string("@|bold,cyan   SUMMARY|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(Ansi.AUTO.string("@|yellow Total checkpoints:|@ " + totalCheckpoints));
+        System.out.println(Ansi.AUTO.string("@|green Successful:|@ " + successCount));
+        if (sigFailCount > 0) {
+            System.out.println(Ansi.AUTO.string("@|red Signature failures:|@ " + sigFailCount));
+        }
+        if (errorCount > 0) {
+            System.out.println(Ansi.AUTO.string("@|red Errors:|@ " + errorCount));
+        }
+        System.out.println(Ansi.AUTO.string("@|yellow Output file:|@ " + outputFile.toAbsolutePath()));
+        System.out.println(Ansi.AUTO.string("@|yellow Output size:|@ " + Files.size(outputFile) + " bytes"));
     }
 
     /**
