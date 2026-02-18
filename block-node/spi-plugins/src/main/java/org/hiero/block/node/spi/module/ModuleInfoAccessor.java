@@ -44,7 +44,7 @@ public final class ModuleInfoAccessor {
     private ModuleInfoAccessor(final Module module) {
         final ModuleDescriptor moduleDescriptor = module.getDescriptor();
         name = module.getName();
-        version = SemanticVersionUtilities.from(moduleDescriptor);
+        version = SemanticVersionUtility.from(moduleDescriptor);
         for (ModuleDescriptor.Provides provides : moduleDescriptor.provides()) {
             for (String provider : provides.providers()) {
                 providedMap.computeIfAbsent(provider, (k -> new HashSet<>())).add(provides.service());

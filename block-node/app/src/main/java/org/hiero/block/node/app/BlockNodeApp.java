@@ -40,7 +40,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
-import org.hiero.block.node.spi.module.SemanticVersionUtilities;
+import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 
 /** Main class for the block node server */
@@ -241,7 +241,7 @@ public class BlockNodeApp implements HealthFacility {
 
         return BlockNodeVersions.newBuilder()
                 .installedPluginVersions(pluginVersions)
-                .blockNodeVersion(SemanticVersionUtilities.from(BlockNodeApp.class))
+                .blockNodeVersion(SemanticVersionUtility.from(BlockNodeApp.class))
                 .build();
     }
 

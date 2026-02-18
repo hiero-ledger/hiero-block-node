@@ -24,6 +24,6 @@ public class ModuleInfoAccessorTest {
         assertEquals("org.hiero.block.node.spi", moduleInfoAccessor.name());
         // ModuleInfo class does not provide any services
         assertTrue(moduleInfoAccessor.provides(ModuleInfoAccessor.class).isEmpty());
-        Assertions.assertEquals(SemanticVersionUtilities.from(this.getClass()), moduleVersion);
+        Assertions.assertEquals(SemanticVersionUtility.from(this.getClass()), moduleVersion);
     }
 }

@@ -10,14 +10,14 @@ import org.hiero.block.common.utils.StringUtilities;
 /**
  * A class to facilitate constructing a SemanticVersion
  */
-public final class SemanticVersionUtilities {
+public final class SemanticVersionUtility {
     private static final Pattern SEMVER_PATTERN = Pattern.compile(
             "^(?<major>0|[1-9]\\d*)\\.(?<minor>0|[1-9]\\d*)\\.(?<patch>0|[1-9]\\d*)(-(?<preRelease>[0-9a-zA-Z]+)(\\+(?<build>[0-9a-zA-Z]+))?)?$");
 
     /**
      * Private constructor. Instantiation not necessary as only static methods should be defined here
      */
-    private SemanticVersionUtilities() {
+    private SemanticVersionUtility() {
         // This class does not need instantiation
     }
 

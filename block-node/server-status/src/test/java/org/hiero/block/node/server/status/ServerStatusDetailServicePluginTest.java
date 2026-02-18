@@ -19,7 +19,7 @@ import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
-import org.hiero.block.node.spi.module.SemanticVersionUtilities;
+import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -68,7 +68,7 @@ public class ServerStatusDetailServicePluginTest
         assertTrue(response.hasVersionInformation());
         final BlockNodeVersions blockNodeVersions = response.versionInformation();
         assertNotNull(blockNodeVersions);
-        final SemanticVersion semanticVersion = SemanticVersionUtilities.from(this.getClass());
+        final SemanticVersion semanticVersion = SemanticVersionUtility.from(this.getClass());
         assertEquals(semanticVersion, blockNodeVersions.blockNodeVersion());
         final List<PluginVersion> pluginVersions = blockNodeVersions.installedPluginVersions();
         assertEquals(1, pluginVersions.size());

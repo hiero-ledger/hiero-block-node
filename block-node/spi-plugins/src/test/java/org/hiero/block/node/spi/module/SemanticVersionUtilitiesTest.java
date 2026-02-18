@@ -13,11 +13,11 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * Tests for {@link SemanticVersionUtilities} functionality.
+ * Tests for {@link SemanticVersionUtility} functionality.
  */
 public class SemanticVersionUtilitiesTest {
     /**
-     * This test aims to verify that the {@link SemanticVersionUtilities#from(String)}
+     * This test aims to verify that the {@link SemanticVersionUtility#from(String)}
      * returns {@code true} for valid inputs and {@code false} for invalid inputs
      *
      * @param input parameterized, the String to test
@@ -26,19 +26,19 @@ public class SemanticVersionUtilitiesTest {
     @ParameterizedTest
     @MethodSource("goodAndBadSemanticVersions")
     void testRequireNotBlankPass(final String input, final boolean shouldPass) {
-        final SemanticVersion semVer = SemanticVersionUtilities.from(input);
+        final SemanticVersion semVer = SemanticVersionUtility.from(input);
         if (semVer != null && !shouldPass) fail("Input <" + input + "> should have failed");
         if (semVer == null && shouldPass) fail("Input <" + input + "> should have passed");
     }
 
     /**
-     * This test aims to verify that the {@link SemanticVersionUtilities#from(Class)}
+     * This test aims to verify that the {@link SemanticVersionUtility#from(Class)}
      * returns a valid version.
      */
     @Test
     void testClassVersions() {
-        final SemanticVersion semVer1 = SemanticVersionUtilities.from(SemanticVersionUtilitiesTest.class);
-        final SemanticVersion semVer2 = SemanticVersionUtilities.from(SemanticVersionUtilities.class);
+        final SemanticVersion semVer1 = SemanticVersionUtility.from(SemanticVersionUtilitiesTest.class);
+        final SemanticVersion semVer2 = SemanticVersionUtility.from(SemanticVersionUtility.class);
         assertEquals(semVer1, semVer2);
     }
 

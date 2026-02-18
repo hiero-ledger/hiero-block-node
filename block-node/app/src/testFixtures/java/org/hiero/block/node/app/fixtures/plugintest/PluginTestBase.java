@@ -25,7 +25,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.spi.module.SemanticVersionUtilities;
+import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.junit.jupiter.api.AfterEach;
 
 /**
@@ -166,7 +166,7 @@ public abstract class PluginTestBase<
     private BlockNodeVersions buildBlockNodeVersions() {
         List<PluginVersion> pluginVersions = Stream.of(plugin.version()).toList();
         return BlockNodeVersions.newBuilder()
-                .blockNodeVersion(SemanticVersionUtilities.from(this.getClass()))
+                .blockNodeVersion(SemanticVersionUtility.from(this.getClass()))
                 .installedPluginVersions(pluginVersions)
                 .build();
     }
