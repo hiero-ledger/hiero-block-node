@@ -5,7 +5,6 @@ import com.hedera.hapi.node.base.SemanticVersion;
 import java.lang.module.ModuleDescriptor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.hiero.block.common.utils.StringUtilities;
 
 /**
  * A class to facilitate constructing a SemanticVersion
@@ -65,8 +64,8 @@ public final class SemanticVersionUtility {
         // Build the SemanticVersion from the matcher values
         final SemanticVersion.Builder semanticVersionBuilder = new SemanticVersion.Builder();
         semanticVersionBuilder.major(major).minor(minor).patch(patch);
-        if (!StringUtilities.isBlank(preRelease)) semanticVersionBuilder.pre(preRelease);
-        if (!StringUtilities.isBlank(build)) semanticVersionBuilder.build(build);
+        if (preRelease != null) semanticVersionBuilder.pre(preRelease);
+        if (build != null) semanticVersionBuilder.build(build);
 
         return semanticVersionBuilder.build();
     }
