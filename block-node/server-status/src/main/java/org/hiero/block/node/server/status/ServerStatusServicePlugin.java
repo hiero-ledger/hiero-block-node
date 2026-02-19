@@ -6,6 +6,8 @@ import static java.util.Objects.requireNonNull;
 
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
+import java.util.List;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
@@ -15,6 +17,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
@@ -86,17 +89,19 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
         BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
 
-        // add in block availability information.
-        detailsBuilder.availableRanges(context.historicalBlockProvider()
+        List<BlockRange> blockRanges = new ArrayList<>();
+
+        for (LongRange longRange : context.historicalBlockProvider()
                 .availableBlocks()
                 .streamRanges()
-                .map(lr -> blockRangeBuilder
-                        .rangeStart(lr.start())
-                        .rangeEnd(lr.end())
-                        .build())
-                .toList());
-
-        return detailsBuilder.build();
+                .toList()) {
+            blockRanges.add(blockRangeBuilder
+                    .rangeStart(longRange.start())
+                    .rangeEnd(longRange.end())
+                    .build());
+        }
+        // return the block availability information.
+        return detailsBuilder.availableRanges(blockRanges).build();
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
