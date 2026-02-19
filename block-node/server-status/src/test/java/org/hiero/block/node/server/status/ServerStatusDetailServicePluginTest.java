@@ -70,6 +70,12 @@ public class ServerStatusDetailServicePluginTest
         assertNotNull(blockNodeVersions);
         final SemanticVersion semanticVersion = SemanticVersionUtility.from(this.getClass());
         assertEquals(semanticVersion, blockNodeVersions.blockNodeVersion());
+
+        final SemanticVersion streamProtocolVersion = blockNodeVersions.streamProtoVersion();
+        assertNotNull(streamProtocolVersion);
+        assertEquals(0, streamProtocolVersion.major());
+        assertTrue(streamProtocolVersion.minor() > 70);
+
         final List<PluginVersion> pluginVersions = blockNodeVersions.installedPluginVersions();
         assertEquals(1, pluginVersions.size());
         final PluginVersion pluginVersion = pluginVersions.getFirst();

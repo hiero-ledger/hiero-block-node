@@ -9,6 +9,15 @@ sourceSets.main { resources { srcDir(layout.projectDirectory.dir("src/main/proto
 // Skip javadoc generation for this module as it only contains protobuf sources
 tasks.javadoc { enabled = false }
 
+// When upgrading the CN proto version, always check that the file:
+// proto/internal/unparsed.proto matches structure for
+// block-node-protobuf/block/stream/block_item.proto after update otherwise Verification
+// might fail
+val cnVersion = "0.71.0"
+
+// make cnVersion visible to other projects
+extra["cnVersion"] = cnVersion
+
 val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
     tasks.register<Exec>("generateBlockNodeProtoArtifact") {
         description =
@@ -16,17 +25,11 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
         group = "protobuf"
 
         workingDir(layout.projectDirectory)
-        // When upgrading the CN proto version, always check that the file:
-        // proto/internal/unparsed.proto matches structure for
-        // block-node-protobuf/block/stream/block_item.proto after update otherwise Verification
-        // might fail
-        val cnTagHash = "v0.71.0"
-
         // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
         commandLine(
             "sh",
             "-c",
-            "${layout.projectDirectory}/scripts/build-bn-proto.sh -t $cnTagHash -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i true -b ${layout.projectDirectory}/src/main/proto/",
+            "${layout.projectDirectory}/scripts/build-bn-proto.sh -t v$cnVersion -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i true -b ${layout.projectDirectory}/src/main/proto/",
         )
     }
 
