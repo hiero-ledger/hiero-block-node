@@ -188,10 +188,9 @@ service BlockNodeService {
      * Read the detail status of this Block-Node.
      * <p>
      * A client SHOULD request detail server status to check block availability
-     * prior to requesting block stream
-     * <p>
+     * prior to requesting block stream.<br/>
      * A client MAY request detail server status to check block version
-     * information for compatibility
+     * information for compatibility.
      */
     rpc serverStatusDetail(ServerStatusRequest) returns (ServerStatusDetailResponse);
 }
