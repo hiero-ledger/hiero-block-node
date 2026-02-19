@@ -1,55 +1,82 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
-import static java.nio.file.FileVisitResult.CONTINUE;
-
-import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.FileVisitResult;
-import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
-import java.util.HashSet;
-import java.util.Objects;
-import java.util.Set;
-import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 
-public class RecentBlockPath {
+/**
+ * A record representing a recent block file path with its associated metadata.
+ * <p>
+ * This class provides utilities for computing and resolving block file paths in a nested
+ * directory structure. Block files are stored with names based on their block numbers,
+ * formatted with zero-padding to ensure consistent length.
+ * <p>
+ * For example, block number 1234567890123456789 with filesPerDir=3 would be stored at:
+ * <pre>
+ * basePath/123/456/789/012/345/6/1234567890123456789.blk.zstd
+ * </pre>
+ *
+ * @param path the file system path to the block file
+ * @param blockNumber the block number
+ * @param compressionType the compression type used for the block file
+ */
+public record RecentBlockPath(Path path, long blockNumber, CompressionType compressionType) {
 
     /** The extension for compressed block files */
     public static final String BLOCK_FILE_EXTENSION = ".blk";
-    /** The maximum depth of directory to walk.
-     * This is the deepest path permitted if we set digits per directory to `1`. */
-    private static final int MAX_FILE_SEARCH_DEPTH = 20;
     /** The format for block numbers in file names */
     private static final NumberFormat BLOCK_NUMBER_FORMAT = new DecimalFormat("0000000000000000000");
 
     /**
-     * Set of all block number in a directory structure. The base path is the root of the directory structure. The
-     * method will traverse the directory structure and find all block numbers.
+     * Computes the expected block file path for a given block number based on the
+     * provided configuration.
+     * <p>
+     * This method constructs the path where a block file should be stored according to
+     * the nested directory structure defined by the configuration. The path is computed
+     * deterministically based on the block number, but the file may not exist yet.
      *
-     * @param basePath the base path
-     * @param compressionType the compression type
-     * @return the minimum block number, or -1 if no block files are found
+     * @param config the recent files configuration containing base path, compression type,
+     *               and directory structure settings
+     * @param blockNumber the block number for which to compute the path
+     * @return a RecentBlockPath containing the computed path, block number, and compression type
      */
-    static Set<Long> nestedDirectoriesAllBlockNumbers(Path basePath, CompressionType compressionType) {
-        try {
-            final Set<Long> blockNumbers = new HashSet<>();
-            final String fullExtension = BLOCK_FILE_EXTENSION + compressionType.extension();
-            Files.walkFileTree(
-                    basePath,
-                    Set.of(),
-                    MAX_FILE_SEARCH_DEPTH,
-                    new BlockNumberCollectionVisitor(blockNumbers, fullExtension));
-            return blockNumbers;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+    public static RecentBlockPath computeBlockPath(FilesRecentConfig config, final long blockNumber) {
+        final Path path = nestedDirectoriesBlockFilePath(
+                config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+        return new RecentBlockPath(path, blockNumber, config.compression());
+    }
+
+    /**
+     * Finds and returns the existing block file path for a given block number.
+     * <p>
+     * This method first attempts to locate the block file using the configured compression
+     * type and directory structure. If the file is not found at the expected location, it
+     * searches for the block file with alternative compression types in the same directory.
+     * This is useful when the compression type might have changed or is unknown.
+     *
+     * @param config the recent files configuration containing base path, compression type,
+     *               and directory structure settings
+     * @param blockNumber the block number to locate
+     * @return a RecentBlockPath for the existing block file, or {@code null} if no matching
+     *         file is found with any compression type
+     */
+    public static RecentBlockPath computeExistingBlockPath(FilesRecentConfig config, final long blockNumber) {
+        final RecentBlockPath recentBlockPath = computeBlockPath(config, blockNumber);
+        if (Files.exists(recentBlockPath.path())) {
+            return recentBlockPath;
         }
+        final Path parentPath = recentBlockPath.path().getParent();
+        final CompressionType[] compressionTypes = CompressionType.values();
+        for (CompressionType compressionType : compressionTypes) {
+            final Path potentialPath = standaloneBlockFilePath(parentPath, blockNumber, compressionType);
+            if (Files.exists(potentialPath)) {
+                return new RecentBlockPath(potentialPath, blockNumber, compressionType);
+            }
+        }
+        return null;
     }
 
     /**
@@ -64,7 +91,7 @@ public class RecentBlockPath {
      * @param filesPerDir the max number of files or directories per directory
      * @return the path to the raw block file
      */
-    public static Path nestedDirectoriesBlockFilePath(
+    private static Path nestedDirectoriesBlockFilePath(
             Path basePath, long blockNumber, CompressionType compressionType, int filesPerDir) {
         final String blockNumberStr = BLOCK_NUMBER_FORMAT.format(blockNumber);
         // remove the last digits from the block number for the files in last directory
@@ -88,7 +115,7 @@ public class RecentBlockPath {
      * @param compressionType the compression type
      * @return the path to the raw block file
      */
-    public static Path standaloneBlockFilePath(Path basePath, long blockNumber, CompressionType compressionType) {
+    private static Path standaloneBlockFilePath(Path basePath, long blockNumber, CompressionType compressionType) {
         return basePath.resolve(blockFileName(blockNumber) + compressionType.extension());
     }
 
@@ -98,47 +125,7 @@ public class RecentBlockPath {
      * @param blockNumber the block number
      * @return the formatted block file name
      */
-    public static String blockFileName(long blockNumber) {
+    private static String blockFileName(long blockNumber) {
         return BLOCK_NUMBER_FORMAT.format(blockNumber) + BLOCK_FILE_EXTENSION;
-    }
-
-    private static class BlockNumberCollectionVisitor implements FileVisitor<Path> {
-        private final String blockFileExtension;
-        private final Set<Long> blockNumbersFound;
-
-        public BlockNumberCollectionVisitor(
-                @NonNull final Set<Long> blockNumbers, @NonNull final String fullExtension) {
-            blockFileExtension = Objects.requireNonNull(fullExtension);
-            blockNumbersFound = Objects.requireNonNull(blockNumbers);
-        }
-
-        @Override
-        public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
-            Objects.requireNonNull(dir);
-            return CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
-            if (file.toString().endsWith(blockFileExtension)) {
-                blockNumbersFound.add(BlockFile.blockNumberFromFile(file));
-            }
-            return CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
-            throw Objects.requireNonNull(exc);
-        }
-
-        @Override
-        public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
-            if (exc == null) {
-                Objects.requireNonNull(dir);
-                return CONTINUE;
-            } else {
-                throw exc;
-            }
-        }
     }
 }
