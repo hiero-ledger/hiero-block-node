@@ -6,10 +6,14 @@ plugins {
 
 description = "Hiero Block Node Protobuf PBJ API"
 
+var protoSources: Project = project(":protobuf-sources")
+
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach {
     options.compilerArgs.add("-Xlint:-exports,-deprecation,-removal,-dep-ann")
+    // use the cnVersion as the module version when building these protos
+    options.javaModuleVersion.assign("${protoSources.extra["cnVersion"]}")
 }
 
 tasks.javadoc {

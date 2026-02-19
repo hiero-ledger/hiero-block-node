@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
+import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
@@ -234,16 +235,21 @@ class BlockNodeAppTest {
     void testBlockNodeVersions() throws IOException {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        final BlockNodeVersions blockNodeVersions = blockNodeApp.blockNodeContext.blockNodeVersions();
 
-        final SemanticVersion blockNodeVersion =
-                blockNodeApp.blockNodeContext.blockNodeVersions().blockNodeVersion();
+        final SemanticVersion blockNodeVersion = blockNodeVersions.blockNodeVersion();
         assertNotNull(blockNodeVersion);
         // This will need to be changed to 1 at some point
         assertEquals(0, blockNodeVersion.major());
 
+        // test the stream protocol version
+        final SemanticVersion streamProtocolVersion = blockNodeVersions.streamProtoVersion();
+        assertNotNull(streamProtocolVersion);
+        assertEquals(0, streamProtocolVersion.major());
+        assertTrue(streamProtocolVersion.minor() > 70);
+
         // In dev, the plugins should have the same SemVer as the BlockNodeApp
-        final List<PluginVersion> pluginVersions =
-                blockNodeApp.blockNodeContext.blockNodeVersions().installedPluginVersions();
+        final List<PluginVersion> pluginVersions = blockNodeVersions.installedPluginVersions();
         for (PluginVersion pluginVersion : pluginVersions) {
             assertNotNull(pluginVersion.pluginId());
 
