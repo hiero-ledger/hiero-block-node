@@ -7,6 +7,7 @@ import static java.util.Objects.requireNonNull;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
@@ -78,9 +79,24 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusRequest request) {
         requestDetailCounter.increment();
 
-        return ServerStatusDetailResponse.newBuilder()
-                .versionInformation(context.blockNodeVersions())
-                .build();
+        ServerStatusDetailResponse.Builder detailsBuilder = ServerStatusDetailResponse.newBuilder();
+
+        // add in version information
+        detailsBuilder.versionInformation(context.blockNodeVersions());
+
+        BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
+
+        // add in block availability information.
+        detailsBuilder.availableRanges(context.historicalBlockProvider()
+                .availableBlocks()
+                .streamRanges()
+                .map(lr -> blockRangeBuilder
+                        .rangeStart(lr.start())
+                        .rangeEnd(lr.end())
+                        .build())
+                .toList());
+
+        return detailsBuilder.build();
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
@@ -103,7 +119,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // Create the metrics for server status
         requestDetailCounter = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "server_status_details_requests")
-                        .withDescription("Number of server status requests"));
+                        .withDescription("Number of server status details requests"));
 
         // Register this service
         serviceBuilder.registerGrpcService(this);

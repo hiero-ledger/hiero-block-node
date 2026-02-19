@@ -3,6 +3,7 @@ package org.hiero.block.node.server.status;
 
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,11 +14,13 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +40,16 @@ public class ServerStatusDetailServicePluginTest
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-        start(plugin, plugin.methods().getLast(), new SimpleInMemoryHistoricalBlockFacility());
+        final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility =
+                new SimpleInMemoryHistoricalBlockFacility();
+        final SimpleBlockRangeSet temporaryAvailableBlocks = new SimpleBlockRangeSet();
+        temporaryAvailableBlocks.add(1_000_000_000_000L, 1_000_000_000_005L);
+        temporaryAvailableBlocks.add(0L, 5L);
+        temporaryAvailableBlocks.add(1_000_000_000L, 1_000_000_005L);
+        temporaryAvailableBlocks.add(1_000_000L, 1_000_005L);
+
+        historicalBlockFacility.setTemporaryAvailableBlocks(temporaryAvailableBlocks);
+        start(plugin, plugin.methods().getLast(), historicalBlockFacility);
     }
 
     /**
@@ -63,6 +75,19 @@ public class ServerStatusDetailServicePluginTest
 
         final ServerStatusDetailResponse response =
                 ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
+
+        final List<BlockRange> blockRanges = response.availableRanges();
+        assertFalse(blockRanges.isEmpty());
+        assertEquals(4, blockRanges.size());
+
+        BlockRange blockRange = blockRanges.getFirst();
+        // make sure block ranges are ordered.
+        assertEquals(0L, blockRange.rangeStart());
+        assertEquals(5L, blockRange.rangeEnd());
+        blockRange = blockRanges.getLast();
+        // make sure block ranges are ordered.
+        assertEquals(1_000_000_000_000L, blockRange.rangeStart());
+        assertEquals(1_000_000_000_005L, blockRange.rangeEnd());
 
         assertNotNull(response);
         assertTrue(response.hasVersionInformation());
