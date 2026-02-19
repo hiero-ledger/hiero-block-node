@@ -62,6 +62,7 @@ module org.hiero.block.protobuf.pbj {
     exports com.hedera.hapi.node.state.congestion;
     exports com.hedera.hapi.platform.state;
     exports com.hedera.hapi.node.state.roster;
+    exports com.hedera.hapi.node.state.hints;
     exports com.hedera.hapi.block.stream.schema;
     exports org.hiero.block.api;
     exports org.hiero.block.internal;
