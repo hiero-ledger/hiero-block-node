@@ -19,55 +19,50 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 
-/**
- * A plugin for the block node.
- * <p>
- * This plugin implements the publishBlockStream API that allows publishers to
- * send block streams to the block node.
- * <p>
- * This plugin separates the responsibility for handling the publish protocol
- * for each publisher into a separate handler, all of which are managed by a
- * `PublisherManager`. The handler is responsible for implementing the single-
- * publisher protocol, accepting batches of block items, sending
- * acknowledgements, interpreting out-of-order block headers, and generally
- * ensuring that one specific publisher connection implements the defined
- * protocol correctly.
- * <p>
- * The publisher manager is responsible for keeping track of which block is
- * currently streaming, which (if any) subsequent blocks are being streamed
- * in advance by other publishers, and also manages notification handling so
- * that messaging sends one notification and, if needed, all handlers can send
- * appropriate responses to their publishers.
- *
- */
+/// A plugin for the block node.
+///
+/// This plugin implements the publishBlockStream API that allows publishers to
+/// send block streams to the block node.
+///
+/// This plugin separates the responsibility for handling the publish protocol
+/// for each publisher into a separate handler, all of which are managed by a
+/// `PublisherManager`. The handler is responsible for implementing the single-
+/// publisher protocol, accepting batches of block items, sending
+/// acknowledgements, interpreting out-of-order block headers, and generally
+/// ensuring that one specific publisher connection implements the defined
+/// protocol correctly.
+///
+/// The publisher manager is responsible for keeping track of which block is
+/// currently streaming, which (if any) subsequent blocks are being streamed
+/// in advance by other publishers, and also manages notification handling so
+/// that messaging sends one notification and, if needed, all handlers can send
+/// appropriate responses to their publishers.
 public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStreamPublishServiceInterface {
-    /** The logger for this class. */
+    /// The logger for this class.
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
-    /** The block node context, for access to core facilities. */
+    /// The block node context, for access to core facilities.
     private BlockNodeContext context;
-    /** The publisher block manager, which connects handlers to the messaging facility. */
+    /// The publisher block manager, which connects handlers to the messaging facility.
     private StreamPublisherManager publisherManager;
 
     // Metrics fields
-    /** The metrics used by the publisher Handlers. */
+    /// The metrics used by the publisher Handlers.
     private PublisherHandler.MetricsHolder handlerMetrics;
-    /** The metrics used by the publisher Manager. */
+    /// The metrics used by the publisher Manager.
     private LiveStreamPublisherManager.MetricsHolder managerMetrics;
-    /** The number of live block items messaged to the messaging service. */
+    /// The number of live block items messaged to the messaging service.
     private Counter liveBlockItemsMessaged;
-    /** The number of producers publishing block items. */
+    /// The number of producers publishing block items.
     private LongGauge numberOfProducers;
 
-    /**
-     * {@inheritDoc}
-     * <p>
-     * We must override this method to provide a custom implementation that
-     * uses the unparsed request type, which allows us to handle the request
-     * without needing to fully parse the individual {@code BlockItem}s.<br/>
-     * This performance optimization reduces publish-to-subscribe latency by
-     * roughly 90%, and reduces GC overhead substantially.
-     */
+    /// {@inheritDoc}
+    ///
+    /// We must override this method to provide a custom implementation that
+    /// uses the unparsed request type, which allows us to handle the request
+    /// without needing to fully parse the individual `BlockItem`s.
+    /// This performance optimization reduces publish-to-subscribe latency by
+    /// roughly 90%, and reduces GC overhead substantially.
     @Override
     @NonNull
     public Pipeline<? super Bytes> open(
@@ -131,23 +126,19 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         return List.of(PublisherConfig.class);
     }
 
-    /**
-     * This method is called when a new publisher handler is created.
-     * <p>
-     * A new handler is created when a new publisher connects to the block node.
-     * @param replies the pipeline to which the replies will be sent
-     * @return a new, valid, fully initialized publisher handler
-     */
+    /// This method is called when a new publisher handler is created.
+    ///
+    /// A new handler is created when a new publisher connects to the block node.
+    /// @param replies the pipeline to which the replies will be sent
+    /// @return a new, valid, fully initialized publisher handler
     private Pipeline<? super PublishStreamRequestUnparsed> initiatePublisherHandler(
             @NonNull final Pipeline<? super PublishStreamResponse> replies) {
         return publisherManager.addHandler(replies, handlerMetrics);
     }
 
-    /**
-     * Initialize all metrics for the publisher service plugin.
-     *
-     * @param metrics the metrics provider
-     */
+    /// Initialize all metrics for the publisher service plugin.
+    ///
+    /// @param metrics the metrics provider
     private void initMetrics(@NonNull final Metrics metrics) {
         // Initialize Handler and Manager metrics.
         // We create these here to keep the cardinality under control.
