@@ -22,7 +22,6 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.System.Logger.Level;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
 import java.nio.file.Files;
@@ -489,146 +488,163 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             // add the batch of blocks to the in progress ranges
             inProgressZipRanges.add(batchRange);
             // move the batch of blocks to a zip file (submit a task)
-            zipMoveExecutorService.submit(() -> moveBatchOfBlocksToZipFile(batchRange));
+            zipMoveExecutorService.submit(new BatchToZipFileMover(batchRange, this));
         }
     }
 
     /**
-     * Move a batch of blocks to a zip file. This should be called on background thread through executor service.
-     *
-     * @param batchRange The range of blocks to move to zip file.
+     * A runnable task that moves a batch of blocks from the staging area to a zip file.
+     * This is designed to be executed on a background thread.
      */
-    private void moveBatchOfBlocksToZipFile(final LongRange batchRange) {
-        // first off, let's create our batch of blocks
-        final long batchFirstBlockNumber = batchRange.start();
-        final long batchLastBlockNumber = batchRange.end();
-        try (final BlockAccessorBatch blockAccessors = gatherAccessors(batchFirstBlockNumber, batchLastBlockNumber)) {
-            if (blockAccessors.isEmpty()) {
-                final String message = "Could not get staged files for blocks {0} to {1}.";
-                LOGGER.log(INFO, message, batchFirstBlockNumber, batchLastBlockNumber);
-            } else {
-                // move the batch of blocks to a zip file
-                final String startMessage = "Moving batch of blocks [{0} -> {1}] to zip file.";
-                LOGGER.log(TRACE, startMessage, batchFirstBlockNumber, batchLastBlockNumber);
+    private static final class BatchToZipFileMover implements Runnable {
 
-                // compute the exact path where we need to move the created zip file
-                final BlockPath firstBlockPath = computeBlockPath(config, blockAccessors.getFirstBlockNumber());
+        private final LongRange batchRange;
+        private final BlockFileHistoricPlugin plugin;
 
-                // Compute the file name of the work zip directory so that if zipping fails, we don't leave
-                // traces in the actual data area
-                final Path zipWorkPath =
-                        zipWorkRootPath.resolve(firstBlockPath.zipFilePath().getFileName());
+        BatchToZipFileMover(final LongRange batchRange, BlockFileHistoricPlugin plugin) {
+            this.batchRange = batchRange;
+            this.plugin = plugin;
+        }
 
-                // Write the zip file in the zip work area
-                zipBlockArchive.createZip(blockAccessors, zipWorkPath);
+        @Override
+        public void run() {
+            // first off, let's create our batch of blocks
+            final long batchFirstBlockNumber = batchRange.start();
+            final long batchLastBlockNumber = batchRange.end();
+            try (final BlockAccessorBatch blockAccessors =
+                    gatherAccessors(batchFirstBlockNumber, batchLastBlockNumber)) {
+                if (blockAccessors.isEmpty()) {
+                    final String message = "Could not get staged files for blocks {0} to {1}.";
+                    plugin.LOGGER.log(INFO, message, batchFirstBlockNumber, batchLastBlockNumber);
+                } else {
+                    // move the batch of blocks to a zip file
+                    final String startMessage = "Moving batch of blocks [{0} -> {1}] to zip file.";
+                    plugin.LOGGER.log(TRACE, startMessage, batchFirstBlockNumber, batchLastBlockNumber);
 
-                // if we have reached here, this means that the zip file was created
-                // successfully in the work zip area
-                final long zipFileSize = Files.size(zipWorkPath);
+                    // compute the exact path where we need to move the created zip file
+                    final BlockPath firstBlockPath =
+                            computeBlockPath(plugin.config, blockAccessors.getFirstBlockNumber());
 
-                // create staging area directories if they don't exist
-                Files.createDirectories(firstBlockPath.dirPath());
-                Files.deleteIfExists(firstBlockPath.zipFilePath());
+                    // Compute the file name of the work zip directory so that if zipping fails, we don't leave
+                    // traces in the actual data area
+                    final Path zipWorkPath = plugin.zipWorkRootPath.resolve(
+                            firstBlockPath.zipFilePath().getFileName());
 
-                // move the file from the work zip area to the data area by creating a hard link
-                // and then deleting the source file
-                Files.createLink(firstBlockPath.zipFilePath(), zipWorkPath);
-                Files.deleteIfExists(zipWorkPath);
+                    // Write the zip file in the zip work area
+                    plugin.zipBlockArchive.createZip(blockAccessors, zipWorkPath);
 
-                // Metrics updates
-                // Update total bytes stored with the new zip file size
-                totalBytesStored.addAndGet(zipFileSize);
-                // Increment the blocks written counter
-                blocksWrittenCounter.add(numberOfBlocksPerZipFile);
-                // -----------------------------------------------
-                // @todo Remove, make staging file accessor handle this, if reasonable
-                for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
-                    Path path = BlockFile.nestedDirectoriesBlockFilePath(
-                            stagingPath, blockNumber, config.compression(), config.maxFilesPerDir());
-                    if (Files.exists(path)) {
-                        try {
-                            Files.delete(path);
-                            availableStagedBlocks.remove(blockNumber);
-                        } catch (final IOException e) {
-                            final String message = "Failed to delete staging file for block %d located at %s"
-                                    .formatted(blockNumber, path.toFile().getAbsolutePath());
-                            LOGGER.log(INFO, message, e);
+                    // if we have reached here, this means that the zip file was created
+                    // successfully in the work zip area
+                    final long zipFileSize = Files.size(zipWorkPath);
+
+                    // create staging area directories if they don't exist
+                    Files.createDirectories(firstBlockPath.dirPath());
+                    Files.deleteIfExists(firstBlockPath.zipFilePath());
+
+                    // move the file from the work zip area to the data area by creating a hard link
+                    // and then deleting the source file
+                    Files.createLink(firstBlockPath.zipFilePath(), zipWorkPath);
+                    Files.deleteIfExists(zipWorkPath);
+
+                    // Metrics updates
+                    // Update total bytes stored with the new zip file size
+                    plugin.totalBytesStored.addAndGet(zipFileSize);
+                    // Increment the blocks written counter
+                    plugin.blocksWrittenCounter.add(plugin.numberOfBlocksPerZipFile);
+                    // -----------------------------------------------
+                    // @todo Remove, make staging file accessor handle this, if reasonable
+                    for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {
+                        Path path = BlockFile.nestedDirectoriesBlockFilePath(
+                                plugin.stagingPath,
+                                blockNumber,
+                                plugin.config.compression(),
+                                plugin.config.maxFilesPerDir());
+                        if (Files.exists(path)) {
+                            try {
+                                Files.delete(path);
+                                plugin.availableStagedBlocks.remove(blockNumber);
+                            } catch (final IOException e) {
+                                final String message = "Failed to delete staging file for block %d located at %s"
+                                        .formatted(blockNumber, path.toFile().getAbsolutePath());
+                                plugin.LOGGER.log(INFO, message, e);
+                            }
                         }
                     }
+                    // -----------------------------------------------
+                    // if we have reached here, then the batch of blocks has been
+                    // zipped and the staging files removed.
+                    // Now we need to update the first and last block numbers
+                    plugin.availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
+                    final String successMessage = "Successfully moved batch of blocks[{0} -> {1}] to zip file.";
+                    plugin.LOGGER.log(TRACE, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
+                    // now all the blocks are in the zip file and accessible, send notification
+                    // @todo is this needed? Does anything actually care when a zip file is completed?
+                    plugin.context
+                            .blockMessaging()
+                            .sendBlockPersisted(
+                                    new PersistedNotification(batchLastBlockNumber, true, 1_000, BlockSource.HISTORY));
                 }
-                // -----------------------------------------------
-                // if we have reached here, then the batch of blocks has been
-                // zipped and the staging files removed.
-                // Now we need to update the first and last block numbers
-                availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
-                final String successMessage = "Successfully moved batch of blocks[{0} -> {1}] to zip file.";
-                LOGGER.log(Level.TRACE, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
-                // now all the blocks are in the zip file and accessible, send notification
-                // @todo is this needed? Does anything actually care when a zip file is completed?
-                context.blockMessaging()
-                        .sendBlockPersisted(new PersistedNotification(
-                                batchLastBlockNumber, true, defaultPriority(), BlockSource.HISTORY));
+            } catch (final IOException e) {
+                final String failMessage = "Failed to move batch of blocks [%d -> %d] to zip file"
+                        .formatted(batchFirstBlockNumber, batchLastBlockNumber);
+                plugin.LOGGER.log(WARNING, failMessage, e);
+                cleanupZipWorkFiles();
+            } finally {
+                // always make sure to remove the batch of blocks from in progress ranges
+                plugin.inProgressZipRanges.remove(batchRange);
             }
-        } catch (final IOException e) {
-            final String failMessage = "Failed to move batch of blocks [%d -> %d] to zip file"
-                    .formatted(batchFirstBlockNumber, batchLastBlockNumber);
-            LOGGER.log(WARNING, failMessage, e);
-            cleanupZipWorkFiles();
-        } finally {
-            // always make sure to remove the batch of blocks from in progress ranges
-            inProgressZipRanges.remove(batchRange);
         }
-    }
 
-    /**
-     * This method attempts to gather the block accessors for the given
-     * range of block numbers. The range must be gathered in full, no gaps
-     * are allowed to happen. If failure during gathering occurs or a gap
-     * is detected, this method will close any open accessors and return
-     * null. Otherwise, it will return a list of accessors for the requested
-     * range.
-     */
-    private BlockAccessorBatch gatherAccessors(final long startBlockNumber, final long endBlockNumber) {
-        final BlockAccessorBatch accessors = new BlockAccessorBatch();
-        try {
-            for (long i = startBlockNumber; i <= endBlockNumber; i++) {
-                Path path = BlockFile.nestedDirectoriesBlockFilePath(
-                        stagingPath, i, config.compression(), config.maxFilesPerDir());
-                final BlockAccessor accessor = new BlockStagingFileAccessor(path, config.compression(), i);
-                if (accessor != null) {
-                    accessors.add(accessor);
-                } else {
-                    LOGGER.log(WARNING, GAP_FOUND_MESSAGE, i, startBlockNumber, endBlockNumber);
-                    accessors.close();
-                    break;
+        /**
+         * This method attempts to gather the block accessors for the given
+         * range of block numbers. The range must be gathered in full, no gaps
+         * are allowed to happen. If failure during gathering occurs or a gap
+         * is detected, this method will close any open accessors and return
+         * null. Otherwise, it will return a list of accessors for the requested
+         * range.
+         */
+        private BlockAccessorBatch gatherAccessors(final long startBlockNumber, final long endBlockNumber) {
+            final BlockAccessorBatch accessors = new BlockAccessorBatch();
+            try {
+                for (long i = startBlockNumber; i <= endBlockNumber; i++) {
+                    Path path = BlockFile.nestedDirectoriesBlockFilePath(
+                            plugin.stagingPath, i, plugin.config.compression(), plugin.config.maxFilesPerDir());
+                    final BlockAccessor accessor = new BlockStagingFileAccessor(path, plugin.config.compression(), i);
+                    if (accessor != null) {
+                        accessors.add(accessor);
+                    } else {
+                        plugin.LOGGER.log(WARNING, GAP_FOUND_MESSAGE, i, startBlockNumber, endBlockNumber);
+                        accessors.close();
+                        break;
+                    }
                 }
+            } catch (final RuntimeException e) {
+                final String message = "Failed to gather block accessors for range: %d - %d"
+                        .formatted(startBlockNumber, endBlockNumber);
+                plugin.LOGGER.log(WARNING, message, e);
+                accessors.close();
             }
-        } catch (final RuntimeException e) {
-            final String message =
-                    "Failed to gather block accessors for range: %d - %d".formatted(startBlockNumber, endBlockNumber);
-            LOGGER.log(WARNING, message, e);
-            accessors.close();
+            return accessors;
         }
-        return accessors;
-    }
 
-    /**
-     * This method deletes any remaining zip files in the work area.
-     * We know that it doesn't contain any subdirectories, so Files.delete is safe to use.
-     */
-    private void cleanupZipWorkFiles() {
-        try (var files = Files.list(zipWorkRootPath)) {
-            files.forEach(file -> {
-                try {
-                    Files.delete(file);
-                } catch (IOException e) {
-                    final String msg = "Failed to delete work zip file: %s".formatted(file);
-                    LOGGER.log(INFO, msg, e);
-                }
-            });
-        } catch (IOException e) {
-            final String msg = "Failed to list work zip files in %s".formatted(zipWorkRootPath);
-            LOGGER.log(INFO, msg, e);
+        /**
+         * This method deletes any remaining zip files in the work area.
+         * We know that it doesn't contain any subdirectories, so Files.delete is safe to use.
+         */
+        private void cleanupZipWorkFiles() {
+            try (var files = Files.list(plugin.zipWorkRootPath)) {
+                files.forEach(file -> {
+                    try {
+                        Files.delete(file);
+                    } catch (IOException e) {
+                        final String msg = "Failed to delete work zip file: %s".formatted(file);
+                        plugin.LOGGER.log(INFO, msg, e);
+                    }
+                });
+            } catch (IOException e) {
+                final String msg = "Failed to list work zip files in %s".formatted(plugin.zipWorkRootPath);
+                plugin.LOGGER.log(INFO, msg, e);
+            }
         }
     }
 
