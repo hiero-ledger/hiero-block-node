@@ -30,6 +30,9 @@ import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 public record ParsedRecordBlock(
         ParsedRecordFile recordFile, List<ParsedSignatureFile> signatureFiles, List<SidecarFile> sidecarFiles) {
 
+    /** Maximum depth for parsing nested messages (PBJ default). */
+    private static final int MAX_DEPTH = 512;
+
     /** Maximum size for parsing sidecar files (8MB). Some mainnet blocks have large sidecars. */
     private static final int MAX_SIDECAR_SIZE = 8 * 1024 * 1024;
 
@@ -66,7 +69,14 @@ public record ParsedRecordBlock(
                 recordFileBlock.primarySidecarFiles().stream()
                         .map(ps -> {
                             try {
-                                return SidecarFile.PROTOBUF.parse(Bytes.wrap(ps.data()), false, MAX_SIDECAR_SIZE);
+                                // Use 5-arg parse to specify both maxDepth and maxSize
+                                // The 3-arg parse incorrectly passes maxSize as maxDepth
+                                return SidecarFile.PROTOBUF.parse(
+                                        Bytes.wrap(ps.data()).toReadableSequentialData(),
+                                        false, // strictMode
+                                        false, // parseUnknownFields
+                                        MAX_DEPTH, // maxDepth
+                                        MAX_SIDECAR_SIZE); // maxSize
                             } catch (ParseException e) {
                                 throw new RuntimeException(e);
                             }
