@@ -74,7 +74,7 @@ public record ParsedRecordBlock(
                                 return SidecarFile.PROTOBUF.parse(
                                         Bytes.wrap(ps.data()).toReadableSequentialData(),
                                         false, // strictMode
-                                        false, // parseUnknownFields
+                                        true, // parseUnknownFields
                                         MAX_DEPTH, // maxDepth
                                         MAX_SIDECAR_SIZE); // maxSize
                             } catch (ParseException e) {
