@@ -64,7 +64,7 @@ public abstract class GrpcPluginTestBase<
             @NonNull final P plugin,
             @NonNull final Method method,
             @NonNull final HistoricalBlockFacility historicalBlockFacility) {
-        start(plugin, method, historicalBlockFacility, null);
+        start(plugin, method, historicalBlockFacility, null, null);
     }
 
     public void start(
@@ -72,7 +72,24 @@ public abstract class GrpcPluginTestBase<
             @NonNull final Method method,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final Map<String, String> configOverrides) {
-        super.start(plugin, historicalBlockFacility, configOverrides);
+        start(plugin, method, historicalBlockFacility, null, configOverrides);
+    }
+
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final Method method,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final List<BlockNodePlugin> additionalPlugins) {
+        start(plugin, method, historicalBlockFacility, additionalPlugins, null);
+    }
+
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final Method method,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final List<BlockNodePlugin> additionalPlugins,
+            @Nullable final Map<String, String> configOverrides) {
+        super.start(plugin, historicalBlockFacility, additionalPlugins, configOverrides);
         this.method = Objects.requireNonNull(method);
         setupNewPipelines();
     }
