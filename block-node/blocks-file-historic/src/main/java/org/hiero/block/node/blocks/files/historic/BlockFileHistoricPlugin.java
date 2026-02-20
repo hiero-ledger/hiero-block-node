@@ -173,6 +173,9 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // Initialize total bytes stored by querying the zip block archive
                 totalBytesStored.set(zipBlockArchive.calculateTotalStoredBytes());
                 totalZipFiles.set(zipBlockArchive.count());
+                // At the moment we will store 0 count if for some reason the count method produces
+                // an error. In the future we will implement better handling of such situation with
+                // a more sophisticated plugin health mechanism
             }
             // Register gauge updater
             context.metrics().addUpdater(this::updateGauges);
@@ -466,6 +469,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 } catch (final IOException e) {
                     LOGGER.log(INFO, "Failed to determine minimal block to delete.", e);
                     zipsDeletedFailedCounter.increment();
+                    break;
                 }
                 excess--;
             }
