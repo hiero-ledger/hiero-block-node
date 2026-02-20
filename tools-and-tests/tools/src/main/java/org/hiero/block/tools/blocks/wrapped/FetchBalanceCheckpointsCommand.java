@@ -33,14 +33,14 @@ import picocli.CommandLine.Option;
  * Fetch balance checkpoint files from GCP, verify signatures, and compile them into a single
  * zstd-compressed resource file that can be used for offline balance validation.
  *
- * <p>The output file format contains sequentially written checkpoint records:
+ * <p>The output file format contains sequentially written length-prefixed protobuf records:
  * <ul>
  *   <li>Block number (8 bytes, long)</li>
- *   <li>Account count (4 bytes, int)</li>
- *   <li>For each account: accountNum (8 bytes, long) + balance (8 bytes, long)</li>
+ *   <li>Protobuf length (4 bytes, int)</li>
+ *   <li>Raw protobuf bytes (AllAccountBalances format)</li>
  * </ul>
  *
- * <p>This simple binary format avoids protobuf parsing limits and is more compact.
+ * <p>This format preserves the standard protobuf structure including token balances.
  * The compiled file can be loaded by {@link BalanceCheckpointsLoader} and used by the
  * validation command without requiring GCP access at runtime.
  */
@@ -197,11 +197,17 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
         System.out.println(Ansi.AUTO.string("@|yellow Discovering balance checkpoints...|@"));
 
         for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(dayIncrement)) {
+            // List available balance files for this day and pick the first one
             List<Instant> dayCheckpoints = bucket.listBalanceTimestampsForDay(date.toString());
-            if (dayCheckpoints.isEmpty()) {
-                continue;
+            if (!dayCheckpoints.isEmpty()) {
+                if (intervalDays > 0) {
+                    // For daily/multi-day intervals, use the first available file of the day
+                    addFirstCheckpoint(dayCheckpoints, blockTimeReader, checkpoints);
+                } else {
+                    // For hourly intervals, filter by hour
+                    addHourlyCheckpoints(dayCheckpoints, blockTimeReader, checkpoints);
+                }
             }
-            addCheckpointsForDay(dayCheckpoints, blockTimeReader, checkpoints);
         }
 
         checkpoints.sort(Comparator.comparingLong(c -> c.blockNumber));
@@ -210,21 +216,23 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
         return checkpoints;
     }
 
-    private void addCheckpointsForDay(
+    private void addFirstCheckpoint(
             List<Instant> dayCheckpoints, BlockTimeReader blockTimeReader, List<CheckpointData> checkpoints) {
-        if (intervalDays > 0) {
-            Instant timestamp = dayCheckpoints.getFirst();
-            long blockTimeLong = instantToBlockTimeLong(timestamp);
-            long blockNumber = blockTimeReader.getNearestBlockAfterTime(blockTimeLong);
-            checkpoints.add(new CheckpointData(timestamp, blockNumber, null));
-        } else {
-            for (Instant timestamp : dayCheckpoints) {
-                int hour = timestamp.atZone(java.time.ZoneOffset.UTC).getHour();
-                if (hour % intervalHours == 0) {
-                    long blockTimeLong = instantToBlockTimeLong(timestamp);
-                    long blockNumber = blockTimeReader.getNearestBlockAfterTime(blockTimeLong);
-                    checkpoints.add(new CheckpointData(timestamp, blockNumber, null));
-                }
+        // Use the first available balance file of the day
+        Instant timestamp = dayCheckpoints.get(0);
+        long blockTimeLong = instantToBlockTimeLong(timestamp);
+        long blockNumber = blockTimeReader.getNearestBlockAfterTime(blockTimeLong);
+        checkpoints.add(new CheckpointData(timestamp, blockNumber, null));
+    }
+
+    private void addHourlyCheckpoints(
+            List<Instant> dayCheckpoints, BlockTimeReader blockTimeReader, List<CheckpointData> checkpoints) {
+        for (Instant timestamp : dayCheckpoints) {
+            int hour = timestamp.atZone(java.time.ZoneOffset.UTC).getHour();
+            if (hour % intervalHours == 0) {
+                long blockTimeLong = instantToBlockTimeLong(timestamp);
+                long blockNumber = blockTimeReader.getNearestBlockAfterTime(blockTimeLong);
+                checkpoints.add(new CheckpointData(timestamp, blockNumber, null));
             }
         }
     }
@@ -259,10 +267,11 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
             if (!verifySignaturesIfEnabled(checkpoint, pbBytes, bucket, addressBookRegistry)) {
                 return;
             }
+            // Write length-prefixed protobuf: [blockNumber][length][protobuf bytes]
             out.writeLong(checkpoint.blockNumber);
-            int accountCount = BalanceProtobufParser.parseAndWrite(pbBytes, out);
-            System.out.println(
-                    Ansi.AUTO.string("@|green OK|@ (" + accountCount + " accounts, " + pbBytes.length + " bytes)"));
+            out.writeInt(pbBytes.length);
+            out.write(pbBytes);
+            System.out.println(Ansi.AUTO.string("@|green OK|@ (" + pbBytes.length + " bytes)"));
             successCount++;
         } catch (Exception e) {
             System.out.println(Ansi.AUTO.string("@|red ERROR|@ " + e.getMessage()));

@@ -166,9 +166,10 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         }
         System.out.println();
 
-        // Create a streaming hasher and balance map only if we start from block 0
+        // Create a streaming hasher and balance maps only if we start from block 0
         final StreamingHasher streamingHasher = startsAtZero ? new StreamingHasher() : null;
         final Map<Long, Long> balanceMap = startsAtZero ? new HashMap<>() : null;
+        final Map<Long, Map<Long, Long>> tokenBalanceMap = startsAtZero ? new HashMap<>() : null;
 
         // Validation tracking
         final long startNanos = System.nanoTime();
@@ -179,11 +180,12 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
             try {
                 final Block block = BlockReader.readBlock(inputDir, blockNumber);
-                WrappedBlockValidator.validateBlock(block, blockNumber, previousBlockHash, streamingHasher, balanceMap);
+                WrappedBlockValidator.validateBlock(
+                        block, blockNumber, previousBlockHash, streamingHasher, balanceMap, tokenBalanceMap);
 
                 // Validate against balance checkpoints if enabled
                 if (balanceCheckpointValidator != null && balanceMap != null) {
-                    balanceCheckpointValidator.checkBlock(blockNumber, balanceMap);
+                    balanceCheckpointValidator.checkBlock(blockNumber, balanceMap, tokenBalanceMap);
                 }
 
                 // Compute block hash and update state for the next block's validation
