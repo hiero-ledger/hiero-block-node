@@ -17,17 +17,19 @@ import java.util.zip.GZIPInputStream;
  * Loads balance checkpoints from a compiled resource file created by
  * {@link FetchBalanceCheckpointsCommand}.
  *
- * <p>The file format contains sequentially written checkpoint records:
+ * <p>The file format contains sequentially written length-prefixed protobuf records:
  * <ul>
  *   <li>Block number (8 bytes, long)</li>
- *   <li>Account count (4 bytes, int)</li>
- *   <li>For each account: accountNum (8 bytes, long) + balance (8 bytes, long)</li>
+ *   <li>Protobuf length (4 bytes, int)</li>
+ *   <li>Raw protobuf bytes (AllAccountBalances format)</li>
  * </ul>
+ *
+ * <p>This format preserves the standard protobuf structure including token balances.
  *
  * <p>This class provides methods to:
  * <ul>
  *   <li>Get all checkpoint block numbers</li>
- *   <li>Get balances for a specific block number</li>
+ *   <li>Get HBAR and token balances for a specific block number</li>
  *   <li>Find the nearest checkpoint at or before a given block</li>
  * </ul>
  *
@@ -36,8 +38,11 @@ import java.util.zip.GZIPInputStream;
  */
 public class BalanceCheckpointsLoader {
 
-    /** Map of block number to balance map (account number -> tinybar balance) */
+    /** Map of block number to HBAR balance map (account number -> tinybar balance) */
     private final NavigableMap<Long, Map<Long, Long>> checkpoints = new TreeMap<>();
+
+    /** Map of block number to token balance map (account number -> token number -> balance) */
+    private final NavigableMap<Long, Map<Long, Map<Long, Long>>> tokenCheckpoints = new TreeMap<>();
 
     /**
      * Load balance checkpoints from a compiled zstd file.
@@ -64,22 +69,23 @@ public class BalanceCheckpointsLoader {
     }
 
     /**
-     * Load checkpoints from a DataInputStream using the binary format.
+     * Load checkpoints from a DataInputStream using length-prefixed protobuf format.
      */
     private void loadFromDataInputStream(DataInputStream in) throws IOException {
         while (in.available() > 0) {
             long blockNumber = in.readLong();
-            int accountCount = in.readInt();
+            int pbLength = in.readInt();
+            byte[] pbBytes = in.readNBytes(pbLength);
 
-            Map<Long, Long> balances = new HashMap<>(accountCount);
-            for (int i = 0; i < accountCount; i++) {
-                long accountNum = in.readLong();
-                long balance = in.readLong();
-                if (accountNum > 0) {
-                    balances.put(accountNum, balance);
-                }
+            // Parse HBAR and token balances from protobuf
+            Map<Long, Long> hbarBalances = new HashMap<>();
+            Map<Long, Map<Long, Long>> tokenBalances = new HashMap<>();
+            BalanceProtobufParser.parseWithTokens(pbBytes, hbarBalances, tokenBalances);
+
+            checkpoints.put(blockNumber, hbarBalances);
+            if (!tokenBalances.isEmpty()) {
+                tokenCheckpoints.put(blockNumber, tokenBalances);
             }
-            checkpoints.put(blockNumber, balances);
         }
     }
 
@@ -117,23 +123,19 @@ public class BalanceCheckpointsLoader {
                                 pbBytes = Files.readAllBytes(path);
                             }
 
-                            Map<Long, Long> balances = parseProtobufBalances(pbBytes);
-                            checkpoints.put(blockNumber, balances);
+                            // Parse HBAR and token balances
+                            Map<Long, Long> hbarBalances = new HashMap<>();
+                            Map<Long, Map<Long, Long>> tokenBalances = new HashMap<>();
+                            BalanceProtobufParser.parseWithTokens(pbBytes, hbarBalances, tokenBalances);
+                            checkpoints.put(blockNumber, hbarBalances);
+                            if (!tokenBalances.isEmpty()) {
+                                tokenCheckpoints.put(blockNumber, tokenBalances);
+                            }
                         } catch (Exception e) {
                             System.err.println("Warning: Could not load balance file " + path + ": " + e.getMessage());
                         }
                     });
         }
-    }
-
-    /**
-     * Parse account balances from protobuf bytes using manual parser to bypass PBJ limits.
-     *
-     * @param pbBytes the protobuf file bytes
-     * @return map of account number to tinybar balance
-     */
-    private Map<Long, Long> parseProtobufBalances(byte[] pbBytes) {
-        return BalanceProtobufParser.parseToMap(pbBytes);
     }
 
     /**
@@ -156,13 +158,33 @@ public class BalanceCheckpointsLoader {
     }
 
     /**
-     * Get the balances for a specific checkpoint block number.
+     * Get the HBAR balances for a specific checkpoint block number.
      *
      * @param blockNumber the block number
      * @return the balance map, or null if no checkpoint exists for that block
      */
     public Map<Long, Long> getBalances(long blockNumber) {
         return checkpoints.get(blockNumber);
+    }
+
+    /**
+     * Get the token balances for a specific checkpoint block number.
+     *
+     * @param blockNumber the block number
+     * @return the token balance map (accountNum -> tokenNum -> balance), or null if no checkpoint exists
+     */
+    public Map<Long, Map<Long, Long>> getTokenBalances(long blockNumber) {
+        return tokenCheckpoints.get(blockNumber);
+    }
+
+    /**
+     * Check if token balances are available for the given block number.
+     *
+     * @param blockNumber the block number
+     * @return true if token balances exist for that block
+     */
+    public boolean hasTokenBalances(long blockNumber) {
+        return tokenCheckpoints.containsKey(blockNumber);
     }
 
     /**

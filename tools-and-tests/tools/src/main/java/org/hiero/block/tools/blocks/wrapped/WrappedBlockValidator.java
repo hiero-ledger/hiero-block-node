@@ -11,9 +11,12 @@ import com.hedera.hapi.block.stream.output.MapChangeValue;
 import com.hedera.hapi.block.stream.output.MapUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.node.base.AccountAmount;
+import com.hedera.hapi.node.base.TokenTransferList;
 import com.hedera.hapi.streams.RecordStreamItem;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
@@ -82,11 +85,37 @@ public final class WrappedBlockValidator {
             final @Nullable StreamingHasher streamingHasher,
             final @Nullable Map<Long, Long> balanceMap)
             throws ValidationException {
+        validateBlock(block, blockNumber, previousBlockHash, streamingHasher, balanceMap, null);
+    }
+
+    /**
+     * Validates a single wrapped block with token balance tracking.
+     *
+     * <p>This overload adds token balance tracking in addition to HBAR balance tracking.
+     * Token balances are extracted from token transfer lists in transaction records.
+     *
+     * @param block             the block to validate
+     * @param blockNumber       the expected block number
+     * @param previousBlockHash the hash of the previous block, or null for the first block being validated
+     * @param streamingHasher   the streaming hasher tracking the all-blocks merkle tree, or null if merkle tree
+     *                          validation should be skipped
+     * @param balanceMap        mutable map of account number to tinybar balance, or null to skip supply validation
+     * @param tokenBalanceMap   mutable map of account number to (token number to balance), or null to skip token tracking
+     * @throws ValidationException if the block fails validation
+     */
+    public static void validateBlock(
+            final Block block,
+            final long blockNumber,
+            final byte[] previousBlockHash,
+            final @Nullable StreamingHasher streamingHasher,
+            final @Nullable Map<Long, Long> balanceMap,
+            final @Nullable Map<Long, Map<Long, Long>> tokenBalanceMap)
+            throws ValidationException {
         validateBlockChain(blockNumber, block, previousBlockHash);
         validateHistoricalBlockTreeRoot(blockNumber, block, streamingHasher);
         validateRequiredItems(blockNumber, block);
         validateNoExtraItems(blockNumber, block);
-        validate50Billion(blockNumber, block, balanceMap);
+        validate50Billion(blockNumber, block, balanceMap, tokenBalanceMap);
     }
 
     /**
@@ -300,6 +329,21 @@ public final class WrappedBlockValidator {
 
     /**
      * Validates that the total HBAR supply equals exactly 50 billion HBAR (in tinybar) after
+     * processing this block. This overload does not track token balances.
+     *
+     * @param blockNumber the block number for error reporting
+     * @param block the block to validate
+     * @param balanceMap mutable map of account number to tinybar balance, or null to skip
+     * @throws ValidationException if the total supply does not equal 50 billion HBAR
+     */
+    public static void validate50Billion(
+            final long blockNumber, final Block block, final @Nullable Map<Long, Long> balanceMap)
+            throws ValidationException {
+        validate50Billion(blockNumber, block, balanceMap, null);
+    }
+
+    /**
+     * Validates that the total HBAR supply equals exactly 50 billion HBAR (in tinybar) after
      * processing this block.
      *
      * <p>Account balances are updated from two sources within the block, processed in item order:
@@ -313,13 +357,20 @@ public final class WrappedBlockValidator {
      * {@link #FIFTY_BILLION_HBAR_IN_TINYBAR}. When {@code balanceMap} is null, this validation is
      * skipped.
      *
+     * <p>When {@code tokenBalanceMap} is non-null, token balances are also tracked from token
+     * transfer lists in transaction records. This enables external validation of token balances.
+     *
      * @param blockNumber the block number for error reporting
      * @param block the block to validate
      * @param balanceMap mutable map of account number to tinybar balance, or null to skip
+     * @param tokenBalanceMap mutable map of account number to (token number to balance), or null to skip token tracking
      * @throws ValidationException if the total supply does not equal 50 billion HBAR
      */
     public static void validate50Billion(
-            final long blockNumber, final Block block, final @Nullable Map<Long, Long> balanceMap)
+            final long blockNumber,
+            final Block block,
+            final @Nullable Map<Long, Long> balanceMap,
+            final @Nullable Map<Long, Map<Long, Long>> tokenBalanceMap)
             throws ValidationException {
         if (balanceMap == null) {
             return;
@@ -352,6 +403,7 @@ public final class WrappedBlockValidator {
                         recordFile.recordFileContentsOrThrow().recordStreamItems(), recordFile.amendments());
                 // Process merged record stream items
                 for (final RecordStreamItem recordStreamItem : mergedItems) {
+                    // Process HBAR transfers
                     for (final AccountAmount accountAmount : recordStreamItem
                             .recordOrThrow()
                             .transferListOrThrow()
@@ -360,6 +412,21 @@ public final class WrappedBlockValidator {
                                 accountAmount.accountIDOrThrow().accountNumOrThrow(),
                                 accountAmount.amount(),
                                 Long::sum);
+                    }
+
+                    // Process token transfers if tracking is enabled
+                    if (tokenBalanceMap != null) {
+                        for (final TokenTransferList tokenTransferList :
+                                recordStreamItem.recordOrThrow().tokenTransferLists()) {
+                            final long tokenNum = tokenTransferList.token().tokenNum();
+                            for (final AccountAmount transfer : tokenTransferList.transfers()) {
+                                final long accountNum =
+                                        transfer.accountIDOrThrow().accountNumOrThrow();
+                                final Map<Long, Long> accountTokens =
+                                        tokenBalanceMap.computeIfAbsent(accountNum, k -> new HashMap<>());
+                                accountTokens.merge(tokenNum, transfer.amount(), Long::sum);
+                            }
+                        }
                     }
                 }
             }
@@ -380,25 +447,49 @@ public final class WrappedBlockValidator {
 
     /**
      * Merges original record stream items with amendments, sorted by consensus timestamp.
+     * Amendments can either add missing transactions or replace existing ones with corrected data.
+     *
+     * <p>The merge logic:
+     * <ul>
+     *   <li>If an amendment has the same consensus timestamp as an original transaction,
+     *       it REPLACES the original (correction case).</li>
+     *   <li>If an amendment has a timestamp not in the original list, it is INSERTED
+     *       in the correct sorted position (missing transaction case).</li>
+     * </ul>
      *
      * @param original the original record stream items from the record file
-     * @param amendments the amendment items (missing transactions) to merge in
-     * @return a new list containing all items sorted by consensus timestamp
+     * @param amendments the amendment items to merge in (may replace or add)
+     * @return a new list containing merged items sorted by consensus timestamp
      */
     private static List<RecordStreamItem> mergeRecordStreamItems(
             final List<RecordStreamItem> original, final List<RecordStreamItem> amendments) {
         if (amendments.isEmpty()) {
             return original;
         }
-        final List<RecordStreamItem> merged = new ArrayList<>(original.size() + amendments.size());
-        merged.addAll(original);
-        merged.addAll(amendments);
-        merged.sort((a, b) -> {
-            final var tsA = a.recordOrThrow().consensusTimestampOrThrow();
-            final var tsB = b.recordOrThrow().consensusTimestampOrThrow();
-            final int secCmp = Long.compare(tsA.seconds(), tsB.seconds());
-            return secCmp != 0 ? secCmp : Integer.compare(tsA.nanos(), tsB.nanos());
-        });
+
+        // Build a map of items keyed by timestamp (seconds * 1_000_000_000 + nanos)
+        // This allows O(1) lookup for replacements
+        final Map<Long, RecordStreamItem> itemsByTimestamp = new LinkedHashMap<>();
+
+        // Add all original items first
+        for (final RecordStreamItem item : original) {
+            final var ts = item.recordOrThrow().consensusTimestampOrThrow();
+            final long key = ts.seconds() * 1_000_000_000L + ts.nanos();
+            itemsByTimestamp.put(key, item);
+        }
+
+        // Process amendments - replace if timestamp exists, otherwise add
+        for (final RecordStreamItem amendment : amendments) {
+            final var ts = amendment.recordOrThrow().consensusTimestampOrThrow();
+            final long key = ts.seconds() * 1_000_000_000L + ts.nanos();
+            // put() will either replace existing entry or add new one
+            itemsByTimestamp.put(key, amendment);
+        }
+
+        // Sort by timestamp key and return as list
+        final List<RecordStreamItem> merged = new ArrayList<>(itemsByTimestamp.size());
+        itemsByTimestamp.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> merged.add(e.getValue()));
+
         return merged;
     }
 }

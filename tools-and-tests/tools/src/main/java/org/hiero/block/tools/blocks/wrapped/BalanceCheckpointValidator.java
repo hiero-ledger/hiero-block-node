@@ -15,7 +15,7 @@ import picocli.CommandLine.Help.Ansi;
  * Validates computed account balances against pre-fetched balance checkpoints.
  *
  * <p>This validator uses balance checkpoints that were pre-downloaded and verified
- * by {@link FetchBalanceCheckpointsCommand}. Unlike {@link BalanceCsvValidator},
+ * by {@link FetchBalanceCheckpointsCommand}. Unlike {@link BalanceProtobufValidator},
  * this validator does not require GCP access at runtime since all checkpoints
  * are loaded from a local resource file.
  *
@@ -125,12 +125,28 @@ public class BalanceCheckpointValidator {
 
     /**
      * Check if the current block has passed any balance checkpoints that need validation.
+     * This overload validates HBAR balances only.
      *
      * @param blockNumber the current block number
      * @param computedBalances the current computed balance map
      * @throws ValidationException if balance validation fails
      */
     public void checkBlock(long blockNumber, Map<Long, Long> computedBalances) throws ValidationException {
+        checkBlock(blockNumber, computedBalances, null);
+    }
+
+    /**
+     * Check if the current block has passed any balance checkpoints that need validation.
+     * This overload validates both HBAR and token balances.
+     *
+     * @param blockNumber the current block number
+     * @param computedHbarBalances the current computed HBAR balance map
+     * @param computedTokenBalances the current computed token balance map (accountNum -> tokenNum -> balance), or null
+     * @throws ValidationException if balance validation fails
+     */
+    public void checkBlock(
+            long blockNumber, Map<Long, Long> computedHbarBalances, Map<Long, Map<Long, Long>> computedTokenBalances)
+            throws ValidationException {
         if (sortedCheckpointBlocks == null || sortedCheckpointBlocks.isEmpty()) {
             return;
         }
@@ -139,7 +155,7 @@ public class BalanceCheckpointValidator {
         while (nextCheckpointIndex < sortedCheckpointBlocks.size()) {
             long checkpointBlock = sortedCheckpointBlocks.get(nextCheckpointIndex);
             if (blockNumber >= checkpointBlock) {
-                validateCheckpoint(checkpointBlock, computedBalances);
+                validateCheckpoint(checkpointBlock, computedHbarBalances, computedTokenBalances);
                 validatedCheckpoints.add(checkpointBlock);
                 nextCheckpointIndex++;
             } else {
@@ -149,56 +165,138 @@ public class BalanceCheckpointValidator {
     }
 
     /**
-     * Validate computed balances against a checkpoint.
+     * Validate computed balances against a checkpoint (HBAR only).
      *
      * @param checkpointBlock the checkpoint block number
      * @param computedBalances the computed balance map
      * @throws ValidationException if validation fails
      */
     private void validateCheckpoint(long checkpointBlock, Map<Long, Long> computedBalances) throws ValidationException {
+        validateCheckpoint(checkpointBlock, computedBalances, null);
+    }
+
+    /**
+     * Validate computed balances against a checkpoint (HBAR and tokens).
+     *
+     * @param checkpointBlock the checkpoint block number
+     * @param computedHbarBalances the computed HBAR balance map
+     * @param computedTokenBalances the computed token balance map, or null for HBAR-only validation
+     * @throws ValidationException if validation fails
+     */
+    private void validateCheckpoint(
+            long checkpointBlock,
+            Map<Long, Long> computedHbarBalances,
+            Map<Long, Map<Long, Long>> computedTokenBalances)
+            throws ValidationException {
         System.out.println(Ansi.AUTO.string("\n@|cyan Validating balance checkpoint at block:|@ " + checkpointBlock));
 
-        Map<Long, Long> expectedBalances = loader.getBalances(checkpointBlock);
-        if (expectedBalances == null) {
+        Map<Long, Long> expectedHbarBalances = loader.getBalances(checkpointBlock);
+        if (expectedHbarBalances == null) {
             System.out.println(Ansi.AUTO.string("@|yellow Warning:|@ No checkpoint data for block " + checkpointBlock));
-            results.add(new CheckpointResult(checkpointBlock, false, "No checkpoint data", 0, 0, 0));
+            results.add(new CheckpointResult(checkpointBlock, false, "No checkpoint data", 0, 0, 0, 0));
             return;
         }
 
-        // Compare balances
-        ComparisonResult comparison = compareBalances(expectedBalances, computedBalances);
+        // Compare HBAR balances
+        ComparisonResult hbarComparison = compareBalances(expectedHbarBalances, computedHbarBalances);
+
+        // Compare token balances if provided
+        Map<String, BalanceMismatch> tokenMismatches = new TreeMap<>();
+        if (computedTokenBalances != null && loader.hasTokenBalances(checkpointBlock)) {
+            Map<Long, Map<Long, Long>> expectedTokenBalances = loader.getTokenBalances(checkpointBlock);
+            if (expectedTokenBalances != null) {
+                tokenMismatches = compareTokenBalances(expectedTokenBalances, computedTokenBalances);
+            }
+        }
+
+        boolean passed = hbarComparison.mismatches.isEmpty() && tokenMismatches.isEmpty();
 
         // Record result
         results.add(new CheckpointResult(
                 checkpointBlock,
-                comparison.mismatches.isEmpty(),
-                comparison.mismatches.isEmpty() ? "OK" : "Mismatches found",
-                expectedBalances.size(),
-                comparison.matchCount,
-                comparison.mismatches.size()));
+                passed,
+                passed ? "OK" : "Mismatches found",
+                expectedHbarBalances.size(),
+                hbarComparison.matchCount,
+                hbarComparison.mismatches.size(),
+                tokenMismatches.size()));
 
         // Report results
-        if (comparison.mismatches.isEmpty()) {
-            System.out.println(Ansi.AUTO.string("@|green ✓ All " + expectedBalances.size() + " accounts match|@"));
+        if (passed) {
+            String tokenMsg = computedTokenBalances != null ? " (HBAR + tokens)" : "";
+            System.out.println(Ansi.AUTO.string(
+                    "@|green ✓ All " + expectedHbarBalances.size() + " accounts match" + tokenMsg + "|@"));
         } else {
-            System.out.println(Ansi.AUTO.string("@|red ✗ Found " + comparison.mismatches.size() + " mismatches out of "
-                    + expectedBalances.size() + " accounts|@"));
-            // Print first 10 mismatches
-            int shown = 0;
-            for (Map.Entry<Long, BalanceMismatch> entry : comparison.mismatches.entrySet()) {
-                if (shown++ >= 10) {
-                    System.out.println(
-                            Ansi.AUTO.string("  @|yellow ... and " + (comparison.mismatches.size() - 10) + " more|@"));
-                    break;
+            int totalMismatches = hbarComparison.mismatches.size() + tokenMismatches.size();
+            System.out.println(Ansi.AUTO.string("@|red ✗ Found " + totalMismatches + " mismatches|@"));
+
+            // Print HBAR mismatches
+            if (!hbarComparison.mismatches.isEmpty()) {
+                System.out.println(
+                        Ansi.AUTO.string("  @|yellow HBAR mismatches:|@ " + hbarComparison.mismatches.size()));
+                int shown = 0;
+                for (Map.Entry<Long, BalanceMismatch> entry : hbarComparison.mismatches.entrySet()) {
+                    if (shown++ >= 10) {
+                        System.out.println(Ansi.AUTO.string(
+                                "    @|yellow ... and " + (hbarComparison.mismatches.size() - 10) + " more|@"));
+                        break;
+                    }
+                    BalanceMismatch m = entry.getValue();
+                    System.out.println(Ansi.AUTO.string(String.format(
+                            "    Account @|cyan %d|@: expected @|yellow %,d|@ but computed @|red %,d|@ (diff: @|red %+,d|@)",
+                            entry.getKey(), m.expected, m.computed, m.computed - m.expected)));
                 }
-                BalanceMismatch m = entry.getValue();
-                System.out.println(Ansi.AUTO.string(String.format(
-                        "  Account @|cyan %d|@: expected @|yellow %,d|@ but computed @|red %,d|@ (diff: @|red %+,d|@)",
-                        entry.getKey(), m.expected, m.computed, m.computed - m.expected)));
             }
+
+            // Print token mismatches
+            if (!tokenMismatches.isEmpty()) {
+                System.out.println(Ansi.AUTO.string("  @|yellow Token mismatches:|@ " + tokenMismatches.size()));
+                int shown = 0;
+                for (Map.Entry<String, BalanceMismatch> entry : tokenMismatches.entrySet()) {
+                    if (shown++ >= 10) {
+                        System.out.println(
+                                Ansi.AUTO.string("    @|yellow ... and " + (tokenMismatches.size() - 10) + " more|@"));
+                        break;
+                    }
+                    BalanceMismatch m = entry.getValue();
+                    System.out.println(Ansi.AUTO.string(String.format(
+                            "    @|cyan %s|@: expected @|yellow %,d|@ but computed @|red %,d|@",
+                            entry.getKey(), m.expected, m.computed)));
+                }
+            }
+
             throw new ValidationException("Balance validation failed at block " + checkpointBlock + ": "
-                    + comparison.mismatches.size() + " mismatches");
+                    + hbarComparison.mismatches.size() + " HBAR, " + tokenMismatches.size() + " token mismatches");
         }
+    }
+
+    /**
+     * Compare token balances between expected and computed values.
+     */
+    private Map<String, BalanceMismatch> compareTokenBalances(
+            Map<Long, Map<Long, Long>> expectedTokenBalances, Map<Long, Map<Long, Long>> computedTokenBalances) {
+        Map<String, BalanceMismatch> mismatches = new TreeMap<>();
+
+        for (Map.Entry<Long, Map<Long, Long>> accountEntry : expectedTokenBalances.entrySet()) {
+            long accountNum = accountEntry.getKey();
+            Map<Long, Long> expectedTokens = accountEntry.getValue();
+            Map<Long, Long> computedTokens = computedTokenBalances.getOrDefault(accountNum, Map.of());
+
+            for (Map.Entry<Long, Long> tokenEntry : expectedTokens.entrySet()) {
+                long tokenNum = tokenEntry.getKey();
+                long expected = tokenEntry.getValue();
+                Long computed = computedTokens.get(tokenNum);
+
+                if (computed == null) {
+                    mismatches.put("account " + accountNum + " token " + tokenNum, new BalanceMismatch(expected, 0L));
+                } else if (!computed.equals(expected)) {
+                    mismatches.put(
+                            "account " + accountNum + " token " + tokenNum, new BalanceMismatch(expected, computed));
+                }
+            }
+        }
+
+        return mismatches;
     }
 
     /**
@@ -252,7 +350,7 @@ public class BalanceCheckpointValidator {
             for (CheckpointResult r : results) {
                 if (!r.passed) {
                     System.out.println(Ansi.AUTO.string("  @|red Block " + r.blockNumber + "|@: " + r.message + " ("
-                            + r.mismatchCount + " mismatches)"));
+                            + r.hbarMismatchCount + " HBAR, " + r.tokenMismatchCount + " token mismatches)"));
                 }
             }
         }
@@ -296,7 +394,13 @@ public class BalanceCheckpointValidator {
 
     /** Result of a single checkpoint validation */
     public record CheckpointResult(
-            long blockNumber, boolean passed, String message, int totalAccounts, int matchCount, int mismatchCount) {}
+            long blockNumber,
+            boolean passed,
+            String message,
+            int totalAccounts,
+            int matchCount,
+            int hbarMismatchCount,
+            int tokenMismatchCount) {}
 
     /** A balance mismatch between expected and computed values */
     private record BalanceMismatch(long expected, long computed) {}

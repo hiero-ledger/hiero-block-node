@@ -19,13 +19,13 @@ import java.util.List;
 import java.util.zip.GZIPInputStream;
 
 /**
- * Utility class to list and download account balance files from the mainnet bucket.
+ * Utility class to list and download account balance protobuf files from the mainnet bucket.
  * The balance files are located at: gs://hedera-mainnet-streams/accountBalances/balance{nodeAccountId}/
  *
  * <p>Example bucket paths:
  * <ul>
- *   <li>{@code gs://hedera-mainnet-streams/accountBalances/balance0.0.3/2019-09-13T22_00_00.000081Z_Balances.csv}</li>
- *   <li>{@code gs://hedera-mainnet-streams/accountBalances/balance0.0.3/2019-09-13T22_00_00.000081Z_Balances.csv_sig}</li>
+ *   <li>{@code gs://hedera-mainnet-streams/accountBalances/balance0.0.3/2024-01-15T00_00_00.000000Z_Balances.pb.gz}</li>
+ *   <li>{@code gs://hedera-mainnet-streams/accountBalances/balance0.0.3/2024-01-15T00_00_00.000000Z_Balances.pb.sig.gz}</li>
  * </ul>
  */
 public class BalanceFileBucket {
@@ -149,6 +149,30 @@ public class BalanceFileBucket {
             }
         }
         return normalized;
+    }
+
+    /**
+     * Get the midnight timestamp for a given day in format suitable for balance file lookup.
+     * Midnight balance files are generated daily at 00:00:00 UTC.
+     *
+     * @param dayPrefix the day in format "YYYY-MM-DD" (e.g., "2024-01-15")
+     * @return the midnight Instant for that day
+     */
+    public static Instant getMidnightTimestamp(String dayPrefix) {
+        return Instant.parse(dayPrefix + "T00:00:00Z");
+    }
+
+    /**
+     * Download the midnight balance file for a given day directly without listing.
+     * This is more efficient than listing all files for a day when only the midnight
+     * checkpoint is needed.
+     *
+     * @param dayPrefix the day in format "YYYY-MM-DD" (e.g., "2024-01-15")
+     * @return the protobuf file bytes (decompressed if gzipped), or null if not found
+     */
+    public byte[] downloadMidnightBalanceFile(String dayPrefix) {
+        Instant midnight = getMidnightTimestamp(dayPrefix);
+        return downloadBalanceFile(midnight);
     }
 
     /**
