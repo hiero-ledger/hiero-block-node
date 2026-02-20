@@ -46,24 +46,19 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     /**
      * Constructs a BlockFileBlockAccessor with the specified block file path and compression type.
      *
-     * @param blockFilePath the path to the block file, must exist
-     * @param compressionType the compression type of the block file, must not be null
+     * @param blockFile the abstraction of the block file, which must exist
      * @param linksRootPath the root path where hard links to block files will be created
-     * @param blockNumber the block number of the block
      */
-    BlockFileBlockAccessor(
-            @NonNull final Path blockFilePath,
-            @NonNull final CompressionType compressionType,
-            @NonNull final Path linksRootPath,
-            final long blockNumber)
+    BlockFileBlockAccessor(@NonNull final RecentBlockPath blockFile, @NonNull final Path linksRootPath)
             throws IOException {
+        final Path blockFilePath = blockFile.path();
         if (!Files.isRegularFile(blockFilePath)) {
             final String msg = INVALID_BLOCK_FILE_PATH_MESSAGE.formatted(blockFilePath);
             throw new IOException(msg);
         }
         this.absolutePathToBlock = blockFilePath.toAbsolutePath().toString();
-        this.compressionType = Objects.requireNonNull(compressionType);
-        this.blockNumber = blockNumber;
+        this.compressionType = blockFile.compressionType();
+        this.blockNumber = blockFile.blockNumber();
         // create a hard link to the block file for the duration of the accessor's life
         final Path link = linksRootPath.resolve(UUID.randomUUID().toString());
         this.blockFileLink = Files.createLink(link, blockFilePath);

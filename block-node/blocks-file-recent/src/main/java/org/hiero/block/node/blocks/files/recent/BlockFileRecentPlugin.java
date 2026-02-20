@@ -5,7 +5,8 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
-import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
+import static java.nio.file.FileVisitResult.CONTINUE;
+import static org.hiero.block.node.blocks.files.recent.RecentBlockPath.BLOCK_FILE_EXTENSION;
 import static org.hiero.block.node.spi.blockmessaging.BlockSource.UNKNOWN;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
@@ -21,16 +22,21 @@ import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
+import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -77,6 +83,11 @@ import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNotificationHandler {
     /** The maximum limit of blocks to be deleted in a single retention run. */
     private static final int RETENTION_ROUND_LIMIT = 1_000;
+    /**
+     * The maximum depth of directory to walk.
+     * This is the deepest path permitted if we set digits per directory to `1`.
+     */
+    private static final int MAX_FILE_SEARCH_DEPTH = 20;
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The configuration for this plugin. */
@@ -162,12 +173,12 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
         context.blockMessaging().registerBlockNotificationHandler(this, false, "BlocksFilesRecent");
         // scan file system to find the oldest and newest blocks
         // TODO this can be way for efficient, very brute force at the moment
-        nestedDirectoriesAllBlockNumbers(liveRootPath, config.compression()).forEach(blockNumber -> {
+        getAllBlockNumbers(liveRootPath, config.compression()).forEach(blockNumber -> {
             availableBlocks.add(blockNumber);
             // Initialize total bytes stored counter
             try {
-                Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
-                        liveRootPath, blockNumber, config.compression(), config.maxFilesPerDir());
+                Path blockFilePath =
+                        RecentBlockPath.computeBlockPath(config, blockNumber).path();
                 if (Files.exists(blockFilePath)) {
                     totalBytesStored.addAndGet(Files.size(blockFilePath));
                 }
@@ -209,6 +220,29 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     }
 
     /**
+     * Set of all block number in a directory structure. The base path is the root of the directory structure. The
+     * method will traverse the directory structure and find all block numbers.
+     *
+     * @param basePath the base path
+     * @param compressionType the compression type
+     * @return the minimum block number, or -1 if no block files are found
+     */
+    static Set<Long> getAllBlockNumbers(Path basePath, CompressionType compressionType) {
+        try {
+            final Set<Long> blockNumbers = new HashSet<>();
+            final String fullExtension = BLOCK_FILE_EXTENSION + compressionType.extension();
+            Files.walkFileTree(
+                    basePath,
+                    Set.of(),
+                    MAX_FILE_SEARCH_DEPTH,
+                    new BlockNumberCollectionVisitor(blockNumbers, fullExtension));
+            return blockNumbers;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
      * Update gauge metrics with current state.
      */
     private void updateGauges() {
@@ -236,23 +270,19 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     public BlockAccessor block(final long blockNumber) {
         if (availableBlocks.contains(blockNumber)) {
             // we should have this block stored so go file the file and return accessor to it
-            final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                    config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-            if (Files.exists(verifiedBlockPath)) {
+            final RecentBlockPath verifiedBlockPath = RecentBlockPath.computeExistingBlockPath(config, blockNumber);
+            if (verifiedBlockPath != null) {
                 // we have the block so return it
                 try {
-                    final BlockFileBlockAccessor accessor = new BlockFileBlockAccessor(
-                            verifiedBlockPath, config.compression(), linksRootPath, blockNumber);
+                    final BlockFileBlockAccessor accessor =
+                            new BlockFileBlockAccessor(verifiedBlockPath, linksRootPath);
                     blocksReadCounter.increment();
                     return accessor;
                 } catch (final IOException e) {
                     LOGGER.log(INFO, "Failed to create accessor for block %d".formatted(blockNumber), e);
                 }
             } else {
-                LOGGER.log(
-                        WARNING,
-                        "Failed to find verified block file: fileName={0}",
-                        verifiedBlockPath.toAbsolutePath().toString());
+                LOGGER.log(WARNING, "Failed to find verified block for number={0}", blockNumber);
             }
         }
         return null;
@@ -334,8 +364,8 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                             headerNumber);
                     sendBlockNotification(blockNumber, false, effectiveSource);
                 } else {
-                    final Path verifiedBlockPath = BlockFile.nestedDirectoriesBlockFilePath(
-                            config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
+                    final Path verifiedBlockPath = RecentBlockPath.computeBlockPath(config, blockNumber)
+                            .path();
                     createDirectoryOrFail(verifiedBlockPath);
                     writeBlockOrFail(block, blockNumber, effectiveSource, verifiedBlockPath);
                 }
@@ -403,9 +433,9 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
      */
     private void delete(final long blockNumber) {
         // compute file path for the block
-        final Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
-                config.liveRootPath(), blockNumber, config.compression(), config.maxFilesPerDir());
-        if (Files.exists(blockFilePath)) {
+        final RecentBlockPath blockPath = RecentBlockPath.computeExistingBlockPath(config, blockNumber);
+        if (blockPath != null) {
+            final Path blockFilePath = blockPath.path();
             // log we are deleting the block file
             deleteBlockCleanly(blockNumber, blockFilePath);
             // clean up any empty parent directories up to the base directory
@@ -476,6 +506,46 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             } else {
                 // directory iteration failed
                 throw e;
+            }
+        }
+    }
+
+    private static class BlockNumberCollectionVisitor implements FileVisitor<Path> {
+        private final String blockFileExtension;
+        private final Set<Long> blockNumbersFound;
+
+        public BlockNumberCollectionVisitor(
+                @NonNull final Set<Long> blockNumbers, @NonNull final String fullExtension) {
+            blockFileExtension = Objects.requireNonNull(fullExtension);
+            blockNumbersFound = Objects.requireNonNull(blockNumbers);
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
+            Objects.requireNonNull(dir);
+            return CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
+            if (file.toString().endsWith(blockFileExtension)) {
+                blockNumbersFound.add(BlockFile.blockNumberFromFile(file));
+            }
+            return CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFileFailed(final Path file, final IOException exc) throws IOException {
+            throw Objects.requireNonNull(exc);
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
+            if (exc == null) {
+                Objects.requireNonNull(dir);
+                return CONTINUE;
+            } else {
+                throw exc;
             }
         }
     }
