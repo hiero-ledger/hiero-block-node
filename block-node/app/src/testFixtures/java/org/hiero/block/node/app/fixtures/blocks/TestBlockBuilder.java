@@ -240,7 +240,7 @@ public final class TestBlockBuilder {
     }
 
     /// Creates a single simple block with a broken header.
-    public static BlockUnparsed generateBlockWithBrokenHeader(final int blockNumber) {
+    public static BlockUnparsed generateBlockWithBrokenHeader(final long blockNumber) {
         assertTrue(blockNumber >= 0);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[3];
         blockItems[0] = sampleBrokenBlockHeaderUnparsed(blockNumber);
@@ -260,7 +260,7 @@ public final class TestBlockBuilder {
     }
 
     /// Creates a single simple block with broken proof.
-    public static BlockUnparsed generateBlockWithBrokenProof(final int blockNumber) {
+    public static BlockUnparsed generateBlockWithBrokenProof(final long blockNumber) {
         assertTrue(blockNumber >= 0);
         final BlockItemUnparsed[] blockItems = new BlockItemUnparsed[3];
         blockItems[0] = sampleHeaderUnparsed(blockNumber);

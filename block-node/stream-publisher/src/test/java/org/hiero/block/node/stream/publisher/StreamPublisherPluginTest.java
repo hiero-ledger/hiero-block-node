@@ -9,18 +9,14 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.UncheckedParseException;
-import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import org.assertj.core.api.InstanceOfAssertFactories;
@@ -91,58 +87,6 @@ class StreamPublisherPluginTest {
             historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
             start(toTest, toTest.methods().getFirst(), historicalBlockFacility);
-        }
-
-        private void reopenPublishStream() {
-            fromPluginBytes = new ArrayList<>();
-            fromPluginPipe = new Pipeline<>() {
-                @Override
-                public void clientEndStreamReceived() {
-                    LOGGER.log(System.Logger.Level.TRACE, "clientEndStreamReceived");
-                }
-
-                @Override
-                public void onNext(Bytes item) {
-                    fromPluginBytes.add(item);
-                }
-
-                @Override
-                public void onSubscribe(Subscription subscription) {
-                    LOGGER.log(System.Logger.Level.TRACE, "onSubscribe");
-                }
-
-                @Override
-                public void onError(Throwable throwable) {
-                    throw new AssertionError("Unexpected error from plugin", throwable);
-                }
-
-                @Override
-                public void onComplete() {
-                    LOGGER.log(System.Logger.Level.TRACE, "onComplete");
-                }
-            };
-            final ServiceInterface.RequestOptions options = new ServiceInterface.RequestOptions() {
-                @Override
-                public Optional<String> authority() {
-                    return Optional.empty();
-                }
-
-                @Override
-                public boolean isProtobuf() {
-                    return true;
-                }
-
-                @Override
-                public boolean isJson() {
-                    return false;
-                }
-
-                @Override
-                public String contentType() {
-                    return "application/grpc";
-                }
-            };
-            toPluginPipe = serviceInterface.open(plugin.methods().getFirst(), options, fromPluginPipe);
         }
 
         /**
@@ -276,14 +220,15 @@ class StreamPublisherPluginTest {
         void testResendBlockAfterIncompleteStreamReconnect() {
             // Stream block 0 to completion and verify the acknowledgement. This establishes
             // normal behaviour before we simulate a mid-stream disconnect.
-            final BlockUnparsed firstBlock =
-                    TestBlockBuilder.generateBlockWithNumber(0).blockUnparsed();
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
+            final BlockUnparsed firstBlock = block0.blockUnparsed();
             final PublishStreamRequestUnparsed firstRequest = PublishStreamRequestUnparsed.newBuilder()
                     .blockItems(BlockItemSetUnparsed.newBuilder()
                             .blockItems(firstBlock.blockItems())
                             .build())
                     .build();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
+            endThisBlock(toPluginPipe, block0.number());
             parkNanos(500_000_000L);
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -293,14 +238,12 @@ class StreamPublisherPluginTest {
                     .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                     .returns(0L, acknowledgementBlockNumberExtractor);
             fromPluginBytes.clear();
-
             // Begin streaming block 1 but stop before the proof to mimic the publisher
             // dropping the connection mid-block. The in-memory historical facility is
             // temporarily disabled so it will ignore the partial block.
             historicalBlockFacility.setDisablePlugin();
-
-            final BlockUnparsed secondBlock =
-                    TestBlockBuilder.generateBlockWithNumber(1).blockUnparsed();
+            final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1);
+            final BlockUnparsed secondBlock = block1.blockUnparsed();
             final List<BlockItemUnparsed> secondBlockItems = secondBlock.blockItems();
             final PublishStreamRequestUnparsed secondBlockHeaderRequest = PublishStreamRequestUnparsed.newBuilder()
                     .blockItems(BlockItemSetUnparsed.newBuilder()
@@ -321,7 +264,7 @@ class StreamPublisherPluginTest {
             historicalBlockFacility.clearDisablePlugin();
             // Open a fresh stream to simulate a new publisher connection carrying on with
             // block 1.
-            reopenPublishStream();
+            setupNewPipelines();
             // Resend block 1 in the usual three batches (header, round, proof). With the bug
             // fixed the plugin should now accept the resend and acknowledge block 1.
             final PublishStreamRequestUnparsed retryHeaderRequest = PublishStreamRequestUnparsed.newBuilder()
@@ -342,8 +285,8 @@ class StreamPublisherPluginTest {
                             .build())
                     .build();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(retryProofRequest));
+            endThisBlock(toPluginPipe, block1.number());
             parkNanos(500_000_000L);
-
             assertThat(fromPluginBytes).isNotEmpty();
             final PublishStreamResponse response = bytesToPublishStreamResponseMapper.apply(fromPluginBytes.getLast());
             assertThat(response)
@@ -361,6 +304,7 @@ class StreamPublisherPluginTest {
     @DisplayName("Plugin Tests Pre Earliest Managed Block")
     class PluginTestsPreEarliestManagedBlock
             extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService, ScheduledBlockingExecutor> {
+        private static final long PARK_DURATION = 1_000_000_000L;
         /** The historical block facility to use when testing. */
         private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
 
@@ -403,9 +347,9 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
-            endThisBlock(toPluginPipe, 0L);
+            endThisBlock(toPluginPipe, block.number());
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -441,16 +385,16 @@ class StreamPublisherPluginTest {
                             .contains(0, 5))
                     .isTrue();
             // Build a PublishStreamRequest with a valid block as items prior to earliestManagedBlock && after history
-            final long blockNumber = 6L;
-            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
+            final TestBlock block = TestBlockBuilder.generateBlockWithNumber(6L);
+            final long blockNumber = block.number();
             final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                     .blockItems(block.asItemSetUnparsed())
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
-            endThisBlock(toPluginPipe, 0L);
+            endThisBlock(toPluginPipe, blockNumber);
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -497,7 +441,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -546,7 +490,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -587,9 +531,9 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
-            endThisBlock(toPluginPipe, 0L);
+            endThisBlock(toPluginPipe, block.number());
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -611,21 +555,17 @@ class StreamPublisherPluginTest {
         @DisplayName(
                 "Test publish a valid block as items prior to earliestManagedBlock, next blocks continue the chain")
         void testStreamPriorToEarliestManagedBlockFollowUpContinuesChain() {
-            final BlockUnparsed block0 =
-                    TestBlockBuilder.generateBlockWithNumber(0).blockUnparsed();
+            final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0);
             // Activate the plugin with the earliest managed block of 10.
             activatePlugin(10L);
             // Then, we need to stream the first block
-            final BlockItemSetUnparsed firstRequestSet = BlockItemSetUnparsed.newBuilder()
-                    .blockItems(block0.blockItems())
-                    .build();
             final PublishStreamRequestUnparsed firstRequest = PublishStreamRequestUnparsed.newBuilder()
-                    .blockItems(firstRequestSet)
+                    .blockItems(block0.asItemSetUnparsed())
                     .build();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
-            endThisBlock(toPluginPipe, 0L);
+            endThisBlock(toPluginPipe, block0.number());
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -637,17 +577,14 @@ class StreamPublisherPluginTest {
             // Clear the plugin pipe
             fromPluginBytes.clear();
             // Now attempt to send the next block
-            final BlockUnparsed block1 =
-                    TestBlockBuilder.generateBlockWithNumber(1).blockUnparsed();
-            final BlockItemSetUnparsed secondRequestSet = BlockItemSetUnparsed.newBuilder()
-                    .blockItems(block1.blockItems())
-                    .build();
+            final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1);
             final PublishStreamRequestUnparsed secondRequest = PublishStreamRequestUnparsed.newBuilder()
-                    .blockItems(secondRequestSet)
+                    .blockItems(block1.asItemSetUnparsed())
                     .build();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(secondRequest));
+            endThisBlock(toPluginPipe, block1.number());
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -684,7 +621,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -736,7 +673,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -750,7 +687,7 @@ class StreamPublisherPluginTest {
             // Now attempt to send the same request again, that should not be possible
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            parkNanos(PARK_DURATION);
             // Assert end stream
             assertThat(fromPluginBytes)
                     .hasSize(1)

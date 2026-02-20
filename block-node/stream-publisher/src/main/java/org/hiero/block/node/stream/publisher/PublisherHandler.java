@@ -21,7 +21,6 @@ import java.lang.System.Logger.Level;
 import java.util.List;
 import java.util.NavigableSet;
 import java.util.Objects;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicLong;
@@ -66,8 +65,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final MetricsHolder metrics;
     /** The publisher manager. We use it to make {@link BlockAction} queries. */
     private final StreamPublisherManager publisherManager;
-    /** The transfer queue for propagating incoming items. Each handler has it`s own queue. */
-    private final BlockingQueue<BlockItemSetUnparsed> blockItemsQueue;
     /** The ID of this handler. This is used to identify the handler within the publisher manager. */
     private final long handlerId;
     /** The current streaming block number. This is used to track the current block being streamed. */
@@ -92,19 +89,16 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * @param replyPipeline the pipeline to send replies to
      * @param handlerMetrics the metrics for this handler
      * @param manager the publisher manager that manages this handler
-     * @param transferQueue the queue for transferring block items to the manager
      */
     public PublisherHandler(
             final long nextId,
             @NonNull final Pipeline<? super PublishStreamResponse> replyPipeline,
             @NonNull final MetricsHolder handlerMetrics,
-            @NonNull final StreamPublisherManager manager,
-            @NonNull final BlockingQueue<BlockItemSetUnparsed> transferQueue) {
+            @NonNull final StreamPublisherManager manager) {
         handlerId = nextId;
         replies = Objects.requireNonNull(replyPipeline);
         metrics = Objects.requireNonNull(handlerMetrics);
         publisherManager = Objects.requireNonNull(manager);
-        blockItemsQueue = Objects.requireNonNull(transferQueue);
         currentStreamingBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
         unacknowledgedStreamedBlocks = new ConcurrentSkipListSet<>();
     }
@@ -186,7 +180,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 shutdown();
             }
         } else if (request.hasEndOfBlock()) {
-            handleEndOfBlock(request.endOfBlock());
+            handleEndOfBlock(Objects.requireNonNull(request.endOfBlock()));
         } else {
             // this should never happen
             sendEndAndResetState(Code.ERROR);
@@ -199,8 +193,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         if (blockNumber != expectedBlockNumber) {
             final String message = "Expected to close block {0}, but received close for block {1}.";
             LOGGER.log(Level.INFO, message, expectedBlockNumber, blockNumber);
+            // @todo(2159) should we take another action as part of the additional handling of the end of block message?
         }
         metrics.receiveBlockTimeLatencyNs.add(System.nanoTime() - currentStreamingBlockHeaderReceivedTime);
+        publisherManager.endOfBlock(blockNumber);
         publisherManager.closeBlock(handlerId);
         unacknowledgedStreamedBlocks.add(blockNumber);
         resetState();
@@ -295,7 +291,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         blockAction = publisherManager.getActionForBlock(blockNumber, blockAction, handlerId);
         final BatchHandleResult handleResult =
                 switch (blockAction) {
-                    case ACCEPT -> handleAccept(itemSetUnparsed, blockItems);
+                    case ACCEPT -> handleAccept(itemSetUnparsed);
                     case SKIP -> handleSkip(blockNumber);
                     case RESEND -> handleResend();
                     case SEND_BEHIND -> handleSendBehind();
@@ -555,26 +551,29 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
      * @param handleResult the result to handle
      */
     private void handleBlockActionResult(final BatchHandleResult handleResult) {
-        if (handleResult.shouldReset()) {
-            resetState();
-        }
         if (handleResult.shouldShutdown()) {
             shutdown();
+        }
+        if (handleResult.shouldReset()) {
+            resetState();
         }
     }
 
     /**
      * Handle the ACCEPT action for a block.
      */
-    private BatchHandleResult handleAccept(
-            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems)
-            throws InterruptedException {
+    private BatchHandleResult handleAccept(final BlockItemSetUnparsed itemSetUnparsed) {
         // If the action is ACCEPT, we can safely propagate the items
         // to the manager.
-        blockItemsQueue.put(itemSetUnparsed);
-        final int itemsReceived = blockItems.size();
-        metrics.liveBlockItemsReceived.add(itemsReceived); // @todo(1415) add label
-        return new BatchHandleResult(false, false);
+        final int itemsReceived =
+                publisherManager.transferBlockItems(itemSetUnparsed, currentStreamingBlockNumber.get());
+        if (itemsReceived > 0) {
+            metrics.liveBlockItemsReceived.add(itemsReceived); // @todo(1415) add label
+            return new BatchHandleResult(false, false);
+        } else {
+            LOGGER.log(DEBUG, "Handler {0} was unable to transfer block items to manager.", handlerId);
+            return handleEndError();
+        }
     }
 
     /**

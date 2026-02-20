@@ -5,6 +5,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 
 /**
@@ -43,10 +44,25 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     BlockAction getActionForBlock(
             final long blockNumber, @Nullable final BlockAction previousAction, final long handlerId);
 
+    /// This method will return the next block number for the next block that must be resent.
+    /// This method could also return {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if no
+    /// more
+    /// blocks are awaiting resend.
+    long nextBlockToResend();
+
+    /// This method transfers block items from a {@link PublisherHandler} to the manager.
+    /// The manager will internally resolve, store temporarily, and propagate these items to the internal messaging.
+    /// @return the count of block items successfully transferred to the manager or {@code -1} if unable to offer
+    /// items
+    int transferBlockItems(final BlockItemSetUnparsed blockItems, final long blockNumber);
+
     /**
      * Close a block for a handler.
      */
     void closeBlock(final long handlerId);
+
+    ///  Calling this method indicates that the end of block message is received for said block.
+    void endOfBlock(final long blockNumber);
 
     /**
      * Return the latest known valid and persisted block number.

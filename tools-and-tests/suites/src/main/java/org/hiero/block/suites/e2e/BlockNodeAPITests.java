@@ -32,6 +32,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
@@ -353,33 +354,55 @@ public class BlockNodeAPITests {
         assertThat(responseObserver2.getOnCompleteCalls().get()).isEqualTo(0);
         assertThat(responseObserver2.getClientEndStreamCalls().get()).isEqualTo(0);
 
-        final SubscribeStreamResponse subscribeResponse1 =
-                subscribeResponseObserver.getOnNextCalls().get(3);
-        assertThat(subscribeResponse1.blockItems().blockItems()).hasSize(blockItems1.length);
-
-        // 6 items expected: block 0 items, end block 0, success status, block 1 items, end block 1, success status
-        assertThat(subscribeResponseObserver.getOnNextCalls()).element(3).satisfies(response -> {
-            assertThat(response.blockItems().blockItems()).hasSize(blockItems1.length);
-            assertThat(response.blockItems()
-                            .blockItems()
-                            .getFirst()
-                            .blockHeader()
-                            .number())
-                    .isEqualTo(blockNumber1);
-        });
-        assertThat(subscribeResponseObserver
-                        .getOnNextCalls()
-                        .get(4)
-                        .endOfBlock()
-                        .blockNumber())
-                .isEqualTo(blockNumber1);
-
-        if (subscribeResponseObserver.getOnNextCalls().size() > 5) {
+        // When subscribed initially, block 1 was already persisted, so it will be streamed from history.
+        // Then, the session will either supply the block from history, if it is persisted, or from the live stream
+        // if not persisted yet. If it comes from the live stream, we expect one more onNext call, because the
+        // proof will be sent separately to the live queue from the rest of the block.
+        if (subscribeResponseObserver.getOnNextCalls().size() == 6) {
+            // 6 items expected: block 0 items, end block 0, success status, block 1 items, end block 1, success status
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(3).satisfies(response -> {
+                assertThat(response.blockItems().blockItems())
+                        .hasSize(blockItems1.length)
+                        .first()
+                        .returns(blockNumber1, i -> i.blockHeader().number());
+            });
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
+                assertThat(response.endOfBlock().blockNumber()).isEqualTo(blockNumber1);
+            });
             // success status should be the last response
-            assertThat(subscribeResponseObserver.getOnNextCalls().get(5).status())
-                    .isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(5).satisfies(response -> {
+                assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
+            });
+        } else if (subscribeResponseObserver.getOnNextCalls().size() == 7) {
+            // 7 items expected:
+            // block 0 items, end block 0, success status, block 1 items w/o proof, block 1 proof, end block 1,
+            // success status
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(3).satisfies(response -> {
+                assertThat(response.blockItems().blockItems())
+                        .hasSize(blockItems1.length - 1)
+                        .first()
+                        .returns(blockNumber1, i -> i.blockHeader().number());
+            });
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(4).satisfies(response -> {
+                assertThat(response.blockItems().blockItems())
+                        .hasSize(1)
+                        .first()
+                        .returns(blockNumber1, i -> i.blockProof().block());
+            });
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(5).satisfies(response -> {
+                assertThat(response.endOfBlock().blockNumber()).isEqualTo(blockNumber1);
+            });
+            // success status should be the last response
+            assertThat(subscribeResponseObserver.getOnNextCalls()).element(6).satisfies(response -> {
+                assertThat(response.status()).isEqualTo(SubscribeStreamResponse.Code.SUCCESS);
+            });
+        } else {
+            final String responses = subscribeResponseObserver.getOnNextCalls().stream()
+                    .map(SubscribeStreamResponse::toString)
+                    .collect(Collectors.joining(", "));
+            final int size = subscribeResponseObserver.getOnNextCalls().size();
+            fail("Unexpected number of subscribe responses: %d, Responses: %s".formatted(size, responses));
         }
-
         // close the client connections
         requestStream.closeConnection();
         requestStream2.closeConnection();
@@ -459,6 +482,12 @@ public class BlockNodeAPITests {
                 .build();
 
         newRequestStream.onNext(swappedRequest);
+
+        final PublishStreamRequest endOfBlockRequest = PublishStreamRequest.newBuilder()
+                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
+                .build();
+
+        newRequestStream.onNext(endOfBlockRequest);
 
         // sleep briefly to allow processing
         parkNanos(5_000_000_000L);

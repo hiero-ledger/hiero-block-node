@@ -40,6 +40,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -360,6 +361,7 @@ class LiveStreamPublisherManagerTest {
                 // We send the request to the publisher handler.
                 // This will queue the messaging forwarder to run and update the current streaming block number.
                 publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, streamedBlockNumber);
                 // We run the queued messaging forwarder to update the current streaming block number.
                 // We need to run the task async, because the loop (managed by config) is way too big to block on.
                 // We will however wait for one second to ensure the task is run.
@@ -552,9 +554,6 @@ class LiveStreamPublisherManagerTest {
                                 .blockItems(block.blockItems())
                                 .build())
                         .build();
-
-                final BlockAction startAction = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
-                assertThat(startAction).isEqualTo(BlockAction.ACCEPT);
                 // Enqueue the request into the handler (this may also schedule the forwarder in production code).
                 publisherHandler.onNext(req);
                 // Mark the block as eligible to be closed (end-of-items for this block).
@@ -1154,15 +1153,21 @@ class LiveStreamPublisherManagerTest {
                 // We will however wait for one second to ensure the task is run.
                 threadPoolManager.executor().executeAsync(1_000L, false);
                 // Assert that items were propagated to the publisher handler.
-                assertThat(messagingFacility.getSentBlockItems())
+                final List<BlockItems> sentBlockItems = messagingFacility.getSentBlockItems();
+                // We expect 2 batches sent
+                assertThat(sentBlockItems).isNotNull().isNotEmpty().hasSize(2);
+                // First batch is the block, just before the proof
+                assertThat(sentBlockItems.getFirst().blockItems())
                         .isNotNull()
                         .isNotEmpty()
-                        .hasSize(1);
-                assertThat(messagingFacility.getSentBlockItems().getFirst().blockItems())
+                        .hasSize(block.length - 1)
+                        .containsExactly(Arrays.copyOfRange(block, 0, block.length - 1));
+                // Second batch is only the proof after the end of block is received
+                assertThat(sentBlockItems.getLast().blockItems())
                         .isNotNull()
                         .isNotEmpty()
-                        .hasSize(block.length)
-                        .containsExactly(block);
+                        .hasSize(1)
+                        .containsExactly(block[block.length - 1]);
             }
         }
 
@@ -1363,7 +1368,11 @@ class LiveStreamPublisherManagerTest {
              * This test aims to assert that the
              * {@link LiveStreamPublisherManager#handlerIsEnding(long, long)}
              * will correctly handle an end stream request when the handler
-             * has not completed it's current streaming block.
+             * has not completed it's current streaming block. This test runs
+             * the message forwarder task only in the end. If the message
+             * forwarder task is run at the beginning, we could be seeing
+             * different end results (i.e. more items streamed), but that is
+             * expected and should be another test.
              */
             @ParameterizedTest()
             @EnumSource(EndStream.Code.class)
@@ -1415,17 +1424,27 @@ class LiveStreamPublisherManagerTest {
                         .blockItems(fullBlockSet)
                         .build();
                 publisherHandler2.onNext(requestFullBlock);
-                endThisBlock(publisherHandler, testBlock.number());
+                endThisBlock(publisherHandler2, testBlock.number());
                 // We run the queued messaging forwarder to update the current streaming block number.
                 // We need to run the task async, because the loop (managed by config) is way too big to block on.
                 // We will however wait for one second to ensure the task is run.
                 threadPoolManager.executor().executeAsync(1_000L, false);
                 // Assert that the second request has been accepted and the block items were sent.
-                assertThat(messagingFacility.getSentBlockItems().getFirst().blockItems())
+                final List<BlockItems> sentBlockItems = messagingFacility.getSentBlockItems();
+                // We expect 2 batches sent
+                assertThat(sentBlockItems).isNotNull().isNotEmpty().hasSize(2);
+                // First batch is the block, just before the proof
+                assertThat(sentBlockItems.getFirst().blockItems())
                         .isNotNull()
                         .isNotEmpty()
-                        .hasSize(block.length)
-                        .containsExactly(block);
+                        .hasSize(block.length - 1)
+                        .containsExactly(Arrays.copyOfRange(block, 0, block.length - 1));
+                // Second batch is only the proof after the end of block is received
+                assertThat(sentBlockItems.getLast().blockItems())
+                        .isNotNull()
+                        .isNotEmpty()
+                        .hasSize(1)
+                        .containsExactly(block[block.length - 1]);
             }
         }
 

@@ -14,11 +14,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Flow.Subscription;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.LinkedTransferQueue;
-import java.util.concurrent.TransferQueue;
 import java.util.function.Function;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
@@ -77,7 +75,6 @@ class PublisherHandlerTest {
             validReplyPipeline = new TestResponsePipeline();
             validMetricsHodler = createMetrics();
             validPublisherManager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
-            validTranserQueue = new LinkedBlockingQueue<>();
         }
 
         /**
@@ -88,8 +85,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with valid parameters")
         void testValidParameters() {
             assertThatNoException().isThrownBy(() -> {
-                new PublisherHandler(
-                        validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, validTranserQueue);
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager);
             });
         }
 
@@ -101,7 +97,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null reply pipeline")
         void testNullReplyPipeline() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, null, validMetricsHodler, validPublisherManager, validTranserQueue);
+                new PublisherHandler(validNextId, null, validMetricsHodler, validPublisherManager);
             });
         }
 
@@ -113,7 +109,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null metrics holder")
         void testNullMetricsHolder() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, null, validPublisherManager, validTranserQueue);
+                new PublisherHandler(validNextId, validReplyPipeline, null, validPublisherManager);
             });
         }
 
@@ -125,19 +121,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null publisher manager")
         void testNullPublisherManager() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, null, validTranserQueue);
-            });
-        }
-
-        /**
-         * This test aims to assert that the constructor of {@link PublisherHandler} throws a
-         * {@link NullPointerException} when the transfer queue is null.
-         */
-        @Test
-        @DisplayName("Test constructor with null transfer queue")
-        void testNullTransferQueue() {
-            assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, null);
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, null);
             });
         }
     }
@@ -156,8 +140,6 @@ class PublisherHandlerTest {
         private MetricsHolder metrics;
         /** Test publisher manager used within the handler to test. */
         private TestStreamPublisherManager manager;
-        /** Transfer queue used for asserting the items offered by the handler. */
-        private TransferQueue<BlockItemSetUnparsed> transferQueue;
         /** The handler under test. */
         private PublisherHandler toTest;
 
@@ -186,8 +168,7 @@ class PublisherHandlerTest {
             repliesPipeline = new TestResponsePipeline();
             metrics = createMetrics();
             manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
-            transferQueue = new LinkedTransferQueue<>();
-            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, transferQueue);
+            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager);
             manager.addHandler(toTest);
         }
 
@@ -221,10 +202,11 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to return ACCEPT for the block number
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
                 // Assert items offered to the transfer queue
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(manager.getQueueForBlock(block.number())).hasSize(1).containsExactly(blockItemSet);
             }
 
             /**
@@ -250,6 +232,7 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to return ACCEPT for the block number
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
                 // Assert no replies sent to the pipeline
@@ -283,6 +266,7 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to return ACCEPT for the block number
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
@@ -317,12 +301,12 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long expectedStreamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return ACCEPT for the block number
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
                 // Assert no replies sent to the pipeline
@@ -332,15 +316,14 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
                 // Publish the persisted notification for the streamed block
-                manager.handlePersisted(
-                        new PersistedNotification(expectedStreamedBlockNumber, true, 0, BlockSource.PUBLISHER));
+                manager.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
                 // Assert the acknowledgement response is sent to the pipeline
                 // Assert that an acknowledgement was sent for the valid request
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                        .returns(expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
+                        .returns(block.number(), acknowledgementBlockNumberExtractor);
                 // Assert no other responses sent to the pipeline
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -398,7 +381,7 @@ class PublisherHandlerTest {
             void testOnNextCloseBlockBrokenProofACCEPT(final BlockAction action) {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with a broken proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenProof(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -432,7 +415,6 @@ class PublisherHandlerTest {
                     "Test onNext() with valid two requests with a complete single block items streamed - happy path ACCEPT")
             void testOnNextConsecutiveRequestsHappyPathACCEPT() {
                 // Create the block to stream, a single complete valid block
-                final int streamedBlockNumber = 0;
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 final int mid = blockItems.length / 2;
@@ -445,10 +427,12 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to return ACCEPT for the block number
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // First call
                 toTest.onNext(request1);
                 // Assert items offered to the transfer queue
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet1);
+                final BlockingDeque<BlockItemSetUnparsed> block0Queue = manager.getQueueForBlock(block.number());
+                assertThat(block0Queue).hasSize(1).containsExactly(blockItemSet1);
                 // Build the second request with the second half of the block items
                 final BlockItemSetUnparsed blockItemSet2 = BlockItemSetUnparsed.newBuilder()
                         .blockItems(Arrays.copyOfRange(blockItems, mid, blockItems.length))
@@ -458,9 +442,9 @@ class PublisherHandlerTest {
                         .build();
                 // Second call
                 toTest.onNext(request2);
-                endThisBlock(toTest, streamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert items offered to the transfer queue
-                assertThat(transferQueue).hasSize(2).containsExactly(blockItemSet1, blockItemSet2);
+                assertThat(block0Queue).hasSize(2).containsExactly(blockItemSet1, blockItemSet2);
             }
 
             /**
@@ -480,7 +464,6 @@ class PublisherHandlerTest {
             void testOnNextConsecutiveRequestsMetricsHappyPathACCEPT() {
                 // Create the block to stream, a single complete valid block
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 final int mid = blockItems.length / 2;
                 // Build the first request with the first half of the block items
@@ -492,6 +475,7 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to return ACCEPT for the block number
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // First call
                 toTest.onNext(request1);
                 // Assert metrics updated
@@ -505,7 +489,7 @@ class PublisherHandlerTest {
                         .build();
                 // Second call
                 toTest.onNext(request2);
-                endThisBlock(toTest, streamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert metrics updated
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
                 // Assert other metrics unchanged
@@ -535,17 +519,17 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SKIP for the block number
                 manager.setBlockAction(BlockAction.SKIP);
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
-                endThisBlock(toTest, streamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueForBlock(block.number())).isEmpty();
             }
 
             /**
@@ -565,7 +549,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
@@ -576,13 +559,13 @@ class PublisherHandlerTest {
                 // End the block, this should not cause failure.
                 // Here we simulate network latency such that the block completes and ends
                 // before skip gets back to publisher.
-                endThisBlock(toTest, streamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert single response is SkipBlock with block number same as streamed
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
-                        .returns(streamedBlockNumber, skipBlockNumberExtractor);
+                        .returns(block.number(), skipBlockNumberExtractor);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -648,11 +631,12 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to return RESEND for the block number
                 manager.setBlockAction(BlockAction.RESEND);
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
                 // No end block, should get resend _before_ ending the block
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueForBlock(block.number())).isEmpty();
             }
 
             /**
@@ -672,7 +656,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
@@ -685,7 +668,7 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Test that we can still end the block when a resend is expected
-                endThisBlock(toTest, streamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert single response is ResendBlock with block number same as streamed
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -760,10 +743,11 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to return END_DUPLICATE for the block number
                 manager.setBlockAction(BlockAction.END_DUPLICATE);
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueForBlock(block.number())).isEmpty();
             }
 
             /**
@@ -785,7 +769,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
@@ -797,7 +780,7 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // ensure that we can still end blocks when duplicate is expected
-                endThisBlock(toTest, streamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert single response is DUPLICATE_BLOCK with block number latest known and onComplete is called
                 // (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
@@ -874,10 +857,11 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to return SEND_BEHIND for the block number
                 manager.setBlockAction(BlockAction.SEND_BEHIND);
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueForBlock(block.number())).isEmpty();
             }
 
             /**
@@ -897,7 +881,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
@@ -909,7 +892,7 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // test that we can still end a block when behind is expected
-                endThisBlock(toTest, streamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert single response is BEHIND with block number same as latest known
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -980,10 +963,11 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to return END_ERROR for the block number
                 manager.setBlockAction(BlockAction.END_ERROR);
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
                 // Assert no items propagated to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueForBlock(block.number())).isEmpty();
             }
 
             /**
@@ -1005,7 +989,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
@@ -1017,7 +1000,7 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // test that we can still end a block when error is encountered
-                endThisBlock(toTest, streamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert single response is ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1096,10 +1079,11 @@ class PublisherHandlerTest {
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueForBlock(block.number())).isEmpty();
             }
 
             /**
@@ -1194,7 +1178,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long expectedStreamedBlockNumber = block.number();
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
@@ -1204,10 +1187,12 @@ class PublisherHandlerTest {
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
+                manager.createQueueForBlock(block.number());
                 // Call
                 toTest.onNext(request);
+                final BlockingDeque<BlockItemSetUnparsed> block0Queue = manager.getQueueForBlock(block.number());
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(block0Queue).isEmpty();
                 // Now send a valid request, which contains a block header
                 final BlockItemSetUnparsed validBlockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
@@ -1218,9 +1203,9 @@ class PublisherHandlerTest {
                 manager.setBlockAction(BlockAction.ACCEPT);
                 // Call with valid request
                 toTest.onNext(validRequest);
-                endThisBlock(toTest, expectedStreamedBlockNumber);
+                endThisBlock(toTest, block.number());
                 // Assert items were propagated to the transfer queue
-                assertThat(transferQueue).hasSize(1).containsExactly(validBlockItemSet);
+                assertThat(block0Queue).hasSize(1).containsExactly(validBlockItemSet);
             }
 
             /**
@@ -1242,7 +1227,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long expectedStreamedBlockNumber = block.number();
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
@@ -1264,17 +1248,17 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to expect return ACCEPT
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call with valid request
                 toTest.onNext(validRequest);
                 // Send a PersistedNotification for the streamed block number
-                manager.handlePersisted(
-                        new PersistedNotification(expectedStreamedBlockNumber, true, 0, BlockSource.PUBLISHER));
+                manager.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
                 // Assert that an acknowledgement was sent for the valid request
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                        .returns(expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
+                        .returns(block.number(), acknowledgementBlockNumberExtractor);
                 // Assert no replies sent to the pipeline
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1300,7 +1284,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long expectedStreamedBlockNumber = block.number();
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
@@ -1329,11 +1312,11 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to expect return ACCEPT
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call with valid request
                 toTest.onNext(validRequest);
                 // Send a PersistedNotification for the streamed block number
-                manager.handlePersisted(
-                        new PersistedNotification(expectedStreamedBlockNumber, true, 0, BlockSource.PUBLISHER));
+                manager.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
                 // Assert live items received updated and acknowledgement sent updated
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
                 assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(1);
@@ -1374,16 +1357,18 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to expect return ACCEPT
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call, we expect that everything is well when we've first sent this valid request
                 toTest.onNext(request);
+                final BlockingDeque<BlockItemSetUnparsed> block0Queue = manager.getQueueForBlock(block.number());
                 // Assert items were propagated (first request was valid and passed)
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(block0Queue).hasSize(1).containsExactly(blockItemSet);
                 // Call again, now we expect that the handler will not propagate any items
                 // because the request would be invalid, we are sending a header, but the
                 // current block is not yet streamed in full as we sent only half of the items.
                 toTest.onNext(request);
                 // Assert that queue is unchanged (1st request was valid)
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(block0Queue).hasSize(1).containsExactly(blockItemSet);
             }
 
             /**
@@ -1414,10 +1399,11 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to expect return ACCEPT
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call, we expect that everything is well when we've first sent this valid request
                 toTest.onNext(request);
                 // Assert items were propagated (first request was valid and passed)
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(manager.getQueueForBlock(block.number())).hasSize(1).containsExactly(blockItemSet);
                 // Call again, now we expect that the handler will not propagate any items
                 // because the request would be invalid, we are sending a header, but the
                 // current block is not yet streamed in full as we sent only half of the items.
@@ -1464,10 +1450,11 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to expect return ACCEPT
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call, we expect that everything is well when we've first sent this valid request
                 toTest.onNext(request);
                 // Assert items were propagated (first request was valid and passed)
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(manager.getQueueForBlock(block.number())).hasSize(1).containsExactly(blockItemSet);
                 // Assert metrics updated for the successful request
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItemsToSend.length);
                 // Call again, now we expect that the handler will not propagate any items
@@ -1498,7 +1485,7 @@ class PublisherHandlerTest {
             void testOnNextBrokenHeader() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a broken header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenHeader(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1506,10 +1493,11 @@ class PublisherHandlerTest {
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
+                manager.createQueueForBlock(streamedBlockNumber);
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueForBlock(streamedBlockNumber)).isEmpty();
             }
 
             /**
@@ -1527,7 +1515,7 @@ class PublisherHandlerTest {
             void testOnNextBrokenHeaderResponse() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a broken header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenHeader(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1563,7 +1551,7 @@ class PublisherHandlerTest {
             void testOnNextBrokenHeaderMetrics() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a broken header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenHeader(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1597,7 +1585,7 @@ class PublisherHandlerTest {
             void testOnNextNullHeader() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a null header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithNullHeaderBytes(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1605,10 +1593,11 @@ class PublisherHandlerTest {
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(blockItemSet)
                         .build();
+                manager.createQueueForBlock(streamedBlockNumber);
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueForBlock(streamedBlockNumber)).isEmpty();
             }
 
             /**
@@ -1625,7 +1614,7 @@ class PublisherHandlerTest {
             void testOnNextNullHeaderResponse() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a null header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithNullHeaderBytes(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1660,7 +1649,7 @@ class PublisherHandlerTest {
             void testOnNextNullHeaderMetrics() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a null header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithNullHeaderBytes(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -2238,6 +2227,7 @@ class PublisherHandlerTest {
                         .build();
                 // Train the manager to expect return ACCEPT
                 manager.setBlockAction(BlockAction.ACCEPT);
+                manager.createQueueForBlock(block.number());
                 // Call onNext with the request, this will update the internal state of the handler
                 toTest.onNext(request);
                 endThisBlock(toTest, expectedBlockNumber);
