@@ -531,7 +531,7 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
-            endThisBlock(toPluginPipe, 0L);
+            endThisBlock(toPluginPipe, block.number());
             // Await to ensure async execution and assert response
             parkNanos(PARK_DURATION);
             // Assert that the block has been successfully streamed

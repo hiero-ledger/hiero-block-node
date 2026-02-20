@@ -16,7 +16,6 @@ import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.concurrent.BlockingDeque;
@@ -55,7 +54,6 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  * todo(1420) add documentation
  */
 public final class LiveStreamPublisherManager implements StreamPublisherManager {
-    private static final String QUEUE_ID_FORMAT = "Q%016d";
     private static final int DATA_READY_WAIT_MICROSECONDS = 5000;
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
@@ -64,7 +62,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ThreadPoolManager threadManager;
     private final ConcurrentMap<Long, PublisherHandler> handlers;
     private final AtomicLong nextHandlerId;
-    private final ConcurrentMap<String, BlockingDeque<BlockItemSetUnparsed>> transferQueueMap;
     private final ConcurrentMap<Long, BlockingDeque<BlockItemSetUnparsed>> queueByBlockMap;
     private final Condition dataReadyLatch;
     private final ReentrantLock dataReadyLock;
@@ -102,8 +99,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         threadManager = serverContext.threadPoolManager();
         handlers = new ConcurrentSkipListMap<>();
         nextHandlerId = new AtomicLong(0);
-        transferQueueMap = new ConcurrentSkipListMap<>();
-        queueByBlockMap = new ConcurrentHashMap<>();
+        queueByBlockMap = new ConcurrentSkipListMap<>();
         currentStreamingBlockNumber = new AtomicLong(-1);
         nextUnstreamedBlockNumber = new AtomicLong(-1);
         lastPersistedBlockNumber = new AtomicLong(-1);
@@ -181,8 +177,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             @NonNull final Pipeline<? super PublishStreamResponse> replies,
             @NonNull final PublisherHandler.MetricsHolder handlerMetrics) {
         final long handlerId = nextHandlerId.getAndIncrement();
-        final PublisherHandler newHandler =
-                new PublisherHandler(handlerId, replies, handlerMetrics, this, registerTransferQueue(handlerId));
+        final PublisherHandler newHandler = new PublisherHandler(handlerId, replies, handlerMetrics, this);
         // If there is an active unavailability timeout task, cancel it
         // because we now have a new publisher.
         // The cancel of the existing future must happen immediately prior to updating the active handlers map!
@@ -199,73 +194,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void removeHandler(final long handlerId) {
         final PublisherHandler handlerRemoved = handlers.remove(handlerId);
-        final String queueId = getQueueNameForHandlerId(handlerId);
-        final BlockingDeque<BlockItemSetUnparsed> queueRemoved = transferQueueMap.remove(queueId);
-        // Note: for queueByBlockMap, we need to remove an entry only if the
-        // block contained in the queue is incomplete!
-        // It takes just as long to loop the map as to call `containsValue`.
-        // so just loop through and remove the entry if it's found.
-        // @todo(1239): we need to redo the loop below. We could walk the
-        //    queueByBlockMap in reverse order and only remove the first
-        //    time we encounter an incomplete block that matches this handler.
-        for (final Map.Entry<Long, BlockingDeque<BlockItemSetUnparsed>> nextEntry : queueByBlockMap.entrySet()) {
-            final BlockingDeque<BlockItemSetUnparsed> queueByBlock = nextEntry.getValue();
-            // Note: we are using ConcurrentMap which does not allow any null
-            // values in order to unambiguously assert that a value is not
-            // present when queried, as specified in the javadoc. This being
-            // said, if queueByBlock is null, we need not take any action, as it
-            // means the queue was never present in the first place.
-            if (queueByBlock == queueRemoved) {
-                // Remove the entry from the Map if the queue is incomplete.
-                // We can afford to be naive for now and check if the last item
-                // is not a proof, which means the queue is incomplete.
-                if (queueByBlock != null) {
-                    // We should remove the queue only if it holds an incomplete
-                    // block, i.e. the last item in the queue is not a block
-                    // proof, or the queue is empty (if there are no items,
-                    // obviously there is no block supplied). Also, we can
-                    // assert that block item sets will not be empty because
-                    // that check is done when the request was received and if
-                    // the item set was empty, that would have been an invalid
-                    // request.
-                    final BlockItemSetUnparsed last = queueByBlock.peekLast();
-                    if (last == null || !last.blockItems().getLast().hasBlockProof()) {
-                        queueByBlockMap.remove(nextEntry.getKey());
-                        discardIncompleteTrailingBlock(queueByBlock);
-                    }
-                }
-                break; // There will only be one entry with this queue.
-            }
-        }
         // If there are no more active publishers, schedule the
         // unavailability timeout task.
         if (handlerRemoved != null && handlers.isEmpty()) {
             publisherUnavailabilityTimeoutFuture = schedulePublisherUnavailabilityTimeout();
         }
-        // We can now safely update the metrics and send the notification
-        // for the disconnected publisher.
+        // Update metrics and publish the status update
         metrics.currentPublisherCount().set(handlers.size());
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_DISCONNECTED, handlers);
-        LOGGER.log(TRACE, "Removed handler {0} and its transfer queue {1}", handlerId, queueId);
-    }
-
-    /**
-     * Discard an incomplete trailing block from the given queue, if present.
-     *
-     * @param queue the queue to check and clean up.
-     * @return true if and only if items were discarded.
-     */
-    private boolean discardIncompleteTrailingBlock(final BlockingDeque<BlockItemSetUnparsed> queue) {
-        int itemsRemoved = 0;
-        // use peek to non-destructively check the last item.
-        BlockItemSetUnparsed last = queue.peekLast();
-        // Remove items until we find a block proof or the queue is empty.
-        while (last != null && !(last.blockItems().getLast().hasBlockProof())) {
-            queue.removeLast();
-            itemsRemoved++;
-            last = queue.peekLast();
-        }
-        return itemsRemoved > 0;
+        LOGGER.log(TRACE, "Removed handler {0}", handlerId);
     }
 
     @Override
@@ -281,6 +218,26 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // This should not happen because the Handler should have reset the previous action.
                 BlockAction.END_ERROR;
         };
+    }
+
+    @Override
+    public long nextBlockToResend() {
+        // @todo(2200) implement
+        return 0;
+    }
+
+    @Override
+    public int transferBlockItems(final BlockItemSetUnparsed blockItems, final long blockNumber) {
+        final BlockingDeque<BlockItemSetUnparsed> queue = queueByBlockMap.get(blockNumber);
+        if (queue != null) {
+            queue.offer(blockItems);
+            return blockItems.blockItems().size();
+        } else {
+            // This should never happen! A queue must exist for this block, items can only be transferred after
+            // an ACCEPT action.
+            LOGGER.log(WARNING, "No transfer queue found for block {0}", blockNumber);
+            return -1;
+        }
     }
 
     @Override
@@ -302,7 +259,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (lastResult != null) {
             lastResult.cancel(true);
         }
-        transferQueueMap.clear();
         queueByBlockMap.clear();
         // We can safely shut down the scheduled executor abruptly. The timeout
         // tasks can be ignored completely as we shut down the manager.
@@ -354,33 +310,25 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      */
     private BlockAction addHandlerQueueForBlock(final long blockNumber, final long handlerId) {
         if (nextUnstreamedBlockNumber.compareAndSet(blockNumber, blockNumber + 1L)) {
-            final String handlerQueueName = getQueueNameForHandlerId(handlerId);
-            // Exception, using var here for an expected null value to avoid excessive wrapping.
-            final BlockingDeque<BlockItemSetUnparsed> previousTransferQueueOfHandler =
-                    transferQueueMap.get(handlerQueueName);
-            if (previousTransferQueueOfHandler != null) {
-                final var previousValue = queueByBlockMap.put(blockNumber, previousTransferQueueOfHandler);
-                if (previousValue != null) {
-                    // Another handler jumped in front of the calling handler.
-                    // Undo the change
-                    queueByBlockMap.put(blockNumber, previousValue);
-                } else {
-                    checkLogAndRestartForwarderTask();
-                    // This should result in new data being available, so we
-                    // count down the data ready latch.
-                    signalDataReady();
-                    return BlockAction.ACCEPT;
-                }
+            final BlockingDeque<BlockItemSetUnparsed> previousValue =
+                    queueByBlockMap.put(blockNumber, new LinkedBlockingDeque<>());
+            if (previousValue == null) {
+                checkLogAndRestartForwarderTask();
+                // This should result in new data being available, so we
+                // count down the data ready latch.
+                signalDataReady();
+                return BlockAction.ACCEPT;
             } else {
-                // This should not happen, an active handler should always
-                // have a transfer queue registered.
-                LOGGER.log(WARNING, "No transfer queue found for handler %d".formatted(handlerId));
+                // This should not happen,
+                final String message =
+                        "Handler {0} attempts to create a transfer queue for block {0}, but queue already exists";
+                LOGGER.log(WARNING, message, handlerId, blockNumber);
                 return BlockAction.END_ERROR;
             }
+        } else {
+            // If the CAS does not succeed, we have either a SKIP or SEND_BEHIND
+            return blockNumber < nextUnstreamedBlockNumber.get() ? BlockAction.SKIP : BlockAction.SEND_BEHIND;
         }
-        // Return the correct action if another handler jumped in front of the caller.
-        // Note, neither of these ends the stream; both ask the publisher to send a different block.
-        return blockNumber < nextUnstreamedBlockNumber.get() ? BlockAction.SKIP : BlockAction.SEND_BEHIND;
     }
 
     /*
@@ -544,24 +492,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // updated. Any other query of these values needs to be made again!
         final long currentStreaming = currentStreamingBlockNumber.get();
         final long nextUnstreamed = nextUnstreamedBlockNumber.get();
-        final String queueName = getQueueNameForHandlerId(handlerId);
         if (blockNumber >= currentStreaming
                 && blockNumber < nextUnstreamed
-                && transferQueueMap.containsKey(queueName)) {
+                && queueByBlockMap.containsKey(blockNumber)) {
+            // @todo(2200) the cas below could be omitted due to different handling of resend block
             // decrement the next unstreamed value, but only if the block number
             // provided by the ending handler is the latest started block.
             nextUnstreamedBlockNumber.compareAndSet(blockNumber + 1, blockNumber);
-            transferQueueMap.remove(queueName);
-            // Also (potentially) remove this block from the queueByBlockMap.
-            // and clear the queue if it is removed here.
-            // Note, we know the last block must be incomplete _if_ it was started
-            // because the handler would not have passed a valid block number in
-            // here if it wasn't currently streaming a block.
-            final BlockingDeque<BlockItemSetUnparsed> queue = queueByBlockMap.remove(blockNumber);
-            if (queue != null) {
-                discardIncompleteTrailingBlock(queue);
-            }
-        } else if (transferQueueMap.containsKey(queueName)) {
+            queueByBlockMap.remove(blockNumber);
+        } else if (queueByBlockMap.containsKey(blockNumber)) {
             // this should never happen
             final String message =
                     "Invalid state detected for handler %d when ending mid-block %d. Current Streaming Block Number: %d, Next Unstreamed Block Number: %d"
@@ -630,13 +569,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // all blocks due to failed verification.
             queueByBlockMap.clear();
             handlers.values().parallelStream().unordered().forEach(handler -> {
-                final long handlerId = handler.handleFailedVerification(blockNumber);
-                final String qId = getQueueNameForHandlerId(handlerId);
-                final BlockingQueue<BlockItemSetUnparsed> queue = transferQueueMap.get(qId);
-                if (queue != null) {
-                    // If a queue exists for the handler, we need to flush it
-                    queue.clear();
-                }
+                handler.handleFailedVerification(blockNumber);
             });
         }
     }
@@ -686,42 +619,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 //    similar to the one in handleVerification.
                 nextUnstreamedBlockNumber.set(blockNumber);
                 currentStreamingBlockNumber.set(blockNumber);
-
-                handlers.values().parallelStream().unordered().forEach(handler -> {
-                    final long handlerId = handler.handleFailedPersistence();
-                    final String qId = getQueueNameForHandlerId(handlerId);
-                    final BlockingQueue<BlockItemSetUnparsed> queue = transferQueueMap.get(qId);
-                    if (queue != null) {
-                        // If a queue exists for the handler, we need to flush it
-                        queue.clear();
-                    }
-                });
+                handlers.values().parallelStream().unordered().forEach(PublisherHandler::handleFailedPersistence);
             }
         }
-    }
-
-    /**
-     * Register a new transfer queue for the given handler ID.
-     * <p>
-     * This method creates a new transfer queue and registers it in the
-     * transferQueueMap. The queue is used to transfer block items from
-     * the handler to the messaging facility.
-     *
-     * @param handlerId the ID of the handler for which to register the queue
-     * @return a BlockingQueue for transferring BlockItemSetUnparsed items
-     */
-    private BlockingQueue<BlockItemSetUnparsed> registerTransferQueue(final long handlerId) {
-        final String queueId = getQueueNameForHandlerId(handlerId);
-        transferQueueMap.put(queueId, new LinkedBlockingDeque<>());
-        LOGGER.log(TRACE, "Registered new transfer queue: {0}", queueId);
-        return transferQueueMap.get(queueId);
-    }
-
-    /**
-     * todo(1420) add documentation
-     */
-    private static String getQueueNameForHandlerId(final long handlerId) {
-        return QUEUE_ID_FORMAT.formatted(handlerId);
     }
 
     // The current streaming should be the next block to be

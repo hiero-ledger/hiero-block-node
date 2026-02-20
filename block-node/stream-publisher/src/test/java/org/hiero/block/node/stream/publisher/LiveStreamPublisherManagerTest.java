@@ -554,9 +554,6 @@ class LiveStreamPublisherManagerTest {
                                 .blockItems(block.blockItems())
                                 .build())
                         .build();
-
-                final BlockAction startAction = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
-                assertThat(startAction).isEqualTo(BlockAction.ACCEPT);
                 // Enqueue the request into the handler (this may also schedule the forwarder in production code).
                 publisherHandler.onNext(req);
                 // Mark the block as eligible to be closed (end-of-items for this block).

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher.fixtures;
 
+import static java.lang.System.Logger.Level.WARNING;
+
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
@@ -9,8 +11,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Objects;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.LinkedBlockingDeque;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -23,6 +30,7 @@ import org.hiero.block.node.stream.publisher.StreamPublisherManager;
  * A test fixture for the {@link StreamPublisherManager}.
  */
 public class TestStreamPublisherManager implements StreamPublisherManager {
+    private static final System.Logger LOGGER = System.getLogger(TestStreamPublisherManager.class.getName());
     /** The message to be used when the handlePersisted method is called in an illegal state. */
     private static final String PERSISTED_NOTIFICATION_ILLEGAL_STATE_MESSAGE = """
     Illegal state for publisher manager test fixture.
@@ -42,6 +50,7 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     private long latestBlockNumber = -1L;
 
     private NavigableSet<Long> endOfBlocksReceived = new ConcurrentSkipListSet<>();
+    private ConcurrentMap<Long, BlockingDeque<BlockItemSetUnparsed>> queueByBlockMap = new ConcurrentSkipListMap<>();
 
     public TestStreamPublisherManager(final TestBlockMessagingFacility testBlockMessagingFacility) {
         this.blockMessagingFacility = Objects.requireNonNull(testBlockMessagingFacility);
@@ -66,6 +75,35 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
         return blockAction;
         // @todo consider if we should reset the action here so we know that
         //    the action returned is always set separately for each message.
+    }
+
+    @Override
+    public long nextBlockToResend() {
+        // @todo(2200) implement
+        return 0;
+    }
+
+    public boolean createQueueForBlock(final long blockNumber) {
+        final BlockingDeque<BlockItemSetUnparsed> prev = queueByBlockMap.put(blockNumber, new LinkedBlockingDeque<>());
+        return prev == null;
+    }
+
+    public BlockingDeque<BlockItemSetUnparsed> getQueueForBlock(final long blockNumber) {
+        return queueByBlockMap.get(blockNumber);
+    }
+
+    @Override
+    public int transferBlockItems(final BlockItemSetUnparsed blockItems, final long blockNumber) {
+        final BlockingDeque<BlockItemSetUnparsed> queue = queueByBlockMap.get(blockNumber);
+        if (queue != null) {
+            queue.offer(blockItems);
+            return blockItems.blockItems().size();
+        } else {
+            // This should never happen! A queue must exist for this block, items can only be transferred after
+            // an ACCEPT action.
+            LOGGER.log(WARNING, "No transfer queue found for block {0}", blockNumber);
+            return -1;
+        }
     }
 
     @Override
