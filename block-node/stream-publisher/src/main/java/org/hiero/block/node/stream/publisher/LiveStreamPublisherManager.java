@@ -14,8 +14,10 @@ import com.swirlds.metrics.api.IntegerGauge;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.BlockingQueue;
@@ -24,6 +26,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -86,6 +89,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final AtomicLong nextUnstreamedBlockNumber;
     private final AtomicLong lastPersistedBlockNumber;
 
+    private final ConcurrentMap<Long, BlockItemUnparsed> blockProofs;
+    private final NavigableSet<Long> endBlocksReceived;
+
     /**
      * todo(1420) add documentation
      */
@@ -112,6 +118,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         INFO, "Scheduled task thread exception occurred in Live Stream Publisher Manager", e));
         publisherConfig = serverContext.configuration().getConfigData(PublisherConfig.class);
         publisherUnavailabilityTimeoutFuture = schedulePublisherUnavailabilityTimeout();
+        blockProofs = new ConcurrentHashMap<>();
+        endBlocksReceived = new ConcurrentSkipListSet<>();
         updateBlockNumbers(serverContext);
     }
 
@@ -473,6 +481,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         LOGGER.log(DEBUG, "Completed blocks {0}", metrics.blocksClosedComplete.get());
     }
 
+    @Override
+    public void endOfBlock(final long blockNumber) {
+        endBlocksReceived.add(blockNumber);
+    }
+
     /// Check the queue forwarder task and start, or restart, if it is
     /// null or completed, respectively.
     private void checkLogAndRestartForwarderTask() {
@@ -507,9 +520,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * @return a Future representing pending completion of the task
      */
     private Future<Long> launchQueueForwarder() {
-        return threadManager
-                .getVirtualThreadExecutor()
-                .submit(new MessagingForwarderTask(serverContext, this, queueByBlockMap));
+        return threadManager.getVirtualThreadExecutor().submit(new MessagingForwarderTask(this));
     }
 
     @Override
@@ -750,26 +761,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
      * todo(1420) add documentation
      */
     private static class MessagingForwarderTask implements Callable<Long> {
-
         private final System.Logger LOGGER = System.getLogger(MessagingForwarderTask.class.getName());
-        private final BlockNodeContext serverContext;
         private final LiveStreamPublisherManager publisherManager;
-        private final ConcurrentMap<Long, BlockingDeque<BlockItemSetUnparsed>> queueByBlockMap;
-        private final BlockMessagingFacility messaging;
-        private final PublisherConfig publisherConfiguration;
 
         /**
          * todo(1420) add documentation
          */
-        public MessagingForwarderTask(
-                final BlockNodeContext serverContext,
-                final LiveStreamPublisherManager liveStreamPublisherManager,
-                final ConcurrentMap<Long, BlockingDeque<BlockItemSetUnparsed>> queueByBlockMap) {
-            this.serverContext = Objects.requireNonNull(serverContext);
+        public MessagingForwarderTask(final LiveStreamPublisherManager liveStreamPublisherManager) {
             this.publisherManager = Objects.requireNonNull(liveStreamPublisherManager);
-            this.queueByBlockMap = Objects.requireNonNull(queueByBlockMap);
-            messaging = serverContext.blockMessaging();
-            publisherConfiguration = serverContext.configuration().getConfigData(PublisherConfig.class);
         }
 
         // This needs more work, particularly handling the next block if it's already
@@ -785,7 +784,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // a thread that becomes overly "old" and experiences "senescence".
             while (!forwardingLimitReached) {
                 final long currentBlockNumber = publisherManager.currentStreamingBlockNumber.get();
-                final BlockingQueue<BlockItemSetUnparsed> queueToForward = queueByBlockMap.get(currentBlockNumber);
+                final BlockingQueue<BlockItemSetUnparsed> queueToForward =
+                        publisherManager.queueByBlockMap.get(currentBlockNumber);
                 if (queueToForward != null) {
                     boolean moreToSend = queueToForward.peek() != null;
                     while (moreToSend) {
@@ -806,32 +806,39 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             //    the way we send the block items
                             final boolean hasBlockProof =
                                     currentBatch.blockItems().getLast().hasBlockProof();
+                            final int itemsSent;
                             if (hasBlockProof) {
-                                messaging.sendBlockItems(buildBlockItems(currentBatch, currentBlockNumber, true));
-                            } else {
-                                messaging.sendBlockItems(buildBlockItems(currentBatch, currentBlockNumber, false));
-                            }
-                            publisherManager
-                                    .metrics
-                                    .blockItemsMessaged()
-                                    .add(currentBatch.blockItems().size());
-
-                            // limit how many batches we send in a single task.
-                            batchesSent++;
-                            forwardingLimitReached = batchesSent >= publisherConfiguration.batchForwardLimit();
-                            // If we reach end of block, update counters and stop sending this block.
-                            if (hasBlockProof) {
+                                final List<BlockItemUnparsed> currentItems = currentBatch.blockItems();
+                                publisherManager.blockProofs.put(currentBlockNumber, currentItems.getLast());
+                                if (currentItems.size() > 1) {
+                                    // send all but the block proof
+                                    final List<BlockItemUnparsed> blocksToSend =
+                                            new ArrayList<>(currentItems.subList(0, currentItems.size() - 1));
+                                    final BlockItemSetUnparsed itemSetToSend = BlockItemSetUnparsed.newBuilder()
+                                            .blockItems(blocksToSend)
+                                            .build();
+                                    sendBlockItems(itemSetToSend, currentBlockNumber, false);
+                                    itemsSent = blocksToSend.size();
+                                } else {
+                                    itemsSent = 0;
+                                }
                                 // If the last item in the batch is a block proof,
                                 // we need to remove the queue from the queueByBlockMap.
-                                queueByBlockMap.remove(currentBlockNumber);
-                                // Then potentially increment the current streaming
-                                // block number.
-                                publisherManager.currentStreamingBlockNumber.compareAndSet(
-                                        currentBlockNumber, currentBlockNumber + 1);
+                                publisherManager.queueByBlockMap.remove(currentBlockNumber);
                                 // exit this while loop so we do not accidentally
                                 // send a block out of order.
                                 moreToSend = false;
+                            } else {
+                                sendBlockItems(currentBatch, currentBlockNumber, false);
+                                itemsSent = currentBatch.blockItems().size();
                             }
+                            if (itemsSent > 0) {
+                                publisherManager.metrics.blockItemsMessaged().add(itemsSent);
+                            }
+                            // limit how many batches we send in a single task.
+                            batchesSent++;
+                            forwardingLimitReached =
+                                    batchesSent >= publisherManager.publisherConfig.batchForwardLimit();
                         } else {
                             moreToSend = false;
                         }
@@ -844,6 +851,29 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         publisherManager.waitForDataReady();
                     }
                 } else {
+                    if (publisherManager.endBlocksReceived.contains(currentBlockNumber)) {
+                        // Send the proof
+                        final BlockItemUnparsed proof = publisherManager.blockProofs.remove(currentBlockNumber);
+                        if (proof != null) {
+                            publisherManager.endBlocksReceived.remove(currentBlockNumber);
+                            final BlockItemSetUnparsed itemSet = BlockItemSetUnparsed.newBuilder()
+                                    .blockItems(proof)
+                                    .build();
+                            sendBlockItems(itemSet, currentBlockNumber, true);
+                            publisherManager
+                                    .metrics
+                                    .blockItemsMessaged()
+                                    .add(itemSet.blockItems().size());
+                            // Then potentially increment the current streaming
+                            // block number.
+                            publisherManager.currentStreamingBlockNumber.compareAndSet(
+                                    currentBlockNumber, currentBlockNumber + 1);
+                        } else {
+                            // @todo(2159) if we have received the end of block message, but we do not have the proof,
+                            //    should we take any action? In theory the end of block message should arrive after the
+                            //    proof
+                        }
+                    }
                     // We have no queue for this block, so wait for an
                     // indication that more data might be available.
                     publisherManager.waitForDataReady();
@@ -851,11 +881,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             }
             return batchesSent;
         }
-        // @todo(2159) when we add support for the end of block message we might no longer need this
-        private BlockItems buildBlockItems(
+
+        private void sendBlockItems(
                 final BlockItemSetUnparsed currentBatch, final long currentBlockNumber, final boolean endOfBLock) {
             final List<BlockItemUnparsed> items = currentBatch.blockItems();
-            return new BlockItems(items, currentBlockNumber, items.getFirst().hasBlockHeader(), endOfBLock);
+            final BlockItems toSend =
+                    new BlockItems(items, currentBlockNumber, items.getFirst().hasBlockHeader(), endOfBLock);
+            publisherManager.serverContext.blockMessaging().sendBlockItems(toSend);
         }
     }
 
