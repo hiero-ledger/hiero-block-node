@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.tools.blocks.model.BlockHashCalculator;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
@@ -34,8 +35,8 @@ import picocli.CommandLine.Parameters;
 /**
  * Validates a wrapped block stream by checking:
  * <ul>
- *   <li>Hash chain continuity - each block's previousBlockRootHash matches computed hash of previous block</li>
- *   <li>First block has 48 zero bytes for previous hash (genesis)</li>
+ *   <li>Hash chain continuity - each block's previousBlockRootHash matches the computed hash of the previous block</li>
+ *   <li>The first block has 48 zero bytes for the previous hash (genesis)</li>
  *   <li>Signature validation - at least 1/3 + 1 of address book nodes must sign</li>
  * </ul>
  *
@@ -50,7 +51,7 @@ import picocli.CommandLine.Parameters;
  * as the only parameter. The command will automatically find the {@code addressBookHistory.json} file
  * in that directory if not explicitly specified.</p>
  */
-@SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal"})
+@SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal", "DuplicatedCode"})
 @Command(
         name = "validate",
         description = "Validates a wrapped block stream (hash chain and signatures)",
@@ -60,7 +61,7 @@ public class ValidateBlocksCommand implements Runnable {
     /** Zero hash for genesis block (48 bytes of zeros). */
     private static final byte[] ZERO_HASH = new byte[48];
 
-    /** Pattern to extract block number from filename. */
+    /** Pattern to extract a block number from the filename. */
     private static final Pattern BLOCK_FILE_PATTERN = Pattern.compile("^(\\d+)\\.blk(\\.gz|\\.zstd)?$");
 
     @SuppressWarnings("unused")
@@ -112,7 +113,7 @@ public class ValidateBlocksCommand implements Runnable {
             }
         }
 
-        // Load address book registry if signature validation is enabled
+        // Load the address book registry if signature validation is enabled
         AddressBookRegistry addressBookRegistry = null;
         if (!skipSignatures) {
             if (addressBookFile != null && Files.exists(addressBookFile)) {
@@ -203,12 +204,11 @@ public class ValidateBlocksCommand implements Runnable {
 
                 // Print verbose output
                 if (verbose) {
-                    String status = (hashValid && signaturesValid)
-                            ? Ansi.AUTO.string("@|green VALID|@")
-                            : Ansi.AUTO.string("@|red INVALID|@");
-                    System.out.println(String.format(
-                            "Block %d: %s (hash: %s)",
-                            blockNum, status, BlockHashCalculator.shortHash(currentBlockHash)));
+                    String status =
+                            signaturesValid ? Ansi.AUTO.string("@|green VALID|@") : Ansi.AUTO.string("@|red INVALID|@");
+                    System.out.printf(
+                            "Block %d: %s (hash: %s)%n",
+                            blockNum, status, BlockHashCalculator.shortHash(currentBlockHash));
                 }
 
                 blocksValidated.incrementAndGet();
@@ -332,9 +332,7 @@ public class ValidateBlocksCommand implements Runnable {
         try {
             // Get the address book for this block
             NodeAddressBook addressBook = addressBookRegistry.getCurrentAddressBook();
-            if (addressBook == null
-                    || addressBook.nodeAddress() == null
-                    || addressBook.nodeAddress().isEmpty()) {
+            if (addressBook == null || addressBook.nodeAddress().isEmpty()) {
                 if (verbose) {
                     PrettyPrint.clearProgress();
                     System.out.println(Ansi.AUTO.string(
@@ -348,7 +346,7 @@ public class ValidateBlocksCommand implements Runnable {
 
             // Get block signatures from proof
             Bytes blockSig = blockProof.signedBlockProofOrThrow().blockSignature();
-            if (blockSig == null || blockSig.length() == 0) {
+            if (blockSig.length() == 0) {
                 PrettyPrint.clearProgress();
                 System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ No signatures in block proof"));
                 signatureErrors.incrementAndGet();
@@ -402,10 +400,10 @@ public class ValidateBlocksCommand implements Runnable {
 
         for (File file : files) {
             if (file.isDirectory()) {
-                // Recursively find blocks in directory
+                // Recursively find blocks in the directory
                 findBlocksInDirectory(file.toPath(), sources);
             } else if (file.getName().endsWith(".zip")) {
-                // Find blocks in zip file
+                // Find blocks in a zip file
                 findBlocksInZip(file.toPath(), sources);
             } else {
                 // Single block file
@@ -426,8 +424,8 @@ public class ValidateBlocksCommand implements Runnable {
      * @param sources list to add sources to
      */
     private void findBlocksInDirectory(Path dir, List<BlockSource> sources) {
-        try {
-            Files.walk(dir).filter(Files::isRegularFile).forEach(path -> {
+        try (Stream<Path> paths = Files.walk(dir)) {
+            paths.filter(Files::isRegularFile).forEach(path -> {
                 String fileName = path.getFileName().toString();
                 if (fileName.endsWith(".zip")) {
                     findBlocksInZip(path, sources);
@@ -452,13 +450,15 @@ public class ValidateBlocksCommand implements Runnable {
     private void findBlocksInZip(Path zipPath, List<BlockSource> sources) {
         try (FileSystem zipFs = FileSystems.newFileSystem(zipPath)) {
             for (Path root : zipFs.getRootDirectories()) {
-                Files.walk(root).filter(Files::isRegularFile).forEach(path -> {
-                    String fileName = path.getFileName().toString();
-                    long blockNum = extractBlockNumber(fileName);
-                    if (blockNum >= 0) {
-                        sources.add(new BlockSource(blockNum, zipPath, path.toString()));
-                    }
-                });
+                try (Stream<Path> paths = Files.walk(root)) {
+                    paths.filter(Files::isRegularFile).forEach(path -> {
+                        String fileName = path.getFileName().toString();
+                        long blockNum = extractBlockNumber(fileName);
+                        if (blockNum >= 0) {
+                            sources.add(new BlockSource(blockNum, zipPath, path.toString()));
+                        }
+                    });
+                }
             }
         } catch (IOException e) {
             System.err.println("Error reading zip file " + zipPath + ": " + e.getMessage());
@@ -490,13 +490,13 @@ public class ValidateBlocksCommand implements Runnable {
         byte[] compressedBytes;
 
         if (source.isZipEntry()) {
-            // Read from zip file
+            // Read from a zip file
             try (FileSystem zipFs = FileSystems.newFileSystem(source.filePath())) {
                 Path entryPath = zipFs.getPath(source.zipEntryName());
                 compressedBytes = Files.readAllBytes(entryPath);
             }
         } else {
-            // Read from regular file
+            // Read from a regular file
             compressedBytes = Files.readAllBytes(source.filePath());
         }
 
