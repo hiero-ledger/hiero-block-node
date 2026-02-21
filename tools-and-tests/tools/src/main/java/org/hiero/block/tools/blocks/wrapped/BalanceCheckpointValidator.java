@@ -227,46 +227,56 @@ public class BalanceCheckpointValidator {
             System.out.println(Ansi.AUTO.string(
                     "@|green ✓ All " + expectedHbarBalances.size() + " accounts match" + tokenMsg + "|@"));
         } else {
-            int totalMismatches = hbarComparison.mismatches.size() + tokenMismatches.size();
-            System.out.println(Ansi.AUTO.string("@|red ✗ Found " + totalMismatches + " mismatches|@"));
-
-            // Print HBAR mismatches
-            if (!hbarComparison.mismatches.isEmpty()) {
-                System.out.println(
-                        Ansi.AUTO.string("  @|yellow HBAR mismatches:|@ " + hbarComparison.mismatches.size()));
-                int shown = 0;
-                for (Map.Entry<Long, BalanceMismatch> entry : hbarComparison.mismatches.entrySet()) {
-                    if (shown++ >= 10) {
-                        System.out.println(Ansi.AUTO.string(
-                                "    @|yellow ... and " + (hbarComparison.mismatches.size() - 10) + " more|@"));
-                        break;
-                    }
-                    BalanceMismatch m = entry.getValue();
-                    System.out.println(Ansi.AUTO.string(String.format(
-                            "    Account @|cyan %d|@: expected @|yellow %,d|@ but computed @|red %,d|@ (diff: @|red %+,d|@)",
-                            entry.getKey(), m.expected, m.computed, m.computed - m.expected)));
-                }
-            }
-
-            // Print token mismatches
-            if (!tokenMismatches.isEmpty()) {
-                System.out.println(Ansi.AUTO.string("  @|yellow Token mismatches:|@ " + tokenMismatches.size()));
-                int shown = 0;
-                for (Map.Entry<String, BalanceMismatch> entry : tokenMismatches.entrySet()) {
-                    if (shown++ >= 10) {
-                        System.out.println(
-                                Ansi.AUTO.string("    @|yellow ... and " + (tokenMismatches.size() - 10) + " more|@"));
-                        break;
-                    }
-                    BalanceMismatch m = entry.getValue();
-                    System.out.println(Ansi.AUTO.string(String.format(
-                            "    @|cyan %s|@: expected @|yellow %,d|@ but computed @|red %,d|@",
-                            entry.getKey(), m.expected, m.computed)));
-                }
-            }
-
+            printMismatches(hbarComparison.mismatches, tokenMismatches);
             throw new ValidationException("Balance validation failed at block " + checkpointBlock + ": "
                     + hbarComparison.mismatches.size() + " HBAR, " + tokenMismatches.size() + " token mismatches");
+        }
+    }
+
+    /** Print mismatch summary and details. */
+    private void printMismatches(
+            Map<Long, BalanceMismatch> hbarMismatches, Map<String, BalanceMismatch> tokenMismatches) {
+        int totalMismatches = hbarMismatches.size() + tokenMismatches.size();
+        System.out.println(Ansi.AUTO.string("@|red ✗ Found " + totalMismatches + " mismatches|@"));
+        printHbarMismatches(hbarMismatches);
+        printTokenMismatches(tokenMismatches);
+    }
+
+    /** Print HBAR mismatch details (up to 10). */
+    private void printHbarMismatches(Map<Long, BalanceMismatch> mismatches) {
+        if (mismatches.isEmpty()) {
+            return;
+        }
+        System.out.println(Ansi.AUTO.string("  @|yellow HBAR mismatches:|@ " + mismatches.size()));
+        int shown = 0;
+        for (Map.Entry<Long, BalanceMismatch> entry : mismatches.entrySet()) {
+            if (shown++ >= 10) {
+                System.out.println(Ansi.AUTO.string("    @|yellow ... and " + (mismatches.size() - 10) + " more|@"));
+                break;
+            }
+            BalanceMismatch m = entry.getValue();
+            System.out.println(Ansi.AUTO.string(String.format(
+                    "    Account @|cyan %d|@: expected @|yellow %,d|@ but computed @|red %,d|@ (diff: @|red %+,d|@)",
+                    entry.getKey(), m.expected, m.computed, m.computed - m.expected)));
+        }
+    }
+
+    /** Print token mismatch details (up to 10). */
+    private void printTokenMismatches(Map<String, BalanceMismatch> mismatches) {
+        if (mismatches.isEmpty()) {
+            return;
+        }
+        System.out.println(Ansi.AUTO.string("  @|yellow Token mismatches:|@ " + mismatches.size()));
+        int shown = 0;
+        for (Map.Entry<String, BalanceMismatch> entry : mismatches.entrySet()) {
+            if (shown++ >= 10) {
+                System.out.println(Ansi.AUTO.string("    @|yellow ... and " + (mismatches.size() - 10) + " more|@"));
+                break;
+            }
+            BalanceMismatch m = entry.getValue();
+            System.out.println(Ansi.AUTO.string(String.format(
+                    "    @|cyan %s|@: expected @|yellow %,d|@ but computed @|red %,d|@",
+                    entry.getKey(), m.expected, m.computed)));
         }
     }
 
