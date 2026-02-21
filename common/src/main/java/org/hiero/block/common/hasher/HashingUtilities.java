@@ -29,10 +29,14 @@ public final class HashingUtilities {
      * The size of an SHA-384 hash, in bytes.
      */
     public static final int HASH_SIZE = 48;
+
     /**
-     * A constant representing a null hash, which is a zeroed-out byte array of size {@link #HASH_SIZE}.
+     * The empty-tree hash used by CN starting from HAPI v0.72: {@code SHA384(0x00)}.
+     * This is the SHA-384 hash of a single zero byte, matching the CN IncrementalStreamingHasher
+     * convention introduced in CN v0.72 where an empty subtree returns SHA384(0x00) instead of
+     * 48 zero bytes.
      */
-    public static final Bytes NULL_HASH = Bytes.wrap(new byte[HASH_SIZE]);
+    public static final byte[] EMPTY_TREE_HASH = noThrowSha384HashOf(new byte[] {0x00});
 
     /**
      * Prefix byte for leaf node hashes: {@code hash(0x00 || leafData)}.

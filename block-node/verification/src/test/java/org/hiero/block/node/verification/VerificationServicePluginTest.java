@@ -101,7 +101,7 @@ class VerificationServicePluginTest
     void testFailedVerification() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_21);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
         // get the original block items
         List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
         // make a mutable copy

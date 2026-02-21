@@ -7,7 +7,7 @@
 3. [Terms](#terms)
 4. [Entities](#entities)
 5. [Design](#design)
-6. [Enums](#enums)
+6. [Configuration](#configuration)
 7. [Metrics](#metrics)
 8. [Exceptions](#exceptions)
 
@@ -31,159 +31,183 @@ by the Consensus Node.
 <dt>Consensus Node (CN)</dt><dd>A node that produces and provides blocks.</dd>
 <dt>Block Items</dt><dd>The block data pieces (header, events, transactions,
 transaction result, state changes, proof) that make up a block.</dd>
-<dt>Block Hash</dt><dd>A cryptographic hash representing the block’s integrity.</dd>
+<dt>Block Hash</dt><dd>A cryptographic hash representing the block's integrity.</dd>
 <dt>Signature</dt><dd>The cryptographic signature on the block hash, created by the
-Network aggregation of "share" private keys, as described in the TSS design.</dd>
+network aggregation of "share" private keys, as described in the TSS design.</dd>
 <dt>Public Key</dt><dd>The public key (a.k.a. Ledger ID) of the network that signed the block.</dd>
+<dt>Empty-tree Hash</dt><dd>The hash returned by a streaming Merkle tree hasher when
+no leaves were added (i.e. an empty subtree). Since HAPI v0.72 this is
+SHA-384(0x00), matching the CN convention.</dd>
 </dl>
 
 ## Entities
 
-<!-- TBD -->
+### VerificationServicePlugin
 
-### VerificationHandler
+The main plugin class. Implements `BlockNodePlugin`, `BlockItemHandler`, and
+`BlockNotificationHandler`. It:
 
-- Receives the stream of block items from the unverified block items ring
-  buffer.
-- When it detects a block_header, it creates a BlockHashingSession using the
-  BlockHashingSessionFactory, providing it with the initial block items (and
-  internally, the session will handle asynchronous hashing).
-- Adds subsequent block items to the session, including the block_proof.
-- Does not block waiting for verification; the hash computation and
-  verification continue asynchronously.
+- Receives the stream of block items via the messaging facility.
+- On detecting a `BLOCK_HEADER`, creates a `VerificationSession` via
+  `HapiVersionSessionFactory` and feeds all subsequent block items into it.
+- On session completion, sends a `VerificationNotification` via
+  `blockMessaging.sendBlockVerification()`.
+- Handles backfilled blocks arriving via `handleBackfilled()`.
+- Initialises and owns the `AllBlocksHasherHandler`.
+- Tracks all verification metrics.
 
-### BlockHashingSessionFactory
+### HapiVersionSessionFactory
 
-- Creates new BlockHashingSession instances, provides them with a
-  ExecutorService.
+Routes block verification to the correct `VerificationSession` implementation
+based on the block's HAPI proto version:
 
-### BlockHashingSession
+| HAPI Version | Session |
+|---|---|
+| >= 0.72.0 | `ExtendedMerkleTreeSession` (real Merkle verification) |
+| 0.64.0 – 0.71.x | `DummyVerificationSession` (placeholder, always succeeds) |
+| < 0.64.0 | Throws `IllegalArgumentException` |
 
-- Holds all necessary block data while it is waiting to hash it.
-- Accepts block items incrementally. (continues to compute them
-  asynchronously)
-- Once the block_proof is provided, finalizes the hash computation
-  asynchronously.
-- After computing the final hash, calls SignatureVerifier for verification.
+### VerificationSession
 
-### SignatureVerifier
+Interface with a single method:
 
-- Verifies the block signature is valid (using the ledger ID) and signed the
-  same hash that was computed by the `BlockHashingSession`.
-- Report results to BlockStatusManager.
+```java
+VerificationNotification processBlockItems(BlockItems blockItems) throws ParseException;
+```
 
-### BlockStatusManager
+Returns `null` while the block is incomplete, and a `VerificationNotification`
+when the final batch (`isEndOfBlock() == true`) has been processed.
 
-- Receives verification results from SignatureVerifier.
-- Updates block status and triggers any necessary recovery or follow-up
-  processes depending on the outcome.
+### ExtendedMerkleTreeSession
+
+The full block verification implementation, used for HAPI v0.72.0 and above.
+
+Maintains five `NaiveStreamingTreeHasher` instances — one per block-item
+category — that incrementally compute subtree roots as items arrive:
+
+| Hasher | Block item types |
+|---|---|
+| `inputTreeHasher` | `SIGNED_TRANSACTION` |
+| `outputTreeHasher` | `BLOCK_HEADER`, `TRANSACTION_RESULT`, `TRANSACTION_OUTPUT` |
+| `consensusHeaderHasher` | `ROUND_HEADER`, `EVENT_HEADER` |
+| `stateChangesHasher` | `STATE_CHANGES` |
+| `traceDataHasher` | `TRACE_DATA` |
+
+On finalization, it combines the five subtree roots with the previous block
+hash, all-previous-blocks root hash, state root hash, and block timestamp into
+a final block hash via `HashingUtilities.computeFinalBlockHash()`. The
+signature in the block proof is then verified against that hash.
+
+Empty subtrees use `SHA-384(0x00)` as the empty-tree hash, matching the CN
+convention introduced in HAPI v0.72.
+
+### DummyVerificationSession
+
+A placeholder implementation used for HAPI versions 0.64.0 through 0.71.x.
+Accumulates block items and unconditionally returns a success notification with
+a zeroed hash. Will be replaced with real verification for those versions before
+going to production.
+
+### AllBlocksHasherHandler
+
+Maintains a persistent, streaming Merkle tree over the hashes of all
+previously verified blocks. Its root hash is included in each block's hash
+computation.
+
+On startup it either loads a saved snapshot from disk or rebuilds from the
+block store. A scheduled task persists a new snapshot every
+`allBlocksHasherPersistenceInterval` seconds. If initialisation fails, the
+handler degrades gracefully (`isAvailable()` returns `false`) and verification
+falls back to the root hash provided in the block footer.
 
 ## Design
 
-1. The `VerificationHandler` receives the block items from the unverified ring
-   buffer.
-2. When the block_header is detected, the `VerificationHandler` creates a
-   `BlockHashingSession` using the `BlockHashingSessionFactory`.
-3. The `BlockHashingSession` accepts subsequent block items incrementally.
-4. Once the block_proof is received, the `BlockHashingSession` calls
-   `completeHashing()` to finalize the hash computation.
-5. Upon completion of computing the final block hash, the `BlockHashingSession`
-   calls the `SignatureVerifier` to verify the signature.
-6. The `SignatureVerifier` compares the computed hash to the hash signed by the
-   Block Proof signature.
-7. If the verification fails, the `SignatureVerifier` calls the
-   `BlockStatusManager` to update the block status as SIGNATURE_INVALID.
-8. If the verification succeeds, the `SignatureVerifier` calls the
-   `BlockStatusManager` to update the block status as VERIFIED.
-9. The `BlockStatusManager` initiates any necessary recovery or follow-up
-   processes depending on the verification result.
+1. `VerificationServicePlugin.handleBlockItemsReceived()` receives batches of
+   block items from the messaging facility.
+2. When a `BLOCK_HEADER` is detected, a new `VerificationSession` is created via
+   `HapiVersionSessionFactory`, keyed on the HAPI proto version from the header.
+3. Each batch of block items is passed to `currentSession.processBlockItems()`,
+   which returns `null` until the final batch (`isEndOfBlock() == true`).
+4. `ExtendedMerkleTreeSession` routes each item to the appropriate streaming
+   Merkle tree hasher. The `BLOCK_FOOTER` and `BLOCK_PROOF` items are saved for
+   finalization.
+5. When the final batch arrives, the session computes the final block hash by
+   folding the five subtree roots together with the previous-block hash,
+   all-previous-blocks root, state root, and timestamp.
+6. The TSS-based block proof's signature is verified: `signature == SHA-384(blockHash)`.
+7. A `VerificationNotification(success, blockNumber, blockHash, block, source)`
+   is returned to the plugin.
+8. On success, the plugin sends the notification via `sendBlockVerification()`,
+   updates `previousBlockHash`, and appends the block hash to
+   `AllBlocksHasherHandler`.
+9. On failure, the plugin sends a failure notification (`success = false`).
 
 Sequence Diagram:
 
 ```mermaid
 sequenceDiagram
-    participant U as UnverifiedRingBuffer
-    participant V as VerificationHandler
-    participant F as BlockHashingSessionFactory
-    participant S as BlockHashingSession
-    participant SV as SignatureVerifier
-    participant BSM as BlockStatusManager
+    participant M as BlockMessaging
+    participant P as VerificationServicePlugin
+    participant F as HapiVersionSessionFactory
+    participant S as VerificationSession
+    participant A as AllBlocksHasherHandler
 
-    U->>V: (1) onBlockItemsReceived(blockItems)
+    M->>P: (1) handleBlockItemsReceived(blockItems)
 
-    alt (2) Detects block_header
-
-    V->>F: createSession(initialBlockItems, executorService, signatureVerifier)
-    Note over S: New instance of BlockHashingSession created
-    F-->>V: returns BlockHashingSession (S)
-    V-->>U: Returns without blocking
-    S->>S: *Starts hash computation asynchronously
-
-    else (3) Append more Block Items
-    loop
-    V->>S: addBlockItems(items)
-    V-->>U: return without blocking
-    S->>S: *Continues hash computation asynchronously
+    alt (2) BLOCK_HEADER detected — start of new block
+        P->>A: computeRootHash() / lastBlockHash()
+        A-->>P: allPreviousBlocksRootHash, previousBlockHash
+        P->>F: createSession(blockNumber, source, hapiVersion, hashes)
+        F-->>P: ExtendedMerkleTreeSession or DummyVerificationSession
     end
 
-    else (4) Append BlockItems with block_proof
+    P->>S: (3) processBlockItems(blockItems)
+    note over S: Accumulates items and hashes; returns null if block incomplete
 
-    V->>S: addBlockItems(items with block_proof)
-    V-->>U: return without blocking
-    S->>S: async completeHashing()
-    S->>SV: (5) verifySignature(signature, computedHash, blockNumber)
-
-    Note over SV,BSM: (6) Compare computed hash and signature
-    alt (7) Verification Fails
-      SV->>BSM: updateBlockStatus(blockNumber, ERROR, SIGNATURE_INVALID
-    else (8) Verification Succeeds
-      SV->>BSM: updateBlockStatus(blockNumber, VERIFIED, NONE)
-    end
-    Note over BSM: (9) Follow-up to downstream services
+    alt (4) isEndOfBlock — final batch received
+        S->>S: computeFinalBlockHash() via 5 subtree hashers
+        S->>S: verifySignature(blockHash, proof.signature)
+        S-->>P: VerificationNotification(success, blockNumber, blockHash, block)
     end
 
+    alt (5a) success == true
+        P->>M: sendBlockVerification(notification)
+        P->>A: appendLatestHashToAllPreviousBlocksStreamingHasher(blockHash)
+    else (5b) success == false
+        P->>M: sendBlockVerification(failure notification)
+    end
 ```
 
 ## Configuration
 
-As with other services already implemented in the Block Node system, the current
-Block Verification Service should be able to be configurable via a Config Object
-`VerificationConfig` and all the configurations needed shall be defined in
-there.
+Configuration class: `VerificationConfig`
 
-Specifics on the properties names and possible values will be defined at the
-Configuration document, but should include a way to enable/disable the module,
-select Hashing algorithm and the amount of concurrent workers for the
-`ServiceExecutor` pool.
-
-## Enums
-
-<!-- Noted as a section in table of contents to be filled out -->
+| Property | Default | Description |
+|---|---|---|
+| `allBlocksHasherFilePath` | `/opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin` | Path for the persistent hasher snapshot |
+| `allBlocksHasherEnabled` | `true` | Enable or disable the all-blocks root hash computation |
+| `allBlocksHasherPersistenceInterval` | `10` (seconds) | How often the hasher snapshot is written to disk |
 
 ## Metrics
 
-<dl>
-<dt>blocks_received</dt><dd>Counter of the number of blocks received for
-verification.</dd>
-<dt>blocks_verified</dt><dd>Counter of the number of blocks verified.</dd>
-<dt>blocks_unverified</dt><dd>Counter of the number of blocks that have not been
-verified, is the difference between blocks_received and blocks_verified.</dd>
-<dt>blocks_signature_invalid</dt><dd>Counter of the number of blocks with
-invalid signatures.</dd>
-<dt>blocks_system_error</dt><dd>Counter of the number of blocks with system
-errors.</dd>
-<dt>block_verification_time</dt><dd>Histogram of the time taken to verify a
-block, gives the node operator an idea of the time taken to verify a block.</dd>
-</dl>
+All metrics are in the `verification` category.
+
+| Metric | Type | Description |
+|---|---|---|
+| `verification_blocks_received` | Counter | Blocks started (one per `BLOCK_HEADER` seen) |
+| `verification_blocks_verified` | Counter | Blocks successfully verified |
+| `verification_blocks_failed` | Counter | Blocks where the header was invalid |
+| `verification_blocks_error` | Counter | Blocks that triggered an exception or returned a failure notification |
+| `verification_block_time` | Counter (ns) | Cumulative time spent in the verification handler per block |
+| `hashing_block_time` | Counter (ns) | Cumulative hashing time, excluding the initial block-header detection step |
 
 ## Exceptions
 
 - **SYSTEM_ERROR:** Issues with node configuration or bugs. The node logs
   details, updates metrics, and might attempt recovery or halt.
-- **SIGNATURE_INVALID:** If verification fails, SIGNATURE_INVALID is used. The
-  block is marked invalid, and the BlockStatusManager triggers error-handling
-  routines (requesting re-sends, removing corrupted data, notifying subscribers,
-  etc.).
+- **SIGNATURE_INVALID:** If verification fails, `success = false` is reported.
+  The block is marked invalid, and publishers may be requested to resend the
+  block.
 
 ### Signature invalid
 

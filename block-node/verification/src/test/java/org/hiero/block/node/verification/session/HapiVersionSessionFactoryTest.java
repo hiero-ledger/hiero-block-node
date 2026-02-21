@@ -75,17 +75,19 @@ class HapiVersionSessionFactoryTest {
     }
 
     @Test
-    @DisplayName("0.71.x resolves to ExtendedMerkleTreeSession")
-    void selectsExtendedMerkleTreeSessionFor0710() {
-        assertCreates(sv(0, 71, 0), ExtendedMerkleTreeSession.class, blockSource);
-        assertCreates(sv(0, 71, 5), ExtendedMerkleTreeSession.class, blockSource);
+    @DisplayName("0.71.x resolves to DummyVerificationSession")
+    void selectsDummyImplFor0710() {
+        assertCreates(sv(0, 71, 0), DummyVerificationSession.class, blockSource);
+        assertCreates(sv(0, 71, 5), DummyVerificationSession.class, blockSource);
     }
 
     @Test
-    @DisplayName("0.72.0+ resolves to DummyVerificationSession")
-    void selectsDummyImplFor0720AndAbove() {
-        assertCreates(sv(0, 72, 0), DummyVerificationSession.class, blockSource);
-        assertCreates(sv(0, 73, 0), DummyVerificationSession.class, blockSource);
+    @DisplayName("0.72.0 and above resolves to ExtendedMerkleTreeSession")
+    void selectsExtendedMerkleTreeSessionFor0720AndAbove() {
+        assertCreates(sv(0, 72, 0), ExtendedMerkleTreeSession.class, blockSource);
+        assertCreates(sv(0, 72, 5), ExtendedMerkleTreeSession.class, blockSource);
+        assertCreates(sv(0, 73, 0), ExtendedMerkleTreeSession.class, blockSource);
+        assertCreates(sv(0, 74, 0), ExtendedMerkleTreeSession.class, blockSource);
     }
 
     @ParameterizedTest(name = ">= 0.64.0 and < 0.68.0 resolves to DummyVerificationSession for {0}")

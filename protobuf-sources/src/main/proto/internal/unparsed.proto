@@ -62,7 +62,7 @@ message BlockItemUnparsed {
         bytes transaction_result = 5;
         bytes transaction_output = 6;
         bytes state_changes = 7;
-        bytes filtered_item_hash = 8;
+        bytes filtered_single_item = 8;
         bytes block_proof = 9;
         bytes record_file = 10;
         bytes trace_data = 11;

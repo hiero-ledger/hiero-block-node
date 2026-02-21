@@ -9,6 +9,7 @@ option java_multiple_files = true;
 
 import "block/stream/block_item.proto";
 import "block/stream/block_proof.proto";
+import "block/stream/state_proof.proto";
 
 /**
  * A request to obtain the proof for block item within a block.

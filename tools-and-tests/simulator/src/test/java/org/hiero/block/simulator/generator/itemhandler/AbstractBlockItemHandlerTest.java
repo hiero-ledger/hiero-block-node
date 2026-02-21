@@ -79,7 +79,7 @@ class AbstractBlockItemHandlerTest {
         SemanticVersion version = handler.getTestSemanticVersion();
         assertNotNull(version);
         assertEquals(0, version.getMajor());
-        assertEquals(71, version.getMinor());
+        assertEquals(72, version.getMinor());
         assertEquals(0, version.getPatch());
     }
 

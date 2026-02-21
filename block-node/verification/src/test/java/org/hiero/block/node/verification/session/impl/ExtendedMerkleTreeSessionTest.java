@@ -14,33 +14,25 @@ import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class ExtendedMerkleTreeSessionTest {
-    BlockUtils.SampleBlockInfo sampleBlockInfo;
-    List<BlockItemUnparsed> blockItems;
 
-    @BeforeEach
-    void setUp() throws IOException, ParseException {
-        sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_21);
-        blockItems = sampleBlockInfo.blockUnparsed().blockItems();
-    }
-
-    /**
-     * Happy path test for the BlockVerificationSession class.
-     */
     @Test
-    void happyPath() throws ParseException {
+    @DisplayName("happy path - HAPI 0.72.0 block")
+    void happyPath() throws IOException, ParseException {
+        BlockUtils.SampleBlockInfo sampleBlockInfo =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
+        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
+
         BlockHeader blockHeader =
                 BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeaderOrThrow());
-
         long blockNumber = blockHeader.number();
 
         ExtendedMerkleTreeSession session =
                 new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null);
 
-        // Create BlockItems with isEndOfBlock=true to trigger finalization
         BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber, true, true);
         VerificationNotification blockNotification = session.processBlockItems(blockItemsMessage);
 
