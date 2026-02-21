@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
+import org.hiero.block.tools.blocks.wrapped.FetchBalanceCheckpointsCommand;
 import org.hiero.block.tools.blocks.wrapped.ValidateWrappedBlocksCommand;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
@@ -18,6 +19,7 @@ import picocli.CommandLine.Spec;
             ValidateBlocksCommand.class,
             ToWrappedBlocksCommand.class,
             ValidateWrappedBlocksCommand.class,
+            FetchBalanceCheckpointsCommand.class,
         },
         mixinStandardHelpOptions = true)
 public class BlocksCommand implements Runnable {
