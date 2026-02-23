@@ -7,9 +7,11 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -42,6 +44,8 @@ public class BlockingExecutor extends ThreadPoolExecutor {
     private final BlockingQueue<Runnable> workQueue;
     /** Counter to indicate total submitted tasks. */
     private int tasksSubmitted;
+    /// All async executors created when running tasks async
+    private final Queue<ExecutorService> asyncExecutors;
 
     /**
      * Constructor.
@@ -57,6 +61,7 @@ public class BlockingExecutor extends ThreadPoolExecutor {
                 Executors.defaultThreadFactory(),
                 new AbortPolicy());
         this.workQueue = workQueue; // actual work queue
+        this.asyncExecutors = new ConcurrentLinkedQueue<>();
     }
 
     /**
@@ -192,6 +197,26 @@ public class BlockingExecutor extends ThreadPoolExecutor {
      * This method executes all tasks that were submitted to this executor
      * asynchronously.
      * <p>
+     * Default pool implementation used.
+     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
+     */
+    public List<CompletableFuture<Void>> executeAsync(
+            final long blockTimeoutMillis,
+            final boolean blockUntilDone,
+            final boolean throwOnExceptionalCompletion,
+            final boolean logOnExceptionalCompletion) {
+        return executeAsync(
+                blockUntilDone,
+                blockTimeoutMillis,
+                throwOnExceptionalCompletion,
+                logOnExceptionalCompletion,
+                () -> Executors.newThreadPerTaskExecutor(Executors.defaultThreadFactory()));
+    }
+
+    /**
+     * This method executes all tasks that were submitted to this executor
+     * asynchronously.
+     * <p>
      * Internally, a {@link java.util.concurrent.ThreadPerTaskExecutor} is used
      * to submit each task. All tasks are started in the order they were
      * submitted to the executor. The way tasks are submitted is by
@@ -231,6 +256,7 @@ public class BlockingExecutor extends ThreadPoolExecutor {
         } else {
             final List<CompletableFuture<Void>> futures = new ArrayList<>();
             final ExecutorService pool = executorServiceSupplier.get();
+            asyncExecutors.add(pool);
             if (workQueue.isEmpty()) {
                 throw new IllegalStateException("Queue is empty");
             } else {
@@ -295,6 +321,13 @@ public class BlockingExecutor extends ThreadPoolExecutor {
     public boolean awaitTermination(final long timeout, final TimeUnit unit) {
         shutdownNow();
         return true;
+    }
+
+    @Override
+    public List<Runnable> shutdownNow() {
+        // Shutdown now all active running executors for async executions
+        asyncExecutors.parallelStream().forEach(ExecutorService::shutdownNow);
+        return super.shutdownNow();
     }
 
     /**
