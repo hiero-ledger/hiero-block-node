@@ -147,17 +147,6 @@ public class BalanceProtobufValidator {
     }
 
     /**
-     * Validate computed balances against a protobuf checkpoint (HBAR only).
-     *
-     * @param checkpoint the checkpoint timestamp
-     * @param computedBalances the computed balance map
-     * @throws ValidationException if validation fails
-     */
-    private void validateCheckpoint(Instant checkpoint, Map<Long, Long> computedBalances) throws ValidationException {
-        validateCheckpoint(checkpoint, computedBalances, null);
-    }
-
-    /**
      * Validate computed balances against a protobuf checkpoint (HBAR and tokens).
      *
      * @param checkpoint the checkpoint timestamp
@@ -366,30 +355,6 @@ public class BalanceProtobufValidator {
             // Verify signature
             return verifyRsaSha384(rsaPubKey, fileHash, signature);
         }
-    }
-
-    /**
-     * Parse account balances from protobuf bytes (HBAR only).
-     *
-     * @param pbBytes the protobuf file bytes
-     * @return map of account ID to balance
-     */
-    private Map<Long, Long> parseProtobufBalances(byte[] pbBytes) {
-        Map<Long, Long> balances = new HashMap<>();
-        try {
-            AllAccountBalances allBalances = AllAccountBalances.PROTOBUF.parse(Bytes.wrap(pbBytes));
-            for (SingleAccountBalances account : allBalances.allAccounts()) {
-                if (account.accountID() != null) {
-                    long accountNum = account.accountID().accountNumOrElse(0L);
-                    if (accountNum > 0) {
-                        balances.put(accountNum, account.hbarBalance());
-                    }
-                }
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to parse protobuf balances", e);
-        }
-        return balances;
     }
 
     /**

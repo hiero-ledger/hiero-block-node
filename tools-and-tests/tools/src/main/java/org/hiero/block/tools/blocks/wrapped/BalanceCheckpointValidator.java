@@ -165,17 +165,6 @@ public class BalanceCheckpointValidator {
     }
 
     /**
-     * Validate computed balances against a checkpoint (HBAR only).
-     *
-     * @param checkpointBlock the checkpoint block number
-     * @param computedBalances the computed balance map
-     * @throws ValidationException if validation fails
-     */
-    private void validateCheckpoint(long checkpointBlock, Map<Long, Long> computedBalances) throws ValidationException {
-        validateCheckpoint(checkpointBlock, computedBalances, null);
-    }
-
-    /**
      * Validate computed balances against a checkpoint (HBAR and tokens).
      *
      * @param checkpointBlock the checkpoint block number
