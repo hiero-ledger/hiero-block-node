@@ -107,7 +107,7 @@ public class Validate implements Runnable {
         }
 
         byte[] hashBytes() {
-            return HexFormat.of().parseHex(endRunningHashHex);
+            return parseHex(endRunningHashHex);
         }
 
         private static void writeStatusFile(Path statusFile, Status s) {
@@ -220,7 +220,7 @@ public class Validate implements Runnable {
                 LocalDate priorDayDate = actualStartDate.minusDays(1);
                 DayBlockInfo priorDayInfo = dayInfo.get(priorDayDate);
                 if (priorDayInfo != null) {
-                    byte[] priorHash = HexFormat.of().parseHex(priorDayInfo.lastBlockHash);
+                    byte[] priorHash = parseHex(priorDayInfo.lastBlockHash);
                     carryOverHash.set(priorHash);
                     System.out.printf(
                             "Starting at %s with mirror node last hash[%s]%n",
@@ -243,7 +243,7 @@ public class Validate implements Runnable {
                 LocalDate priorDayDate = firstDayDate.minusDays(1);
                 DayBlockInfo priorDayInfo = dayInfo.get(priorDayDate);
                 if (priorDayInfo != null) {
-                    byte[] priorHash = HexFormat.of().parseHex(priorDayInfo.lastBlockHash);
+                    byte[] priorHash = parseHex(priorDayInfo.lastBlockHash);
                     carryOverHash.set(priorHash);
                     System.out.printf(
                             "Starting at %s with mirror node last hash[%s]%n",
@@ -434,7 +434,7 @@ public class Validate implements Runnable {
                                                 .plusSeconds(10)
                                                 .toInstant())) {
                                     // now we can compare hashes
-                                    byte[] expectedHash = HexFormat.of().parseHex(thisDaysInfo.firstBlockHash);
+                                    byte[] expectedHash = parseHex(thisDaysInfo.firstBlockHash);
                                     if (!Arrays.equals(vr.endRunningHash(), expectedHash)) {
                                         PrettyPrint.clearProgress();
                                         System.err.printf(
@@ -580,5 +580,16 @@ public class Validate implements Runnable {
         if (hash == null) return "null";
         final String s = Bytes.wrap(hash).toString();
         return s.length() <= 8 ? s : s.substring(0, 8);
+    }
+
+    /**
+     * Parse a hex string to bytes, tolerating an optional {@code 0x} prefix.
+     *
+     * @param hex the hex string to parse, with or without a {@code 0x} prefix
+     * @return the decoded bytes
+     */
+    private static byte[] parseHex(final String hex) {
+        final String stripped = hex.startsWith("0x") || hex.startsWith("0X") ? hex.substring(2) : hex;
+        return HexFormat.of().parseHex(stripped);
     }
 }
