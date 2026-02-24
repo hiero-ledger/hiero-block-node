@@ -20,6 +20,7 @@ import picocli.CommandLine.Spec;
             FetchMirrorNodeRecordsCsv.class,
             FetchMissingTransactions.class,
             ExtractDayBlocks.class,
+            ExtractDayBlocksFromApi.class,
             UpdateBlockData.class,
             GenerateAddressBookFromMirrorNode.class,
             CompareAddressBooks.class

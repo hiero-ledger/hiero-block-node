@@ -70,13 +70,28 @@ public class FetchBlockQuery {
      */
     public static List<BlockInfo> getLatestBlocks(
             int limit, MirrorNodeBlockQueryOrder order, List<String> timestampFilters) {
-        final String url = buildBlocksQueryUrl(limit, order, timestampFilters);
+        return getLatestBlocks(limit, order, timestampFilters, MAINNET_MIRROR_NODE_API_URL);
+    }
+
+    /**
+     * Get the latest blocks from a configurable mirror node base URL, optionally constrained by
+     * one or more timestamp filters.
+     *
+     * @param limit number of blocks to retrieve
+     * @param order ordering of blocks
+     * @param timestampFilters optional list of timestamp filter expressions; may be {@code null}
+     * @param baseUrl the mirror node API base URL (must end with {@code '/'})
+     * @return a list of BlockInfo objects representing the latest blocks
+     */
+    public static List<BlockInfo> getLatestBlocks(
+            int limit, MirrorNodeBlockQueryOrder order, List<String> timestampFilters, String baseUrl) {
+        final String url = buildBlocksQueryUrl(limit, order, timestampFilters, baseUrl);
         final JsonObject json = MirrorNodeUtils.readUrl(url);
         return parseBlocksResponse(json);
     }
 
     /**
-     * Builds the URL for querying blocks from the mirror node API.
+     * Builds the URL for querying blocks from the mirror node API using the default base URL.
      *
      * @param limit number of blocks to retrieve
      * @param order ordering of blocks
@@ -85,8 +100,22 @@ public class FetchBlockQuery {
      */
     private static String buildBlocksQueryUrl(
             int limit, MirrorNodeBlockQueryOrder order, List<String> timestampFilters) {
+        return buildBlocksQueryUrl(limit, order, timestampFilters, MAINNET_MIRROR_NODE_API_URL);
+    }
+
+    /**
+     * Builds the URL for querying blocks from the mirror node API.
+     *
+     * @param limit number of blocks to retrieve
+     * @param order ordering of blocks
+     * @param timestampFilters optional list of timestamp filters
+     * @param baseUrl the mirror node API base URL (must end with {@code '/'})
+     * @return the complete query URL
+     */
+    private static String buildBlocksQueryUrl(
+            int limit, MirrorNodeBlockQueryOrder order, List<String> timestampFilters, String baseUrl) {
         final StringBuilder url = new StringBuilder();
-        url.append(MAINNET_MIRROR_NODE_API_URL)
+        url.append(baseUrl)
                 .append("blocks")
                 .append("?limit=")
                 .append(limit)
@@ -114,9 +143,7 @@ public class FetchBlockQuery {
         List<BlockInfo> blocks = new ArrayList<>();
 
         if (json.has("blocks") && json.get("blocks").isJsonArray()) {
-            json.getAsJsonArray("blocks").forEach(elem -> {
-                blocks.add(parseBlockInfo(elem.getAsJsonObject()));
-            });
+            json.getAsJsonArray("blocks").forEach(elem -> blocks.add(parseBlockInfo(elem.getAsJsonObject())));
         }
         return blocks;
     }
@@ -176,6 +203,7 @@ public class FetchBlockQuery {
      * @param defaultValue the default value
      * @return the integer value or default
      */
+    @SuppressWarnings("SameParameterValue")
     private static int getIntOrDefault(JsonObject json, String fieldName, int defaultValue) {
         return json.has(fieldName) ? json.get(fieldName).getAsInt() : defaultValue;
     }
@@ -195,11 +223,11 @@ public class FetchBlockQuery {
     }
 
     /**
-     * Test main method
+     * A test main method
      *
      * @param args the command line arguments
      */
-    public static void main(String[] args) {
+    static void main(String[] args) {
         System.out.println("Fetching block query...");
         int blockNumber = 69333000;
         System.out.println("blockNumber = " + blockNumber);

@@ -107,7 +107,7 @@ public class Validate implements Runnable {
         }
 
         byte[] hashBytes() {
-            return HexFormat.of().parseHex(endRunningHashHex);
+            return parseHex(endRunningHashHex);
         }
 
         private static void writeStatusFile(Path statusFile, Status s) {
@@ -220,7 +220,7 @@ public class Validate implements Runnable {
                 LocalDate priorDayDate = actualStartDate.minusDays(1);
                 DayBlockInfo priorDayInfo = dayInfo.get(priorDayDate);
                 if (priorDayInfo != null) {
-                    byte[] priorHash = HexFormat.of().parseHex(priorDayInfo.lastBlockHash);
+                    byte[] priorHash = parseHex(priorDayInfo.lastBlockHash);
                     carryOverHash.set(priorHash);
                     System.out.printf(
                             "Starting at %s with mirror node last hash[%s]%n",
@@ -243,7 +243,7 @@ public class Validate implements Runnable {
                 LocalDate priorDayDate = firstDayDate.minusDays(1);
                 DayBlockInfo priorDayInfo = dayInfo.get(priorDayDate);
                 if (priorDayInfo != null) {
-                    byte[] priorHash = HexFormat.of().parseHex(priorDayInfo.lastBlockHash);
+                    byte[] priorHash = parseHex(priorDayInfo.lastBlockHash);
                     carryOverHash.set(priorHash);
                     System.out.printf(
                             "Starting at %s with mirror node last hash[%s]%n",
@@ -419,30 +419,29 @@ public class Validate implements Runnable {
                                 addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                 System.exit(1);
                             }
-                            // check if this is the first block of the first day and validate hash against mirror
-                            // node data if so
+                            // Cross-check the first block of each day against mirror node data if available.
                             if (blockInDayCounter.get() == 0L && dayInfo != null) {
                                 // we are the first block of a day (not the first day), so we have computed the prior
                                 // day's last hash, so we can compare that to one from mirror node data if available
-                                LocalDate dayDate = parseDayFromFileName(
+                                final LocalDate dayDate = parseDayFromFileName(
                                         item.dayFile.getFileName().toString());
-                                DayBlockInfo thisDaysInfo = dayInfo.get(dayDate);
+                                final DayBlockInfo thisDaysInfo = dayInfo.get(dayDate);
                                 // make sure the block is the first block of the day by checking its time is within
                                 // 10 seconds of midnight
-                                if (block.recordFileTime()
-                                        .isBefore(dayDate.atStartOfDay(UTC)
-                                                .plusSeconds(10)
-                                                .toInstant())) {
-                                    // now we can compare hashes
-                                    byte[] expectedHash = HexFormat.of().parseHex(thisDaysInfo.firstBlockHash);
+                                if (thisDaysInfo != null
+                                        && block.recordFileTime()
+                                                .isBefore(dayDate.atStartOfDay(UTC)
+                                                        .plusSeconds(10)
+                                                        .toInstant())) {
+                                    final byte[] expectedHash = parseHex(thisDaysInfo.firstBlockHash);
                                     if (!Arrays.equals(vr.endRunningHash(), expectedHash)) {
                                         PrettyPrint.clearProgress();
-                                        System.err.printf(
-                                                "Validation failed for %s: first block of day has previous hash[%s] but "
-                                                        + "expected[%s] from mirror node data%n",
-                                                dayDate, Bytes.wrap(vr.endRunningHash()), Bytes.wrap(expectedHash));
-                                        System.out.flush();
-                                        // Persist last good and exit
+                                        System.err.println("Validation failed for " + dayDate
+                                                + ": first block of day has endRunningHash["
+                                                + HexFormat.of().formatHex(vr.endRunningHash())
+                                                + "] but expected[" + thisDaysInfo.firstBlockHash
+                                                + "] from mirror node data (re-run 'mirror extractDayBlocksFromApi"
+                                                + " --start-date " + dayDate.minusDays(1) + "' to refresh)");
                                         Status s = lastGood.get();
                                         if (s != null) Status.writeStatusFile(statusFile, s);
                                         addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
@@ -580,5 +579,16 @@ public class Validate implements Runnable {
         if (hash == null) return "null";
         final String s = Bytes.wrap(hash).toString();
         return s.length() <= 8 ? s : s.substring(0, 8);
+    }
+
+    /**
+     * Parse a hex string to bytes, tolerating an optional {@code 0x} prefix.
+     *
+     * @param hex the hex string to parse, with or without a {@code 0x} prefix
+     * @return the decoded bytes
+     */
+    private static byte[] parseHex(final String hex) {
+        final String stripped = hex.startsWith("0x") || hex.startsWith("0X") ? hex.substring(2) : hex;
+        return HexFormat.of().parseHex(stripped);
     }
 }
