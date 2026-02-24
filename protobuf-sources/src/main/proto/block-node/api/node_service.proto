@@ -35,6 +35,12 @@ message ServerStatusDetailResponse {
      * buffer schema, and Block-Node software.
      */
     BlockNodeVersions version_information = 1;
+
+    /**
+     * Block availability information.<br/>
+     * A list of available block ranges.
+     */
+    repeated BlockRange available_ranges = 2;
 }
 
 /**
@@ -149,6 +155,24 @@ message BlockNodeVersions {
 }
 
 /**
+ * Available block availability information for a Block-Node.
+ *
+ * The `BlockRange` identifies a contiguous set of available blocks starting
+ * with the `range_start` block number and ending at the `range_end` block
+ * number<br/>
+ */
+message BlockRange {
+    /**
+     * The lowest numbered block in this range of available blocks.
+     */
+    uint64 range_start = 1;
+    /**
+     * The greatest numbered block in this range of available blocks.
+     */
+    uint64 range_end = 2;
+}
+
+/**
  * Remote procedure calls (RPCs) for the Block-Node ancillary services.
  */
 service BlockNodeService {
@@ -161,10 +185,12 @@ service BlockNodeService {
     rpc serverStatus(ServerStatusRequest) returns (ServerStatusResponse);
 
     /**
-     * Read the status of this Block-Node.
+     * Read the detail status of this Block-Node.
      * <p>
-     * A client SHOULD request server status prior to requesting block stream
-     * data or a state snapshot.
+     * A client SHOULD request detail server status to check block availability
+     * prior to requesting block stream.<br/>
+     * A client MAY request detail server status to check block version
+     * information for compatibility.
      */
     rpc serverStatusDetail(ServerStatusRequest) returns (ServerStatusDetailResponse);
 }

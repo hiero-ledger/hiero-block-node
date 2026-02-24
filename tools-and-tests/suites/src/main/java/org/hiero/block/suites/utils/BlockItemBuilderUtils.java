@@ -65,8 +65,10 @@ public final class BlockItemBuilderUtils {
         TssSignedBlockProof tssSignedBlockProof = TssSignedBlockProof.newBuilder()
                 .blockSignature(Bytes.wrap("block_signature"))
                 .build();
-        BlockProof blockProof =
-                BlockProof.newBuilder().signedBlockProof(tssSignedBlockProof).build();
+        BlockProof blockProof = BlockProof.newBuilder()
+                .signedBlockProof(tssSignedBlockProof)
+                .block(blockNumber)
+                .build();
         return blockProof;
     }
 

@@ -6,7 +6,10 @@ import static java.util.Objects.requireNonNull;
 
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.util.ArrayList;
+import java.util.List;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
@@ -14,6 +17,7 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
@@ -78,9 +82,26 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusRequest request) {
         requestDetailCounter.increment();
 
-        return ServerStatusDetailResponse.newBuilder()
-                .versionInformation(context.blockNodeVersions())
-                .build();
+        ServerStatusDetailResponse.Builder detailsBuilder = ServerStatusDetailResponse.newBuilder();
+
+        // add in version information
+        detailsBuilder.versionInformation(context.blockNodeVersions());
+
+        BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
+
+        List<BlockRange> blockRanges = new ArrayList<>();
+
+        for (LongRange longRange : context.historicalBlockProvider()
+                .availableBlocks()
+                .streamRanges()
+                .toList()) {
+            blockRanges.add(blockRangeBuilder
+                    .rangeStart(longRange.start())
+                    .rangeEnd(longRange.end())
+                    .build());
+        }
+        // return the block availability information.
+        return detailsBuilder.availableRanges(blockRanges).build();
     }
 
     // ==== BlockNodePlugin Methods ====================================================================================
@@ -103,7 +124,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // Create the metrics for server status
         requestDetailCounter = context.metrics()
                 .getOrCreate(new Counter.Config(METRICS_CATEGORY, "server_status_details_requests")
-                        .withDescription("Number of server status requests"));
+                        .withDescription("Number of server status details requests"));
 
         // Register this service
         serviceBuilder.registerGrpcService(this);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.fixtures.plugintest;
 
+import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
@@ -167,6 +168,7 @@ public abstract class PluginTestBase<
         List<PluginVersion> pluginVersions = Stream.of(plugin.version()).toList();
         return BlockNodeVersions.newBuilder()
                 .blockNodeVersion(SemanticVersionUtility.from(this.getClass()))
+                .streamProtoVersion(SemanticVersionUtility.from(Block.class))
                 .installedPluginVersions(pluginVersions)
                 .build();
     }

@@ -64,8 +64,6 @@ mirror_nodes:
   mirror-1:
     block_nodes: [block-node-1, block-node-2, block-node-3]
 
-relay_nodes:
-  relay-1:
-    mirror_nodes: [mirror-1]
-
+# Empty sections = skip deployment (relay chart readiness issues with Solo 0.54.0)
+relay_nodes: {}
 explorer_nodes: {}

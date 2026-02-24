@@ -7,7 +7,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentSkipListSet;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
@@ -22,8 +24,7 @@ import org.hiero.block.node.stream.publisher.StreamPublisherManager;
  */
 public class TestStreamPublisherManager implements StreamPublisherManager {
     /** The message to be used when the handlePersisted method is called in an illegal state. */
-    private static final String PERSISTED_NOTIFICATION_ILLEGAL_STATE_MESSAGE =
-            """
+    private static final String PERSISTED_NOTIFICATION_ILLEGAL_STATE_MESSAGE = """
     Illegal state for publisher manager test fixture.
     `handlePersisted` is called when `latestBlockNumber` is greater than the argument notification's end block number.
     This is not allowed in fixtures, the latest block number must always be set explicitly to a valid value before calling `handlePersisted` in order to mitigate false positives.
@@ -39,6 +40,8 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     private BlockAction blockAction;
     /** The latest block number to be returned. */
     private long latestBlockNumber = -1L;
+
+    private NavigableSet<Long> endOfBlocksReceived = new ConcurrentSkipListSet<>();
 
     public TestStreamPublisherManager(final TestBlockMessagingFacility testBlockMessagingFacility) {
         this.blockMessagingFacility = Objects.requireNonNull(testBlockMessagingFacility);
@@ -69,6 +72,11 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     public void closeBlock(final long handlerId) {
         // Increment the number of calls for the handler id
         closeBlockCalls.merge(handlerId, 1, Integer::sum);
+    }
+
+    @Override
+    public void endOfBlock(final long blockNumber) {
+        endOfBlocksReceived.add(blockNumber);
     }
 
     @Override
@@ -177,5 +185,10 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
      */
     public TestBlockMessagingFacility getBlockMessagingFacility() {
         return blockMessagingFacility;
+    }
+
+    /// Fixture method. Returns the end of blocks received set
+    public NavigableSet<Long> getEndOfBlocksReceived() {
+        return endOfBlocksReceived;
     }
 }

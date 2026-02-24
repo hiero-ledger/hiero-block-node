@@ -7,6 +7,7 @@ import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROP
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
+import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
@@ -242,6 +243,7 @@ public class BlockNodeApp implements HealthFacility {
         return BlockNodeVersions.newBuilder()
                 .installedPluginVersions(pluginVersions)
                 .blockNodeVersion(SemanticVersionUtility.from(BlockNodeApp.class))
+                .streamProtoVersion(SemanticVersionUtility.from(Block.class))
                 .build();
     }
 
