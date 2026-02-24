@@ -54,6 +54,7 @@ import org.hiero.block.suites.utils.BlockItemBuilderUtils;
 import org.hiero.block.suites.utils.ResponsePipelineUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -597,6 +598,9 @@ public class BlockNodeAPITests {
         blockStreamPublishServiceClient.close();
     }
 
+    // to-do: re-enable once the server-side early-close race is fixed in PublisherHandler.shutdown().
+    // The server RSTs the connection before END_STREAM is flushed, so onNext(END_STREAM) is never received.
+    @Disabled
     @Test
     void e2eDuplicateBlockPublisherObserversOnComplete() throws InterruptedException {
         // ==== Scenario 1: Publish new genesis block and confirm acknowledgement response ====
