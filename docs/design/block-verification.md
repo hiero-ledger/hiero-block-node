@@ -61,11 +61,11 @@ The main plugin class. Implements `BlockNodePlugin`, `BlockItemHandler`, and
 Routes block verification to the correct `VerificationSession` implementation
 based on the block's HAPI proto version:
 
-| HAPI Version | Session |
-|---|---|
-| >= 0.72.0 | `ExtendedMerkleTreeSession` (real Merkle verification) |
+|  HAPI Version   |                          Session                          |
+|-----------------|-----------------------------------------------------------|
+| >= 0.72.0       | `ExtendedMerkleTreeSession` (real Merkle verification)    |
 | 0.64.0 – 0.71.x | `DummyVerificationSession` (placeholder, always succeeds) |
-| < 0.64.0 | Throws `IllegalArgumentException` |
+| < 0.64.0        | Throws `IllegalArgumentException`                         |
 
 ### VerificationSession
 
@@ -85,13 +85,13 @@ The full block verification implementation, used for HAPI v0.72.0 and above.
 Maintains five `NaiveStreamingTreeHasher` instances — one per block-item
 category — that incrementally compute subtree roots as items arrive:
 
-| Hasher | Block item types |
-|---|---|
-| `inputTreeHasher` | `SIGNED_TRANSACTION` |
-| `outputTreeHasher` | `BLOCK_HEADER`, `TRANSACTION_RESULT`, `TRANSACTION_OUTPUT` |
-| `consensusHeaderHasher` | `ROUND_HEADER`, `EVENT_HEADER` |
-| `stateChangesHasher` | `STATE_CHANGES` |
-| `traceDataHasher` | `TRACE_DATA` |
+|         Hasher          |                      Block item types                      |
+|-------------------------|------------------------------------------------------------|
+| `inputTreeHasher`       | `SIGNED_TRANSACTION`                                       |
+| `outputTreeHasher`      | `BLOCK_HEADER`, `TRANSACTION_RESULT`, `TRANSACTION_OUTPUT` |
+| `consensusHeaderHasher` | `ROUND_HEADER`, `EVENT_HEADER`                             |
+| `stateChangesHasher`    | `STATE_CHANGES`                                            |
+| `traceDataHasher`       | `TRACE_DATA`                                               |
 
 On finalization, it combines the five subtree roots with the previous block
 hash, all-previous-blocks root hash, state root hash, and block timestamp into
@@ -182,24 +182,24 @@ sequenceDiagram
 
 Configuration class: `VerificationConfig`
 
-| Property | Default | Description |
-|---|---|---|
-| `allBlocksHasherFilePath` | `/opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin` | Path for the persistent hasher snapshot |
-| `allBlocksHasherEnabled` | `true` | Enable or disable the all-blocks root hash computation |
-| `allBlocksHasherPersistenceInterval` | `10` (seconds) | How often the hasher snapshot is written to disk |
+|               Property               |                               Default                                |                      Description                       |
+|--------------------------------------|----------------------------------------------------------------------|--------------------------------------------------------|
+| `allBlocksHasherFilePath`            | `/opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin` | Path for the persistent hasher snapshot                |
+| `allBlocksHasherEnabled`             | `true`                                                               | Enable or disable the all-blocks root hash computation |
+| `allBlocksHasherPersistenceInterval` | `10` (seconds)                                                       | How often the hasher snapshot is written to disk       |
 
 ## Metrics
 
 All metrics are in the `verification` category.
 
-| Metric | Type | Description |
-|---|---|---|
-| `verification_blocks_received` | Counter | Blocks started (one per `BLOCK_HEADER` seen) |
-| `verification_blocks_verified` | Counter | Blocks successfully verified |
-| `verification_blocks_failed` | Counter | Blocks where the header was invalid |
-| `verification_blocks_error` | Counter | Blocks that triggered an exception or returned a failure notification |
-| `verification_block_time` | Counter (ns) | Cumulative time spent in the verification handler per block |
-| `hashing_block_time` | Counter (ns) | Cumulative hashing time, excluding the initial block-header detection step |
+|             Metric             |     Type     |                                Description                                 |
+|--------------------------------|--------------|----------------------------------------------------------------------------|
+| `verification_blocks_received` | Counter      | Blocks started (one per `BLOCK_HEADER` seen)                               |
+| `verification_blocks_verified` | Counter      | Blocks successfully verified                                               |
+| `verification_blocks_failed`   | Counter      | Blocks where the header was invalid                                        |
+| `verification_blocks_error`    | Counter      | Blocks that triggered an exception or returned a failure notification      |
+| `verification_block_time`      | Counter (ns) | Cumulative time spent in the verification handler per block                |
+| `hashing_block_time`           | Counter (ns) | Cumulative hashing time, excluding the initial block-header detection step |
 
 ## Exceptions
 
