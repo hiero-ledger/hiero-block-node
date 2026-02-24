@@ -2,7 +2,6 @@
 package org.hiero.block.tools.blocks.model;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.nio.file.FileSystem;
@@ -199,7 +198,7 @@ public class BlockWriter {
             final CompressionType compressionType,
             final int powersOfTenPerZipFileContents)
             throws IOException {
-        // get block number from block header
+        // get the block number from the block header
         final var firstBlockItem = block.items().getFirst();
         final long blockNumber = firstBlockItem.blockHeader().number();
         // compute a block path
@@ -392,16 +391,8 @@ public class BlockWriter {
      * @throws IOException If an error occurs
      */
     private static ZipOutputStream openOrCreateZipFile(final Path zipFilePath) throws IOException {
-        final ZipOutputStream zipOutputStream;
-        if (Files.exists(zipFilePath)) {
-            // open existing zip for append - need to copy and recreate
-            // for simplicity, we'll use FileSystem approach
-            final FileSystem fs = FileSystems.newFileSystem(zipFilePath, (ClassLoader) null);
-            // close and reopen for writing
-            fs.close();
-        }
-        // create new or overwrite
-        zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
+        // CREATE creates the file if absent; APPEND opens it for appending if it already exists
+        final ZipOutputStream zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
                 Files.newOutputStream(zipFilePath, StandardOpenOption.CREATE, StandardOpenOption.APPEND), 1024 * 1024));
         // don't compress the zip file as files are already compressed
         zipOutputStream.setMethod(ZipOutputStream.STORED);
@@ -417,12 +408,11 @@ public class BlockWriter {
      * @return The serialized bytes
      * @throws IOException If an error occurs
      */
-    private static byte[] serializeBlock(final Block block, final CompressionType compressionType) throws IOException {
-        final java.io.ByteArrayOutputStream byteStream = new java.io.ByteArrayOutputStream();
-        try (final WritableStreamingData out = new WritableStreamingData(compressionType.wrapStream(byteStream))) {
-            Block.PROTOBUF.write(block, out);
-        }
-        return byteStream.toByteArray();
+    private static byte[] serializeBlock(final Block block, final CompressionType compressionType) {
+        // PBJ toBytes() uses measureRecord() internally for exact allocation then writes once - no size guessing.
+        // Compress the resulting byte[] in one shot to minimise JNI call overhead vs streaming through
+        // ZstdOutputStream.
+        return compressionType.compress(Block.PROTOBUF.toBytes(block).toByteArray());
     }
 
     /**
@@ -481,7 +471,7 @@ public class BlockWriter {
      *
      * @param args The command line arguments
      */
-    public static void main(String[] args) {
+    static void main(String[] args) {
         System.out.println("Testing BlockWriter path computation with default settings (ZSTD, 10K blocks/zip):\n");
         for (long blockNumber : new long[] {0, 123, 1000, 10000, 100000, 1234567890123456789L}) {
             final var blockPath = computeBlockPath(Path.of("data"), blockNumber);

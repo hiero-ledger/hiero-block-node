@@ -7,11 +7,16 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.HexFormat;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Utility class for handling signature files and RSA signature verification.
  */
 public class SigFileUtils {
+    /** Cache of decoded RSA public keys keyed by hex-encoded DER string. Avoids repeated hex-decode + KeyFactory cost. */
+    private static final Map<String, PublicKey> KEY_CACHE = new ConcurrentHashMap<>();
+
     /**
      * Extract the node account number from a signature file path.
      * Expected filename format: node_0.0.X.rcd_sig
@@ -40,10 +45,15 @@ public class SigFileUtils {
      * @throws Exception if the key cannot be decoded
      */
     public static PublicKey decodePublicKey(String rsaPubKeyHexDer) throws Exception {
+        final PublicKey cached = KEY_CACHE.get(rsaPubKeyHexDer);
+        if (cached != null) {
+            return cached;
+        }
         final byte[] keyBytes = HexFormat.of().parseHex(rsaPubKeyHexDer);
+        final PublicKey publicKey;
         try {
             final X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
-            return KeyFactory.getInstance("RSA").generatePublic(spec);
+            publicKey = KeyFactory.getInstance("RSA").generatePublic(spec);
         } catch (Exception e) {
             // Try parsing as X.509 certificate
             try {
@@ -51,11 +61,14 @@ public class SigFileUtils {
                         java.security.cert.CertificateFactory.getInstance("X.509");
                 final java.security.cert.X509Certificate cert = (java.security.cert.X509Certificate)
                         cf.generateCertificate(new java.io.ByteArrayInputStream(keyBytes));
+                KEY_CACHE.put(rsaPubKeyHexDer, cert.getPublicKey());
                 return cert.getPublicKey();
             } catch (Exception ignored) {
                 throw e;
             }
         }
+        KEY_CACHE.put(rsaPubKeyHexDer, publicKey);
+        return publicKey;
     }
 
     /**
