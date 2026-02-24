@@ -54,7 +54,6 @@ import org.hiero.block.suites.utils.BlockItemBuilderUtils;
 import org.hiero.block.suites.utils.ResponsePipelineUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -250,10 +249,14 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
+        // The server closes the publisher connection after detecting a duplicate. We await connection end
+        // (onComplete or onError) rather than onNext(END_STREAM) because the server may RST the stream
+        // before the END_STREAM frame is flushed to the client.
+        final AtomicReference<CountDownLatch> duplicateConnectionEndedLatch =
+                responseObserver.setAndGetConnectionEndedLatch(1);
         requestStream.onNext(request);
 
-        // to-do: investigate occasional test failures here - revert to await on onComplete responseObserver latch
-        parkNanos(2_000_000_000L);
+        awaitLatch(duplicateConnectionEndedLatch, "duplicate block connection closed");
 
         // ==== Scenario 3: Get server status and confirm block 0 is reflected in status ====
         BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient =
@@ -354,6 +357,13 @@ public class BlockNodeAPITests {
         assertThat(responseObserver2.getOnCompleteCalls().get()).isEqualTo(0);
         assertThat(responseObserver2.getClientEndStreamCalls().get()).isEqualTo(0);
 
+        // Close publisher connections and wait for the subscribe thread to finish receiving all responses
+        // before asserting on subscribe content. The subscribe thread's subscribeBlockStream call only returns
+        // once the subscription ends, guaranteeing all 6 or 7 responses have been delivered.
+        requestStream.closeConnection();
+        requestStream2.closeConnection();
+        awaitThread(subscribeThread, "live subscribe thread");
+
         // When subscribed initially, block 1 was already persisted, so it will be streamed from history.
         // Then, the session will either supply the block from history, if it is persisted, or from the live stream
         // if not persisted yet. If it comes from the live stream, we expect one more onNext call, because the
@@ -403,10 +413,6 @@ public class BlockNodeAPITests {
             final int size = subscribeResponseObserver.getOnNextCalls().size();
             fail("Unexpected number of subscribe responses: %d, Responses: %s".formatted(size, responses));
         }
-        // close the client connections
-        requestStream.closeConnection();
-        requestStream2.closeConnection();
-        awaitThread(subscribeThread, "live subscribe thread");
         blockStreamPublishServiceClient.close();
         blockStreamPublishServiceClient2.close();
         blockStreamSubscribeServiceClient.close();
@@ -481,6 +487,7 @@ public class BlockNodeAPITests {
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
                 .build();
 
+        final AtomicReference<CountDownLatch> swappedPublishAckLatch = newResponseObserver.setAndGetOnNextLatch(1);
         newRequestStream.onNext(swappedRequest);
 
         final PublishStreamRequest endOfBlockRequest = PublishStreamRequest.newBuilder()
@@ -489,10 +496,8 @@ public class BlockNodeAPITests {
 
         newRequestStream.onNext(endOfBlockRequest);
 
-        // sleep briefly to allow processing
-        parkNanos(5_000_000_000L);
+        awaitLatch(swappedPublishAckLatch, "swapped publisher acknowledgement");
 
-        // Assert that no responses have been sent.
         assertThat(newResponseObserver.getOnNextCalls())
                 .hasSize(1)
                 .element(0)
@@ -551,10 +556,11 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
+        final AtomicReference<CountDownLatch> socketDuplicateConnectionEndedLatch =
+                responseObserver.setAndGetConnectionEndedLatch(1);
         requestStream.onNext(request);
 
-        // to-do: investigate occasional test failures here - revert to await on onComplete responseObserver latch
-        parkNanos(2_000_000_000L);
+        awaitLatch(socketDuplicateConnectionEndedLatch, "socket test duplicate block connection closed");
 
         // query status to confirm block range still shows only block 0
         BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient =
@@ -591,10 +597,6 @@ public class BlockNodeAPITests {
         blockStreamPublishServiceClient.close();
     }
 
-    // to-do: investigate CI related test failures where countdown latches don't hit zero.
-    // Possibly due to thread contention.
-    // Revert other tests that use parkNanos or don't check responseObserver to await on onNext or onComplete latches.
-    @Disabled
     @Test
     void e2eDuplicateBlockPublisherObserversOnComplete() throws InterruptedException {
         // ==== Scenario 1: Publish new genesis block and confirm acknowledgement response ====
@@ -630,14 +632,16 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
-        AtomicReference<CountDownLatch> publishCompleteCountDownLatch = responseObserver.setAndGetOnCompleteLatch(1);
+        // Gate on connection end (onComplete or onError) rather than onNext(END_STREAM), because the server may
+        // RST the connection before the END_STREAM frame is flushed to the client.
+        final AtomicReference<CountDownLatch> duplicateConnectionEndedLatch =
+                responseObserver.setAndGetConnectionEndedLatch(1);
         requestStream.onNext(request);
 
-        awaitLatch(
-                publishCompleteCountDownLatch,
-                "duplicate block end-of-stream onComplete"); // wait for onComplete caused by duplicate response
+        awaitLatch(duplicateConnectionEndedLatch, "duplicate block connection closed");
 
-        // Assert that one more response is sent.
+        // Assert that the END_STREAM response was received with DUPLICATE_BLOCK code.
+        // If the server fixes the early-close race, this will be reliably present.
         assertThat(responseObserver.getOnNextCalls())
                 .hasSize(2)
                 .element(1)
@@ -645,10 +649,7 @@ public class BlockNodeAPITests {
                 .returns(PublishStreamResponse.EndOfStream.Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
                 .returns(0L, endStreamBlockNumberExtractor);
 
-        // Assert no other responses sent
-        assertThat(responseObserver.getOnErrorCalls()).isEmpty();
         assertThat(responseObserver.getOnSubscriptionCalls()).isEmpty();
-        assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(1);
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
     }
 
