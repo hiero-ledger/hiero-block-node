@@ -62,6 +62,8 @@ public class SemanticVersionUtilitiesTest {
                 Arguments.of("0.1.0-alpha+", false),
                 Arguments.of("0.1.0-alpha", true),
                 Arguments.of("0.1.0-alpha+123A72", true),
-                Arguments.of("0.28.0-SNAPSHOT", true));
+                Arguments.of("0.28.0-SNAPSHOT", true),
+                Arguments.of("0.72.0-alpha.3", true),
+                Arguments.of("1.0.0-alpha.1+build99", true));
     }
 }
