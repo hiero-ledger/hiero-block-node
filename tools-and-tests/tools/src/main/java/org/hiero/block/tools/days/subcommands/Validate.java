@@ -419,30 +419,29 @@ public class Validate implements Runnable {
                                 addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
                                 System.exit(1);
                             }
-                            // check if this is the first block of the first day and validate hash against mirror
-                            // node data if so
+                            // Cross-check the first block of each day against mirror node data if available.
                             if (blockInDayCounter.get() == 0L && dayInfo != null) {
                                 // we are the first block of a day (not the first day), so we have computed the prior
                                 // day's last hash, so we can compare that to one from mirror node data if available
-                                LocalDate dayDate = parseDayFromFileName(
+                                final LocalDate dayDate = parseDayFromFileName(
                                         item.dayFile.getFileName().toString());
-                                DayBlockInfo thisDaysInfo = dayInfo.get(dayDate);
+                                final DayBlockInfo thisDaysInfo = dayInfo.get(dayDate);
                                 // make sure the block is the first block of the day by checking its time is within
                                 // 10 seconds of midnight
-                                if (block.recordFileTime()
-                                        .isBefore(dayDate.atStartOfDay(UTC)
-                                                .plusSeconds(10)
-                                                .toInstant())) {
-                                    // now we can compare hashes
-                                    byte[] expectedHash = parseHex(thisDaysInfo.firstBlockHash);
+                                if (thisDaysInfo != null
+                                        && block.recordFileTime()
+                                                .isBefore(dayDate.atStartOfDay(UTC)
+                                                        .plusSeconds(10)
+                                                        .toInstant())) {
+                                    final byte[] expectedHash = parseHex(thisDaysInfo.firstBlockHash);
                                     if (!Arrays.equals(vr.endRunningHash(), expectedHash)) {
                                         PrettyPrint.clearProgress();
-                                        System.err.printf(
-                                                "Validation failed for %s: first block of day has previous hash[%s] but "
-                                                        + "expected[%s] from mirror node data%n",
-                                                dayDate, Bytes.wrap(vr.endRunningHash()), Bytes.wrap(expectedHash));
-                                        System.out.flush();
-                                        // Persist last good and exit
+                                        System.err.println("Validation failed for " + dayDate
+                                                + ": first block of day has endRunningHash["
+                                                + HexFormat.of().formatHex(vr.endRunningHash())
+                                                + "] but expected[" + thisDaysInfo.firstBlockHash
+                                                + "] from mirror node data (re-run 'mirror extractDayBlocksFromApi"
+                                                + " --start-date " + dayDate.minusDays(1) + "' to refresh)");
                                         Status s = lastGood.get();
                                         if (s != null) Status.writeStatusFile(statusFile, s);
                                         addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
