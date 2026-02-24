@@ -353,7 +353,7 @@ public class BlockNodeAPITests {
         assertThat(responseObserver2.getOnSubscriptionCalls()).isEmpty();
         assertThat(responseObserver2.getOnCompleteCalls().get()).isEqualTo(0);
         assertThat(responseObserver2.getClientEndStreamCalls().get()).isEqualTo(0);
-
+        parkNanos(2_000_000_000L);
         // When subscribed initially, block 1 was already persisted, so it will be streamed from history.
         // Then, the session will either supply the block from history, if it is persisted, or from the live stream
         // if not persisted yet. If it comes from the live stream, we expect one more onNext call, because the
