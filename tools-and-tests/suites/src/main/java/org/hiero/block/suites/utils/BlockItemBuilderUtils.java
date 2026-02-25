@@ -10,6 +10,7 @@ import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.input.EventHeader;
 import com.hedera.hapi.block.stream.input.RoundHeader;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.SemanticVersion;
@@ -20,6 +21,8 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import org.hiero.block.common.hasher.HashingUtilities;
+import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 
@@ -354,12 +357,85 @@ public final class BlockItemBuilderUtils {
         return batches;
     }
 
+    /**
+     * Creates a verifiable block with the given block number, assuming no previous block (genesis).
+     * The block will pass {@code ExtendedMerkleTreeSession} verification when
+     * {@code verification.allBlocksHasherEnabled=false} is configured.
+     */
     public static BlockItem[] createSimpleBlockWithNumber(final long blockNumber) {
-        final BlockItem[] blockItems = new BlockItem[3];
+        return createSimpleBlockWithNumber(blockNumber, null);
+    }
+
+    /**
+     * Creates a verifiable block with the given block number and previous block hash.
+     * Produces a block containing BLOCK_HEADER, ROUND_HEADER, BLOCK_FOOTER and BLOCK_PROOF,
+     * where the proof signature is {@code SHA384(computedBlockHash)}.
+     *
+     * @param blockNumber the block number
+     * @param previousBlockHash the hash of the previous block, or null for genesis (uses zero hash)
+     */
+    public static BlockItem[] createSimpleBlockWithNumber(final long blockNumber, final Bytes previousBlockHash) {
+        final BlockItem[] blockItems = new BlockItem[4];
         blockItems[0] = sampleBlockHeader(blockNumber);
         blockItems[1] = sampleRoundHeader(blockNumber * 10L);
-        blockItems[2] = sampleBlockProof(blockNumber);
+        blockItems[2] = sampleBlockFooter(previousBlockHash);
+        blockItems[3] = createVerifiableBlockProof(blockNumber, previousBlockHash);
         return blockItems;
+    }
+
+    /**
+     * Computes the block root hash for a block created by {@link #createSimpleBlockWithNumber(long, Bytes)}.
+     * Use the returned hash as the {@code previousBlockHash} argument when creating the next block.
+     *
+     * @param blockNumber the block number
+     * @param previousBlockHash the hash of the previous block, or null for genesis
+     * @return the computed block root hash
+     */
+    public static Bytes computeBlockHash(final long blockNumber, final Bytes previousBlockHash) {
+        final BlockItemUnparsed blockHeaderUnparsed = sampleBlockHeaderUnparsed(blockNumber);
+        final BlockItemUnparsed roundHeaderUnparsed = sampleRoundHeaderUnparsed(blockNumber * 10L);
+
+        final NaiveStreamingTreeHasher outputHasher = new NaiveStreamingTreeHasher();
+        outputHasher.addLeaf(HashingUtilities.getBlockItemHash(blockHeaderUnparsed));
+        final NaiveStreamingTreeHasher consensusHasher = new NaiveStreamingTreeHasher();
+        consensusHasher.addLeaf(HashingUtilities.getBlockItemHash(roundHeaderUnparsed));
+        final NaiveStreamingTreeHasher inputHasher = new NaiveStreamingTreeHasher();
+        final NaiveStreamingTreeHasher stateHasher = new NaiveStreamingTreeHasher();
+        final NaiveStreamingTreeHasher traceHasher = new NaiveStreamingTreeHasher();
+
+        final Bytes prevHashInput =
+                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]);
+
+        return HashingUtilities.computeFinalBlockHash(
+                new Timestamp(123L, 456),
+                prevHashInput,
+                Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), // allPrevBlocksRoot = zeros (hasher disabled)
+                Bytes.EMPTY, // startOfBlockStateRootHash = empty (treated as zeros)
+                inputHasher,
+                outputHasher,
+                consensusHasher,
+                stateHasher,
+                traceHasher);
+    }
+
+    private static BlockItem sampleBlockFooter(final Bytes previousBlockHash) {
+        final Bytes prevHash =
+                previousBlockHash != null ? previousBlockHash : Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]);
+        final BlockFooter footer =
+                new BlockFooter(prevHash, Bytes.wrap(new byte[HashingUtilities.HASH_SIZE]), Bytes.EMPTY);
+        return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, footer));
+    }
+
+    private static BlockItem createVerifiableBlockProof(final long blockNumber, final Bytes previousBlockHash) {
+        final Bytes blockHash = computeBlockHash(blockNumber, previousBlockHash);
+        final Bytes blockSignature = HashingUtilities.noThrowSha384HashOf(blockHash);
+        final TssSignedBlockProof tssSignedBlockProof =
+                TssSignedBlockProof.newBuilder().blockSignature(blockSignature).build();
+        final BlockProof blockProof = BlockProof.newBuilder()
+                .signedBlockProof(tssSignedBlockProof)
+                .block(blockNumber)
+                .build();
+        return new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof));
     }
 
     public static BlockItemUnparsed[] createSimpleBlockUnparsedWithNumber(final long blockNumber) {

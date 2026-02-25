@@ -66,6 +66,7 @@ dependencies {
     appCoreRuntime(platform(project(":hiero-dependency-versions")))
     appCoreRuntime(project(":app"))
     testPlugins(project(path = ":app", configuration = "blockNodePlugins"))
+    implementation(project(":common"))
 }
 
 // Task to prepare plugins for E2E test container mounting

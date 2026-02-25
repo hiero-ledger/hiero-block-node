@@ -10,6 +10,7 @@ import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import io.helidon.common.media.type.MediaType;
 import io.helidon.common.tls.Tls;
 import io.helidon.http.HttpMediaType;
@@ -324,7 +325,9 @@ public class BlockNodeAPITests {
         subscribeThread.start();
 
         // publish block 1 and confirm subscriber receives it
-        BlockItem[] blockItems1 = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber1);
+        // Compute block 0's hash so block 1's proof is consistent with the server's previousBlockHash state.
+        final Bytes block0Hash = BlockItemBuilderUtils.computeBlockHash(blockNumber, null);
+        BlockItem[] blockItems1 = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber1, block0Hash);
         PublishStreamRequest request2 = PublishStreamRequest.newBuilder()
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
                 .build();
