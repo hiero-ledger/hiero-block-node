@@ -148,6 +148,9 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
                     balanceCheckpointValidator.loadFromDirectory(customBalancesDir);
                 }
 
+                // Auto-load bundled balance checkpoints from resources
+                loadBundledCheckpoints(balanceCheckpointValidator);
+
                 // If no checkpoints loaded, disable balance validation
                 if (balanceCheckpointValidator.getCheckpointCount() == 0) {
                     System.out.println(Ansi.AUTO.string(
@@ -248,5 +251,26 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|bold,green VALIDATION PASSED|@"));
         return 0;
+    }
+
+    /**
+     * Load bundled balance checkpoint files from resources.
+     * These are accountBalances_{blockNumber}.pb.gz files compiled into the jar.
+     */
+    private void loadBundledCheckpoints(BalanceCheckpointValidator validator) throws IOException {
+        // List of bundled checkpoint files (block number extracted from filename)
+        String[] bundledFiles = {"accountBalances_91019204.pb.gz"};
+
+        for (String filename : bundledFiles) {
+            try (var stream = getClass().getResourceAsStream("/metadata/" + filename)) {
+                if (stream != null) {
+                    // Extract block number from filename
+                    String blockStr = filename.replace("accountBalances_", "").replace(".pb.gz", "");
+                    long blockNumber = Long.parseLong(blockStr);
+                    validator.loadFromGzippedStream(stream, blockNumber);
+                    System.out.println(Ansi.AUTO.string("@|yellow Loaded bundled checkpoint:|@ block " + blockNumber));
+                }
+            }
+        }
     }
 }

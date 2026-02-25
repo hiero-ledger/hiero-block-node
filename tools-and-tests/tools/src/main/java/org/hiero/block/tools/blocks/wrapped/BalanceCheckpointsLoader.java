@@ -48,6 +48,26 @@ public class BalanceCheckpointsLoader {
     private final NavigableMap<Long, Map<Long, Map<Long, Long>>> tokenCheckpoints = new TreeMap<>();
 
     /**
+     * Load a single balance checkpoint from a gzipped protobuf input stream.
+     *
+     * @param inputStream the gzipped protobuf input stream
+     * @param blockNumber the block number for this checkpoint
+     * @throws IOException if the stream cannot be read
+     */
+    public void loadFromGzippedStream(InputStream inputStream, long blockNumber) throws IOException {
+        try (GZIPInputStream gzIn = new GZIPInputStream(inputStream)) {
+            byte[] pbBytes = gzIn.readAllBytes();
+            Map<Long, Long> hbarBalances = new HashMap<>();
+            Map<Long, Map<Long, Long>> tokenBalances = new HashMap<>();
+            BalanceProtobufParser.parseWithTokens(pbBytes, hbarBalances, tokenBalances);
+            checkpoints.put(blockNumber, hbarBalances);
+            if (!tokenBalances.isEmpty()) {
+                tokenCheckpoints.put(blockNumber, tokenBalances);
+            }
+        }
+    }
+
+    /**
      * Load balance checkpoints from a compiled zstd file.
      *
      * @param checkpointsFile path to the balance_checkpoints.zstd file
