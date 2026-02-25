@@ -61,11 +61,10 @@ The main plugin class. Implements `BlockNodePlugin`, `BlockItemHandler`, and
 Routes block verification to the correct `VerificationSession` implementation
 based on the block's HAPI proto version:
 
-|  HAPI Version   |                          Session                          |
-|-----------------|-----------------------------------------------------------|
-| >= 0.72.0       | `ExtendedMerkleTreeSession` (real Merkle verification)    |
-| 0.64.0 – 0.71.x | `DummyVerificationSession` (placeholder, always succeeds) |
-| < 0.64.0        | Throws `IllegalArgumentException`                         |
+| HAPI Version |                      Session                      |
+|--------------|---------------------------------------------------|
+| >= 0.72.0    | `ExtendedMerkleTreeSession` (Merkle verification) |
+| < 0.72.0     | Not supported — throws `IllegalArgumentException` |
 
 ### VerificationSession
 
@@ -103,10 +102,9 @@ convention introduced in HAPI v0.72.
 
 ### DummyVerificationSession
 
-A placeholder implementation used for HAPI versions 0.64.0 through 0.71.x.
-Accumulates block items and unconditionally returns a success notification with
-a zeroed hash. Will be replaced with real verification for those versions before
-going to production.
+A temporary placeholder that unconditionally returns a success notification with
+a zeroed hash. It will be removed; HAPI versions prior to 0.72 are not supported
+in production.
 
 ### AllBlocksHasherHandler
 
@@ -158,7 +156,7 @@ sequenceDiagram
         P->>A: computeRootHash() / lastBlockHash()
         A-->>P: allPreviousBlocksRootHash, previousBlockHash
         P->>F: createSession(blockNumber, source, hapiVersion, hashes)
-        F-->>P: ExtendedMerkleTreeSession or DummyVerificationSession
+        F-->>P: ExtendedMerkleTreeSession
     end
 
     P->>S: (3) processBlockItems(blockItems)
