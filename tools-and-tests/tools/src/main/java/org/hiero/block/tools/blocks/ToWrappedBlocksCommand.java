@@ -16,10 +16,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.Deque;
@@ -56,21 +58,84 @@ import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
 
 /**
- * The {@code ToWrappedBlocksCommand} class is used to convert record file blocks organized in daily files
- * into wrapped block stream files for efficient processing and analysis. This tool is designed to process
- * binary and metadata files required for the conversion process and outputs the resulting wrapped block files
- * in the specified directory.
- * <p>
- * Fields:<br>
- * - {@code blockTimesFile}: Path to the binary file mapping block times to block numbers.<br>
- * - {@code dayBlocksFile}: Path to the JSON file with metadata for blocks organized by day.<br>
- * - {@code unzipped}: Path to the unzipped directory containing the blocks to be processed.<br>
- * - {@code compressedDaysDir}: Path to the directory with compressed daily block files.<br>
- * - {@code outputBlocksDir}: Destination directory for the wrapped block files.
- * </p><p>
- * Processing uses a four-stage pipeline: (1) parse + RSA-verify on a thread pool,
- * (2) convert + chain-state update on the main thread (sequential), (3) serialize + compress on a
- * thread pool, (4) zip write on a single dedicated thread with a long-lived {@link ZipOutputStream}.</p>
+ * Converts record file blocks organized in daily {@code .tar.zstd} archives into wrapped block
+ * stream files compatible with the Hiero Block Node historic file format.
+ *
+ * <h2>Four-Stage Processing Pipeline</h2>
+ *
+ * <p>Processing uses a concurrent pipeline to maximise throughput. Stages are connected by
+ * {@link CompletableFuture} chains. The block-hash chain constrains Stage 2 to remain sequential,
+ * but all other stages run concurrently across multiple blocks.</p>
+ *
+ * <pre>
+ * Tar stream (main thread, sequential I/O)
+ *     |
+ *     v
+ * Stage 1 — Parse + RSA-Verify  [parseAndVerifyPool, N threads, sliding prefetch window]
+ *
+ *   For each UnparsedRecordBlock:
+ *     1. unparsed.parse()  ->  ParsedRecordBlock
+ *     2. addressBookRegistry.getAddressBookForBlock(parsed.blockTime())
+ *     3. parsed.signatureFiles().stream().parallel()
+ *            .filter(psf -> psf.isValid(signedHash, addressBook))   // RSA verify
+ *            .map(psf  -> psf.toRecordFileSignature(addressBook))
+ *     ->  PreVerifiedBlock(recordBlock, addressBook, verifiedSignatures)
+ *
+ *     future.join() — main thread waits for the oldest in-flight future
+ *     |
+ *     v
+ * Stage 2 — Convert + Chain-State Update  [main thread, strictly sequential]
+ *
+ *   RecordBlockConverter.toBlock(preVerified, blockNum, prevHash, treeRoot, amendments)
+ *   hashBlock(wrapped)  ->  blockStreamBlockHash
+ *   streamingHasher.addNodeByHash(hash)       // NOT thread-safe; stays on main thread
+ *   inMemoryTreeHasher.addNodeByHash(hash)    // NOT thread-safe; stays on main thread
+ *   blockRegistry.addBlock(blockNum, hash)    // NOT thread-safe; stays on main thread
+ *   BlockWriter.computeBlockPath(...)         // pre-compute path + createDirectories
+ *     |
+ *     +-- supplyAsync(serializePool) --------------------+
+ *     |                                                  |
+ *     v                                                  v
+ * Stage 3 — Serialize + Compress  [serializePool, N threads]
+ *
+ *   BlockWriter.serializeBlockToBytes(wrapped, compressionType)
+ *   PBJ protobuf serialization + optional zstd compression
+ *   Multiple blocks compressed concurrently on all available cores.
+ *     |
+ *     | allOf(prevWriteFuture, serFuture).thenRunAsync(zipWritePool)
+ *     v
+ * Stage 4 — Zip Write  [zipWritePool, 1 thread, long-lived ZipOutputStream]
+ *
+ *   One ZipOutputStream is kept open across many consecutive blocks.
+ *   It is closed and re-opened only when the block number crosses into a
+ *   new 10,000-block zip-file range (i.e. blockPath.zipFilePath() changes).
+ *   BlockWriter.writeBlockEntry(zip, blockPath, bytes)  ->  CRC32 + putNextEntry + write
+ * </pre>
+ *
+ * <p>The {@code allOf(prevWriteFuture, serFuture)} dependency in Stage 4 guarantees:</p>
+ * <ul>
+ *   <li>Block N-1's append completes before block N is written to the same open stream.</li>
+ *   <li>Block N's compressed bytes are available before the write begins.</li>
+ * </ul>
+ *
+ * <h2>Thread-Safety Constraints</h2>
+ * <ul>
+ *   <li>{@link StreamingHasher}, {@link InMemoryTreeHasher}, and
+ *       {@link BlockStreamBlockHashRegistry} are <em>not</em> thread-safe — all updates
+ *       are performed on the Stage 2 (main) thread only.</li>
+ *   <li>The single {@link ZipOutputStream} held by Stage 4 is never shared across threads;
+ *       only {@code zipWritePool}'s single thread accesses it.</li>
+ *   <li>{@link AddressBookRegistry}, {@link RecordBlockConverter}, and
+ *       {@link BlockWriter#serializeBlockToBytes} are safe to call from multiple threads.</li>
+ * </ul>
+ *
+ * <h2>CLI Options</h2>
+ * <ul>
+ *   <li>{@code --parse-threads} — Stage 1 thread count (default: CPU count - 1)</li>
+ *   <li>{@code --serialize-threads} — Stage 3 thread count (default: CPU count - 1)</li>
+ *   <li>{@code --prefetch} — sliding parse-ahead window size (default: same as
+ *       {@code --parse-threads})</li>
+ * </ul>
  */
 @SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal", "DuplicatedCode"})
 @Command(
@@ -249,17 +314,44 @@ public class ToWrappedBlocksCommand implements Runnable {
             // Track the last reported minute to avoid spamming progress output
             final AtomicLong lastReportedMinute = new AtomicLong(Long.MIN_VALUE);
 
-            // create Streaming and In Memory Merkle Tree hashers and load state if files exist
+            // create Streaming and In Memory Merkle Tree hashers and load state if files exist.
+            // loadWithFallback tries the primary file first, then the .bak rotation if corrupt.
             final Path streamingMerkleTreeFile = outputBlocksDir.resolve("streamingMerkleTree.bin");
             final StreamingHasher streamingHasher = new StreamingHasher();
-            if (Files.exists(streamingMerkleTreeFile)) {
-                streamingHasher.load(streamingMerkleTreeFile);
-            }
+            loadWithFallback(streamingMerkleTreeFile, streamingHasher::load);
+
             final Path inMemoryMerkleTreeFile = outputBlocksDir.resolve("completeMerkleTree.bin");
             final InMemoryTreeHasher inMemoryTreeHasher = new InMemoryTreeHasher();
-            if (Files.exists(inMemoryMerkleTreeFile)) {
-                inMemoryTreeHasher.load(inMemoryMerkleTreeFile);
+            loadWithFallback(inMemoryMerkleTreeFile, inMemoryTreeHasher::load);
+
+            // Reconcile hasher states with the block registry.
+            // The registry is a RandomAccessFile written synchronously per block, so after a crash
+            // it can be ahead of the periodic hasher checkpoints.  If we let the mismatch stand,
+            // every subsequent block would get a wrong rootHashOfBlockHashesMerkleTree in its
+            // footer, silently corrupting the chain.  Re-feed any missing hashes from the registry
+            // before processing begins so all three data structures are consistent.
+            final long registryHighest = blockRegistry.highestBlockNumberStored();
+            if (registryHighest >= 0) {
+                final long streamingLeafCount = streamingHasher.leafCount();
+                if (streamingLeafCount <= registryHighest) {
+                    System.out.println("Replaying " + (registryHighest - streamingLeafCount + 1)
+                            + " block hashes into streaming hasher (blocks "
+                            + streamingLeafCount + ".." + registryHighest + ")");
+                    for (long bn = streamingLeafCount; bn <= registryHighest; bn++) {
+                        streamingHasher.addNodeByHash(blockRegistry.getBlockHash(bn));
+                    }
+                }
+                final long inMemoryLeafCount = inMemoryTreeHasher.leafCount();
+                if (inMemoryLeafCount <= registryHighest) {
+                    System.out.println("Replaying " + (registryHighest - inMemoryLeafCount + 1)
+                            + " block hashes into in-memory hasher (blocks "
+                            + inMemoryLeafCount + ".." + registryHighest + ")");
+                    for (long bn = inMemoryLeafCount; bn <= registryHighest; bn++) {
+                        inMemoryTreeHasher.addNodeByHash(blockRegistry.getBlockHash(bn));
+                    }
+                }
             }
+
             // File to store jumpstart data (block number, hash, and streaming hasher state)
             final Path jumpstartFile = outputBlocksDir.resolve("jumpstart.bin");
             // Track the last block number and hash in memory, write once at the end
@@ -290,20 +382,21 @@ public class ToWrappedBlocksCommand implements Runnable {
                                 try {
                                     System.err.println("Shutdown: address book to " + addressBookFile);
                                     addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-                                    streamingHasher.save(streamingMerkleTreeFile);
-                                    inMemoryTreeHasher.save(inMemoryMerkleTreeFile);
-                                    // Save jumpstart data if we processed any blocks
-                                    if (jumpstartBlockHash.get() != null) {
-                                        saveJumpstartData(
-                                                jumpstartFile,
-                                                jumpstartBlockNumber.get(),
-                                                jumpstartBlockHash.get(),
-                                                streamingHasher);
-                                    }
-                                    System.err.println("Shutdown: saved merkle tree states. To "
-                                            + streamingMerkleTreeFile + " and " + inMemoryMerkleTreeFile);
                                 } catch (Exception e) {
-                                    System.err.println("Shutdown: could not save state: " + e.getMessage());
+                                    System.err.println("Shutdown: could not save address book: " + e.getMessage());
+                                }
+                                saveStateCheckpoint(
+                                        streamingMerkleTreeFile, streamingHasher,
+                                        inMemoryMerkleTreeFile, inMemoryTreeHasher);
+                                System.err.println("Shutdown: saved merkle tree states to " + streamingMerkleTreeFile
+                                        + " and " + inMemoryMerkleTreeFile);
+                                // Save jumpstart data if we processed any blocks
+                                if (jumpstartBlockHash.get() != null) {
+                                    saveJumpstartData(
+                                            jumpstartFile,
+                                            jumpstartBlockNumber.get(),
+                                            jumpstartBlockHash.get(),
+                                            streamingHasher);
                                 }
                             },
                             "wrap-shutdown-hook"));
@@ -314,6 +407,10 @@ public class ToWrappedBlocksCommand implements Runnable {
             // lastWriteFuture chains all zip-write tasks sequentially across days.
             // It starts as an already-completed future so the first block's write can proceed immediately.
             CompletableFuture<Void> lastWriteFuture = CompletableFuture.completedFuture(null);
+
+            // Track the last calendar month (year*12+month) for which a state checkpoint was saved.
+            // Initialised to -1 so that the first block's month does not trigger a premature save.
+            int lastSavedBlockMonth = -1;
 
             // Iterate over all the days to convert. We have to convert in order and sequentially as we are building new
             // ordered blockchains
@@ -393,6 +490,23 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     + " != record file block number "
                                     + blockNumberFromRecordFile);
                         }
+
+                        // Monthly checkpoint: save state once per calendar month of blockchain data.
+                        // Worst-case on corruption: re-process at most ~1 month of blocks.
+                        // Check BEFORE updating chain state so the saved state is consistent with
+                        // all zip writes for blocks up to (but not including) this block.
+                        final var blockDateTime =
+                                preVerified.recordBlock().blockTime().atOffset(ZoneOffset.UTC);
+                        final int blockMonth = blockDateTime.getYear() * 12 + blockDateTime.getMonthValue();
+                        if (lastSavedBlockMonth >= 0 && blockMonth != lastSavedBlockMonth) {
+                            // Wait for all preceding zip writes before snapshotting state.
+                            lastWriteFuture.join();
+                            saveStateCheckpoint(
+                                    streamingMerkleTreeFile, streamingHasher,
+                                    inMemoryMerkleTreeFile, inMemoryTreeHasher);
+                            System.out.println("Monthly checkpoint saved before block " + blockNum);
+                        }
+                        lastSavedBlockMonth = blockMonth;
 
                         // Convert record file block to wrapped block using pre-verified signatures
                         final Block wrapped = RecordBlockConverter.toBlock(
@@ -489,6 +603,13 @@ public class ToWrappedBlocksCommand implements Runnable {
             // Clear progress line and print summary
             PrettyPrint.clearProgress();
             System.out.println("Conversion complete. Blocks written: " + blocksProcessed.get());
+
+            // Save hasher states atomically now that all writes are complete.
+            // The shutdown hook will save again on JVM exit, but saving here first ensures
+            // the state is persisted even if the hook is interrupted.
+            saveStateCheckpoint(
+                    streamingMerkleTreeFile, streamingHasher,
+                    inMemoryMerkleTreeFile, inMemoryTreeHasher);
 
             // Save jumpstart data once at the end
             if (jumpstartBlockHash.get() != null) {
@@ -621,5 +742,123 @@ public class ToWrappedBlocksCommand implements Runnable {
         } catch (IOException e) {
             System.err.println("Warning: could not save jumpstart.bin: " + e.getMessage());
         }
+    }
+
+    /**
+     * Loads hasher state from {@code primaryPath}, falling back to {@code primaryPath.bak}
+     * if the primary file is missing or corrupt. Logs a warning and starts fresh if both fail.
+     *
+     * @param primaryPath the primary state file path
+     * @param loader function that restores hasher state from a given path
+     */
+    private static void loadWithFallback(Path primaryPath, ThrowingLoader loader) {
+        if (!Files.exists(primaryPath)) {
+            final Path bakPath = Path.of(primaryPath + ".bak");
+            if (Files.exists(bakPath)) {
+                System.err.println("Warning: primary state file missing, trying backup: " + bakPath);
+                try {
+                    loader.load(bakPath);
+                    System.err.println("Warning: loaded state from backup: " + bakPath);
+                } catch (Exception bakEx) {
+                    System.err.println("Warning: backup also failed (" + bakEx.getMessage() + "), starting fresh.");
+                    try {
+                        Files.deleteIfExists(bakPath);
+                    } catch (IOException ignored) {
+                    }
+                }
+            }
+            return;
+        }
+        try {
+            loader.load(primaryPath);
+        } catch (Exception e) {
+            System.err.println(
+                    "Warning: corrupt primary state file " + primaryPath + " (" + e.getMessage() + "). Trying backup.");
+            try {
+                Files.deleteIfExists(primaryPath);
+            } catch (IOException ignored) {
+            }
+            final Path bakPath = Path.of(primaryPath + ".bak");
+            if (Files.exists(bakPath)) {
+                try {
+                    loader.load(bakPath);
+                    System.err.println("Warning: loaded state from backup: " + bakPath);
+                } catch (Exception bakEx) {
+                    System.err.println("Warning: backup also failed (" + bakEx.getMessage() + "), starting fresh.");
+                    try {
+                        Files.deleteIfExists(bakPath);
+                    } catch (IOException ignored) {
+                    }
+                }
+            } else {
+                System.err.println("Warning: no backup found for " + primaryPath + ", starting fresh.");
+            }
+        }
+    }
+
+    /**
+     * Saves state atomically using a write-to-temp, rotate-backup, rename pattern:
+     * <ol>
+     *   <li>Write to {@code primaryPath.tmp}</li>
+     *   <li>Rename existing {@code primaryPath} to {@code primaryPath.bak} (if present)</li>
+     *   <li>Rename {@code primaryPath.tmp} to {@code primaryPath}</li>
+     * </ol>
+     *
+     * <p>If the JVM is killed between steps 2 and 3, the previous complete state is preserved
+     * in {@code primaryPath.bak} and will be used by {@link #loadWithFallback} on the next run.
+     *
+     * @param primaryPath the target path for the saved state
+     * @param saver function that writes hasher state to a given path
+     * @throws Exception if saving fails
+     */
+    private static void saveAtomically(Path primaryPath, ThrowingSaver saver) throws Exception {
+        final Path tmpPath = Path.of(primaryPath + ".tmp");
+        saver.save(tmpPath);
+        if (Files.exists(primaryPath)) {
+            final Path bakPath = Path.of(primaryPath + ".bak");
+            Files.move(primaryPath, bakPath, StandardCopyOption.REPLACE_EXISTING);
+        }
+        Files.move(tmpPath, primaryPath, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /**
+     * Saves both the streaming hasher and in-memory tree hasher states atomically.
+     * Each save is independent: an error on one is logged as a warning and does not
+     * prevent the other from being attempted.
+     *
+     * @param streamingFile path for the streaming hasher state
+     * @param streamingHasher the streaming hasher to save
+     * @param inMemoryFile path for the in-memory tree hasher state
+     * @param inMemoryTreeHasher the in-memory tree hasher to save
+     */
+    private static void saveStateCheckpoint(
+            Path streamingFile,
+            StreamingHasher streamingHasher,
+            Path inMemoryFile,
+            InMemoryTreeHasher inMemoryTreeHasher) {
+        try {
+            saveAtomically(streamingFile, streamingHasher::save);
+        } catch (Exception e) {
+            System.err.println("Warning: could not save " + streamingFile + ": " + e.getMessage());
+        }
+        try {
+            saveAtomically(inMemoryFile, inMemoryTreeHasher::save);
+        } catch (Exception e) {
+            System.err.println("Warning: could not save " + inMemoryFile + ": " + e.getMessage());
+        }
+    }
+
+    /** Functional interface for a state-loader that may throw a checked exception. */
+    @FunctionalInterface
+    private interface ThrowingLoader {
+        /** Restore state from the given path. */
+        void load(Path path) throws Exception;
+    }
+
+    /** Functional interface for a state-saver that may throw a checked exception. */
+    @FunctionalInterface
+    private interface ThrowingSaver {
+        /** Persist state to the given path. */
+        void save(Path path) throws Exception;
     }
 }
