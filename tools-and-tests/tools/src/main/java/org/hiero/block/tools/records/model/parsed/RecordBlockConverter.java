@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.tools.blocks.AmendmentProvider;
+import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 
 /**
  * Converter for converting Hedera record file format blocks into Hedera block stream format blocks and back. The
@@ -114,6 +115,85 @@ public class RecordBlockConverter {
         // Structure: [HEADER, GENESIS_STATE_CHANGES (if block 0), RECORD_FILE, FOOTER, PROOF]
         // Genesis STATE_CHANGES are inserted after HEADER and before RECORD_FILE so they
         // represent the initial state before any transactions are processed
+        final List<BlockItem> blockItems = new ArrayList<>();
+        blockItems.add(new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, blockHeader)));
+
+        // Insert genesis amendments (STATE_CHANGES for block 0) after BLOCK_HEADER
+        if (amendmentProvider.hasGenesisAmendments(blockNumber)) {
+            blockItems.addAll(amendmentProvider.getGenesisAmendments(blockNumber));
+        }
+
+        blockItems.add(new BlockItem(new OneOf<>(ItemOneOfType.RECORD_FILE, recordFileItem)));
+        blockItems.add(new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_FOOTER, blockFooter)));
+        blockItems.add(new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_PROOF, blockProof)));
+
+        return new Block(blockItems);
+    }
+
+    /**
+     * Convert a pre-verified record block into a block stream block.
+     *
+     * <p>This overload is used by the four-stage pipeline in {@code ToWrappedBlocksCommand} where
+     * RSA signature verification has already been performed in Stage 1 (parse + RSA-verify pool).
+     * The pre-mapped {@link RecordFileSignature} objects are used directly, skipping the
+     * cryptographically expensive RSA filter step present in the standard overload.
+     *
+     * @param preVerified the pre-verified record block produced by Stage 1
+     * @param blockNumber the block number for the block
+     * @param previousBlockStreamBlockHash the previous block stream block hash
+     * @param rootHashOfBlockHashesMerkleTree the root hash of the block hashes merkle tree
+     * @param amendmentProvider provider for missing record stream items (amendments)
+     * @return the block stream block
+     */
+    @SuppressWarnings("UnnecessaryLocalVariable")
+    public static Block toBlock(
+            final PreVerifiedBlock preVerified,
+            final long blockNumber,
+            final byte[] previousBlockStreamBlockHash,
+            final byte[] rootHashOfBlockHashesMerkleTree,
+            final AmendmentProvider amendmentProvider) {
+        final ParsedRecordBlock recordBlock = preVerified.recordBlock();
+        final ParsedRecordFile universalRecordFile = recordBlock.recordFile();
+        // Use pre-verified signatures directly – RSA verification already done in Stage 1
+        final List<RecordFileSignature> signatures = preVerified.verifiedSignatures();
+        final BlockProof blockProof = new BlockProof(
+                blockNumber,
+                new OneOf<>(
+                        ProofOneOfType.SIGNED_RECORD_FILE_PROOF,
+                        new SignedRecordFileProof(universalRecordFile.recordFormatVersion(), signatures)));
+        // create a block header
+        final Instant blockTime = recordBlock.recordFile().blockTime();
+        final Timestamp recordFileTimestamp = new Timestamp(blockTime.getEpochSecond(), blockTime.getNano());
+        final Timestamp firstTransactionTimestamp =
+                recordBlock.recordFile().recordStreamFile().recordStreamItems().stream()
+                        .filter(RecordStreamItem::hasRecord)
+                        .map(rsi -> rsi.recordOrThrow().consensusTimestampOrThrow())
+                        .findFirst()
+                        .orElseThrow();
+        final BlockHeader blockHeader = new BlockHeader(
+                universalRecordFile.hapiProtoVersion(),
+                null,
+                blockNumber,
+                firstTransactionTimestamp,
+                BlockHashAlgorithm.SHA2_384);
+
+        // Get missing transactions as amendments (if any)
+        final List<RecordStreamItem> amendments = amendmentProvider.getMissingRecordStreamItems(blockNumber);
+        if (!amendments.isEmpty()) {
+            System.out.println(
+                    "Adding " + amendments.size() + " missing transaction amendments to block " + blockNumber);
+        }
+
+        // create RecordFileItem with amendments
+        final RecordFileItem recordFileItem = new RecordFileItem(
+                recordFileTimestamp, universalRecordFile.recordStreamFile(), recordBlock.sidecarFiles(), amendments);
+        final byte[] stateRootHash = EMPTY_TREE_HASH;
+        // create footer
+        final BlockFooter blockFooter = new BlockFooter(
+                Bytes.wrap(previousBlockStreamBlockHash),
+                Bytes.wrap(rootHashOfBlockHashesMerkleTree),
+                Bytes.wrap(stateRootHash));
+        // Build the block items list
         final List<BlockItem> blockItems = new ArrayList<>();
         blockItems.add(new BlockItem(new OneOf<>(ItemOneOfType.BLOCK_HEADER, blockHeader)));
 

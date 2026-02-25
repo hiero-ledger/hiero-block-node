@@ -285,6 +285,7 @@ public class BlockWriter {
                                 String fileName = filePath.getFileName().toString();
                                 return Long.parseLong(fileName.substring(0, fileName.indexOf('s')));
                             }));
+                    //noinspection OptionalIsPresent
                     if (zipFilePath.isPresent()) {
                         return maxBlockNumberInZip(zipFilePath.get(), compressionType);
                     } else {
@@ -350,6 +351,89 @@ public class BlockWriter {
     }
 
     /**
+     * Compute the path to a block file for the given archive type using default compression.
+     *
+     * <p>For {@link BlockArchiveType#UNCOMPRESSED_ZIP} this delegates to
+     * {@link #computeBlockPath(Path, long)}. For {@link BlockArchiveType#INDIVIDUAL_FILES} it
+     * computes the nested-directory path produced by {@code BlockFile.nestedDirectoriesBlockFilePath},
+     * returning a {@link BlockPath} whose {@code zipFilePath} is the individual block file path and
+     * whose {@code dirPath} is the file's parent directory.
+     *
+     * @param baseDirectory The base directory for the block files
+     * @param blockNumber The block number
+     * @param archiveType The archive type (UNCOMPRESSED_ZIP or INDIVIDUAL_FILES)
+     * @return The path to the block file
+     */
+    public static BlockPath computeBlockPath(
+            final Path baseDirectory, final long blockNumber, final BlockArchiveType archiveType) {
+        return switch (archiveType) {
+            case UNCOMPRESSED_ZIP -> computeBlockPath(baseDirectory, blockNumber);
+            case INDIVIDUAL_FILES -> {
+                final Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
+                        baseDirectory, blockNumber, DEFAULT_COMPRESSION, DIGITS_PER_DIR);
+                final String blockNumStr = BLOCK_NUMBER_FORMAT.format(blockNumber);
+                final String blockFileName = blockNumStr + BLOCK_FILE_EXTENSION + DEFAULT_COMPRESSION.extension();
+                yield new BlockPath(
+                        blockFilePath.getParent(), blockFilePath, blockNumStr, blockFileName, DEFAULT_COMPRESSION);
+            }
+        };
+    }
+
+    /**
+     * Serialize and compress a block to bytes.
+     *
+     * <p>Exposed as a public method so that pipeline stages can serialize blocks concurrently
+     * on a dedicated thread pool while the convert thread immediately moves on to the next block.
+     *
+     * @param block The block to serialize
+     * @param compressionType The compression type (ZSTD or NONE)
+     * @return The serialized (and optionally compressed) block bytes
+     */
+    public static byte[] serializeBlockToBytes(final Block block, final CompressionType compressionType) {
+        return serializeBlock(block, compressionType);
+    }
+
+    /**
+     * Open an existing zip file or create a new one for appending blocks.
+     *
+     * <p>Exposed as a public method so the pipeline's zip-write thread can keep a single
+     * {@link ZipOutputStream} open across many consecutive blocks, closing it only when the block
+     * number crosses into a new zip-file range (every 10,000 blocks by default).
+     *
+     * @param zipFilePath The path to the zip file
+     * @return A {@link ZipOutputStream} configured for STORED mode, ready for appending
+     * @throws IOException If an I/O error occurs
+     */
+    public static ZipOutputStream openZipForAppend(final Path zipFilePath) throws IOException {
+        return openOrCreateZipFile(zipFilePath);
+    }
+
+    /**
+     * Write a pre-serialized block entry into an already-open {@link ZipOutputStream}.
+     *
+     * <p>Computes the CRC-32 checksum, creates a {@link java.util.zip.ZipEntry} with STORED
+     * method (no additional compression), writes the bytes, and closes the entry. The caller is
+     * responsible for managing the lifecycle of {@code zip} (opening and closing it).
+     *
+     * @param zip The open zip output stream to write to
+     * @param blockPath The block path record containing the block file name
+     * @param blockBytes The pre-serialized (and optionally pre-compressed) block bytes
+     * @throws IOException If an I/O error occurs
+     */
+    public static void writeBlockEntry(final ZipOutputStream zip, final BlockPath blockPath, final byte[] blockBytes)
+            throws IOException {
+        final CRC32 crc = new CRC32();
+        crc.update(blockBytes);
+        final ZipEntry zipEntry = new ZipEntry(blockPath.blockFileName());
+        zipEntry.setSize(blockBytes.length);
+        zipEntry.setCompressedSize(blockBytes.length);
+        zipEntry.setCrc(crc.getValue());
+        zip.putNextEntry(zipEntry);
+        zip.write(blockBytes);
+        zip.closeEntry();
+    }
+
+    /**
      * Compute the path to a block file with custom settings.
      *
      * @param baseDirectory The base directory for the block files
@@ -406,7 +490,6 @@ public class BlockWriter {
      * @param block The block to serialize
      * @param compressionType The compression type
      * @return The serialized bytes
-     * @throws IOException If an error occurs
      */
     private static byte[] serializeBlock(final Block block, final CompressionType compressionType) {
         // PBJ toBytes() uses measureRecord() internally for exact allocation then writes once - no size guessing.
@@ -464,22 +547,5 @@ public class BlockWriter {
     private static long blockNumberFromFile(final Path file) {
         final String fileName = file.getFileName().toString();
         return Long.parseLong(fileName.substring(0, fileName.indexOf('.')));
-    }
-
-    /**
-     * Simple main method to test the block path computation.
-     *
-     * @param args The command line arguments
-     */
-    static void main(String[] args) {
-        System.out.println("Testing BlockWriter path computation with default settings (ZSTD, 10K blocks/zip):\n");
-        for (long blockNumber : new long[] {0, 123, 1000, 10000, 100000, 1234567890123456789L}) {
-            final var blockPath = computeBlockPath(Path.of("data"), blockNumber);
-            System.out.println("Block " + blockNumber + ":");
-            System.out.println("  Dir:      " + blockPath.dirPath);
-            System.out.println("  Zip:      " + blockPath.zipFilePath.getFileName());
-            System.out.println("  File:     " + blockPath.blockFileName);
-            System.out.println();
-        }
     }
 }

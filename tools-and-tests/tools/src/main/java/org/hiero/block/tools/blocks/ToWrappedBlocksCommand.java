@@ -2,28 +2,41 @@
 package org.hiero.block.tools.blocks;
 
 import static org.hiero.block.tools.blocks.AmendmentProvider.createAmendmentProvider;
+import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_COMPRESSION;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.RecordFileSignature;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayDeque;
 import java.util.Comparator;
+import java.util.Deque;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
+import java.util.zip.ZipOutputStream;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
 import org.hiero.block.tools.blocks.model.BlockWriter;
+import org.hiero.block.tools.blocks.model.BlockWriter.BlockPath;
+import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
@@ -55,7 +68,9 @@ import picocli.CommandLine.Option;
  * - {@code compressedDaysDir}: Path to the directory with compressed daily block files.<br>
  * - {@code outputBlocksDir}: Destination directory for the wrapped block files.
  * </p><p>
- * This class implements the {@link Runnable} interface, allowing multithreaded processing if needed.</p>
+ * Processing uses a four-stage pipeline: (1) parse + RSA-verify on a thread pool,
+ * (2) convert + chain-state update on the main thread (sequential), (3) serialize + compress on a
+ * thread pool, (4) zip write on a single dedicated thread with a long-lived {@link ZipOutputStream}.</p>
  */
 @SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal", "DuplicatedCode"})
 @Command(
@@ -96,6 +111,22 @@ public class ToWrappedBlocksCommand implements Runnable {
             names = {"-n", "--network"},
             description = "Network name for applying amendments (mainnet, testnet, none). Default: mainnet")
     private String network = "mainnet";
+
+    @Option(
+            names = {"--parse-threads"},
+            description = "Thread count for the parse + RSA-verify stage. Default: CPU count minus 1")
+    private int parseThreads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+
+    @Option(
+            names = {"--serialize-threads"},
+            description = "Thread count for the block serialization + compression stage. Default: CPU count minus 1")
+    private int serializeThreads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+
+    @Option(
+            names = {"--prefetch"},
+            description = "Number of parse+verify futures to keep in-flight ahead of the convert thread. "
+                    + "Default: same as --parse-threads")
+    private int prefetchSize = -1;
 
     /**
      * Run the ToWrappedBlocksCommand to convert record file blocks in day files to wrapped block stream blocks.
@@ -150,8 +181,21 @@ public class ToWrappedBlocksCommand implements Runnable {
         // Create an amendment provider based on network selection
         final AmendmentProvider amendmentProvider = createAmendmentProvider(network);
 
-        // load block times
-        try (final BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile);
+        // ---- Pipeline executor services ----
+        final int resolvedPrefetch = prefetchSize < 1 ? parseThreads : prefetchSize;
+        final ExecutorService parseAndVerifyPool = Executors.newFixedThreadPool(parseThreads);
+        final ExecutorService serializePool = Executors.newFixedThreadPool(serializeThreads);
+        // Single-threaded so zip writes are strictly ordered and the ZipOutputStream is never
+        // accessed by more than one thread at a time.
+        final ExecutorService zipWritePool = Executors.newSingleThreadExecutor();
+
+        // Long-lived zip state managed exclusively by zipWritePool.
+        // Declared here (outside the try-with-resources) so the shutdown hook can close the zip.
+        final AtomicReference<ZipOutputStream> currentZipRef = new AtomicReference<>(null);
+        final AtomicReference<Path> currentZipPathRef = new AtomicReference<>(null);
+
+        try ( // load block times
+        final BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile);
                 // BlockStreamBlockHashRegistry for storing block hashes
                 final BlockStreamBlockHashRegistry blockRegistry =
                         new BlockStreamBlockHashRegistry(outputBlocksDir.resolve("blockStreamBlockHashes.bin"))) {
@@ -231,6 +275,18 @@ public class ToWrappedBlocksCommand implements Runnable {
                                             + outputBlocksDir);
                                     return;
                                 }
+                                // Interrupt pipeline workers so they stop accepting new work
+                                parseAndVerifyPool.shutdownNow();
+                                serializePool.shutdownNow();
+                                zipWritePool.shutdownNow();
+                                // Close the current open zip (if any) to flush completed entries
+                                final ZipOutputStream openZip = currentZipRef.get();
+                                if (openZip != null) {
+                                    try {
+                                        openZip.close();
+                                    } catch (IOException ignored) {
+                                    }
+                                }
                                 try {
                                     System.err.println("Shutdown: address book to " + addressBookFile);
                                     addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
@@ -254,6 +310,11 @@ public class ToWrappedBlocksCommand implements Runnable {
 
             // track the block number we are working on, atomic as we want to update this global state from lambdas
             final AtomicLong blockCounter = new AtomicLong(startBlock);
+
+            // lastWriteFuture chains all zip-write tasks sequentially across days.
+            // It starts as an already-completed future so the first block's write can proceed immediately.
+            CompletableFuture<Void> lastWriteFuture = CompletableFuture.completedFuture(null);
+
             // Iterate over all the days to convert. We have to convert in order and sequentially as we are building new
             // ordered blockchains
             for (final Path dayPath : dayPaths) {
@@ -270,82 +331,161 @@ public class ToWrappedBlocksCommand implements Runnable {
                 }
                 // read the record stream blocks from the day tar.zstd file
                 try (Stream<UnparsedRecordBlock> stream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
-                    stream
-                            // filter out blocks we have already processed, only leaving newer blocks
-                            .filter(recordBlock -> recordBlock.recordFileTime().isAfter(highestStoredBlockTime))
-                            // parse each record block
-                            .map(UnparsedRecordBlock::parse)
-                            .forEach(recordBlock -> {
-                                try {
-                                    final long blockNum = blockCounter.getAndIncrement();
-                                    // double-check the blockNum matches one from recordBlock
-                                    final long blockNumberFromRecordFile = recordBlock
-                                            .recordFile()
-                                            .recordStreamFile()
-                                            .blockNumber();
-                                    if (blockNumberFromRecordFile > 0 && blockNum != blockNumberFromRecordFile) {
-                                        throw new RuntimeException("Block number mismatch at "
-                                                + recordBlock.blockTime()
-                                                + " in "
-                                                + dayPath
-                                                + ": computed blockNum "
-                                                + blockNum
-                                                + " != record file block number "
-                                                + blockNumberFromRecordFile);
-                                    }
-                                    // get the block time
-                                    final Instant blockTime = blockTimeReader.getBlockInstant(blockNum);
+                    // Sliding window of Stage 1 (parse + RSA-verify) futures
+                    final Deque<CompletableFuture<PreVerifiedBlock>> parseWindow = new ArrayDeque<>();
+                    final Iterator<UnparsedRecordBlock> it = stream.filter(
+                                    recordBlock -> recordBlock.recordFileTime().isAfter(highestStoredBlockTime))
+                            .iterator();
 
-                                    // Convert record file block to wrapped block
-                                    Block wrapped = RecordBlockConverter.toBlock(
-                                            recordBlock,
-                                            blockNum,
-                                            blockRegistry.mostRecentBlockHash(),
-                                            streamingHasher.computeRootHash(),
-                                            addressBookRegistry.getAddressBookForBlock(blockTime),
-                                            amendmentProvider);
+                    while (it.hasNext() || !parseWindow.isEmpty()) {
+                        // ---- Stage 1: fill the sliding parse+verify window ----
+                        // Submit up to resolvedPrefetch parse+RSA-verify tasks concurrently.
+                        while (parseWindow.size() < resolvedPrefetch && it.hasNext()) {
+                            final UnparsedRecordBlock unparsed = it.next();
+                            parseWindow.add(CompletableFuture.supplyAsync(
+                                    () -> {
+                                        final ParsedRecordBlock parsed = unparsed.parse();
+                                        final NodeAddressBook ab =
+                                                addressBookRegistry.getAddressBookForBlock(parsed.blockTime());
+                                        final byte[] signedHash =
+                                                parsed.recordFile().signedHash();
+                                        final List<RecordFileSignature> sigs = parsed.signatureFiles().stream()
+                                                .parallel()
+                                                .filter(psf -> psf.isValid(signedHash, ab))
+                                                .map(psf -> psf.toRecordFileSignature(ab))
+                                                .toList();
+                                        return new PreVerifiedBlock(parsed, ab, sigs);
+                                    },
+                                    parseAndVerifyPool));
+                        }
+                        if (parseWindow.isEmpty()) {
+                            break;
+                        }
 
-                                    // write the wrapped block to the output directory using the selected archive type
-                                    try {
-                                        BlockWriter.writeBlock(outputBlocksDir, wrapped, archiveType);
-                                    } catch (IOException e) {
-                                        PrettyPrint.clearProgress();
-                                        System.err.println("Failed writing block " + blockNum + ": " + e.getMessage());
-                                        e.printStackTrace();
-                                        System.exit(1);
-                                    }
-                                    // add block hash to merkle tree hashers
-                                    final byte[] blockStreamBlockHash = hashBlock(wrapped);
-                                    streamingHasher.addNodeByHash(blockStreamBlockHash);
-                                    inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
-                                    // add the block hash to the registry
-                                    blockRegistry.addBlock(blockNum, blockStreamBlockHash);
-                                    // update jumpstart data in memory (written once at the end)
-                                    jumpstartBlockNumber.set(blockNum);
-                                    jumpstartBlockHash.set(blockStreamBlockHash);
+                        // ---- Stage 2: convert + chain-state update (main thread, sequential) ----
+                        // Wait for the oldest in-flight parse+verify future.
+                        final PreVerifiedBlock preVerified;
+                        try {
+                            preVerified = parseWindow.poll().join();
+                        } catch (Exception ex) {
+                            PrettyPrint.clearProgress();
+                            System.err.println("Failed parsing/verifying block in " + dayPath + ": " + ex.getMessage());
+                            ex.printStackTrace();
+                            addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+                            System.exit(1);
+                            return; // unreachable – silences "preVerified may be uninitialized" warning
+                        }
 
-                                    printUpdatedProgress(
-                                            recordBlock,
-                                            blocksProcessed,
-                                            lastSpeedCalcBlockTime,
-                                            lastSpeedCalcRealTimeNanos,
-                                            blockNum,
-                                            startNanos,
-                                            totalBlocksToProcess,
-                                            lastReportedMinute);
-                                } catch (Exception ex) {
-                                    PrettyPrint.clearProgress();
-                                    System.err.println(
-                                            "Failed processing record block in " + dayPath + ": " + ex.getMessage());
-                                    ex.printStackTrace();
-                                    addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-                                    System.exit(1);
-                                }
-                            });
+                        final long blockNum = blockCounter.getAndIncrement();
+                        // double-check the blockNum matches one from recordBlock
+                        final long blockNumberFromRecordFile = preVerified
+                                .recordBlock()
+                                .recordFile()
+                                .recordStreamFile()
+                                .blockNumber();
+                        if (blockNumberFromRecordFile > 0 && blockNum != blockNumberFromRecordFile) {
+                            throw new RuntimeException("Block number mismatch at "
+                                    + preVerified.recordBlock().blockTime()
+                                    + " in "
+                                    + dayPath
+                                    + ": computed blockNum "
+                                    + blockNum
+                                    + " != record file block number "
+                                    + blockNumberFromRecordFile);
+                        }
+
+                        // Convert record file block to wrapped block using pre-verified signatures
+                        final Block wrapped = RecordBlockConverter.toBlock(
+                                preVerified,
+                                blockNum,
+                                blockRegistry.mostRecentBlockHash(),
+                                streamingHasher.computeRootHash(),
+                                amendmentProvider);
+
+                        // Update chain state (not thread-safe – must stay on main thread)
+                        final byte[] blockStreamBlockHash = hashBlock(wrapped);
+                        streamingHasher.addNodeByHash(blockStreamBlockHash);
+                        inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
+                        blockRegistry.addBlock(blockNum, blockStreamBlockHash);
+                        jumpstartBlockNumber.set(blockNum);
+                        jumpstartBlockHash.set(blockStreamBlockHash);
+
+                        // Pre-compute block path on the convert thread (pure arithmetic, fast).
+                        // Creating the directory here avoids doing it on the zip-write thread.
+                        final BlockPath blockPath =
+                                BlockWriter.computeBlockPath(outputBlocksDir, blockNum, archiveType);
+                        Files.createDirectories(blockPath.dirPath());
+
+                        // ---- Stage 3: serialize + compress in parallel ----
+                        final CompletableFuture<byte[]> serFuture = CompletableFuture.supplyAsync(
+                                () -> BlockWriter.serializeBlockToBytes(wrapped, DEFAULT_COMPRESSION), serializePool);
+
+                        // ---- Stage 4: zip write on the single-threaded zipWritePool ----
+                        // allOf(prevWrite, serFuture) ensures:
+                        //   • block N-1's zip write is complete before block N is written
+                        //     (sequential appends to the same open ZipOutputStream)
+                        //   • block N's bytes are ready before we try to write them
+                        final CompletableFuture<Void> prevWrite = lastWriteFuture;
+                        lastWriteFuture = CompletableFuture.allOf(prevWrite, serFuture)
+                                .thenRunAsync(
+                                        () -> {
+                                            try {
+                                                final byte[] bytes = serFuture.join();
+                                                if (archiveType == BlockArchiveType.UNCOMPRESSED_ZIP) {
+                                                    // Switch zip file when the block number crosses into a new range
+                                                    if (!blockPath.zipFilePath().equals(currentZipPathRef.get())) {
+                                                        final ZipOutputStream old = currentZipRef.get();
+                                                        if (old != null) {
+                                                            old.close();
+                                                        }
+                                                        currentZipPathRef.set(blockPath.zipFilePath());
+                                                        currentZipRef.set(
+                                                                BlockWriter.openZipForAppend(blockPath.zipFilePath()));
+                                                    }
+                                                    BlockWriter.writeBlockEntry(currentZipRef.get(), blockPath, bytes);
+                                                } else {
+                                                    // Individual-file mode: each block is its own file
+                                                    Files.write(blockPath.zipFilePath(), bytes);
+                                                }
+                                            } catch (IOException e) {
+                                                throw new UncheckedIOException(e);
+                                            }
+                                        },
+                                        zipWritePool);
+
+                        printUpdatedProgress(
+                                preVerified.recordBlock(),
+                                blocksProcessed,
+                                lastSpeedCalcBlockTime,
+                                lastSpeedCalcRealTimeNanos,
+                                blockNum,
+                                startNanos,
+                                totalBlocksToProcess,
+                                lastReportedMinute);
+                    }
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
             }
+
+            // After all days are processed: close the last open zip file and wait for every
+            // pending zip-write task to finish before saving chain state.
+            lastWriteFuture
+                    .thenRunAsync(
+                            () -> {
+                                try {
+                                    final ZipOutputStream last = currentZipRef.get();
+                                    if (last != null) {
+                                        last.close();
+                                        currentZipRef.set(null);
+                                    }
+                                } catch (IOException e) {
+                                    throw new UncheckedIOException(e);
+                                }
+                            },
+                            zipWritePool)
+                    .join();
+
             // Clear progress line and print summary
             PrettyPrint.clearProgress();
             System.out.println("Conversion complete. Blocks written: " + blocksProcessed.get());
@@ -358,6 +498,10 @@ public class ToWrappedBlocksCommand implements Runnable {
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
         } catch (Exception e) {
             throw new RuntimeException(e);
+        } finally {
+            parseAndVerifyPool.shutdownNow();
+            serializePool.shutdownNow();
+            zipWritePool.shutdownNow();
         }
     }
 
