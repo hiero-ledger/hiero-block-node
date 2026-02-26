@@ -80,10 +80,7 @@ class AllBlocksHasherHandlerTest {
         assertTrue(handler.isAvailable());
         assertEquals(0, handler.getNumberOfBlocks());
         assertArrayEquals(AllBlocksHasherHandler.ZERO_BLOCK_HASH, handler.lastBlockHash());
-
-        final StreamingHasher expectedHasher = new StreamingHasher();
-        expectedHasher.addLeaf(AllBlocksHasherHandler.ZERO_BLOCK_HASH);
-        assertArrayEquals(expectedHasher.computeRootHash(), handler.computeRootHash());
+        assertArrayEquals(AllBlocksHasherHandler.ZERO_BLOCK_HASH, handler.computeRootHash());
     }
 
     @Test
@@ -193,14 +190,14 @@ class AllBlocksHasherHandlerTest {
 
     private BlockChainData buildBlockChain(final int blockCount) throws ParseException, NoSuchAlgorithmException {
         final StreamingHasher hasher = new StreamingHasher();
-        hasher.addLeaf(AllBlocksHasherHandler.ZERO_BLOCK_HASH);
         final List<Block> blocks = new ArrayList<>(blockCount);
         final List<byte[]> blockHashes = new ArrayList<>(blockCount);
         byte[] previousHash = AllBlocksHasherHandler.ZERO_BLOCK_HASH;
 
         for (int i = 0; i < blockCount; i++) {
-            final Block block = buildBlock(i, previousHash, hasher.computeRootHash());
-            final byte[] blockHash = calculateBlockHash(block, i, hasher.computeRootHash(), previousHash);
+            final byte[] allPrevRoot = (i == 0) ? AllBlocksHasherHandler.ZERO_BLOCK_HASH : hasher.computeRootHash();
+            final Block block = buildBlock(i, previousHash, allPrevRoot);
+            final byte[] blockHash = calculateBlockHash(block, i, allPrevRoot, previousHash);
             blocks.add(block);
             blockHashes.add(blockHash);
             hasher.addLeaf(blockHash);
@@ -323,7 +320,6 @@ class AllBlocksHasherHandlerTest {
             throws IOException, NoSuchAlgorithmException {
         Files.createDirectories(hasherPath.getParent());
         StreamingHasher hasher = new StreamingHasher();
-        hasher.addLeaf(AllBlocksHasherHandler.ZERO_BLOCK_HASH);
         for (byte[] hash : blockHashes) {
             hasher.addLeaf(hash);
         }
