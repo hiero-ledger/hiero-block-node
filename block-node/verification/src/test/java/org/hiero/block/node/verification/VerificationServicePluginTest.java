@@ -38,7 +38,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Unit test for {@link VerificationServicePlugin}.
+ * Plugin-level integration test for {@link VerificationServicePlugin}.
+ *
+ * <p>All test blocks used here must use the latest supported HAPI version that routes to a real
+ * verification session (i.e. {@code ExtendedMerkleTreeSession}). Never use synthetic or older HAPI
+ * version blocks that route to {@code DummyVerificationSession}, as that bypasses the actual
+ * verification logic this test is meant to exercise.
  */
 class VerificationServicePluginTest
         extends PluginTestBase<VerificationServicePlugin, BlockingExecutor, ScheduledExecutorService> {
@@ -63,31 +68,33 @@ class VerificationServicePluginTest
 
     @Test
     void testVerificationPlugin() throws IOException, ParseException {
-        BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
+        BlockUtils.SampleBlockInfo block0Info =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_0);
+        BlockUtils.SampleBlockInfo block1Info =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_1);
 
-        List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
-        long blockNumber = sampleBlockInfo.blockNumber();
+        blockMessaging.sendBlockItems(
+                new BlockItems(block0Info.blockUnparsed().blockItems(), block0Info.blockNumber(), true, true));
+        blockMessaging.sendBlockItems(
+                new BlockItems(block1Info.blockUnparsed().blockItems(), block1Info.blockNumber(), true, true));
 
-        blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber, true, true));
+        // check block 0 verification
+        VerificationNotification block0Notification =
+                blockMessaging.getSentVerificationNotifications().get(0);
+        assertNotNull(block0Notification);
+        assertEquals(block0Info.blockNumber(), block0Notification.blockNumber(), "block 0 number should match");
+        assertTrue(block0Notification.success(), "block 0 verification should succeed");
+        assertEquals(block0Info.blockRootHash(), block0Notification.blockHash(), "block 0 hash should match");
+        assertEquals(block0Info.blockUnparsed(), block0Notification.block(), "block 0 content should match");
 
-        // check we received a block verification
-        VerificationNotification blockNotification =
-                blockMessaging.getSentVerificationNotifications().getFirst();
-        assertNotNull(blockNotification);
-        assertEquals(
-                blockNumber,
-                blockNotification.blockNumber(),
-                "The block number should be the same as the one in the block header");
-        assertTrue(blockNotification.success(), "The verification should be successful");
-        assertEquals(
-                sampleBlockInfo.blockRootHash(),
-                blockNotification.blockHash(),
-                "The block hash should be the same as the one in the block header");
-        assertEquals(
-                sampleBlockInfo.blockUnparsed(),
-                blockNotification.block(),
-                "The block should be the same as the one sent");
+        // check block 1 verification
+        VerificationNotification block1Notification =
+                blockMessaging.getSentVerificationNotifications().get(1);
+        assertNotNull(block1Notification);
+        assertEquals(block1Info.blockNumber(), block1Notification.blockNumber(), "block 1 number should match");
+        assertTrue(block1Notification.success(), "block 1 verification should succeed");
+        assertEquals(block1Info.blockRootHash(), block1Notification.blockHash(), "block 1 hash should match");
+        assertEquals(block1Info.blockUnparsed(), block1Notification.block(), "block 1 content should match");
     }
 
     @Test
@@ -128,7 +135,7 @@ class VerificationServicePluginTest
     void testHandleBlockItemsReceived_NoCurrentSession() throws IOException, ParseException {
         // create sample block data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_0);
         long blockNumber = sampleBlockInfo.blockNumber();
         List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
 
@@ -181,7 +188,7 @@ class VerificationServicePluginTest
 
         // prepare test data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_21);
 
         long blockNumber = sampleBlockInfo.blockNumber();
         BackfilledBlockNotification notification =
@@ -214,7 +221,7 @@ class VerificationServicePluginTest
     void blockHeaderAndNumberMismatch() throws ParseException, IOException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_0);
 
         BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                 sampleBlockInfo.blockUnparsed().blockItems().getFirst().blockHeaderOrThrow());

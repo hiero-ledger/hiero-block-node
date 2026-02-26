@@ -146,7 +146,6 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private void initRootHashOfAllBlockHashesTreeHasher() {
         try {
             this.rootHashOfAllBlockHashesTreeHasher = new StreamingHasher();
-            this.rootHashOfAllBlockHashesTreeHasher.addLeaf(ZERO_BLOCK_HASH.toByteArray());
         } catch (NoSuchAlgorithmException e) {
             LOGGER.log(ERROR, "Error initializing rootHashOfAllBlockHashesTreeHasher", e);
         }
@@ -279,7 +278,10 @@ public class CraftBlockStreamManager implements BlockStreamManager {
 
         byte[] rootHashOfAllBlockHashesTree = null;
         if (rootHashOfAllBlockHashesTreeHasher != null) {
-            rootHashOfAllBlockHashesTree = rootHashOfAllBlockHashesTreeHasher.computeRootHash();
+            // When the hasher has no leaves yet (block 0), the protocol defines the value as ZERO_BLOCK_HASH
+            rootHashOfAllBlockHashesTree = rootHashOfAllBlockHashesTreeHasher.leafCount() == 0
+                    ? ZERO_BLOCK_HASH.toByteArray()
+                    : rootHashOfAllBlockHashesTreeHasher.computeRootHash();
         }
         ItemHandler footerItemHandler = new BlockFooterHandler(previousBlockHash, rootHashOfAllBlockHashesTree);
         items.add(footerItemHandler);

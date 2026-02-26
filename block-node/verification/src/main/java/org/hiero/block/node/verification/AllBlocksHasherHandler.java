@@ -6,7 +6,6 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 
-import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -23,7 +22,6 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.common.hasher.StreamingHasher;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -96,6 +94,9 @@ public class AllBlocksHasherHandler {
             LOGGER.log(INFO, "hasher is not available, cannot compute root hash of all previous blocks.");
             return null;
         }
+        if (hasher.leafCount() == 0) {
+            return ZERO_BLOCK_HASH;
+        }
         return hasher.computeRootHash();
     }
 
@@ -128,7 +129,7 @@ public class AllBlocksHasherHandler {
             LOGGER.log(INFO, "hasher is not available, cannot know number of blocks");
             return -1;
         }
-        return hasher.leafCount() - 1; // minus the ZERO block hash
+        return hasher.leafCount();
     }
 
     private void init() {
@@ -145,7 +146,7 @@ public class AllBlocksHasherHandler {
                     initGenesis();
                 } else if (Files.exists(hasherPath)) {
                     loadFromFile();
-                    syncBlockHashesFromStore(hasher.leafCount(), available.max());
+                    syncBlockHashesFromStore(getNumberOfBlocks(), available.max());
                 } else {
                     fullyRebuildFromStore();
                 }
@@ -244,8 +245,7 @@ public class AllBlocksHasherHandler {
     private void initGenesis() throws IOException {
         Files.deleteIfExists(hasherPath);
         Files.createFile(hasherPath);
-        // Only add to memory; the regular lifecycle will handle the first write
-        appendLatestHashToAllPreviousBlocksStreamingHasher(ZERO_BLOCK_HASH);
+        this.lastBlockHash = ZERO_BLOCK_HASH; // genesis: no previous block
     }
 
     // when loading from existing file.
@@ -281,33 +281,18 @@ public class AllBlocksHasherHandler {
     // update the hasher from historical block provider.
     private void syncBlockHashesFromStore(long start, long end) throws ParseException {
         for (long i = start; i <= end; i++) {
-            byte[] previousHash = extractPreviousRootHashFromBlock(i);
-            appendLatestHashToAllPreviousBlocksStreamingHasher(previousHash);
-            // if last block
-            if (i == end) {
-                // add latest block hash, need to recalculate hash
-                byte[] latestBlockHash = calculateBlockHashFromBlockNumber(i, previousHash);
-                appendLatestHashToAllPreviousBlocksStreamingHasher(latestBlockHash);
-            }
-        }
-
-        // edge case: missing only 1 hash.
-        if (start != 0 && start - 1 == end) {
-            byte[] previousHash = extractPreviousRootHashFromBlock(end);
-            byte[] latestBlockHash = calculateBlockHashFromBlockNumber(end, previousHash);
-            appendLatestHashToAllPreviousBlocksStreamingHasher(latestBlockHash);
+            appendLatestHashToAllPreviousBlocksStreamingHasher(calculateBlockHashFromBlockNumber(i));
         }
     }
 
     /**
-     * Calculate the block hash for a given block number using the previous block hash.
+     * Calculate the block hash for a given block number, using block footer values as authoritative source.
      *
      * @param blockNumber the block number to calculate the hash for
-     * @param previousBlockHash the previous block hash if absent will be used from block footer
      * @return the calculated block hash
      * @throws ParseException if there is an error parsing the block or its items.
      */
-    private byte[] calculateBlockHashFromBlockNumber(long blockNumber, byte[] previousBlockHash) throws ParseException {
+    private byte[] calculateBlockHashFromBlockNumber(long blockNumber) throws ParseException {
         final BlockUnparsed block =
                 context.historicalBlockProvider().block(blockNumber).blockUnparsed();
         // is safe to assume first item is always block header
@@ -316,54 +301,26 @@ public class AllBlocksHasherHandler {
 
         BlockItems blockItemsMessage = new BlockItems(block.blockItems(), blockNumber, true, true);
 
-        final Bytes previousBlockHashBytes = (previousBlockHash == null) ? null : Bytes.wrap(previousBlockHash);
-
+        // Pass null, null so the session uses the block footer's authoritative values
         final VerificationSession session = HapiVersionSessionFactory.createSession(
-                blockNumber,
-                BlockSource.HISTORY,
-                blockHeader.hapiProtoVersion(),
-                previousBlockHashBytes,
-                Bytes.wrap(hasher.computeRootHash()));
+                blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion(), null, null);
 
         final VerificationNotification result = session.processBlockItems(blockItemsMessage);
 
         return result.blockHash().toByteArray();
     }
 
-    private byte[] extractPreviousRootHashFromBlock(long blockNumber) throws ParseException {
-        BlockUnparsed block =
-                context.historicalBlockProvider().block(blockNumber).blockUnparsed();
-        if (block == null) {
-            throw new IllegalStateException("Failed to read block " + blockNumber);
-        }
-
-        List<BlockItemUnparsed> items = block.blockItems();
-
-        // blocks place the footer close to the very end.
-        // We iterate backwards to find it almost instantly.
-        for (int i = items.size() - 1; i >= 0; i--) {
-            BlockItemUnparsed item = items.get(i);
-            if (item.hasBlockFooter()) {
-                BlockFooter footer = BlockFooter.PROTOBUF.parse(item.blockFooter());
-                return footer.previousBlockRootHash().toByteArray();
-            }
-        }
-
-        throw new IllegalStateException("Missing footer at block " + blockNumber);
-    }
-
     /***
      * Validate that the streaming hasher state matches the expected max block.
-     * maxBlock is inclusive and counts 0, while leafCount counts from 1,
-     * and adds the ZERO block hash as the first leaf before block 0.
+     * maxBlock is inclusive and counts from 0, so N blocks produces leaf count N.
      */
     private void validateState() {
         long maxBlock = available.max();
-        if ((hasher.leafCount() - 2) != maxBlock) {
+        if ((hasher.leafCount() - 1) != maxBlock) {
             LOGGER.log(
                     WARNING,
                     "Hasher state mismatch: {0} leaves vs {1} max block, falling back to use block footer values",
-                    hasher.leafCount() - 1,
+                    hasher.leafCount(),
                     maxBlock);
             this.hasher = null; // Invalidate hasher on mismatch
         }
