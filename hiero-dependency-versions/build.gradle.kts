@@ -5,7 +5,7 @@ dependencies {
 }
 
 dependencies.constraints {
-    val daggerVersion = "2.59.1"
+    val daggerVersion = "2.59.2"
     val grpcIoVersion = "1.79.0"
     val helidonVersion = "4.3.4"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
@@ -49,7 +49,7 @@ dependencies.constraints {
     api("io.helidon.webclient:helidon-webclient:$helidonVersion") {
         because("io.helidon.webclient")
     }
-    api("org.jetbrains:annotations:26.0.2-1") { because("org.jetbrains.annotations") }
+    api("org.jetbrains:annotations:26.1.0") { because("org.jetbrains.annotations") }
 
     // gRPC dependencies
     api("io.grpc:grpc-api:$grpcIoVersion") { because("io.grpc") }

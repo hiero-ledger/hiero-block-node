@@ -24,6 +24,8 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
     private final List<Throwable> onErrorCalls = new CopyOnWriteArrayList<>();
     private AtomicReference<CountDownLatch> onNextLatch = new AtomicReference<>();
     private AtomicReference<CountDownLatch> onCompleteLatch = new AtomicReference<>();
+    // Fires on either onComplete or onError — use when connection closure is the signal, not a specific response type
+    private AtomicReference<CountDownLatch> connectionEndedLatch = new AtomicReference<>();
 
     @Override
     public void clientEndStreamReceived() {
@@ -46,6 +48,9 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
     @Override
     public void onError(final Throwable throwable) {
         onErrorCalls.add(Objects.requireNonNull(throwable));
+        if (connectionEndedLatch.get() != null) {
+            connectionEndedLatch.get().countDown();
+        }
     }
 
     @Override
@@ -53,6 +58,9 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
         onCompleteCalls.incrementAndGet();
         if (onCompleteLatch.get() != null) {
             onCompleteLatch.get().countDown();
+        }
+        if (connectionEndedLatch.get() != null) {
+            connectionEndedLatch.get().countDown();
         }
     }
 
@@ -84,6 +92,11 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
     public AtomicReference<CountDownLatch> setAndGetOnCompleteLatch(int count) {
         onCompleteLatch.set(new CountDownLatch(count));
         return onCompleteLatch;
+    }
+
+    public AtomicReference<CountDownLatch> setAndGetConnectionEndedLatch(int count) {
+        connectionEndedLatch.set(new CountDownLatch(count));
+        return connectionEndedLatch;
     }
 
     /**
