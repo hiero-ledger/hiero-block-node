@@ -411,9 +411,13 @@ public class BlockWriter {
     /**
      * Write a pre-serialized block entry into an already-open {@link ZipOutputStream}.
      *
-     * <p>Computes the CRC-32 checksum, creates a {@link java.util.zip.ZipEntry} with STORED
-     * method (no additional compression), writes the bytes, and closes the entry. The caller is
-     * responsible for managing the lifecycle of {@code zip} (opening and closing it).
+     * <p>Computes the CRC-32 checksum internally, creates a {@link java.util.zip.ZipEntry} with
+     * STORED method (no additional compression), writes the bytes, and closes the entry. The caller
+     * is responsible for managing the lifecycle of {@code zip} (opening and closing it).
+     *
+     * <p>Prefer {@link #writeBlockEntry(ZipOutputStream, BlockPath, byte[], long)} when the CRC-32
+     * has already been computed (e.g. in a preceding pipeline stage) to keep the single zip-write
+     * thread doing only I/O.
      *
      * @param zip The open zip output stream to write to
      * @param blockPath The block path record containing the block file name
@@ -424,10 +428,29 @@ public class BlockWriter {
             throws IOException {
         final CRC32 crc = new CRC32();
         crc.update(blockBytes);
+        writeBlockEntry(zip, blockPath, blockBytes, crc.getValue());
+    }
+
+    /**
+     * Write a pre-serialized block entry into an already-open {@link ZipOutputStream} using a
+     * pre-computed CRC-32 checksum.
+     *
+     * <p>This overload is intended for pipeline use where CRC-32 is computed concurrently with
+     * compression (Stage 3) so the single zip-write thread (Stage 4) only performs I/O.
+     *
+     * @param zip The open zip output stream to write to
+     * @param blockPath The block path record containing the block file name
+     * @param blockBytes The pre-serialized (and optionally pre-compressed) block bytes
+     * @param crc32 Pre-computed CRC-32 checksum value for {@code blockBytes}
+     * @throws IOException If an I/O error occurs
+     */
+    public static void writeBlockEntry(
+            final ZipOutputStream zip, final BlockPath blockPath, final byte[] blockBytes, final long crc32)
+            throws IOException {
         final ZipEntry zipEntry = new ZipEntry(blockPath.blockFileName());
         zipEntry.setSize(blockBytes.length);
         zipEntry.setCompressedSize(blockBytes.length);
-        zipEntry.setCrc(crc.getValue());
+        zipEntry.setCrc(crc32);
         zip.putNextEntry(zipEntry);
         zip.write(blockBytes);
         zip.closeEntry();
@@ -477,7 +500,8 @@ public class BlockWriter {
     private static ZipOutputStream openOrCreateZipFile(final Path zipFilePath) throws IOException {
         // CREATE creates the file if absent; APPEND opens it for appending if it already exists
         final ZipOutputStream zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
-                Files.newOutputStream(zipFilePath, StandardOpenOption.CREATE, StandardOpenOption.APPEND), 1024 * 1024));
+                Files.newOutputStream(zipFilePath, StandardOpenOption.CREATE, StandardOpenOption.APPEND),
+                32 * 1024 * 1024));
         // don't compress the zip file as files are already compressed
         zipOutputStream.setMethod(ZipOutputStream.STORED);
         zipOutputStream.setLevel(Deflater.NO_COMPRESSION);

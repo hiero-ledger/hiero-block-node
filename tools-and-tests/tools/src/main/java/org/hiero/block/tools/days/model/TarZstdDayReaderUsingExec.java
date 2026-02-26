@@ -29,6 +29,7 @@ import org.hiero.block.tools.utils.ZstCmdInputStream;
  * approach. It now uses {@link ZstCmdInputStream} to decompress the .zstd archive and
  * {@link TarReader} to stream tar entries directly in Java.
  */
+@SuppressWarnings("unused")
 public class TarZstdDayReaderUsingExec {
 
     /**
@@ -43,7 +44,7 @@ public class TarZstdDayReaderUsingExec {
      */
     @SuppressWarnings("unused")
     public static Stream<UnparsedRecordBlock> streamTarZstd(Path zstdFile) {
-        return streamTarZstd(zstdFile, false);
+        return streamTarZstd(zstdFile, true);
     }
 
     /**

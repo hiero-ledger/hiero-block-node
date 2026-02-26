@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils;
 
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -12,6 +13,7 @@ import java.util.List;
 /**
  * An InputStream that decompresses data using Z standard (zstd) command line tool with multiple threads.
  */
+@SuppressWarnings("NullableProblems")
 public class ZstCmdInputStream extends InputStream {
     /** The underlying zstd process used for decompression. */
     private final Process process;
@@ -65,7 +67,7 @@ public class ZstCmdInputStream extends InputStream {
             // keep stderr separate so we can capture errors
             pb.redirectErrorStream(false);
             process = pb.start();
-            procIn = process.getInputStream();
+            procIn = new BufferedInputStream(process.getInputStream(), 256 * 1024);
 
             // spawn a thread to read stderr so the process doesn't block on full buffer
             Thread errDrainer = new Thread(

@@ -35,6 +35,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
+import java.util.zip.CRC32;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
 import org.hiero.block.tools.blocks.model.BlockWriter;
@@ -409,6 +410,10 @@ public class ToWrappedBlocksCommand implements Runnable {
             // It starts as an already-completed future so the first block's write can proceed immediately.
             CompletableFuture<Void> lastWriteFuture = CompletableFuture.completedFuture(null);
 
+            // Cache the last directory created to avoid redundant Files.createDirectories() calls.
+            // Directories only change every 1,000 blocks so 999 of every 1,000 calls would be no-ops.
+            Path lastCreatedDir = null;
+
             // Track the last calendar month (year*12+month) for which a state checkpoint was saved.
             // Initialised to -1 so that the first block's month does not trigger a premature save.
             int lastSavedBlockMonth = -1;
@@ -529,11 +534,23 @@ public class ToWrappedBlocksCommand implements Runnable {
                         // Creating the directory here avoids doing it on the zip-write thread.
                         final BlockPath blockPath =
                                 BlockWriter.computeBlockPath(outputBlocksDir, blockNum, archiveType);
-                        Files.createDirectories(blockPath.dirPath());
+                        if (!blockPath.dirPath().equals(lastCreatedDir)) {
+                            Files.createDirectories(blockPath.dirPath());
+                            lastCreatedDir = blockPath.dirPath();
+                        }
 
-                        // ---- Stage 3: serialize + compress in parallel ----
-                        final CompletableFuture<byte[]> serFuture = CompletableFuture.supplyAsync(
-                                () -> BlockWriter.serializeBlockToBytes(wrapped, DEFAULT_COMPRESSION), serializePool);
+                        // ---- Stage 3: serialize + compress + CRC-32 in parallel ----
+                        // CRC-32 is computed here alongside compression so the single zip-write
+                        // thread (Stage 4) only needs to perform I/O.
+                        final CompletableFuture<SerializedBlock> serFuture = CompletableFuture.supplyAsync(
+                                () -> {
+                                    final byte[] bytes =
+                                            BlockWriter.serializeBlockToBytes(wrapped, DEFAULT_COMPRESSION);
+                                    final CRC32 crc = new CRC32();
+                                    crc.update(bytes);
+                                    return new SerializedBlock(bytes, crc.getValue());
+                                },
+                                serializePool);
 
                         // ---- Stage 4: zip write on the single-threaded zipWritePool ----
                         // allOf(prevWrite, serFuture) ensures:
@@ -545,7 +562,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                 .thenRunAsync(
                                         () -> {
                                             try {
-                                                final byte[] bytes = serFuture.join();
+                                                final SerializedBlock serialized = serFuture.join();
                                                 if (archiveType == BlockArchiveType.UNCOMPRESSED_ZIP) {
                                                     // Switch zip file when the block number crosses into a new range
                                                     if (!blockPath.zipFilePath().equals(currentZipPathRef.get())) {
@@ -557,10 +574,14 @@ public class ToWrappedBlocksCommand implements Runnable {
                                                         currentZipRef.set(
                                                                 BlockWriter.openZipForAppend(blockPath.zipFilePath()));
                                                     }
-                                                    BlockWriter.writeBlockEntry(currentZipRef.get(), blockPath, bytes);
+                                                    BlockWriter.writeBlockEntry(
+                                                            currentZipRef.get(),
+                                                            blockPath,
+                                                            serialized.bytes(),
+                                                            serialized.crc32());
                                                 } else {
                                                     // Individual-file mode: each block is its own file
-                                                    Files.write(blockPath.zipFilePath(), bytes);
+                                                    Files.write(blockPath.zipFilePath(), serialized.bytes());
                                                 }
                                             } catch (IOException e) {
                                                 throw new UncheckedIOException(e);
@@ -706,6 +727,15 @@ public class ToWrappedBlocksCommand implements Runnable {
             lastReportedMinute.set(blockMinute);
         }
     }
+
+    /**
+     * Holds the result of Stage 3 (serialize + compress + CRC-32) so that Stage 4 (zip write)
+     * only needs to perform I/O without re-scanning the bytes for CRC.
+     *
+     * @param bytes The serialized (and optionally compressed) block bytes
+     * @param crc32 The CRC-32 checksum of {@code bytes}
+     */
+    private record SerializedBlock(byte[] bytes, long crc32) {}
 
     /**
      * Saves jumpstart data to a binary file. This provides the Consensus Node with all data

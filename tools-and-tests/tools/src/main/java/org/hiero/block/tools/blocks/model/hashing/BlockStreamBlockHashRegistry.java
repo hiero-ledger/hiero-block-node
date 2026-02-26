@@ -14,15 +14,26 @@ import org.hiero.block.tools.utils.Sha384;
  * A registry for the history of block stream block root hashes. It is designed to store on disk all hashes for block
  * from block 0 on. To allow random read by block number. Blocks are stored in a binary file of 48 byte hashes at index
  * by block number. As if it was a giant array of hash byte[]s, like byte[][].
+ *
+ * <p>Writes are batched in an in-memory buffer (10,000 entries = 480 KB) and flushed to disk in one
+ * large write when full or on {@link #close()}. This reduces 90 million individual 48-byte syscalls
+ * to ~9,000 large writes without affecting crash-safety (the existing monthly checkpoint and
+ * shutdown hook already handle recovery from the registry).
  */
 public class BlockStreamBlockHashRegistry implements AutoCloseable {
+    /** Number of hashes to accumulate before flushing to disk (10,000 × 48 bytes = 480 KB per flush). */
+    private static final int WRITE_BUFFER_ENTRIES = 10_000;
     /** random access file for reading and storing block hashes */
     private final RandomAccessFile randomAccessFile;
+    /** In-memory write buffer: accumulates hashes before flushing to disk. */
+    private final byte[] writeBuffer = new byte[WRITE_BUFFER_ENTRIES * Sha384.SHA_384_HASH_SIZE];
+    /** Number of hashes currently held in {@link #writeBuffer} that have not yet been flushed. */
+    private int writeBufferCount = 0;
     /** The highest block number stored in the file */
     private long highestBlockNumberStored = -1;
     /** The hash for the most recent block added, if none have been added it's the highest stored block number's hash */
-    // Convert record file block to wrapped block.
-    // For block 0, use EMPTY_TREE_HASH for previous block hash since there's no
+    // Convert a record file block to a wrapped block.
+    // For block 0, use EMPTY_TREE_HASH for the previous block hash since there's no
     // previous block. The streamingHasher.computeRootHash() already returns
     // EMPTY_TREE_HASH when empty, so allBlocksMerkleTreeRootHash is handled.
     private byte[] mostRecentBlockHash = EMPTY_TREE_HASH;
@@ -51,6 +62,9 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
      * Add a new block to the blocks stored in this register. If the block number is not the next block after the
      * current highest block stored, then an IllegalArgumentException is thrown.
      *
+     * <p>Hashes are accumulated in an in-memory buffer and flushed to disk in batches of
+     * {@value #WRITE_BUFFER_ENTRIES} entries to minimise syscall overhead.
+     *
      * @param blockNumber the block number to add
      * @param blockHash the block hash to add
      */
@@ -60,11 +74,27 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
             throw new IllegalArgumentException(
                     "Block number " + blockNumber + " is not the next block after " + highestBlockNumberStored);
         }
+        System.arraycopy(
+                blockHash, 0, writeBuffer, writeBufferCount * Sha384.SHA_384_HASH_SIZE, Sha384.SHA_384_HASH_SIZE);
+        writeBufferCount++;
+        highestBlockNumberStored = blockNumber;
+        mostRecentBlockHash = blockHash;
+        if (writeBufferCount == WRITE_BUFFER_ENTRIES) {
+            flushWriteBuffer();
+        }
+    }
+
+    /**
+     * Flush any buffered hashes to disk as a single large write. Called automatically when the
+     * buffer is full and explicitly on {@link #close()}.
+     */
+    private void flushWriteBuffer() {
+        if (writeBufferCount == 0) return;
         try {
-            randomAccessFile.seek(blockNumber * Sha384.SHA_384_HASH_SIZE);
-            randomAccessFile.write(blockHash);
-            highestBlockNumberStored = blockNumber;
-            mostRecentBlockHash = blockHash;
+            final long firstBufferedBlock = highestBlockNumberStored - writeBufferCount + 1;
+            randomAccessFile.seek(firstBufferedBlock * Sha384.SHA_384_HASH_SIZE);
+            randomAccessFile.write(writeBuffer, 0, writeBufferCount * Sha384.SHA_384_HASH_SIZE);
+            writeBufferCount = 0;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -72,6 +102,9 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
 
     /**
      * Get the block hash for the given block number.
+     *
+     * <p>Any hashes still held in the write buffer are flushed to disk before reading so that
+     * recently added blocks are always readable.
      *
      * @param blockNumber The block number for the block to get the hash for
      * @return the block stream block root hash for that block number
@@ -81,6 +114,7 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
             throw new IllegalArgumentException("Block number " + blockNumber
                     + " is out of range. Highest block stored is " + highestBlockNumberStored);
         }
+        flushWriteBuffer();
         try {
             randomAccessFile.seek(blockNumber * Sha384.SHA_384_HASH_SIZE);
             byte[] hash = new byte[Sha384.SHA_384_HASH_SIZE];
@@ -112,9 +146,12 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
     /**
      * Closes this resource, relinquishing any underlying resources. This method is invoked automatically on objects
      * managed by the {@code try}-with-resources statement.
+     *
+     * <p>Any hashes still held in the in-memory write buffer are flushed to disk before the file is closed.
      */
     @Override
     public void close() throws Exception {
+        flushWriteBuffer();
         randomAccessFile.close();
     }
 }
