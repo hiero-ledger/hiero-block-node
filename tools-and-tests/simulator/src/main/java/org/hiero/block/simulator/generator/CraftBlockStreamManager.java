@@ -6,6 +6,7 @@ import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
+import static org.hiero.block.common.hasher.HashingUtilities.EMPTY_TREE_HASH;
 
 import com.hedera.hapi.block.stream.output.protoc.BlockFooter;
 import com.hedera.hapi.block.stream.output.protoc.BlockHeader;
@@ -86,7 +87,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
     private final SimulatorStartupData simulatorStartupData;
 
     StreamingHasher rootHashOfAllBlockHashesTreeHasher;
-    Bytes ZERO_BLOCK_HASH = Bytes.wrap(new byte[48]);
+    Bytes ZERO_BLOCK_HASH = Bytes.wrap(EMPTY_TREE_HASH);
 
     /**
      * Constructs a new CraftBlockStreamManager with the specified configuration.
@@ -301,7 +302,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
         LOGGER.log(DEBUG, "Created block number {0} with hash {1}", currentBlockNumber, Bytes.wrap(currentBlockHash));
 
         if (rootHashOfAllBlockHashesTreeHasher != null) {
-            rootHashOfAllBlockHashesTreeHasher.addLeaf(currentBlockHash);
+            rootHashOfAllBlockHashesTreeHasher.addNodeByHash(currentBlockHash);
         }
 
         resetState();

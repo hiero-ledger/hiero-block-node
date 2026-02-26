@@ -200,7 +200,7 @@ class AllBlocksHasherHandlerTest {
             final byte[] blockHash = calculateBlockHash(block, i, allPrevRoot, previousHash);
             blocks.add(block);
             blockHashes.add(blockHash);
-            hasher.addLeaf(blockHash);
+            hasher.addNodeByHash(blockHash);
             previousHash = blockHash;
         }
 
@@ -321,7 +321,7 @@ class AllBlocksHasherHandlerTest {
         Files.createDirectories(hasherPath.getParent());
         StreamingHasher hasher = new StreamingHasher();
         for (byte[] hash : blockHashes) {
-            hasher.addLeaf(hash);
+            hasher.addNodeByHash(hash);
         }
 
         Bytes lastBlockHash = blockHashes.isEmpty()
