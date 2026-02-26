@@ -19,7 +19,7 @@ import java.util.Objects;
 public enum CompressionType {
     /**
      * This type of compression is used to compress the blocks using the `Zstandard` algorithm and default compression
-     * level 3.
+     * level 1 (fastest).
      */
     ZSTD(".zstd", new byte[] {(byte) 0x28, (byte) 0xB5, (byte) 0x2F, (byte) 0xFD}),
     /**
@@ -27,8 +27,8 @@ public enum CompressionType {
      */
     NONE("", new byte[0]);
 
-    /** The default compression level for Zstandard compression. */
-    private static final int DEFAULT_ZSTD_COMPRESSION_LEVEL = 3;
+    /** The default compression level for Zstandard compression. Level 1 is fastest with minimal size penalty. */
+    private static final int DEFAULT_ZSTD_COMPRESSION_LEVEL = 1;
     /** The file extension for this compression type. */
     private final String fileExtension;
     /** The magic bytes that identify this compression type. */
