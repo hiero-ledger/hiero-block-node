@@ -160,7 +160,7 @@ public class DownloadDayImplV2 {
                 new java.io.DataOutputStream(new java.io.BufferedOutputStream(Files.newOutputStream(blockFile)))) {
             dos.writeInt(files.size());
             for (InMemoryFile imf : files) {
-                String filename = imf.path().getFileName().toString();
+                String filename = imf.path().toString();
                 byte[] filenameBytes = filename.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 dos.writeInt(filenameBytes.length);
                 dos.write(filenameBytes);
