@@ -2,6 +2,8 @@
 package org.hiero.block.tools.blocks;
 
 import static org.hiero.block.tools.blocks.AmendmentProvider.createAmendmentProvider;
+import static org.hiero.block.tools.blocks.HasherStateFiles.loadWithFallback;
+import static org.hiero.block.tools.blocks.HasherStateFiles.saveStateCheckpoint;
 import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_COMPRESSION;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
@@ -16,7 +18,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -742,123 +743,5 @@ public class ToWrappedBlocksCommand implements Runnable {
         } catch (IOException e) {
             System.err.println("Warning: could not save jumpstart.bin: " + e.getMessage());
         }
-    }
-
-    /**
-     * Loads hasher state from {@code primaryPath}, falling back to {@code primaryPath.bak}
-     * if the primary file is missing or corrupt. Logs a warning and starts fresh if both fail.
-     *
-     * @param primaryPath the primary state file path
-     * @param loader function that restores hasher state from a given path
-     */
-    private static void loadWithFallback(Path primaryPath, ThrowingLoader loader) {
-        if (!Files.exists(primaryPath)) {
-            final Path bakPath = Path.of(primaryPath + ".bak");
-            if (Files.exists(bakPath)) {
-                System.err.println("Warning: primary state file missing, trying backup: " + bakPath);
-                try {
-                    loader.load(bakPath);
-                    System.err.println("Warning: loaded state from backup: " + bakPath);
-                } catch (Exception bakEx) {
-                    System.err.println("Warning: backup also failed (" + bakEx.getMessage() + "), starting fresh.");
-                    try {
-                        Files.deleteIfExists(bakPath);
-                    } catch (IOException ignored) {
-                    }
-                }
-            }
-            return;
-        }
-        try {
-            loader.load(primaryPath);
-        } catch (Exception e) {
-            System.err.println(
-                    "Warning: corrupt primary state file " + primaryPath + " (" + e.getMessage() + "). Trying backup.");
-            try {
-                Files.deleteIfExists(primaryPath);
-            } catch (IOException ignored) {
-            }
-            final Path bakPath = Path.of(primaryPath + ".bak");
-            if (Files.exists(bakPath)) {
-                try {
-                    loader.load(bakPath);
-                    System.err.println("Warning: loaded state from backup: " + bakPath);
-                } catch (Exception bakEx) {
-                    System.err.println("Warning: backup also failed (" + bakEx.getMessage() + "), starting fresh.");
-                    try {
-                        Files.deleteIfExists(bakPath);
-                    } catch (IOException ignored) {
-                    }
-                }
-            } else {
-                System.err.println("Warning: no backup found for " + primaryPath + ", starting fresh.");
-            }
-        }
-    }
-
-    /**
-     * Saves state atomically using a write-to-temp, rotate-backup, rename pattern:
-     * <ol>
-     *   <li>Write to {@code primaryPath.tmp}</li>
-     *   <li>Rename existing {@code primaryPath} to {@code primaryPath.bak} (if present)</li>
-     *   <li>Rename {@code primaryPath.tmp} to {@code primaryPath}</li>
-     * </ol>
-     *
-     * <p>If the JVM is killed between steps 2 and 3, the previous complete state is preserved
-     * in {@code primaryPath.bak} and will be used by {@link #loadWithFallback} on the next run.
-     *
-     * @param primaryPath the target path for the saved state
-     * @param saver function that writes hasher state to a given path
-     * @throws Exception if saving fails
-     */
-    private static void saveAtomically(Path primaryPath, ThrowingSaver saver) throws Exception {
-        final Path tmpPath = Path.of(primaryPath + ".tmp");
-        saver.save(tmpPath);
-        if (Files.exists(primaryPath)) {
-            final Path bakPath = Path.of(primaryPath + ".bak");
-            Files.move(primaryPath, bakPath, StandardCopyOption.REPLACE_EXISTING);
-        }
-        Files.move(tmpPath, primaryPath, StandardCopyOption.REPLACE_EXISTING);
-    }
-
-    /**
-     * Saves both the streaming hasher and in-memory tree hasher states atomically.
-     * Each save is independent: an error on one is logged as a warning and does not
-     * prevent the other from being attempted.
-     *
-     * @param streamingFile path for the streaming hasher state
-     * @param streamingHasher the streaming hasher to save
-     * @param inMemoryFile path for the in-memory tree hasher state
-     * @param inMemoryTreeHasher the in-memory tree hasher to save
-     */
-    private static void saveStateCheckpoint(
-            Path streamingFile,
-            StreamingHasher streamingHasher,
-            Path inMemoryFile,
-            InMemoryTreeHasher inMemoryTreeHasher) {
-        try {
-            saveAtomically(streamingFile, streamingHasher::save);
-        } catch (Exception e) {
-            System.err.println("Warning: could not save " + streamingFile + ": " + e.getMessage());
-        }
-        try {
-            saveAtomically(inMemoryFile, inMemoryTreeHasher::save);
-        } catch (Exception e) {
-            System.err.println("Warning: could not save " + inMemoryFile + ": " + e.getMessage());
-        }
-    }
-
-    /** Functional interface for a state-loader that may throw a checked exception. */
-    @FunctionalInterface
-    private interface ThrowingLoader {
-        /** Restore state from the given path. */
-        void load(Path path) throws Exception;
-    }
-
-    /** Functional interface for a state-saver that may throw a checked exception. */
-    @FunctionalInterface
-    private interface ThrowingSaver {
-        /** Persist state to the given path. */
-        void save(Path path) throws Exception;
     }
 }
