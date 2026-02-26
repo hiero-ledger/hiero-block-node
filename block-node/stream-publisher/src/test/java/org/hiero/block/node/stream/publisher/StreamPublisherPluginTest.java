@@ -304,7 +304,7 @@ class StreamPublisherPluginTest {
     @DisplayName("Plugin Tests Pre Earliest Managed Block")
     class PluginTestsPreEarliestManagedBlock
             extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService, ScheduledBlockingExecutor> {
-        private static final long PARK_DURATION = 1_000_000_000L;
+        private static final long RESPONSE_TIMEOUT_NS = 5_000_000_000L; // 5 seconds
         /** The historical block facility to use when testing. */
         private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
 
@@ -314,6 +314,18 @@ class StreamPublisherPluginTest {
         PluginTestsPreEarliestManagedBlock() {
             super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
+        }
+
+        /**
+         * Polls until {@code fromPluginBytes} reaches the expected size or the
+         * 5-second timeout expires. Uses short polling intervals instead of a
+         * fixed sleep to avoid timing-based test flakiness.
+         */
+        private void awaitResponse(final int expectedCount) {
+            final long deadline = System.nanoTime() + RESPONSE_TIMEOUT_NS;
+            while (fromPluginBytes.size() < expectedCount && System.nanoTime() < deadline) {
+                parkNanos(1_000_000L);
+            }
         }
 
         private void activatePlugin(final long earliestManagedBlock) {
@@ -349,7 +361,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, block.number());
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -394,7 +406,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, blockNumber);
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -441,7 +453,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -490,7 +502,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -533,7 +545,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -565,7 +577,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             endThisBlock(toPluginPipe, block0.number());
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -584,7 +596,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(secondRequest));
             endThisBlock(toPluginPipe, block1.number());
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -621,7 +633,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -673,7 +685,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -687,7 +699,7 @@ class StreamPublisherPluginTest {
             // Now attempt to send the same request again, that should not be possible
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             // Await to ensure async execution and assert response
-            parkNanos(PARK_DURATION);
+            awaitResponse(1);
             // Assert end stream
             assertThat(fromPluginBytes)
                     .hasSize(1)
