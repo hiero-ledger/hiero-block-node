@@ -11,11 +11,11 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.ScheduledExecutorService;
@@ -40,7 +40,7 @@ public abstract class GrpcPluginTestBase<
     private record ReqOptions(Optional<String> authority, boolean isProtobuf, boolean isJson, String contentType)
             implements ServiceInterface.RequestOptions {}
     /** The GRPC bytes received from the plugin. */
-    protected List<Bytes> fromPluginBytes = new ArrayList<>();
+    protected List<Bytes> fromPluginBytes = new CopyOnWriteArrayList<>();
     /** The pipeline for GRPC bytes to the plugin. */
     protected Pipeline<? super Bytes> toPluginPipe;
     /** The pipeline for GRPC bytes from the plugin. */
