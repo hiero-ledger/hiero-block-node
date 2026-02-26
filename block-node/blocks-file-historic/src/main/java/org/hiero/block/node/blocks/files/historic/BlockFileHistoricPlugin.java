@@ -166,6 +166,14 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                                 .formatted(firstZippedBlock, latestZippedBlock));
             }
             if (firstZippedBlock >= 0) {
+                // Check whether, if there are archives stored from previous plugin runs, they follow the same
+                // powersOfTenPerZipFileContents config as the one with which the plugin is started.
+                Optional<Path> minArchive = zipBlockArchive.minStoredArchive();
+                if (minArchive.isPresent() && !checkZipBlockArchiveIntegrity(minArchive.get(), firstZippedBlock)) {
+                    // @todo(2235) At the moment we only log a warning, but maybe we should think about alerting
+                    LOGGER.log(WARNING, "Detected change in powersOfTenPerZipFileContents configuration.");
+                }
+
                 // add the blocks to the available blocks only if the range is a valid one (positive)
                 availableBlocks.add(firstZippedBlock, latestZippedBlock);
 
@@ -206,6 +214,20 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
         } catch (final IOException e) {
             LOGGER.log(WARNING, "Failed to rename old format archives", e);
         }
+    }
+
+    /**
+     * Checks if the archive path matches the expected path based on current configuration.
+     * Returns {@code false} if the configuration has changed since the archive was created.
+     *
+     * @param path the actual archive path
+     * @param firstZippedBlock the first block number in the archive
+     * @return {@code true} if the path matches the expected configuration, {@code false} otherwise
+     */
+    // Visible for Testing
+    boolean checkZipBlockArchiveIntegrity(Path path, long firstZippedBlock) {
+        final Path computedPath = computeBlockPath(config, firstZippedBlock).zipFilePath();
+        return path.equals(computedPath);
     }
 
     /**

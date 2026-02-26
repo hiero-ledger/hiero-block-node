@@ -1495,5 +1495,57 @@ class BlockFileHistoricPluginTest {
             assertThat(Files.exists(quarantinedZip)).isTrue();
             assertThat(pluginUnderTest.availableBlocks().size()).isZero();
         }
+
+        @Test
+        @DisplayName("check plugin is able to detect configuration mismatch")
+        void checkZipBlockArchiveIntegrityDetectsConfigMismatch() throws IOException {
+            final Path mismatchRoot = dataRoot.resolve("config-mismatch-root");
+
+            // Phase 1: Start with powersOfTenPerZipFileContents = 1, which creates archives like "00.zip" (2 chars)
+            FilesHistoricConfig initialConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3);
+            final BlockFileHistoricPlugin firstPlugin = new BlockFileHistoricPlugin();
+            start(firstPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(initialConfig));
+
+            // Send 10 blocks to trigger archive creation (blocks 0-9)
+            for (int i = 0; i < 10; i++) {
+                final BlockUnparsed block =
+                        TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
+                blockMessaging.sendBlockVerification(new VerificationNotification(
+                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+            }
+
+            // Execute archival tasks to create the zip files
+            testThreadPoolManager.executor().executeSerially();
+
+            // Get the path to the created archive
+            final Path createdArchive =
+                    BlockPath.computeExistingBlockPath(initialConfig, 0).zipFilePath();
+            assertThat(createdArchive).exists().isRegularFile();
+
+            // Phase 2: Restart the plugin with the same powersOfTenPerZipFileContents to make sure the
+            // happy path works
+
+            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 1, 10L, 3);
+            final BlockFileHistoricPlugin secondPlugin = new BlockFileHistoricPlugin();
+            start(secondPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
+
+            // Verify that checkZipBlockArchiveIntegrity returns true when the config is unchanged
+            final boolean firstIntegrityCheckResult = secondPlugin.checkZipBlockArchiveIntegrity(createdArchive, 0);
+            assertThat(firstIntegrityCheckResult).isTrue();
+
+            // Phase 3: Create plugin with different powersOfTenPerZipFileContents = 3
+            // This expects archives like "0000.zip" (4 chars) but will find "00.zip" (2 chars)
+            testConfig = new FilesHistoricConfig(mismatchRoot, CompressionType.NONE, 3, 10L, 3);
+            final BlockFileHistoricPlugin thirdPlugin = new BlockFileHistoricPlugin();
+            start(thirdPlugin, regressionHistoricalBlockFacility, buildConfigOverrides(testConfig));
+
+            // Verify that checkZipBlockArchiveIntegrity returns false for the mismatched archive
+            final boolean secondIntegrityCheckResult = thirdPlugin.checkZipBlockArchiveIntegrity(createdArchive, 0);
+            assertThat(secondIntegrityCheckResult).isFalse();
+
+            // Verify that the plugin continues running (no shutdown triggered)
+            final TestHealthFacility healthFacility = (TestHealthFacility) blockNodeContext.serverHealth();
+            assertThat(healthFacility.shutdownCalled.get()).isFalse();
+        }
     }
 }
