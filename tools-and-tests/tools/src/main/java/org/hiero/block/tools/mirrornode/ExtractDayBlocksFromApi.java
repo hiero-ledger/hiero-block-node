@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.metadata.MetadataFiles;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -42,8 +43,8 @@ public class ExtractDayBlocksFromApi implements Runnable {
 
     @Option(
             names = {"--start-date"},
-            description = "First day to fetch (inclusive), format YYYY-MM-DD. Default: 2019-09-13 (genesis).")
-    private String startDate = "2019-09-13";
+            description = "First day to fetch (inclusive), format YYYY-MM-DD. Default: network genesis date.")
+    private String startDate = NetworkConfig.current().genesisDate().toString();
 
     @Option(
             names = {"--end-date"},
@@ -64,7 +65,7 @@ public class ExtractDayBlocksFromApi implements Runnable {
     @Option(
             names = {"--mirror-node-url"},
             description = "Base URL for the mirror node API (must end with '/').")
-    private String mirrorNodeUrl = MirrorNodeUtils.MAINNET_MIRROR_NODE_API_URL;
+    private String mirrorNodeUrl = NetworkConfig.current().mirrorNodeApiUrl();
 
     @Override
     public void run() {

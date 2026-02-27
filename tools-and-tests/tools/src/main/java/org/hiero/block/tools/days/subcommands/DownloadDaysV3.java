@@ -11,6 +11,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.Map;
+import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
@@ -42,13 +43,13 @@ public class DownloadDaysV3 implements Runnable {
     private int threads = 100; // Reduced from 1000 to avoid virtual thread pinning with gRPC
 
     @Parameters(index = "0", description = "From year to download")
-    private int fromYear = 2019;
+    private int fromYear = NetworkConfig.current().genesisDate().getYear();
 
     @Parameters(index = "1", description = "From month to download")
-    private int fromMonth = 9;
+    private int fromMonth = NetworkConfig.current().genesisDate().getMonthValue();
 
     @Parameters(index = "2", description = "From day to download")
-    private int fromDay = 13;
+    private int fromDay = NetworkConfig.current().genesisDate().getDayOfMonth();
 
     @Parameters(index = "3", description = "To year to download")
     private int toYear = LocalDate.now().getYear();

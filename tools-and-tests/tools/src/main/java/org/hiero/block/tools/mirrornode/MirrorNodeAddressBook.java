@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
-import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NODE_API_URL;
+import static org.hiero.block.tools.config.NetworkConfig.current;
 
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
@@ -30,7 +30,7 @@ public class MirrorNodeAddressBook {
      */
     public static NodeAddressBook getLatestAddressBook() {
         try {
-            return loadJsonAddressBook(URI.create(MAINNET_MIRROR_NODE_API_URL + "network/nodes?limit=40&order=asc")
+            return loadJsonAddressBook(URI.create(current().mirrorNodeApiUrl() + "network/nodes?limit=40&order=asc")
                     .toURL());
         } catch (MalformedURLException e) {
             throw new RuntimeException(e);

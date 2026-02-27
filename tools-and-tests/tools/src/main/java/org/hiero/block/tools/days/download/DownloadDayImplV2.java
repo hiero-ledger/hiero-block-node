@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.download;
 
-import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_NAME;
-import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
+import static org.hiero.block.tools.config.NetworkConfig.current;
 import static org.hiero.block.tools.days.listing.DayListingFileReader.loadRecordsFileForDay;
 import static org.hiero.block.tools.records.RecordFileUtils.extractRecordFileTimeStrFromPath;
 import static org.hiero.block.tools.records.RecordFileUtils.findMostCommonByType;
@@ -54,11 +53,15 @@ public class DownloadDayImplV2 {
     /** Maximum number of retries for parsing/validation failures (e.g., corrupted downloads). */
     private static final int MAX_PARSE_RETRIES = 3;
 
-    /** Minimum node account ID to try when fetching missing record files */
-    private static final int MIN_NODE_ID = 3;
+    /** Minimum node account ID to try when fetching missing record files. Sourced from active {@link org.hiero.block.tools.config.NetworkConfig}. */
+    private static int minNodeId() {
+        return current().minNodeAccountId();
+    }
 
-    /** Maximum node account ID to try when fetching missing record files */
-    private static final int MAX_NODE_ID = 37;
+    /** Maximum node account ID to try when fetching missing record files. Sourced from active {@link org.hiero.block.tools.config.NetworkConfig}. */
+    private static int maxNodeId() {
+        return current().maxNodeAccountId();
+    }
 
     /** Formatter for GCS record file timestamps: 2026-02-02T23_58_48.420820000Z */
     private static final DateTimeFormatter GCS_TIMESTAMP_FORMATTER =
@@ -489,8 +492,8 @@ public class DownloadDayImplV2 {
                 final BlockWork bw =
                         new BlockWork(blockNumber, blockHashFromMirrorNode, blockTime, orderedFilesToDownload);
                 for (ListingRecordFile lr : orderedFilesToDownload) {
-                    final String blobName = BUCKET_PATH_PREFIX + lr.path();
-                    bw.futures.add(downloadManager.downloadAsync(BUCKET_NAME, blobName));
+                    final String blobName = current().bucketPathPrefix() + lr.path();
+                    bw.futures.add(downloadManager.downloadAsync(current().gcsBucketName(), blobName));
                 }
                 try {
                     // block if queue is full to provide backpressure
@@ -548,8 +551,8 @@ public class DownloadDayImplV2 {
                                 boolean md5Valid = Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data());
                                 if (!md5Valid) {
                                     clearProgress();
-                                    System.err.println("MD5 mismatch for " + (BUCKET_PATH_PREFIX + lr.path())
-                                            + ", retrying download...");
+                                    System.err.println("MD5 mismatch for "
+                                            + (current().bucketPathPrefix() + lr.path()) + ", retrying download...");
                                     // Retry download with built-in retry logic
                                     downloadedFile = downloadFileWithRetry(downloadManager, lr);
                                     if (downloadedFile == null) {
@@ -619,10 +622,10 @@ public class DownloadDayImplV2 {
                                 System.err.println("Re-downloading most common record file and retrying...");
                                 if (!ready.orderedFiles.isEmpty()) {
                                     ListingRecordFile mostCommon = ready.orderedFiles.get(0);
-                                    String blobName = BUCKET_PATH_PREFIX + mostCommon.path();
+                                    String blobName = current().bucketPathPrefix() + mostCommon.path();
                                     try {
-                                        CompletableFuture<InMemoryFile> newFuture =
-                                                downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                                        CompletableFuture<InMemoryFile> newFuture = downloadManager.downloadAsync(
+                                                current().gcsBucketName(), blobName);
                                         ready.futures.set(0, newFuture);
                                         newFuture.join();
                                     } catch (Exception redownloadEx) {
@@ -636,10 +639,10 @@ public class DownloadDayImplV2 {
                                     ListingRecordFile alternate = ready.orderedFiles.get(alternateIndex);
                                     System.err.println(
                                             "Trying alternate record file from different node: " + alternate.path());
-                                    String blobName = BUCKET_PATH_PREFIX + alternate.path();
+                                    String blobName = current().bucketPathPrefix() + alternate.path();
                                     try {
-                                        CompletableFuture<InMemoryFile> newFuture =
-                                                downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                                        CompletableFuture<InMemoryFile> newFuture = downloadManager.downloadAsync(
+                                                current().gcsBucketName(), blobName);
                                         // Swap the alternate with position 0 so it becomes the "most common"
                                         // for this block's processing
                                         ready.futures.set(0, newFuture);
@@ -653,10 +656,10 @@ public class DownloadDayImplV2 {
                                     System.err.println("No alternate record files available, retrying same file...");
                                     if (!ready.orderedFiles.isEmpty()) {
                                         ListingRecordFile mostCommon = ready.orderedFiles.get(0);
-                                        String blobName = BUCKET_PATH_PREFIX + mostCommon.path();
+                                        String blobName = current().bucketPathPrefix() + mostCommon.path();
                                         try {
-                                            CompletableFuture<InMemoryFile> newFuture =
-                                                    downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                                            CompletableFuture<InMemoryFile> newFuture = downloadManager.downloadAsync(
+                                                    current().gcsBucketName(), blobName);
                                             ready.futures.set(0, newFuture);
                                             newFuture.join();
                                         } catch (Exception redownloadEx) {
@@ -755,13 +758,14 @@ public class DownloadDayImplV2 {
      */
     private static InMemoryFile downloadFileWithRetry(
             final ConcurrentDownloadManager downloadManager, final ListingRecordFile lr) throws IOException {
-        final String blobName = BUCKET_PATH_PREFIX + lr.path();
+        final String blobName = current().bucketPathPrefix() + lr.path();
         final boolean isSignatureFile = lr.type() == ListingRecordFile.Type.RECORD_SIG;
         IOException lastException = null;
 
         for (int attempt = 1; attempt <= MAX_MD5_RETRIES; attempt++) {
             try {
-                final CompletableFuture<InMemoryFile> future = downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                final CompletableFuture<InMemoryFile> future =
+                        downloadManager.downloadAsync(current().gcsBucketName(), blobName);
                 final InMemoryFile downloadedFile = future.join();
 
                 if (!Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data())) {
@@ -993,15 +997,16 @@ public class DownloadDayImplV2 {
         String timestamp = blockTime.format(GCS_TIMESTAMP_FORMATTER);
 
         // Try each node from MIN to MAX
-        for (int nodeId = MIN_NODE_ID; nodeId <= MAX_NODE_ID; nodeId++) {
+        for (int nodeId = minNodeId(); nodeId <= maxNodeId(); nodeId++) {
             // Try both .rcd.gz and .rcd formats
             String[] extensions = {".rcd.gz", ".rcd"};
             for (String ext : extensions) {
                 String relativePath = "record0.0." + nodeId + "/" + timestamp + ext;
-                String blobPath = BUCKET_PATH_PREFIX + relativePath;
+                String blobPath = current().bucketPathPrefix() + relativePath;
 
                 try {
-                    CompletableFuture<InMemoryFile> future = downloadManager.downloadAsync(BUCKET_NAME, blobPath);
+                    CompletableFuture<InMemoryFile> future =
+                            downloadManager.downloadAsync(current().gcsBucketName(), blobPath);
                     InMemoryFile file = future.get(10, TimeUnit.SECONDS);
 
                     if (file != null && file.data() != null && file.data().length > 0) {

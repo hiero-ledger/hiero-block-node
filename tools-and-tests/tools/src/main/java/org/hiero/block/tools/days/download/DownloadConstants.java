@@ -6,6 +6,11 @@ package org.hiero.block.tools.days.download;
  *
  * <p>This utility class provides configuration values for accessing the Hedera mainnet
  * streams bucket, including bucket name, path prefix, and GCP project ID for requester-pays billing.
+ *
+ * <p><b>Note:</b> For network-aware code, prefer using
+ * {@link org.hiero.block.tools.config.NetworkConfig#current()} to obtain the bucket name
+ * and path prefix. The constants in this class are retained for the GCP project ID
+ * (which is not network-specific) and for backward compatibility.
  */
 public final class DownloadConstants {
 

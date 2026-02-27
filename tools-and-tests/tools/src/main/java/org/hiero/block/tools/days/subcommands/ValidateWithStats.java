@@ -5,6 +5,7 @@ import static java.nio.file.StandardOpenOption.*;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.time.ZoneOffset.UTC;
+import static org.hiero.block.tools.config.NetworkConfig.current;
 import static org.hiero.block.tools.days.model.TarZstdDayUtils.parseDayFromFileName;
 
 import com.google.gson.Gson;
@@ -566,7 +567,7 @@ public class ValidateWithStats implements Runnable {
                     "Resuming at %s with hash[%s]%n",
                     resumeStatus.recordFileTime, resumeStatus.endRunningHashHex.substring(0, 8));
         } else if (actualStartDate != null) {
-            if (actualStartDate.equals(LocalDate.parse("2019-09-13"))) {
+            if (actualStartDate.equals(current().genesisDate())) {
                 carryOverHash.set(ZERO_HASH);
                 System.out.println("Starting at genesis with hash[" + Bytes.wrap(carryOverHash.get()) + "]");
             } else if (dayInfo != null) {
@@ -585,7 +586,10 @@ public class ValidateWithStats implements Runnable {
                 }
             }
         } else {
-            if (dayPaths.getFirst().getFileName().toString().startsWith("2019-09-13")) {
+            if (dayPaths.getFirst()
+                    .getFileName()
+                    .toString()
+                    .startsWith(current().genesisDate().toString())) {
                 carryOverHash.set(ZERO_HASH);
                 System.out.println("Starting at genesis with hash[" + Bytes.wrap(carryOverHash.get()) + "]");
             } else if (dayInfo != null) {

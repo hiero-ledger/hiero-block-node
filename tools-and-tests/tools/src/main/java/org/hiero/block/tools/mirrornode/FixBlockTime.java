@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
-import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NODE_API_URL;
+import static org.hiero.block.tools.config.NetworkConfig.current;
 import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
 import static org.hiero.block.tools.records.RecordFileDates.instantToBlockTimeLong;
 
@@ -136,7 +136,7 @@ public class FixBlockTime implements Runnable {
     private int processBlock(long blockNumber, RandomAccessFile raf, BlockTimeReader reader) throws IOException {
         Instant currentTime = reader.getBlockInstant(blockNumber);
 
-        String url = MAINNET_MIRROR_NODE_API_URL + "blocks/" + blockNumber;
+        String url = current().mirrorNodeApiUrl() + "blocks/" + blockNumber;
         JsonObject blockData = MirrorNodeUtils.readUrl(url);
 
         if (blockData == null || !blockData.has("name")) {
@@ -277,7 +277,7 @@ public class FixBlockTime implements Runnable {
     }
 
     private static int[] processBatch(long fromBlock, long toBlock, RandomAccessFile raf, BlockTimeReader reader) {
-        String url = MAINNET_MIRROR_NODE_API_URL + "blocks"
+        String url = current().mirrorNodeApiUrl() + "blocks"
                 + "?block.number=gte:" + fromBlock
                 + "&block.number=lte:" + toBlock
                 + "&limit=100&order=asc";
