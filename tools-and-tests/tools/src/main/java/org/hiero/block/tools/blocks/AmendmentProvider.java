@@ -75,6 +75,7 @@ public interface AmendmentProvider {
     static AmendmentProvider createAmendmentProvider(String network) {
         return switch (network.toLowerCase()) {
             case "mainnet" -> new MainnetAmendmentProvider();
+            case "testnet" -> new NoOpAmendmentProvider("testnet");
             case "none", "disabled" -> new NoOpAmendmentProvider();
             default -> {
                 System.out.println("No specific amendments for network: " + network + ", using no-op provider");

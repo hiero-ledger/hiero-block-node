@@ -119,6 +119,56 @@ class AmendmentProviderTest {
     }
 
     @Nested
+    @DisplayName("createAmendmentProvider factory method tests")
+    class CreateAmendmentProviderTests {
+
+        @Test
+        @DisplayName("Testnet creates NoOpAmendmentProvider with 'testnet' network name")
+        void testTestnetCreatesNoOpProvider() {
+            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("testnet");
+            assertInstanceOf(NoOpAmendmentProvider.class, provider);
+            assertEquals("testnet", provider.getNetworkName());
+        }
+
+        @Test
+        @DisplayName("Testnet provider has no genesis amendments")
+        void testTestnetNoGenesisAmendments() {
+            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("testnet");
+            assertFalse(provider.hasGenesisAmendments(0));
+            assertTrue(provider.getGenesisAmendments(0).isEmpty());
+        }
+
+        @Test
+        @DisplayName("Testnet provider has no missing record stream items")
+        void testTestnetNoMissingItems() {
+            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("testnet");
+            assertTrue(provider.getMissingRecordStreamItems(0).isEmpty());
+        }
+
+        @Test
+        @DisplayName("Mainnet creates MainnetAmendmentProvider")
+        void testMainnetCreatesMainnetProvider() {
+            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("mainnet");
+            assertInstanceOf(MainnetAmendmentProvider.class, provider);
+        }
+
+        @Test
+        @DisplayName("None creates NoOpAmendmentProvider")
+        void testNoneCreatesNoOpProvider() {
+            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("none");
+            assertInstanceOf(NoOpAmendmentProvider.class, provider);
+        }
+
+        @Test
+        @DisplayName("Unknown network falls through to default NoOpAmendmentProvider")
+        void testUnknownNetworkFallsThrough() {
+            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("unknown");
+            assertInstanceOf(NoOpAmendmentProvider.class, provider);
+            assertEquals("unknown", provider.getNetworkName());
+        }
+    }
+
+    @Nested
     @DisplayName("AmendmentProvider interface default methods")
     class InterfaceDefaultMethodTests {
 
