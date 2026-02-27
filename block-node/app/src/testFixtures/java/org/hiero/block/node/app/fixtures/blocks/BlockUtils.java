@@ -92,6 +92,14 @@ public final class BlockUtils {
                 "HAPI_0-69-0/240.blk.gz",
                 "325ee93ae5ba606903527674073931d5a33b8900ef720b0d34849b804e39198251995a9e20750ec84ce80e6fc0c361d5",
                 240),
+        HAPI_0_71_0_BLOCK_0(
+                "HAPI_0_71_0/0.blk.gz",
+                "4a8568c7ecfa1db92f7af2e1e8ce771802076912fde2709930434b1224aa626d0b8aead5eb94237ff8796d0a40870d89",
+                0),
+        HAPI_0_71_0_BLOCK_1(
+                "HAPI_0_71_0/1.blk.gz",
+                "008be5cd822a180797093fccbbe90fa8c535157f61ea854f42181bab0c2d1e46185868a27e2f67b48c34fbfbeaeb9102",
+                1),
         HAPI_0_71_0_BLOCK_21(
                 "HAPI_0_71_0/21.blk.gz",
                 "78a6bfeb2235741521165cf95a1ae4a0a51de157a379b4fb5827067ba59bbcf19ae35e1faa67f3f1976700d50324d7c4",
