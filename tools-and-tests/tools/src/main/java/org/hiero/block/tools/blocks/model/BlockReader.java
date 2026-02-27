@@ -43,6 +43,40 @@ public class BlockReader {
     private static final ConcurrentHashMap<Path, StorageFormat> FORMAT_CACHE = new ConcurrentHashMap<>();
 
     /**
+     * Cache of open zip {@link FileSystem} objects keyed by zip file path.
+     *
+     * <p>Re-opening the same zip for every block forces the JDK to re-parse the zip central
+     * directory each time. For a 10,000-block zip this means 10,000 open/close cycles on the
+     * same file. The cache keeps the {@code FileSystem} open across consecutive reads, reducing
+     * that to one open per zip file.
+     *
+     * <p>Thread safety: {@link ConcurrentHashMap#computeIfAbsent} guarantees at-most-one
+     * {@code FileSystems.newFileSystem} call per path. The JDK {@code ZipFileSystem} supports
+     * concurrent reads safely.
+     *
+     * <p>Call {@link #closeZipCache()} once when all reading is done to release file handles.
+     */
+    private static final ConcurrentHashMap<Path, FileSystem> ZIP_FS_CACHE = new ConcurrentHashMap<>();
+
+    /**
+     * Closes all cached zip {@link FileSystem} objects and clears the cache.
+     *
+     * <p>Call this once after all block reads are complete (e.g. in a {@code finally} block) to
+     * release the file handles held by the cache.
+     */
+    public static void closeZipCache() {
+        ZIP_FS_CACHE.forEach((_, fs) -> {
+            try {
+                fs.close();
+            } catch (Exception ignored) {
+                // ClosedFileSystemException (IllegalStateException) can occur if the underlying
+                // filesystem (e.g. jimfs in tests) was already closed before us; ignore it.
+            }
+        });
+        ZIP_FS_CACHE.clear();
+    }
+
+    /**
      * Storage format information for a base directory.
      *
      * @param compressionType The compression type used (ZSTD or NONE)
@@ -222,16 +256,19 @@ public class BlockReader {
             throw new IOException("Zip file not found: " + blockPath.zipFilePath());
         }
 
-        try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath())) {
-            final Path blockFileInZip = zipFs.getPath("/", blockPath.blockFileName());
-
-            if (!Files.exists(blockFileInZip)) {
-                throw new IOException("Block " + blockNumber + " not found in zip file: " + blockPath.zipFilePath());
+        final FileSystem zipFs = ZIP_FS_CACHE.computeIfAbsent(blockPath.zipFilePath(), p -> {
+            try {
+                return FileSystems.newFileSystem(p);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
             }
-
-            final byte[] compressedBytes = Files.readAllBytes(blockFileInZip);
-            return deserializeBlock(compressedBytes, compressionType);
+        });
+        final Path blockFileInZip = zipFs.getPath("/", blockPath.blockFileName());
+        if (!Files.exists(blockFileInZip)) {
+            throw new IOException("Block " + blockNumber + " not found in zip file: " + blockPath.zipFilePath());
         }
+        final byte[] compressedBytes = Files.readAllBytes(blockFileInZip);
+        return deserializeBlock(compressedBytes, compressionType);
     }
 
     /**
