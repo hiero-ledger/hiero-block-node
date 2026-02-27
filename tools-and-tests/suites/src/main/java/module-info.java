@@ -4,6 +4,7 @@ open module org.hiero.block.node.suites {
     requires com.hedera.pbj.runtime;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
+    requires org.hiero.block.common;
     requires org.hiero.block.node.app;
     requires org.hiero.block.node.spi;
     requires org.hiero.block.protobuf.protoc;

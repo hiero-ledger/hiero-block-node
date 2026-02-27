@@ -15,22 +15,15 @@ import java.util.concurrent.CompletableFuture;
  * whenever two siblings at the same height are complete, they are combined into an internal
  * node with the {@code 0x02} prefix. At finalization, remaining pending roots are folded
  * right-to-left.
+ * <p>
+ * An empty tree (no leaves added) returns {@link HashingUtilities#EMPTY_TREE_HASH},
+ * matching the CN convention introduced in HAPI v0.72.
  */
 public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
-    /**
-     * The hash returned for an empty tree (no leaves added). This is 48 zero bytes,
-     * matching the CN's ZERO_BLOCK_HASH convention.
-     */
-    private static final byte[] EMPTY_HASH = new byte[HashingUtilities.HASH_SIZE];
 
     private final LinkedList<byte[]> hashList = new LinkedList<>();
     private long leafCount = 0;
     private boolean rootHashRequested = false;
-
-    /**
-     * Constructor for the {@link NaiveStreamingTreeHasher}.
-     */
-    public NaiveStreamingTreeHasher() {}
 
     @Override
     public void addLeaf(@NonNull final ByteBuffer hash) {
@@ -56,7 +49,7 @@ public class NaiveStreamingTreeHasher implements StreamingTreeHasher {
     public CompletableFuture<Bytes> rootHash() {
         rootHashRequested = true;
         if (hashList.isEmpty()) {
-            return CompletableFuture.completedFuture(Bytes.wrap(EMPTY_HASH));
+            return CompletableFuture.completedFuture(Bytes.wrap(HashingUtilities.EMPTY_TREE_HASH));
         }
         // Fold remaining pending roots right-to-left
         byte[] merkleRootHash = hashList.getLast();

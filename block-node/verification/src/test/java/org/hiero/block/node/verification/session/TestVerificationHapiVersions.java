@@ -84,12 +84,12 @@ class TestVerificationHapiVersions {
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_69_0_BLOCK_240);
 
         final BlockUtils.SampleBlockInfo s4 =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_21);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
 
         return Stream.of(
                 Arguments.of("HAPI_0_68_0_BLOCK_14", s1),
                 Arguments.of("HAPI_0_66_0_BLOCK_10", s2),
                 Arguments.of("HAPI_0_69_0_BLOCK_240", s3),
-                Arguments.of("HAPI_0_71_0_BLOCK_21", s4));
+                Arguments.of("HAPI_0_72_0_BLOCK_21", s4));
     }
 }

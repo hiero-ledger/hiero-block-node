@@ -69,9 +69,9 @@ class VerificationServicePluginTest
     @Test
     void testVerificationPlugin() throws IOException, ParseException {
         BlockUtils.SampleBlockInfo block0Info =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_0);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_0);
         BlockUtils.SampleBlockInfo block1Info =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_1);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_1);
 
         blockMessaging.sendBlockItems(
                 new BlockItems(block0Info.blockUnparsed().blockItems(), block0Info.blockNumber(), true, true));
@@ -101,7 +101,7 @@ class VerificationServicePluginTest
     void testFailedVerification() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_21);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
         // get the original block items
         List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
         // make a mutable copy
@@ -135,7 +135,7 @@ class VerificationServicePluginTest
     void testHandleBlockItemsReceived_NoCurrentSession() throws IOException, ParseException {
         // create sample block data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_0);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_0);
         long blockNumber = sampleBlockInfo.blockNumber();
         List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
 
@@ -188,7 +188,7 @@ class VerificationServicePluginTest
 
         // prepare test data
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_21);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
 
         long blockNumber = sampleBlockInfo.blockNumber();
         BackfilledBlockNotification notification =
@@ -221,7 +221,7 @@ class VerificationServicePluginTest
     void blockHeaderAndNumberMismatch() throws ParseException, IOException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_71_0_BLOCK_0);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_0);
 
         BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                 sampleBlockInfo.blockUnparsed().blockItems().getFirst().blockHeaderOrThrow());

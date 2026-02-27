@@ -62,6 +62,24 @@ public class StreamingHasher {
     }
 
     /**
+     * Add a pre-hashed node directly to the Merkle tree, bypassing leaf hashing.
+     * Use this when the input is already a block root hash (e.g., building the all-previous-blocks tree),
+     * matching the CN's {@code IncrementalStreamingHasher.addNodeByHash} behavior.
+     *
+     * @param hash the pre-hashed node value to add
+     */
+    public void addNodeByHash(byte[] hash) {
+        final long i = leafCount;
+        hashList.add(hash);
+        for (long n = i; (n & 1L) == 1; n >>= 1) {
+            final byte[] y = hashList.removeLast();
+            final byte[] x = hashList.removeLast();
+            hashList.add(hashInternalNode(x, y));
+        }
+        leafCount++;
+    }
+
+    /**
      * Compute the Merkle tree root hash from the current state. This does not modify the internal state, so can be
      * called at any time and more leaves can be added afterward.
      *

@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
+import static org.hiero.block.common.hasher.HashingUtilities.EMPTY_TREE_HASH;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
@@ -49,8 +50,10 @@ import org.hiero.block.node.verification.session.VerificationSession;
 public class AllBlocksHasherHandler {
 
     private static final System.Logger LOGGER = System.getLogger(AllBlocksHasherHandler.class.getName());
-    /** ZERO block hash constant. */
-    public static final byte[] ZERO_BLOCK_HASH = new byte[48];
+    /**
+     * Empty tree hash: SHA384(0x00), matching the CN's IncrementalStreamingHasher for an empty tree.
+     */
+    public static final byte[] ZERO_BLOCK_HASH = EMPTY_TREE_HASH;
     /** Expected size of a block hash in bytes. */
     public static final int BLOCK_HASH_LENGTH = ZERO_BLOCK_HASH.length;
     /** Streaming hasher for all previous blocks hashes. */
@@ -331,7 +334,7 @@ public class AllBlocksHasherHandler {
      */
     public void appendLatestHashToAllPreviousBlocksStreamingHasher(@NonNull final byte[] blockHashBytes) {
         if (hasher != null) {
-            hasher.addLeaf(blockHashBytes);
+            hasher.addNodeByHash(blockHashBytes);
         }
         this.lastBlockHash = blockHashBytes;
     }
