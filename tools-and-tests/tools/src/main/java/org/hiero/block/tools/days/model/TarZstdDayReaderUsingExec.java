@@ -321,13 +321,24 @@ public class TarZstdDayReaderUsingExec {
                 }
             }
 
-            // Enforce invariant: primary record file (exact timestamp .rcd) must exist
+            // When the primary record file is missing, try to promote a node-specific copy
             if (primaryRecord == null) {
-                System.err.println(
-                        "Missing primary record file for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
-                for (InMemoryFile f : rcdFiles) System.err.println("    " + f.path());
-                throw new RuntimeException(
-                        "Primary record file not found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
+                if (!rcdFiles.isEmpty()) {
+                    // Promote the first available node-specific .rcd as the primary
+                    InMemoryFile donor = rcdFiles.getFirst();
+                    String expectedName = baseKey + ".rcd";
+                    // Compute the new path: same parent directory, but with the primary filename
+                    Path donorParent = donor.path().getParent();
+                    Path promotedPath = donorParent != null ? donorParent.resolve(expectedName) : Path.of(expectedName);
+                    primaryRecord = new InMemoryFile(promotedPath, donor.data());
+                    System.err.println(
+                            "Promoted node copy " + donor.path().getFileName() + " to primary for baseKey=" + baseKey);
+                } else {
+                    System.err.println(
+                            "Missing primary record file for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
+                    throw new RuntimeException(
+                            "Primary record file not found for baseKey='" + baseKey + "' in dir='" + currentDir + "'");
+                }
             }
 
             // There must be at least one signature file for the group; enforce invariant
