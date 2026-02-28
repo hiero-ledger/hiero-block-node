@@ -67,7 +67,12 @@ spec:
           persistentVolumeClaim:
             claimName: {{ .Values.blockNode.persistence.verification.existingClaim }}
         {{- end }}
-      {{- if or .Values.blockNode.initContainers .Values.plugins.names }}
+        {{- if .Values.blockNode.persistence.plugins.existingClaim }}
+        - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.blockNode.persistence.plugins.existingClaim }}
+        {{- end }}
+      {{- if or .Values.blockNode.initContainers .Values.plugins.names .Values.blockNode.persistence.plugins.existingClaim }}
       initContainers:
         {{- with .Values.blockNode.initContainers }}
         {{- toYaml . | nindent 8 }}
@@ -77,7 +82,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           command: ["cp", "/opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/lib/.core-modules.txt", "/plugins/.core-modules.txt"]
           volumeMounts:
-            - name: {{ default "plugins" .Values.plugins.volumeName }}
+            - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
               mountPath: /plugins
         - name: resolve-plugins
           image: {{ .Values.plugins.mavenImage }}
@@ -89,12 +94,18 @@ spec:
               {{- $defaultVersion := .Chart.AppVersion }}
 
               # Check if plugins are already resolved for this config
-              DESIRED_HASH=$(echo "{{ $defaultVersion }}:{{ .Values.plugins.names }}" | sha256sum | cut -d' ' -f1)
+              DESIRED_HASH=$(echo "{{ $defaultVersion }}:{{ .Values.plugins.names }}:{{ join "," .Values.plugins.thirdParty }}:{{ .Values.plugins.repositories | toJson }}" | sha256sum | cut -d' ' -f1)
               if [ -f /plugins/.resolved-hash ] && [ "$(cat /plugins/.resolved-hash)" = "$DESIRED_HASH" ]; then
                 echo "Plugins already resolved (config unchanged). Skipping."
                 exit 0
               fi
-              rm -f /plugins/*.jar /plugins/.resolved-hash
+              # Only remove previously resolved jars (preserve custom/non-Maven jars)
+              if [ -f /plugins/.resolved-jars ]; then
+                while IFS= read -r jar; do
+                  rm -f "/plugins/$jar"
+                done < /plugins/.resolved-jars
+              fi
+              rm -f /plugins/.resolved-hash /plugins/.resolved-jars
 
               echo "Generating POM for plugin resolution..."
               cat > /tmp/pom.xml << 'POMEOF'
@@ -107,28 +118,15 @@ spec:
                 <artifactId>plugin-resolver</artifactId>
                 <version>1.0</version>
                 <repositories>
+              {{- range .Values.plugins.repositories }}
                   <repository>
-                    <id>plugin-repo</id>
-                    <url>https://repo1.maven.org/maven2</url>
+                    <id>{{ .id }}</id>
+                    <url>{{ .url }}</url>
+              {{- if .snapshots }}
+                    <snapshots><enabled>true</enabled></snapshots>
+              {{- end }}
                   </repository>
-                  <!-- Required for org.hyperledger.besu:secp256k1, transitive dep of com.swirlds:swirlds-common -->
-                  <repository>
-                    <id>besu-maven</id>
-                    <url>https://hyperledger.jfrog.io/artifactory/besu-maven</url>
-                  </repository>
-                  <!-- Required for ConsenSys artifacts that are transitive dependencies of org.hyperledger.besu libs -->
-                  <repository>
-                    <id>consensys</id>
-                    <url>https://artifacts.consensys.net/public/maven/maven/</url>
-                  </repository>
-                  <!-- Required for resolving SNAPSHOT versions of hiero-block-node plugins during development -->
-                  <repository>
-                    <id>sonatype-snapshots</id>
-                    <url>https://central.sonatype.com/repository/maven-snapshots</url>
-                    <snapshots>
-                      <enabled>true</enabled>
-                    </snapshots>
-                  </repository>
+              {{- end }}
                 </repositories>
                 <dependencies>
               {{- range (splitList "," .Values.plugins.names) }}
@@ -149,6 +147,14 @@ spec:
                   </dependency>
               {{- end }}
               {{- end }}
+              {{- end }}
+              {{- range .Values.plugins.thirdParty }}
+              {{- $parts := splitList ":" . }}
+                  <dependency>
+                    <groupId>{{ index $parts 0 }}</groupId>
+                    <artifactId>{{ index $parts 1 }}</artifactId>
+                    <version>{{ index $parts 2 }}</version>
+                  </dependency>
               {{- end }}
                 </dependencies>
               </project>
@@ -178,6 +184,7 @@ spec:
                   skipped=$((skipped + 1))
                 else
                   cp "$jar" /plugins/
+                  basename "$jar" >> /plugins/.resolved-jars
                   copied=$((copied + 1))
                 fi
               done
@@ -186,7 +193,7 @@ spec:
               echo "$DESIRED_HASH" > /plugins/.resolved-hash
               echo "Plugin resolution complete: ${copied} jars copied, ${skipped} duplicates skipped"
           volumeMounts:
-            - name: {{ default "plugins" .Values.plugins.volumeName }}
+            - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
               mountPath: /plugins
         {{- end }}
       {{- end }}
@@ -239,8 +246,8 @@ spec:
             mountPath: {{ .Values.blockNode.backfill.path }}
             readOnly: true
           {{- end }}
-          {{- if .Values.plugins.names }}
-          - name: {{ default "plugins" .Values.plugins.volumeName }}
+          {{- if or .Values.plugins.names .Values.blockNode.persistence.plugins.existingClaim }}
+          - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
             mountPath: /opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/plugins
             readOnly: true
           {{- end }}
@@ -331,13 +338,16 @@ spec:
         storageClassName: {{ .Values.blockNode.persistence.verification.storageClass }}
         {{- end }}
     {{- end }}
-    {{- if .Values.plugins.names }}
+    {{- if and .Values.plugins.names (not .Values.blockNode.persistence.plugins.existingClaim) }}
     - metadata:
-        name: {{ default "plugins" .Values.plugins.volumeName }}
+        name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
       spec:
         accessModes:
           - ReadWriteOnce
         resources:
           requests:
-            storage: {{ .Values.plugins.size }}
+            storage: {{ .Values.blockNode.persistence.plugins.size }}
+        {{- if .Values.blockNode.persistence.plugins.storageClass }}
+        storageClassName: {{ .Values.blockNode.persistence.plugins.storageClass }}
+        {{- end }}
     {{- end }}

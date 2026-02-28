@@ -95,11 +95,27 @@ tolerations: []
 affinity: {}
 
 plugins:
-  volumeName: "plugins"
-  size: 1Gi
   names: "facility-messaging,block-access-service,health,server-status,stream-publisher,stream-subscriber,verification,blocks-file-historic,blocks-file-recent,backfill"
   # image for resolving and downloading the above plugins, should have java 21+ and maven
   mavenImage: "maven:3-eclipse-temurin-25-alpine"
+  # Third-party plugins with full Maven coordinates (groupId:artifactId:version).
+  # These are resolved alongside official plugins via the configured repositories.
+  thirdParty: []
+  # thirdParty:
+  #   - "com.example:my-custom-plugin:1.0.0"
+  # Maven repositories used to resolve plugins.
+  # Override this list in your values to add custom or private repositories.
+  repositories:
+    - id: central
+      url: https://repo1.maven.org/maven2
+    - id: besu-maven
+      url: https://hyperledger.jfrog.io/artifactory/besu-maven
+    - id: consensys
+      url: https://artifacts.consensys.net/public/maven/maven/
+    - id: sonatype-snapshots
+      url: https://central.sonatype.com/repository/maven-snapshots
+      snapshots: true
+  # To add plugins not available in Maven (e.g. via curl or copy), use blockNode.initContainers below.
 
 blockNode:
   # Optional hostPort mappings keyed by container port name.
@@ -130,6 +146,17 @@ blockNode:
           mountPath: /archive-pvc
         - name: verification-storage
           mountPath: /verification-pvc
+  # To add plugins not available in Maven (e.g. download from a URL at pod start).
+  # Note: for non-Maven plugins, dependencies are NOT auto-resolved.
+  # You must include the plugin JAR and all of its transitive dependencies.
+  # - name: copy-my-plugin
+  #   image: busybox
+  #   command: ["wget", "-O", "/plugins/my-plugin.jar", "https://example.com/my-plugin.jar"]
+  #   volumeMounts:
+  #     - name: plugins-storage
+  #       mountPath: /plugins
+  # To fully manage your own plugins (no Maven resolution), populate a PVC with your JARs
+  # and reference it via blockNode.persistence.plugins.existingClaim with plugins.names set to "".
   # if blank will use same as AppVersion of chart.
   version: ""
   config:
@@ -193,6 +220,14 @@ blockNode:
       # storageClass: "your-storage-class"
       # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
       # existingClaim: "my-verification-pvc"
+    plugins:
+      # name of the volume within the statefulset
+      volumeName: "plugins-storage"
+      size: 1Gi
+      # Optionally add a storage class name if needed
+      # storageClass: "your-storage-class"
+      # Optionally specify an existing PVC name instead of creating via volumeClaimTemplate
+      # existingClaim: "my-plugins-pvc"
   # For secrets, is recommended to use a secretRef to an existing secret on the cluster.
   # secretRef: secret-name-reference
   # not recommended to use this, but for testing purposes you can use the following collection for secrets auto-creation
