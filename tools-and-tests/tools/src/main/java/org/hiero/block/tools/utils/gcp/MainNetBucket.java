@@ -51,6 +51,8 @@ public class MainNetBucket {
     private static final Storage.BlobListOption NAME_FIELD_ONLY = BlobListOption.fields(BlobField.NAME);
     /** Glob filter to signature files only */
     private static final Storage.BlobListOption SIGNATURE_FILES_ONLY = BlobListOption.matchGlob("**.rcd_sig");
+    /** Glob filter to record files only (primary .rcd and .rcd.gz, excluding sidecars which have _NN suffixes) */
+    private static final Storage.BlobListOption RECORD_FILES_ONLY = BlobListOption.matchGlob("**.rcd{,.gz}");
     /** The GCP Storage service instance - use Storage.list() directly to avoid needing bucket metadata access */
     private static final Storage STORAGE = StorageOptions.getDefaultInstance().getService();
 
@@ -519,6 +521,86 @@ public class MainNetBucket {
                                 + " with prefix " + filePrefix + ": " + e.getMessage());
                     }
                     return nodeSignatures;
+                })
+                .collect(
+                        HashMap::new,
+                        (acc, map) -> map.forEach((k, v) -> acc.merge(k, v, (s1, s2) -> {
+                            s1.addAll(s2);
+                            return s1;
+                        })),
+                        (map1, map2) -> map2.forEach((k, v) -> map1.merge(k, v, (s1, s2) -> {
+                            s1.addAll(s2);
+                            return s1;
+                        })));
+    }
+
+    /**
+     * List all record files in the bucket for a given day. Uses hour-based prefix filtering
+     * for efficiency and filters to only primary .rcd and .rcd.gz files (excluding sidecars).
+     *
+     * <p>Returns a map where keys are block timestamps and values are sets of node account IDs
+     * that have a record file for that block.
+     *
+     * @param dayPrefix the day prefix in format "YYYY-MM-DD" (e.g., "2026-02-06")
+     * @return a map of block timestamp to set of node account IDs with record files
+     */
+    public Map<Instant, Set<String>> listRecordFilesForDay(String dayPrefix) {
+        return IntStream.range(0, 24)
+                .parallel()
+                .mapToObj(hour -> {
+                    String hourPrefix = String.format("%sT%02d", dayPrefix, hour);
+                    return listRecordFilesWithPrefix(hourPrefix);
+                })
+                .collect(HashMap::new, Map::putAll, Map::putAll);
+    }
+
+    /**
+     * List all record files in the bucket with the given prefix.
+     * Queries all nodes in parallel for efficiency. Filters to primary .rcd and .rcd.gz files
+     * only (excludes sidecars which have _NN suffixes before the extension).
+     *
+     * @param filePrefix the prefix to filter files (e.g., "2026-02-06T21" for hour 21)
+     * @return a map of block timestamp to set of node account IDs with record files
+     */
+    private Map<Instant, Set<String>> listRecordFilesWithPrefix(String filePrefix) {
+        return IntStream.range(minNodeAccountId, maxNodeAccountId + 1)
+                .parallel()
+                .mapToObj(nodeAccountId -> {
+                    final String nodeAccountIdStr = "0.0." + nodeAccountId;
+                    final String prefix = "recordstreams/record" + nodeAccountIdStr + "/" + filePrefix;
+
+                    Map<Instant, Set<String>> nodeRecords = new HashMap<>();
+                    try {
+                        STORAGE.list(bucketName, new BlobListOption[] {
+                                    BlobListOption.prefix(prefix),
+                                    NAME_FIELD_ONLY,
+                                    BlobListOption.userProject(userProject)
+                                })
+                                .streamAll()
+                                .map(BlobInfo::getName)
+                                .filter(name -> {
+                                    // Only include primary record files (.rcd or .rcd.gz)
+                                    // Exclude sidecars which have _NN before .rcd (e.g., _01.rcd.gz)
+                                    String fileName = name.substring(name.lastIndexOf('/') + 1);
+                                    if (fileName.endsWith(".rcd.gz")) {
+                                        // Check the part before .rcd.gz doesn't end with _NN (sidecar)
+                                        String base = fileName.substring(0, fileName.length() - ".rcd.gz".length());
+                                        return !base.matches(".*_\\d+$");
+                                    } else if (fileName.endsWith(".rcd")) {
+                                        // Check the part before .rcd doesn't end with _NN (sidecar)
+                                        String base = fileName.substring(0, fileName.length() - ".rcd".length());
+                                        return !base.matches(".*_\\d+$");
+                                    }
+                                    return false;
+                                })
+                                .forEach(name -> nodeRecords
+                                        .computeIfAbsent(extractRecordFileTime(name), k -> new HashSet<>())
+                                        .add(nodeAccountIdStr));
+                    } catch (Exception e) {
+                        System.err.println("Warning: Error listing record files for node " + nodeAccountIdStr
+                                + " with prefix " + filePrefix + ": " + e.getMessage());
+                    }
+                    return nodeRecords;
                 })
                 .collect(
                         HashMap::new,

@@ -9,6 +9,7 @@ import org.hiero.block.tools.days.subcommands.DownloadDaysV2;
 import org.hiero.block.tools.days.subcommands.DownloadDaysV3;
 import org.hiero.block.tools.days.subcommands.DownloadLive;
 import org.hiero.block.tools.days.subcommands.DownloadLive2;
+import org.hiero.block.tools.days.subcommands.FixMissingRecords;
 import org.hiero.block.tools.days.subcommands.FixMissingSignatures;
 import org.hiero.block.tools.days.subcommands.FixSignatureFileNames;
 import org.hiero.block.tools.days.subcommands.Ls;
@@ -48,6 +49,7 @@ import picocli.CommandLine.Spec;
             SplitJsonToDayFiles.class,
             CleanDayOfBadRecordSets.class,
             UpdateDayListingsCommand.class,
+            FixMissingRecords.class,
             FixMissingSignatures.class,
             FixSignatureFileNames.class,
         },
