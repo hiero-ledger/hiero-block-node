@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.utils.gcp;
 
+import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
@@ -36,8 +37,22 @@ public class BalanceFileBucket {
     /** Blob name field only */
     private static final BlobListOption NAME_FIELD_ONLY = BlobListOption.fields(BlobField.NAME);
 
-    /** The GCP Storage service instance */
-    private static final Storage STORAGE = StorageOptions.getDefaultInstance().getService();
+    /** The GCP Storage service instance, lazily initialized */
+    private static volatile Storage storageInstance;
+
+    /**
+     * Get or initialize the GCP Storage instance lazily.
+     */
+    private static Storage getStorage() {
+        if (storageInstance == null) {
+            synchronized (BalanceFileBucket.class) {
+                if (storageInstance == null) {
+                    storageInstance = StorageOptions.getDefaultInstance().getService();
+                }
+            }
+        }
+        return storageInstance;
+    }
 
     /** Maximum number of retry attempts for GCP operations */
     private static final int MAX_RETRIES = 3;
@@ -103,7 +118,8 @@ public class BalanceFileBucket {
                     }
                     : new BlobListOption[] {BlobListOption.prefix(prefix), NAME_FIELD_ONLY};
 
-            STORAGE.list(HEDERA_MAINNET_STREAMS_BUCKET, options)
+            getStorage()
+                    .list(HEDERA_MAINNET_STREAMS_BUCKET, options)
                     .streamAll()
                     .map(BlobInfo::getName)
                     .filter(name -> name.endsWith("_Balances.pb.gz") || name.endsWith("_Balances.pb"))
@@ -284,13 +300,13 @@ public class BalanceFileBucket {
     private byte[] downloadWithRetry(String path) {
         long delay = INITIAL_RETRY_DELAY_MS;
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            var blobOptions = userProject != null
+            BlobGetOption[] blobOptions = userProject != null
                     ? new BlobGetOption[] {BlobGetOption.userProject(userProject)}
                     : new BlobGetOption[0];
-            var blob = STORAGE.get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path), blobOptions);
+            Blob blob = getStorage().get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path), blobOptions);
             if (blob != null) {
                 return userProject != null
-                        ? blob.getContent(com.google.cloud.storage.Blob.BlobSourceOption.userProject(userProject))
+                        ? blob.getContent(Blob.BlobSourceOption.userProject(userProject))
                         : blob.getContent();
             }
             if (attempt < MAX_RETRIES) {

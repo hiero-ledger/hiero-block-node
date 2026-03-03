@@ -84,6 +84,8 @@ public class BalanceCheckpointValidator {
 
     /**
      * Set the minimum interval between checkpoint validations.
+     * <b>Must be called before any {@code loadFrom*} methods</b>, as interval filtering
+     * is applied during checkpoint loading.
      *
      * @param intervalDays minimum days between validations (0 = check all)
      */

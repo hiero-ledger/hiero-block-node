@@ -180,13 +180,15 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
             try {
                 final Block block = BlockReader.readBlock(inputDir, blockNumber);
-                WrappedBlockValidator.validateBlock(
-                        block, blockNumber, previousBlockHash, streamingHasher, balanceMap, tokenBalanceMap);
 
-                // Validate against balance checkpoints if enabled
+                // Validate against balance checkpoints BEFORE processing the block,
+                // since checkpoints represent state before the block's transactions
                 if (balanceCheckpointValidator != null && balanceMap != null) {
                     balanceCheckpointValidator.checkBlock(blockNumber, balanceMap, tokenBalanceMap);
                 }
+
+                WrappedBlockValidator.validateBlock(
+                        block, blockNumber, previousBlockHash, streamingHasher, balanceMap, tokenBalanceMap);
 
                 // Compute block hash and update state for the next block's validation
                 previousBlockHash = hashBlock(block);

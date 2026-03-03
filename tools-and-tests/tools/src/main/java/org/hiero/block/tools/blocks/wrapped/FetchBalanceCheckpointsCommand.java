@@ -13,11 +13,14 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -137,15 +140,15 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
             BalanceFileBucket bucket =
                     new BalanceFileBucket(true, cacheDir, minNodeAccountId, maxNodeAccountId, gcpProject);
             AddressBookRegistry addressBookRegistry = skipSignatures ? null : new AddressBookRegistry(addressBookPath);
-            BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesPath);
 
-            printConfiguration();
-            List<CheckpointData> checkpoints = discoverCheckpoints(bucket, blockTimeReader);
+            try (BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesPath)) {
+                printConfiguration();
+                List<CheckpointData> checkpoints = discoverCheckpoints(bucket, blockTimeReader);
 
-            processCheckpoints(checkpoints, bucket, addressBookRegistry);
-            printSummary(checkpoints.size());
+                processCheckpoints(checkpoints, bucket, addressBookRegistry);
+                printSummary(checkpoints.size());
+            }
 
-            blockTimeReader.close();
             return 0;
         } catch (Exception e) {
             System.err.println(Ansi.AUTO.string("@|red Fatal error:|@ " + e.getMessage()));
@@ -228,7 +231,7 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
     private void addHourlyCheckpoints(
             List<Instant> dayCheckpoints, BlockTimeReader blockTimeReader, List<CheckpointData> checkpoints) {
         for (Instant timestamp : dayCheckpoints) {
-            int hour = timestamp.atZone(java.time.ZoneOffset.UTC).getHour();
+            int hour = timestamp.atZone(ZoneOffset.UTC).getHour();
             if (hour % intervalHours == 0) {
                 long blockTimeLong = instantToBlockTimeLong(timestamp);
                 long blockNumber = blockTimeReader.getNearestBlockAfterTime(blockTimeLong);
@@ -240,9 +243,10 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
     private void processCheckpoints(
             List<CheckpointData> checkpoints, BalanceFileBucket bucket, AddressBookRegistry addressBookRegistry)
             throws IOException {
-        ZstdOutputStream zstdOut = new ZstdOutputStream(Files.newOutputStream(outputFile));
-        zstdOut.setLevel(22); // Ultra compression: ~650MB → ~14MB
-        try (DataOutputStream out = new DataOutputStream(zstdOut)) {
+        try (OutputStream fileOut = Files.newOutputStream(outputFile);
+                ZstdOutputStream zstdOut = new ZstdOutputStream(fileOut);
+                DataOutputStream out = new DataOutputStream(zstdOut)) {
+            zstdOut.setLevel(22); // Ultra compression: ~650MB → ~14MB
             for (int i = 0; i < checkpoints.size(); i++) {
                 processCheckpoint(checkpoints.get(i), i + 1, checkpoints.size(), bucket, addressBookRegistry, out);
             }
@@ -289,6 +293,10 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
         }
         int validSigs = verifyBalanceFileSignatures(checkpoint.timestamp, pbBytes, bucket, addressBookRegistry);
         NodeAddressBook addressBook = addressBookRegistry.getAddressBookForBlock(checkpoint.timestamp);
+        if (addressBook == null) {
+            System.out.println(Ansi.AUTO.string("@|yellow SKIP|@ (no address book for timestamp)"));
+            return true;
+        }
         int totalNodes = addressBook.nodeAddress().size();
         int requiredSigs = (totalNodes / 3) + 1;
         if (validSigs < requiredSigs) {
@@ -345,7 +353,8 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
                     validCount++;
                 }
             } catch (Exception e) {
-                // Skip invalid signatures silently
+                System.err.println(
+                        "Warning: Could not verify signature from node 0.0." + nodeAccountId + ": " + e.getMessage());
             }
         }
         return validCount;
@@ -369,7 +378,7 @@ public class FetchBalanceCheckpointsCommand implements Callable<Integer> {
 
             byte[] sigFileHash =
                     signatureFile.fileSignature().hashObjectOrThrow().hash().toByteArray();
-            if (!java.util.Arrays.equals(sigFileHash, fileHash)) {
+            if (!Arrays.equals(sigFileHash, fileHash)) {
                 return false;
             }
 

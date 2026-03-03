@@ -5,17 +5,15 @@ import static org.hiero.block.tools.records.SigFileUtils.verifyRsaSha384;
 import static org.hiero.block.tools.utils.Sha384.hashSha384;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
-import com.hedera.hapi.streams.AllAccountBalances;
 import com.hedera.hapi.streams.SignatureFile;
-import com.hedera.hapi.streams.SingleAccountBalances;
-import com.hedera.hapi.streams.TokenUnitBalance;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -91,11 +89,11 @@ public class BalanceProtobufValidator {
      */
     public void loadCheckpoints(String startDay, String endDay) {
         // Parse start and end dates
-        java.time.LocalDate start = java.time.LocalDate.parse(startDay);
-        java.time.LocalDate end = java.time.LocalDate.parse(endDay);
+        LocalDate start = LocalDate.parse(startDay);
+        LocalDate end = LocalDate.parse(endDay);
 
         // Iterate through each day and load checkpoints
-        for (java.time.LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
+        for (LocalDate date = start; !date.isAfter(end); date = date.plusDays(1)) {
             String dayPrefix = date.toString();
             List<Instant> dayCheckpoints = bucket.listBalanceTimestampsForDay(dayPrefix);
             checkpoints.addAll(dayCheckpoints);
@@ -173,6 +171,11 @@ public class BalanceProtobufValidator {
         if (verifySignatures && addressBookRegistry != null) {
             validSignatures = verifyBalanceFileSignatures(checkpoint, pbBytes);
             NodeAddressBook addressBook = addressBookRegistry.getAddressBookForBlock(checkpoint);
+            if (addressBook == null) {
+                System.out.println(Ansi.AUTO.string(
+                        "@|yellow Warning:|@ No address book found for checkpoint " + checkpoint + ", skipping sigs"));
+                return;
+            }
             int totalNodes = addressBook.nodeAddress().size();
             int requiredSignatures = (totalNodes / 3) + 1;
 
@@ -339,7 +342,7 @@ public class BalanceProtobufValidator {
             // Get the hash from signature file and compare
             byte[] sigFileHash =
                     signatureFile.fileSignature().hashObjectOrThrow().hash().toByteArray();
-            if (!java.util.Arrays.equals(sigFileHash, fileHash)) {
+            if (!Arrays.equals(sigFileHash, fileHash)) {
                 return false;
             }
 
@@ -359,6 +362,8 @@ public class BalanceProtobufValidator {
 
     /**
      * Parse account balances from protobuf bytes (HBAR and tokens).
+     * Delegates to {@link BalanceProtobufParser#parseWithTokens} which uses increased parse limits
+     * to handle mainnet balance files.
      *
      * @param pbBytes the protobuf file bytes
      * @param hbarBalances map to populate with account number to tinybar balance
@@ -367,27 +372,7 @@ public class BalanceProtobufValidator {
     private void parseProtobufBalancesWithTokens(
             byte[] pbBytes, Map<Long, Long> hbarBalances, Map<Long, Map<Long, Long>> tokenBalances) {
         try {
-            AllAccountBalances allBalances = AllAccountBalances.PROTOBUF.parse(Bytes.wrap(pbBytes));
-            for (SingleAccountBalances account : allBalances.allAccounts()) {
-                if (account.accountID() != null) {
-                    long accountNum = account.accountID().accountNumOrElse(0L);
-                    if (accountNum > 0) {
-                        // HBAR balance
-                        hbarBalances.put(accountNum, account.hbarBalance());
-
-                        // Token balances
-                        if (!account.tokenUnitBalances().isEmpty()) {
-                            Map<Long, Long> accountTokens =
-                                    tokenBalances.computeIfAbsent(accountNum, k -> new HashMap<>());
-                            for (TokenUnitBalance tokenBalance : account.tokenUnitBalances()) {
-                                if (tokenBalance.tokenId() != null) {
-                                    accountTokens.put(tokenBalance.tokenId().tokenNum(), tokenBalance.balance());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            BalanceProtobufParser.parseWithTokens(pbBytes, hbarBalances, tokenBalances);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to parse protobuf balances with tokens", e);
         }

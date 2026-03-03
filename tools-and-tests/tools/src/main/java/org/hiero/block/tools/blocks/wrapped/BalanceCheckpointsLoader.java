@@ -3,14 +3,17 @@ package org.hiero.block.tools.blocks.wrapped;
 
 import com.github.luben.zstd.ZstdInputStream;
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
+import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -72,20 +75,24 @@ public class BalanceCheckpointsLoader {
      * Load checkpoints from a DataInputStream using length-prefixed protobuf format.
      */
     private void loadFromDataInputStream(DataInputStream in) throws IOException {
-        while (in.available() > 0) {
-            long blockNumber = in.readLong();
-            int pbLength = in.readInt();
-            byte[] pbBytes = in.readNBytes(pbLength);
+        try {
+            while (true) {
+                long blockNumber = in.readLong();
+                int pbLength = in.readInt();
+                byte[] pbBytes = in.readNBytes(pbLength);
 
-            // Parse HBAR and token balances from protobuf
-            Map<Long, Long> hbarBalances = new HashMap<>();
-            Map<Long, Map<Long, Long>> tokenBalances = new HashMap<>();
-            BalanceProtobufParser.parseWithTokens(pbBytes, hbarBalances, tokenBalances);
+                // Parse HBAR and token balances from protobuf
+                Map<Long, Long> hbarBalances = new HashMap<>();
+                Map<Long, Map<Long, Long>> tokenBalances = new HashMap<>();
+                BalanceProtobufParser.parseWithTokens(pbBytes, hbarBalances, tokenBalances);
 
-            checkpoints.put(blockNumber, hbarBalances);
-            if (!tokenBalances.isEmpty()) {
-                tokenCheckpoints.put(blockNumber, tokenBalances);
+                checkpoints.put(blockNumber, hbarBalances);
+                if (!tokenBalances.isEmpty()) {
+                    tokenCheckpoints.put(blockNumber, tokenBalances);
+                }
             }
+        } catch (EOFException ignored) {
+            // End of stream reached — all checkpoints loaded
         }
     }
 
@@ -101,7 +108,7 @@ public class BalanceCheckpointsLoader {
             return;
         }
 
-        try (var files = Files.list(directory)) {
+        try (Stream<Path> files = Files.list(directory)) {
             files.filter(p -> p.getFileName().toString().startsWith("accountBalances_"))
                     .filter(p -> p.getFileName().toString().endsWith(".pb.gz")
                             || p.getFileName().toString().endsWith(".pb"))
@@ -215,7 +222,7 @@ public class BalanceCheckpointsLoader {
      * @return navigable set of checkpoint block numbers
      */
     public NavigableMap<Long, Map<Long, Long>> getAllCheckpoints() {
-        return checkpoints;
+        return Collections.unmodifiableNavigableMap(checkpoints);
     }
 
     /**

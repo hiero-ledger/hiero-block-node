@@ -11,14 +11,15 @@ import com.hedera.hapi.block.stream.output.MapChangeValue;
 import com.hedera.hapi.block.stream.output.MapUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.node.base.AccountAmount;
+import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.TokenTransferList;
 import com.hedera.hapi.streams.RecordStreamItem;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.jspecify.annotations.Nullable;
@@ -468,28 +469,24 @@ public final class WrappedBlockValidator {
         }
 
         // Build a map of items keyed by timestamp (seconds * 1_000_000_000 + nanos)
-        // This allows O(1) lookup for replacements
-        final Map<Long, RecordStreamItem> itemsByTimestamp = new LinkedHashMap<>();
+        // TreeMap keeps entries sorted by key, avoiding a separate sort step
+        final Map<Long, RecordStreamItem> itemsByTimestamp = new TreeMap<>();
 
         // Add all original items first
         for (final RecordStreamItem item : original) {
-            final var ts = item.recordOrThrow().consensusTimestampOrThrow();
+            final Timestamp ts = item.recordOrThrow().consensusTimestampOrThrow();
             final long key = ts.seconds() * 1_000_000_000L + ts.nanos();
             itemsByTimestamp.put(key, item);
         }
 
         // Process amendments - replace if timestamp exists, otherwise add
         for (final RecordStreamItem amendment : amendments) {
-            final var ts = amendment.recordOrThrow().consensusTimestampOrThrow();
+            final Timestamp ts = amendment.recordOrThrow().consensusTimestampOrThrow();
             final long key = ts.seconds() * 1_000_000_000L + ts.nanos();
             // put() will either replace existing entry or add new one
             itemsByTimestamp.put(key, amendment);
         }
 
-        // Sort by timestamp key and return as list
-        final List<RecordStreamItem> merged = new ArrayList<>(itemsByTimestamp.size());
-        itemsByTimestamp.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(e -> merged.add(e.getValue()));
-
-        return merged;
+        return new ArrayList<>(itemsByTimestamp.values());
     }
 }
