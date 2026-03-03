@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
-import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NODE_API_URL;
+import static org.hiero.block.tools.config.NetworkConfig.current;
 
 import com.google.gson.JsonObject;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -24,7 +24,7 @@ public class FetchBlockQuery {
      * @return the record file name
      */
     public static String getRecordFileNameForBlock(long blockNumber) {
-        final String url = MAINNET_MIRROR_NODE_API_URL + "blocks/" + blockNumber;
+        final String url = current().mirrorNodeApiUrl() + "blocks/" + blockNumber;
         final JsonObject json = MirrorNodeUtils.readUrl(url);
         return json.get("name").getAsString();
     }
@@ -36,7 +36,7 @@ public class FetchBlockQuery {
      * @return the record file name
      */
     public static Bytes getPreviousHashForBlock(long blockNumber) {
-        final String url = MAINNET_MIRROR_NODE_API_URL + "blocks/" + blockNumber;
+        final String url = current().mirrorNodeApiUrl() + "blocks/" + blockNumber;
         final JsonObject json = MirrorNodeUtils.readUrl(url);
         final String hashStr = json.get("previous_hash").getAsString();
         return Bytes.wrap(HexFormat.of().parseHex(hashStr.substring(2))); // remove 0x prefix and parse
@@ -70,7 +70,7 @@ public class FetchBlockQuery {
      */
     public static List<BlockInfo> getLatestBlocks(
             int limit, MirrorNodeBlockQueryOrder order, List<String> timestampFilters) {
-        return getLatestBlocks(limit, order, timestampFilters, MAINNET_MIRROR_NODE_API_URL);
+        return getLatestBlocks(limit, order, timestampFilters, current().mirrorNodeApiUrl());
     }
 
     /**
@@ -100,7 +100,7 @@ public class FetchBlockQuery {
      */
     private static String buildBlocksQueryUrl(
             int limit, MirrorNodeBlockQueryOrder order, List<String> timestampFilters) {
-        return buildBlocksQueryUrl(limit, order, timestampFilters, MAINNET_MIRROR_NODE_API_URL);
+        return buildBlocksQueryUrl(limit, order, timestampFilters, current().mirrorNodeApiUrl());
     }
 
     /**

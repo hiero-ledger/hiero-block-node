@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.downloadlive;
 
-import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_NAME;
-import static org.hiero.block.tools.days.download.DownloadConstants.BUCKET_PATH_PREFIX;
+import static org.hiero.block.tools.config.NetworkConfig.current;
 import static org.hiero.block.tools.days.download.DownloadConstants.GCP_PROJECT_ID;
 import static org.hiero.block.tools.days.downloadlive.ValidateDownloadLive.fullBlockValidate;
 import static org.hiero.block.tools.days.listing.DayListingFileReader.loadRecordsFileForDay;
@@ -757,8 +756,8 @@ public class LiveDownloader {
                 final BlockWork bw =
                         new BlockWork(blockNumber, blockHashFromMirrorNode, blockTime, orderedFilesToDownload);
                 for (ListingRecordFile lr : orderedFilesToDownload) {
-                    final String blobName = BUCKET_PATH_PREFIX + lr.path();
-                    bw.futures.add(downloadManager.downloadAsync(BUCKET_NAME, blobName));
+                    final String blobName = current().bucketPathPrefix() + lr.path();
+                    bw.futures.add(downloadManager.downloadAsync(current().gcsBucketName(), blobName));
                 }
 
                 try {
@@ -929,13 +928,14 @@ public class LiveDownloader {
      * Downloads a file with retry logic for MD5 mismatch errors.
      */
     private InMemoryFile downloadFileWithRetry(ListingRecordFile lr) throws IOException {
-        final String blobName = BUCKET_PATH_PREFIX + lr.path();
+        final String blobName = current().bucketPathPrefix() + lr.path();
         final boolean isSignatureFile = lr.type() == ListingRecordFile.Type.RECORD_SIG;
         IOException lastException = null;
 
         for (int attempt = 1; attempt <= MAX_MD5_RETRIES; attempt++) {
             try {
-                final CompletableFuture<InMemoryFile> future = downloadManager.downloadAsync(BUCKET_NAME, blobName);
+                final CompletableFuture<InMemoryFile> future =
+                        downloadManager.downloadAsync(current().gcsBucketName(), blobName);
                 final InMemoryFile downloadedFile = future.join();
 
                 if (!Md5Checker.checkMd5(lr.md5Hex(), downloadedFile.data())) {

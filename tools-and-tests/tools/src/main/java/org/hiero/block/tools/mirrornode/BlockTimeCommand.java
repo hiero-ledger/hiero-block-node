@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
-import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NODE_API_URL;
+import static org.hiero.block.tools.config.NetworkConfig.current;
 
 import com.google.gson.JsonObject;
 import java.io.IOException;
@@ -154,7 +154,7 @@ public class BlockTimeCommand implements Runnable {
     private void printMirrorNodeData(long blockNumber) {
         System.out.println(Ansi.AUTO.string("  @|white Mirror Node Data:|@"));
 
-        String url = MAINNET_MIRROR_NODE_API_URL + "blocks/" + blockNumber;
+        String url = current().mirrorNodeApiUrl() + "blocks/" + blockNumber;
         System.out.println(Ansi.AUTO.string("    @|faint URL: " + url + "|@"));
         System.out.println();
 

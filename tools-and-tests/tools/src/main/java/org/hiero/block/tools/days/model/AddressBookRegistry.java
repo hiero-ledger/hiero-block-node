@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.model;
 
-import static org.hiero.block.tools.utils.TimeUtils.GENESIS_TIMESTAMP;
 import static org.hiero.block.tools.utils.TimeUtils.toTimestamp;
 
 import com.hedera.hapi.node.base.NodeAddress;
@@ -26,6 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.hiero.block.internal.AddressBookHistory;
 import org.hiero.block.internal.DatedNodeAddressBook;
+import org.hiero.block.tools.config.NetworkConfig;
 import picocli.CommandLine.Help.Ansi;
 
 /**
@@ -41,11 +41,15 @@ public class AddressBookRegistry {
     private ByteArrayOutputStream partialFileUpload = null;
 
     /**
-     * Create a new AddressBookRegistry instance and load the Genesis address book.
+     * Create a new AddressBookRegistry instance and load the Genesis address book for the current network.
      */
     public AddressBookRegistry() {
         try {
-            addressBooks.add(new DatedNodeAddressBook(GENESIS_TIMESTAMP, loadGenesisAddressBook()));
+            final String genesisTs = NetworkConfig.current().genesisTimestamp().replace('_', ':');
+            final Instant genesisInstant = Instant.parse(genesisTs);
+            addressBooks.add(new DatedNodeAddressBook(
+                    toTimestamp(genesisInstant),
+                    loadGenesisAddressBook(NetworkConfig.current().genesisAddressBookResource())));
         } catch (ParseException e) {
             throw new RuntimeException("Error loading Genesis Address Book", e);
         }
@@ -215,15 +219,25 @@ public class AddressBookRegistry {
     }
 
     /**
-     * Load the Genesis address book from the classpath resource "mainnet-genesis-address-book.proto.bin".
+     * Load the Genesis address book for the current network from the classpath.
      *
      * @return the Genesis NodeAddressBook
      * @throws ParseException if there is an error parsing the address book
      */
     public static NodeAddressBook loadGenesisAddressBook() throws ParseException {
-        try (var in = new ReadableStreamingData(Objects.requireNonNull(AddressBookRegistry.class
-                .getClassLoader()
-                .getResourceAsStream("mainnet-genesis-address-book.proto.bin")))) {
+        return loadGenesisAddressBook(NetworkConfig.current().genesisAddressBookResource());
+    }
+
+    /**
+     * Load a Genesis address book from the classpath resource with the given name.
+     *
+     * @param resourceName the classpath resource name (e.g. "mainnet-genesis-address-book.proto.bin")
+     * @return the Genesis NodeAddressBook
+     * @throws ParseException if there is an error parsing the address book
+     */
+    public static NodeAddressBook loadGenesisAddressBook(String resourceName) throws ParseException {
+        try (var in = new ReadableStreamingData(Objects.requireNonNull(
+                AddressBookRegistry.class.getClassLoader().getResourceAsStream(resourceName)))) {
             return NodeAddressBook.PROTOBUF.parse(in);
         }
     }

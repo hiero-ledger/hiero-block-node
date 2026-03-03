@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.listing.DayListingFileWriter;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
@@ -70,13 +71,13 @@ public class UpdateDayListingsCommand implements Runnable {
 
     @Option(
             names = {"--min-node"},
-            description = "Minimum node account ID (default: 3)")
-    private int minNodeAccountId = 3;
+            description = "Minimum node account ID (default: from network config)")
+    private int minNodeAccountId = NetworkConfig.current().minNodeAccountId();
 
     @Option(
             names = {"--max-node"},
-            description = "Maximum node account ID (default: 37)")
-    private int maxNodeAccountId = 37;
+            description = "Maximum node account ID (default: from network config)")
+    private int maxNodeAccountId = NetworkConfig.current().maxNodeAccountId();
 
     @Option(
             names = {"-p", "--user-project"},
@@ -92,8 +93,10 @@ public class UpdateDayListingsCommand implements Runnable {
         updateDayListings(listingDir, cacheDir.toPath(), cacheEnabled, minNodeAccountId, maxNodeAccountId, userProject);
     }
 
-    /** The first day of Hedera mainnet. */
-    private static final LocalDate HEDERA_START_DATE = LocalDate.of(2019, 9, 13);
+    /** The first day of the active Hedera network, from {@link NetworkConfig}. */
+    private static LocalDate networkStartDate() {
+        return NetworkConfig.current().genesisDate();
+    }
 
     /**
      * Update day listing files by fetching file metadata from Google Cloud Storage.
@@ -133,7 +136,7 @@ public class UpdateDayListingsCommand implements Runnable {
             final LocalDate yesterday = today.minusDays(1);
 
             // Find all missing days (including gaps) from Hedera start to yesterday
-            final List<LocalDate> missingDays = findMissingDaysStatic(listingDir, HEDERA_START_DATE, yesterday);
+            final List<LocalDate> missingDays = findMissingDaysStatic(listingDir, networkStartDate(), yesterday);
 
             // Check if there are any days to process
             if (missingDays.isEmpty()) {

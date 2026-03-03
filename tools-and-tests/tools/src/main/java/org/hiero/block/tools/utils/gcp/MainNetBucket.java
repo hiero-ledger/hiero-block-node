@@ -29,6 +29,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
+import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.records.ChainFile;
 import org.hiero.block.tools.records.RecordFileDates;
 
@@ -50,8 +51,6 @@ public class MainNetBucket {
     private static final Storage.BlobListOption NAME_FIELD_ONLY = BlobListOption.fields(BlobField.NAME);
     /** Glob filter to signature files only */
     private static final Storage.BlobListOption SIGNATURE_FILES_ONLY = BlobListOption.matchGlob("**.rcd_sig");
-    /** The mainnet bucket name*/
-    private static final String HEDERA_MAINNET_STREAMS_BUCKET = "hedera-mainnet-streams";
     /** The GCP Storage service instance - use Storage.list() directly to avoid needing bucket metadata access */
     private static final Storage STORAGE = StorageOptions.getDefaultInstance().getService();
 
@@ -73,6 +72,9 @@ public class MainNetBucket {
 
     /** The GCP project to bill for requester-pays bucket access. */
     private final String userProject;
+
+    /** The GCS bucket name to use for listing and downloading. */
+    private final String bucketName;
 
     /**
      * Create a new MainNetBucket instance with the given cache enabled switch and cache directory.
@@ -97,11 +99,38 @@ public class MainNetBucket {
      */
     public MainNetBucket(
             boolean cacheEnabled, Path cacheDir, int minNodeAccountId, int maxNodeAccountId, String userProject) {
+        this(
+                cacheEnabled,
+                cacheDir,
+                minNodeAccountId,
+                maxNodeAccountId,
+                userProject,
+                NetworkConfig.current().gcsBucketName());
+    }
+
+    /**
+     * Create a new MainNetBucket instance with all parameters including bucket name.
+     *
+     * @param cacheEnabled the cache enabled switch
+     * @param cacheDir the cache directory
+     * @param minNodeAccountId the minimum node account id in the network
+     * @param maxNodeAccountId the maximum node account id in the network
+     * @param userProject the GCP project to bill for requester-pays bucket access (can be null)
+     * @param bucketName the GCS bucket name to use
+     */
+    public MainNetBucket(
+            boolean cacheEnabled,
+            Path cacheDir,
+            int minNodeAccountId,
+            int maxNodeAccountId,
+            String userProject,
+            String bucketName) {
         this.cacheEnabled = cacheEnabled;
         this.cacheDir = cacheDir;
         this.minNodeAccountId = minNodeAccountId;
         this.maxNodeAccountId = maxNodeAccountId;
         this.userProject = userProject;
+        this.bucketName = bucketName;
     }
 
     /** Maximum number of retry attempts for GCP operations. */
@@ -155,8 +184,7 @@ public class MainNetBucket {
     private byte[] downloadWithRetry(String path) {
         long delay = INITIAL_RETRY_DELAY_MS;
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            var blob =
-                    STORAGE.get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path), BlobGetOption.userProject(userProject));
+            var blob = STORAGE.get(BlobId.of(bucketName, path), BlobGetOption.userProject(userProject));
             if (blob != null) {
                 return blob.getContent(BlobSourceOption.userProject(userProject));
             }
@@ -212,7 +240,7 @@ public class MainNetBucket {
     private byte[] downloadWithRetryNoUserProject(String path) {
         long delay = INITIAL_RETRY_DELAY_MS;
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            var blob = STORAGE.get(BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path));
+            var blob = STORAGE.get(BlobId.of(bucketName, path));
             if (blob != null) {
                 return blob.getContent();
             }
@@ -318,14 +346,14 @@ public class MainNetBucket {
                     .parallel()
                     .mapToObj(nodeAccountId -> Stream.concat(
                                     STORAGE.list(
-                                                    HEDERA_MAINNET_STREAMS_BUCKET,
+                                                    bucketName,
                                                     getBlobListOptions(
                                                             "recordstreams/record0.0." + nodeAccountId + "/"
                                                                     + filePrefix,
                                                             REQUIRED_FIELDS))
                                             .streamAll(),
                                     STORAGE.list(
-                                                    HEDERA_MAINNET_STREAMS_BUCKET,
+                                                    bucketName,
                                                     getBlobListOptions(
                                                             "recordstreams/record0.0." + nodeAccountId + "/sidecar/"
                                                                     + filePrefix,
@@ -376,7 +404,7 @@ public class MainNetBucket {
             List<String> fileNames = IntStream.range(minNodeAccountId, maxNodeAccountId + 1)
                     .parallel()
                     .mapToObj(nodeAccountId -> STORAGE.list(
-                                    HEDERA_MAINNET_STREAMS_BUCKET,
+                                    bucketName,
                                     getBlobListOptions(
                                             "recordstreams/record0.0." + nodeAccountId + "/" + filePrefix,
                                             NAME_FIELD_ONLY))
@@ -410,7 +438,7 @@ public class MainNetBucket {
      */
     public boolean signatureFileExists(String nodeAccountId, String blockTimestamp) {
         String path = "recordstreams/record" + nodeAccountId + "/" + blockTimestamp + ".rcd_sig";
-        BlobId blobId = BlobId.of(HEDERA_MAINNET_STREAMS_BUCKET, path);
+        BlobId blobId = BlobId.of(bucketName, path);
         try {
             var blob = STORAGE.get(blobId, Storage.BlobGetOption.fields(BlobField.NAME));
             return blob != null && blob.exists();
@@ -474,7 +502,7 @@ public class MainNetBucket {
 
                     Map<Instant, Set<String>> nodeSignatures = new HashMap<>();
                     try {
-                        STORAGE.list(HEDERA_MAINNET_STREAMS_BUCKET, new BlobListOption[] {
+                        STORAGE.list(bucketName, new BlobListOption[] {
                                     BlobListOption.prefix(prefix),
                                     NAME_FIELD_ONLY,
                                     SIGNATURE_FILES_ONLY,

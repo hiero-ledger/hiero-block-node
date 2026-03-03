@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.mirrornode;
 
-import static org.hiero.block.tools.mirrornode.MirrorNodeUtils.MAINNET_MIRROR_NODE_API_URL;
+import static org.hiero.block.tools.config.NetworkConfig.current;
 import static org.hiero.block.tools.records.RecordFileDates.extractRecordFileTime;
 import static org.hiero.block.tools.records.RecordFileDates.instantToBlockTimeLong;
 
@@ -283,7 +283,7 @@ public class UpdateBlockData implements Runnable {
      * @return the latest block number
      */
     private static long getLatestBlockNumber() {
-        String url = MAINNET_MIRROR_NODE_API_URL + "blocks?limit=1&order=desc";
+        String url = current().mirrorNodeApiUrl() + "blocks?limit=1&order=desc";
         JsonObject response = MirrorNodeUtils.readUrl(url);
         JsonArray blocks = response.getAsJsonArray("blocks");
         if (blocks.isEmpty()) {
@@ -301,7 +301,7 @@ public class UpdateBlockData implements Runnable {
      */
     @SuppressWarnings("SameParameterValue")
     private static JsonArray fetchBlockBatch(long startBlock, int limit) {
-        String url = MAINNET_MIRROR_NODE_API_URL + "blocks?block.number=gte%3A" + startBlock + "&limit=" + limit
+        String url = current().mirrorNodeApiUrl() + "blocks?block.number=gte%3A" + startBlock + "&limit=" + limit
                 + "&order=asc";
         JsonObject response = MirrorNodeUtils.readUrl(url);
         return response.getAsJsonArray("blocks");
