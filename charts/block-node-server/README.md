@@ -145,7 +145,7 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 The chart includes pre-defined value override files in `values-overrides/`:
 
-##### all-plugins.yaml
+##### plugin-profile-all.yaml
 
 Full functionality for development and testing.
 * `facility-messaging`
@@ -160,22 +160,17 @@ Full functionality for development and testing.
 * `backfill`
 * `s3-archive`
 
-##### minimal.yaml
+##### plugin-profile-minimal.yaml
 
 Minimal functional node for development and testing.
 * `facility-messaging`
 * `block-access-service`
 * `health`
 * `server-status`
-* `stream-publisher`
-* `stream-subscriber`
-* `verification`
-* `blocks-file-historic`
-* `blocks-file-recent`
 
-##### lfh.yaml
+##### plugin-profile-lfh.yaml
 
-Local File History - stores all blocks on local persistent volumes.
+Local File History - stores all blocks on local persistent volumes (same as default).
 * `facility-messaging`
 * `block-access-service`
 * `health`
@@ -187,7 +182,7 @@ Local File History - stores all blocks on local persistent volumes.
 * `blocks-file-recent`
 * `backfill`
 
-##### rfh.yaml
+##### plugin-profile-rfh.yaml
 
 Remote File History - stores blocks in S3-compatible storage.
 * `facility-messaging`
@@ -205,7 +200,7 @@ Deploy with a profile:
 
 ```bash
 helm install "${RELEASE}" charts/block-node-server \
-  -f charts/block-node-server/values-overrides/all-plugins.yaml
+  -f charts/block-node-server/values-overrides/plugin-profile-all.yaml
 ```
 
 #### Custom Plugin Selection
