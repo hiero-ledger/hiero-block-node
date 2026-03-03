@@ -39,6 +39,7 @@ import java.util.zip.ZipOutputStream;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
 import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.hiero.block.tools.blocks.model.BlockWriter.BlockPath;
+import org.hiero.block.tools.blocks.model.BlockWriter.BlockZipAppender;
 import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
@@ -254,7 +255,7 @@ public class ToWrappedBlocksCommand implements Runnable {
 
         // Long-lived zip state managed exclusively by zipWritePool.
         // Declared here (outside the try-with-resources) so the shutdown hook can close the zip.
-        final AtomicReference<ZipOutputStream> currentZipRef = new AtomicReference<>(null);
+        final AtomicReference<BlockZipAppender> currentZipRef = new AtomicReference<>(null);
         final AtomicReference<Path> currentZipPathRef = new AtomicReference<>(null);
 
         try ( // load block times
@@ -370,7 +371,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                 serializePool.shutdownNow();
                                 zipWritePool.shutdownNow();
                                 // Close the current open zip (if any) to flush completed entries
-                                final ZipOutputStream openZip = currentZipRef.get();
+                                final BlockZipAppender openZip = currentZipRef.get();
                                 if (openZip != null) {
                                     try {
                                         openZip.close();
@@ -546,7 +547,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                                 if (archiveType == BlockArchiveType.UNCOMPRESSED_ZIP) {
                                                     // Switch zip file when the block number crosses into a new range
                                                     if (!blockPath.zipFilePath().equals(currentZipPathRef.get())) {
-                                                        final ZipOutputStream old = currentZipRef.get();
+                                                        final BlockZipAppender old = currentZipRef.get();
                                                         if (old != null) {
                                                             old.close();
                                                         }
@@ -586,7 +587,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                     .thenRunAsync(
                             () -> {
                                 try {
-                                    final ZipOutputStream last = currentZipRef.get();
+                                    final BlockZipAppender last = currentZipRef.get();
                                     if (last != null) {
                                         last.close();
                                         currentZipRef.set(null);
