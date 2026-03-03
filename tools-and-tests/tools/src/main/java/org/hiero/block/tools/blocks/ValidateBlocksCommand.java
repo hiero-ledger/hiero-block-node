@@ -2,6 +2,9 @@
 package org.hiero.block.tools.blocks;
 
 import com.github.luben.zstd.ZstdInputStream;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
@@ -18,6 +21,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,6 +62,10 @@ import picocli.CommandLine.Parameters;
  * <p>When validating output from {@code ToWrappedBlocksCommand}, you can simply pass the output directory
  * as the only parameter. The command will automatically find the {@code addressBookHistory.json} file
  * in that directory if not explicitly specified, and will validate all four binary state files if present.</p>
+ *
+ * <p>Validation can be interrupted and resumed: a {@code validateCheckpoint/} directory inside the first
+ * input directory persists progress between runs. Pass {@code --no-resume} to ignore any existing
+ * checkpoint and restart from block 0.</p>
  */
 @SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal", "DuplicatedCode"})
 @Command(
@@ -88,11 +96,110 @@ public class ValidateBlocksCommand implements Runnable {
             description = "Print details for each block")
     private boolean verbose = false;
 
+    @Option(
+            names = {"--no-resume"},
+            description = "Ignore any existing checkpoint and start validation from scratch")
+    private boolean noResume = false;
+
     /** Record representing a block source (file or zip entry). */
     private record BlockSource(long blockNumber, Path filePath, String zipEntryName) {
         boolean isZipEntry() {
             return zipEntryName != null;
         }
+    }
+
+    /** Lightweight state loaded from a checkpoint JSON file. */
+    private record CheckpointState(
+            long lastValidatedBlockNumber,
+            long blocksValidated,
+            long hashErrors,
+            long signatureErrors,
+            long otherErrors,
+            long stateFileErrors,
+            byte[] previousBlockHash) {}
+
+    /**
+     * Saves checkpoint state atomically using {@link HasherStateFiles#saveAtomically}.
+     *
+     * @param checkpointDir directory to write checkpoint files into
+     * @param lastValidatedBlockNumber the last block number that was fully validated
+     * @param blocksValidated number of blocks validated so far
+     * @param hashErrors number of hash errors so far
+     * @param signatureErrors number of signature errors so far
+     * @param otherErrors number of other errors so far
+     * @param stateFileErrors number of state file errors so far
+     * @param previousBlockHash hash of the last validated block
+     * @param freshStreamingHasher streaming hasher state to persist
+     */
+    private static void saveCheckpoint(
+            Path checkpointDir,
+            long lastValidatedBlockNumber,
+            long blocksValidated,
+            long hashErrors,
+            long signatureErrors,
+            long otherErrors,
+            long stateFileErrors,
+            byte[] previousBlockHash,
+            StreamingHasher freshStreamingHasher) {
+        // Save StreamingHasher binary state atomically
+        try {
+            HasherStateFiles.saveAtomically(
+                    checkpointDir.resolve("validateStreamingHasher.bin"), freshStreamingHasher::save);
+        } catch (Exception e) {
+            System.err.println("Warning: could not save streaming hasher: " + e.getMessage());
+        }
+        // Build and save JSON checkpoint atomically
+        JsonObject root = new JsonObject();
+        root.addProperty("schemaVersion", 1);
+        root.addProperty("lastValidatedBlockNumber", lastValidatedBlockNumber);
+        root.addProperty("blocksValidated", blocksValidated);
+        root.addProperty("hashErrors", hashErrors);
+        root.addProperty("signatureErrors", signatureErrors);
+        root.addProperty("otherErrors", otherErrors);
+        root.addProperty("stateFileErrors", stateFileErrors);
+        root.addProperty("previousBlockHashHex", Bytes.wrap(previousBlockHash).toHex());
+        final String json = new GsonBuilder().setPrettyPrinting().create().toJson(root);
+        try {
+            HasherStateFiles.saveAtomically(checkpointDir.resolve("validateProgress.json"), path -> {
+                try (var writer = Files.newBufferedWriter(path)) {
+                    writer.write(json);
+                }
+            });
+        } catch (Exception e) {
+            System.err.println("Warning: could not save checkpoint: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Loads checkpoint state from {@code validateProgress.json} inside the given directory,
+     * with fallback to {@code validateProgress.json.bak} if the primary file is missing or corrupt.
+     *
+     * @param checkpointDir directory containing checkpoint files
+     * @return the loaded state, or {@code null} if both primary and backup are absent/corrupt
+     */
+    private static CheckpointState loadCheckpoint(Path checkpointDir) {
+        Path jsonFile = checkpointDir.resolve("validateProgress.json");
+        CheckpointState[] result = {null};
+        HasherStateFiles.loadWithFallback(jsonFile, path -> {
+            try (var reader = Files.newBufferedReader(path)) {
+                JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
+                if (root.get("schemaVersion").getAsInt() != 1) {
+                    System.err.println("Unknown checkpoint schema version, ignoring");
+                    return;
+                }
+                byte[] prevHash =
+                        HexFormat.of().parseHex(root.get("previousBlockHashHex").getAsString());
+                result[0] = new CheckpointState(
+                        root.get("lastValidatedBlockNumber").getAsLong(),
+                        root.get("blocksValidated").getAsLong(),
+                        root.get("hashErrors").getAsLong(),
+                        root.get("signatureErrors").getAsLong(),
+                        root.get("otherErrors").getAsLong(),
+                        root.get("stateFileErrors").getAsLong(),
+                        prevHash);
+            }
+        });
+        return result[0];
     }
 
     @Override
@@ -141,6 +248,29 @@ public class ValidateBlocksCommand implements Runnable {
         // Sort by block number
         sources.sort(Comparator.comparingLong(BlockSource::blockNumber));
 
+        // Checkpoint directory lives inside the first input directory
+        Path checkpointDir = Arrays.stream(files)
+                .filter(File::isDirectory)
+                .map(f -> f.toPath().resolve("validateCheckpoint"))
+                .findFirst()
+                .orElse(Path.of("validateCheckpoint"));
+
+        // Load checkpoint if one exists and --no-resume was not specified
+        CheckpointState checkpoint = null;
+        if (!noResume && Files.isDirectory(checkpointDir)) {
+            checkpoint = loadCheckpoint(checkpointDir);
+            if (checkpoint != null) {
+                System.out.println(Ansi.AUTO.string("@|yellow Resuming from checkpoint:|@ last validated block = "
+                        + checkpoint.lastValidatedBlockNumber()));
+            }
+        }
+
+        final long resumeFrom = checkpoint != null ? checkpoint.lastValidatedBlockNumber() : -1L;
+        // pendingSources = only blocks still needing validation
+        final List<BlockSource> pendingSources = (checkpoint == null)
+                ? sources
+                : sources.stream().filter(s -> s.blockNumber() > resumeFrom).toList();
+
         // Detect binary state files in any input directory
         Path hashRegistryPath = null;
         Path streamingMerkleTreePath = null;
@@ -167,22 +297,27 @@ public class ValidateBlocksCommand implements Runnable {
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|yellow Total blocks to validate:|@ " + sources.size()));
         System.out.println(
-                Ansi.AUTO.string("@|yellow Block range:|@ " + sources.get(0).blockNumber() + " - "
-                        + sources.get(sources.size() - 1).blockNumber()));
+                Ansi.AUTO.string("@|yellow Block range:|@ " + sources.getFirst().blockNumber() + " - "
+                        + sources.getLast().blockNumber()));
         if (hasStateFiles) {
             System.out.println(Ansi.AUTO.string("@|yellow State files found:|@ blockStreamBlockHashes.bin, "
                     + "streamingMerkleTree.bin, completeMerkleTree.bin, jumpstart.bin"));
         }
+        if (checkpoint != null) {
+            System.out.println(Ansi.AUTO.string("@|yellow Pending blocks:|@ " + pendingSources.size()
+                    + " (resuming after block " + checkpoint.lastValidatedBlockNumber() + ")"));
+        }
         System.out.println();
 
-        // Validation tracking
+        // Validation tracking — counters restored from checkpoint when resuming
         final long startNanos = System.nanoTime();
-        final AtomicLong blocksValidated = new AtomicLong(0);
-        final AtomicLong hashErrors = new AtomicLong(0);
-        final AtomicLong signatureErrors = new AtomicLong(0);
-        final AtomicLong otherErrors = new AtomicLong(0);
-        long stateFileErrors = 0L;
-        final AtomicReference<byte[]> previousBlockHash = new AtomicReference<>(null);
+        final AtomicLong blocksValidated = new AtomicLong(checkpoint != null ? checkpoint.blocksValidated() : 0);
+        final AtomicLong hashErrors = new AtomicLong(checkpoint != null ? checkpoint.hashErrors() : 0);
+        final AtomicLong signatureErrors = new AtomicLong(checkpoint != null ? checkpoint.signatureErrors() : 0);
+        final AtomicLong otherErrors = new AtomicLong(checkpoint != null ? checkpoint.otherErrors() : 0);
+        final long[] stateFileErrors = {checkpoint != null ? checkpoint.stateFileErrors() : 0L};
+        final AtomicReference<byte[]> previousBlockHash =
+                new AtomicReference<>(checkpoint != null ? checkpoint.previousBlockHash() : null);
         final AtomicLong lastReportedPercent = new AtomicLong(-1);
 
         // Check for missing companion state files upfront
@@ -190,22 +325,22 @@ public class ValidateBlocksCommand implements Runnable {
             if (!Files.exists(streamingMerkleTreePath)) {
                 System.err.println(Ansi.AUTO.string(
                         "@|red Error:|@ streamingMerkleTree.bin not found alongside blockStreamBlockHashes.bin"));
-                stateFileErrors++;
+                stateFileErrors[0]++;
             }
             if (!Files.exists(completeMerkleTreePath)) {
                 System.err.println(Ansi.AUTO.string(
                         "@|red Error:|@ completeMerkleTree.bin not found alongside blockStreamBlockHashes.bin"));
-                stateFileErrors++;
+                stateFileErrors[0]++;
             }
             if (!Files.exists(jumpstartPath)) {
                 System.err.println(Ansi.AUTO.string(
                         "@|red Error:|@ jumpstart.bin not found alongside blockStreamBlockHashes.bin"));
-                stateFileErrors++;
+                stateFileErrors[0]++;
             }
         }
 
-        // Check for gaps in block numbers
-        long expectedBlockNumber = sources.get(0).blockNumber();
+        // Check for gaps in block numbers (across the full dataset)
+        long expectedBlockNumber = sources.getFirst().blockNumber();
         for (BlockSource source : sources) {
             if (source.blockNumber() != expectedBlockNumber) {
                 System.out.println(Ansi.AUTO.string("@|red Gap detected:|@ Expected block " + expectedBlockNumber
@@ -218,12 +353,67 @@ public class ValidateBlocksCommand implements Runnable {
         BlockStreamBlockHashRegistry registry =
                 hasStateFiles ? new BlockStreamBlockHashRegistry(hashRegistryPath) : null;
         final StreamingHasher freshStreamingHasher = new StreamingHasher();
+
+        // Restore StreamingHasher state from checkpoint binary (if resuming)
+        if (checkpoint != null) {
+            try {
+                Files.createDirectories(checkpointDir);
+            } catch (IOException ignored) {
+            }
+            HasherStateFiles.loadWithFallback(
+                    checkpointDir.resolve("validateStreamingHasher.bin"), freshStreamingHasher::load);
+            if (freshStreamingHasher.leafCount() > 0) {
+                System.out.println(Ansi.AUTO.string(
+                        "@|yellow Restored streaming hasher:|@ leafCount = " + freshStreamingHasher.leafCount()));
+            }
+        }
+
+        // Rebuild InMemoryTreeHasher by replaying already-validated block hashes from registry
         final InMemoryTreeHasher freshInMemoryHasher = new InMemoryTreeHasher();
+        if (checkpoint != null && registry != null && checkpoint.lastValidatedBlockNumber() >= 0) {
+            long firstBlock = sources.getFirst().blockNumber();
+            long replayTo = checkpoint.lastValidatedBlockNumber();
+            System.out.println(Ansi.AUTO.string("@|yellow Replaying |@" + (replayTo - firstBlock + 1)
+                    + " block hashes into in-memory hasher (blocks " + firstBlock + ".." + replayTo + ")"));
+            for (long bn = firstBlock; bn <= replayTo; bn++) {
+                freshInMemoryHasher.addNodeByHash(registry.getBlockHash(bn));
+            }
+        }
+
+        // Track last successfully validated block for checkpoint saving in shutdown hook
+        final long[] lastValidatedRef = {checkpoint != null ? checkpoint.lastValidatedBlockNumber() : -1L};
+
+        // Shutdown hook: save checkpoint if interrupted mid-run
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            if (lastValidatedRef[0] >= 0 && previousBlockHash.get() != null) {
+                                System.err.println(
+                                        "Shutdown: saving validation checkpoint at block " + lastValidatedRef[0]);
+                                try {
+                                    Files.createDirectories(checkpointDir);
+                                } catch (IOException ignored) {
+                                }
+                                saveCheckpoint(
+                                        checkpointDir,
+                                        lastValidatedRef[0],
+                                        blocksValidated.get(),
+                                        hashErrors.get(),
+                                        signatureErrors.get(),
+                                        otherErrors.get(),
+                                        stateFileErrors[0],
+                                        previousBlockHash.get(),
+                                        freshStreamingHasher);
+                            }
+                        },
+                        "validate-shutdown-hook"));
 
         try {
-            // Validate each block
-            for (int i = 0; i < sources.size(); i++) {
-                BlockSource source = sources.get(i);
+            long lastCheckpointSaveMs = System.currentTimeMillis();
+
+            // Validate each pending block
+            for (int i = 0; i < pendingSources.size(); i++) {
+                BlockSource source = pendingSources.get(i);
                 long blockNum = source.blockNumber();
 
                 try {
@@ -240,7 +430,7 @@ public class ValidateBlocksCommand implements Runnable {
                         }
                         if (item.hasBlockFooter()) {
                             previousHashInBlock =
-                                    item.blockFooter().previousBlockRootHash().toByteArray();
+                                    item.blockFooterOrThrow().previousBlockRootHash().toByteArray();
                         }
                     }
 
@@ -259,7 +449,7 @@ public class ValidateBlocksCommand implements Runnable {
                             PrettyPrint.clearProgress();
                             System.out.println(Ansi.AUTO.string(
                                     "@|red Block " + blockNum + ":|@ hash mismatch in blockStreamBlockHashes.bin"));
-                            stateFileErrors++;
+                            stateFileErrors[0]++;
                         }
                     }
 
@@ -267,11 +457,32 @@ public class ValidateBlocksCommand implements Runnable {
                     freshStreamingHasher.addNodeByHash(currentBlockHash);
                     freshInMemoryHasher.addNodeByHash(currentBlockHash);
 
+                    // Update last-validated reference and save periodic checkpoint
+                    lastValidatedRef[0] = blockNum;
+                    long nowMs = System.currentTimeMillis();
+                    if (nowMs - lastCheckpointSaveMs >= 60_000L) {
+                        try {
+                            Files.createDirectories(checkpointDir);
+                        } catch (IOException ignored) {
+                        }
+                        saveCheckpoint(
+                                checkpointDir,
+                                blockNum,
+                                blocksValidated.get() + 1,
+                                hashErrors.get(),
+                                signatureErrors.get(),
+                                otherErrors.get(),
+                                stateFileErrors[0],
+                                currentBlockHash,
+                                freshStreamingHasher);
+                        lastCheckpointSaveMs = nowMs;
+                    }
+
                     // Validate signatures if enabled
                     boolean signaturesValid = true;
                     if (!skipSignatures && blockProof != null && addressBookRegistry != null) {
                         signaturesValid = validateSignatures(
-                                blockNum, block, blockProof, currentBlockHash, addressBookRegistry, signatureErrors);
+                                blockNum, blockProof, addressBookRegistry, signatureErrors);
                     }
 
                     // Print verbose output
@@ -279,18 +490,18 @@ public class ValidateBlocksCommand implements Runnable {
                         String status = (hashValid && signaturesValid)
                                 ? Ansi.AUTO.string("@|green VALID|@")
                                 : Ansi.AUTO.string("@|red INVALID|@");
-                        System.out.println(String.format(
-                                "Block %d: %s (hash: %s)",
+                        System.out.printf(
+                            "Block %d: %s (hash: %s)%n",
                                 blockNum,
                                 status,
-                                Bytes.wrap(currentBlockHash).toHex().substring(0, 8)));
+                                Bytes.wrap(currentBlockHash).toHex().substring(0, 8));
                     }
 
                     blocksValidated.incrementAndGet();
 
-                    // Update progress
+                    // Update progress (denominator is allSources.size() for overall % complete)
                     long currentPercent = (blocksValidated.get() * 100) / sources.size();
-                    if (currentPercent != lastReportedPercent.get() || i == sources.size() - 1) {
+                    if (currentPercent != lastReportedPercent.get() || i == pendingSources.size() - 1) {
                         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
                         long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
                                 blocksValidated.get(), sources.size(), elapsedMillis);
@@ -322,7 +533,7 @@ public class ValidateBlocksCommand implements Runnable {
                     System.out.println(Ansi.AUTO.string(
                             "@|red State file error:|@ blockStreamBlockHashes.bin highest stored block "
                                     + registry.highestBlockNumberStored() + " != expected " + expectedHighest));
-                    stateFileErrors++;
+                    stateFileErrors[0]++;
                 }
             }
 
@@ -337,19 +548,19 @@ public class ValidateBlocksCommand implements Runnable {
                         System.out.println(
                                 Ansi.AUTO.string("@|red State file error:|@ streamingMerkleTree.bin leaf count "
                                         + loadedStreaming.leafCount() + " != expected " + expectedLeaves));
-                        stateFileErrors++;
+                        stateFileErrors[0]++;
                     }
                     if (!Arrays.equals(loadedStreaming.computeRootHash(), freshStreamingHasher.computeRootHash())) {
                         PrettyPrint.clearProgress();
                         System.out.println(Ansi.AUTO.string(
                                 "@|red State file error:|@ streamingMerkleTree.bin root hash mismatch"));
-                        stateFileErrors++;
+                        stateFileErrors[0]++;
                     }
                 } catch (Exception e) {
                     PrettyPrint.clearProgress();
                     System.out.println(Ansi.AUTO.string(
                             "@|red State file error:|@ Failed to load streamingMerkleTree.bin: " + e.getMessage()));
-                    stateFileErrors++;
+                    stateFileErrors[0]++;
                 }
             }
 
@@ -358,25 +569,25 @@ public class ValidateBlocksCommand implements Runnable {
                 InMemoryTreeHasher loadedInMemory = new InMemoryTreeHasher();
                 try {
                     loadedInMemory.load(completeMerkleTreePath);
-                    long expectedLeaves = (long) sources.size();
+                    long expectedLeaves = sources.size();
                     if (loadedInMemory.leafCount() != expectedLeaves) {
                         PrettyPrint.clearProgress();
                         System.out.println(
                                 Ansi.AUTO.string("@|red State file error:|@ completeMerkleTree.bin leaf count "
                                         + loadedInMemory.leafCount() + " != expected " + expectedLeaves));
-                        stateFileErrors++;
+                        stateFileErrors[0]++;
                     }
                     if (!Arrays.equals(loadedInMemory.computeRootHash(), freshStreamingHasher.computeRootHash())) {
                         PrettyPrint.clearProgress();
                         System.out.println(Ansi.AUTO.string(
                                 "@|red State file error:|@ completeMerkleTree.bin root hash mismatch"));
-                        stateFileErrors++;
+                        stateFileErrors[0]++;
                     }
                 } catch (Exception e) {
                     PrettyPrint.clearProgress();
                     System.out.println(Ansi.AUTO.string(
                             "@|red State file error:|@ Failed to load completeMerkleTree.bin: " + e.getMessage()));
-                    stateFileErrors++;
+                    stateFileErrors[0]++;
                 }
             }
 
@@ -399,7 +610,7 @@ public class ValidateBlocksCommand implements Runnable {
                         PrettyPrint.clearProgress();
                         System.out.println(Ansi.AUTO.string("@|red State file error:|@ jumpstart.bin block number "
                                 + jBlockNum + " != expected " + expectedBlockNum));
-                        stateFileErrors++;
+                        stateFileErrors[0]++;
                     }
                     if (registry != null) {
                         byte[] registryHash = registry.getBlockHash(jBlockNum);
@@ -407,27 +618,27 @@ public class ValidateBlocksCommand implements Runnable {
                             PrettyPrint.clearProgress();
                             System.out.println(Ansi.AUTO.string(
                                     "@|red State file error:|@ jumpstart.bin block hash does not match registry"));
-                            stateFileErrors++;
+                            stateFileErrors[0]++;
                         }
                     }
                     if (jLeafCount != freshStreamingHasher.leafCount()) {
                         PrettyPrint.clearProgress();
                         System.out.println(Ansi.AUTO.string("@|red State file error:|@ jumpstart.bin leaf count "
                                 + jLeafCount + " != expected " + freshStreamingHasher.leafCount()));
-                        stateFileErrors++;
+                        stateFileErrors[0]++;
                     }
                     StreamingHasher jumpstartHasher = new StreamingHasher(jHashes);
                     if (!Arrays.equals(jumpstartHasher.computeRootHash(), freshStreamingHasher.computeRootHash())) {
                         PrettyPrint.clearProgress();
                         System.out.println(Ansi.AUTO.string(
                                 "@|red State file error:|@ jumpstart.bin streaming tree root mismatch"));
-                        stateFileErrors++;
+                        stateFileErrors[0]++;
                     }
                 } catch (Exception e) {
                     PrettyPrint.clearProgress();
                     System.out.println(Ansi.AUTO.string(
                             "@|red State file error:|@ Failed to read jumpstart.bin: " + e.getMessage()));
-                    stateFileErrors++;
+                    stateFileErrors[0]++;
                 }
             }
 
@@ -439,6 +650,42 @@ public class ValidateBlocksCommand implements Runnable {
                     // best-effort close
                 }
             }
+        }
+
+        // Determine total errors
+        long totalErrors = hashErrors.get() + signatureErrors.get() + otherErrors.get() + stateFileErrors[0];
+        boolean allBlocksValidated = (blocksValidated.get() == (long) sources.size());
+
+        // On full success: remove checkpoint (validation is complete).
+        // On partial/error: save a final checkpoint for next resume.
+        if (totalErrors == 0 && allBlocksValidated) {
+            try {
+                Files.deleteIfExists(checkpointDir.resolve("validateProgress.json"));
+                Files.deleteIfExists(checkpointDir.resolve("validateProgress.json.bak"));
+                Files.deleteIfExists(checkpointDir.resolve("validateStreamingHasher.bin"));
+                Files.deleteIfExists(checkpointDir.resolve("validateStreamingHasher.bin.bak"));
+                Files.deleteIfExists(checkpointDir);
+                System.out.println(Ansi.AUTO.string("@|yellow Checkpoint deleted|@ (validation complete)"));
+            } catch (IOException e) {
+                System.err.println("Warning: could not delete checkpoint: " + e.getMessage());
+            }
+        } else if (lastValidatedRef[0] >= 0 && previousBlockHash.get() != null) {
+            try {
+                Files.createDirectories(checkpointDir);
+            } catch (IOException ignored) {
+            }
+            saveCheckpoint(
+                    checkpointDir,
+                    lastValidatedRef[0],
+                    blocksValidated.get(),
+                    hashErrors.get(),
+                    signatureErrors.get(),
+                    otherErrors.get(),
+                    stateFileErrors[0],
+                    previousBlockHash.get(),
+                    freshStreamingHasher);
+            System.out.println(
+                    Ansi.AUTO.string("@|yellow Checkpoint saved:|@ " + checkpointDir + "/validateProgress.json"));
         }
 
         // Print summary
@@ -454,9 +701,8 @@ public class ValidateBlocksCommand implements Runnable {
         System.out.println(Ansi.AUTO.string("@|yellow Hash chain errors:|@ " + hashErrors.get()));
         System.out.println(Ansi.AUTO.string("@|yellow Signature errors:|@ " + signatureErrors.get()));
         System.out.println(Ansi.AUTO.string("@|yellow Other errors:|@ " + otherErrors.get()));
-        System.out.println(Ansi.AUTO.string("@|yellow State file errors:|@ " + stateFileErrors));
+        System.out.println(Ansi.AUTO.string("@|yellow State file errors:|@ " + stateFileErrors[0]));
 
-        long totalErrors = hashErrors.get() + signatureErrors.get() + otherErrors.get() + stateFileErrors;
         if (totalErrors == 0) {
             System.out.println();
             System.out.println(Ansi.AUTO.string("@|bold,green VALIDATION PASSED|@"));
@@ -523,20 +769,16 @@ public class ValidateBlocksCommand implements Runnable {
     /**
      * Validates signatures on a block.
      *
-     * @param blockNum the block number
-     * @param block the block
-     * @param blockProof the block proof containing signatures
-     * @param blockHash the computed block hash
+     * @param blockNum            the block number
+     * @param blockProof          the block proof containing signatures
      * @param addressBookRegistry the address book registry for public keys
-     * @param signatureErrors counter for signature errors
+     * @param signatureErrors     counter for signature errors
      * @return true if valid (1/3 + 1 signatures verified)
      */
     private boolean validateSignatures(
             long blockNum,
-            Block block,
-            BlockProof blockProof,
-            byte[] blockHash,
-            AddressBookRegistry addressBookRegistry,
+        BlockProof blockProof,
+        AddressBookRegistry addressBookRegistry,
             AtomicLong signatureErrors) {
 
         try {
@@ -634,8 +876,8 @@ public class ValidateBlocksCommand implements Runnable {
      * @param sources list to add sources to
      */
     private void findBlocksInDirectory(Path dir, List<BlockSource> sources) {
-        try (Stream<Path> paths = Files.walk(dir)) {
-            paths.filter(Files::isRegularFile).forEach(path -> {
+        try (Stream<Path> filesStream = Files.walk(dir)) {
+             filesStream.filter(Files::isRegularFile).forEach(path -> {
                 String fileName = path.getFileName().toString();
                 if (fileName.endsWith(".zip")) {
                     findBlocksInZip(path, sources);
@@ -660,8 +902,8 @@ public class ValidateBlocksCommand implements Runnable {
     private void findBlocksInZip(Path zipPath, List<BlockSource> sources) {
         try (FileSystem zipFs = FileSystems.newFileSystem(zipPath)) {
             for (Path root : zipFs.getRootDirectories()) {
-                try (Stream<Path> paths = Files.walk(root)) {
-                    paths.filter(Files::isRegularFile).forEach(path -> {
+                try (Stream<Path> filesStream = Files.walk(root)) {
+                    filesStream.filter(Files::isRegularFile).forEach(path -> {
                         String fileName = path.getFileName().toString();
                         long blockNum = extractBlockNumber(fileName);
                         if (blockNum >= 0) {
