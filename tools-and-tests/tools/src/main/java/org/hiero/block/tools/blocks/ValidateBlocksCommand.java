@@ -7,6 +7,7 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,7 +25,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
-import org.hiero.block.tools.blocks.model.BlockHashCalculator;
+import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
+import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher;
+import org.hiero.block.tools.blocks.model.hashing.HashingUtils;
+import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
+import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
@@ -35,9 +40,12 @@ import picocli.CommandLine.Parameters;
 /**
  * Validates a wrapped block stream by checking:
  * <ul>
- *   <li>Hash chain continuity - each block's previousBlockRootHash matches the computed hash of the previous block</li>
- *   <li>The first block has 48 zero bytes for the previous hash (genesis)</li>
+ *   <li>Hash chain continuity - each block's previousBlockRootHash matches computed hash of previous block</li>
+ *   <li>First block has the empty-tree hash for previous hash (genesis)</li>
  *   <li>Signature validation - at least 1/3 + 1 of address book nodes must sign</li>
+ *   <li>Binary state files produced by {@code ToWrappedBlocksCommand}:
+ *     {@code blockStreamBlockHashes.bin}, {@code streamingMerkleTree.bin},
+ *     {@code completeMerkleTree.bin}, and {@code jumpstart.bin}</li>
  * </ul>
  *
  * <p>This command works with both:</p>
@@ -49,19 +57,16 @@ import picocli.CommandLine.Parameters;
  *
  * <p>When validating output from {@code ToWrappedBlocksCommand}, you can simply pass the output directory
  * as the only parameter. The command will automatically find the {@code addressBookHistory.json} file
- * in that directory if not explicitly specified.</p>
+ * in that directory if not explicitly specified, and will validate all four binary state files if present.</p>
  */
 @SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal", "DuplicatedCode"})
 @Command(
         name = "validate",
-        description = "Validates a wrapped block stream (hash chain and signatures)",
+        description = "Validates a wrapped block stream (hash chain, signatures, and state files)",
         mixinStandardHelpOptions = true)
 public class ValidateBlocksCommand implements Runnable {
 
-    /** Zero hash for genesis block (48 bytes of zeros). */
-    private static final byte[] ZERO_HASH = new byte[48];
-
-    /** Pattern to extract a block number from the filename. */
+    /** Pattern to extract block number from filename. */
     private static final Pattern BLOCK_FILE_PATTERN = Pattern.compile("^(\\d+)\\.blk(\\.gz|\\.zstd)?$");
 
     @SuppressWarnings("unused")
@@ -136,6 +141,24 @@ public class ValidateBlocksCommand implements Runnable {
         // Sort by block number
         sources.sort(Comparator.comparingLong(BlockSource::blockNumber));
 
+        // Detect binary state files in any input directory
+        Path hashRegistryPath = null;
+        Path streamingMerkleTreePath = null;
+        Path completeMerkleTreePath = null;
+        Path jumpstartPath = null;
+        for (File file : files) {
+            if (file.isDirectory()) {
+                Path dir = file.toPath();
+                if (Files.exists(dir.resolve("blockStreamBlockHashes.bin"))) {
+                    hashRegistryPath = dir.resolve("blockStreamBlockHashes.bin");
+                    streamingMerkleTreePath = dir.resolve("streamingMerkleTree.bin");
+                    completeMerkleTreePath = dir.resolve("completeMerkleTree.bin");
+                    jumpstartPath = dir.resolve("jumpstart.bin");
+                }
+            }
+        }
+        final boolean hasStateFiles = (hashRegistryPath != null);
+
         System.out.println(
                 Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println(Ansi.AUTO.string("@|bold,cyan   BLOCK STREAM VALIDATION|@"));
@@ -146,6 +169,10 @@ public class ValidateBlocksCommand implements Runnable {
         System.out.println(
                 Ansi.AUTO.string("@|yellow Block range:|@ " + sources.get(0).blockNumber() + " - "
                         + sources.get(sources.size() - 1).blockNumber()));
+        if (hasStateFiles) {
+            System.out.println(Ansi.AUTO.string("@|yellow State files found:|@ blockStreamBlockHashes.bin, "
+                    + "streamingMerkleTree.bin, completeMerkleTree.bin, jumpstart.bin"));
+        }
         System.out.println();
 
         // Validation tracking
@@ -154,8 +181,28 @@ public class ValidateBlocksCommand implements Runnable {
         final AtomicLong hashErrors = new AtomicLong(0);
         final AtomicLong signatureErrors = new AtomicLong(0);
         final AtomicLong otherErrors = new AtomicLong(0);
+        long stateFileErrors = 0L;
         final AtomicReference<byte[]> previousBlockHash = new AtomicReference<>(null);
         final AtomicLong lastReportedPercent = new AtomicLong(-1);
+
+        // Check for missing companion state files upfront
+        if (hasStateFiles) {
+            if (!Files.exists(streamingMerkleTreePath)) {
+                System.err.println(Ansi.AUTO.string(
+                        "@|red Error:|@ streamingMerkleTree.bin not found alongside blockStreamBlockHashes.bin"));
+                stateFileErrors++;
+            }
+            if (!Files.exists(completeMerkleTreePath)) {
+                System.err.println(Ansi.AUTO.string(
+                        "@|red Error:|@ completeMerkleTree.bin not found alongside blockStreamBlockHashes.bin"));
+                stateFileErrors++;
+            }
+            if (!Files.exists(jumpstartPath)) {
+                System.err.println(Ansi.AUTO.string(
+                        "@|red Error:|@ jumpstart.bin not found alongside blockStreamBlockHashes.bin"));
+                stateFileErrors++;
+            }
+        }
 
         // Check for gaps in block numbers
         long expectedBlockNumber = sources.get(0).blockNumber();
@@ -167,73 +214,230 @@ public class ValidateBlocksCommand implements Runnable {
             expectedBlockNumber = source.blockNumber() + 1;
         }
 
-        // Validate each block
-        for (int i = 0; i < sources.size(); i++) {
-            BlockSource source = sources.get(i);
-            long blockNum = source.blockNumber();
+        // Open the hash registry for per-block validation (null when no state files present)
+        BlockStreamBlockHashRegistry registry =
+                hasStateFiles ? new BlockStreamBlockHashRegistry(hashRegistryPath) : null;
+        final StreamingHasher freshStreamingHasher = new StreamingHasher();
+        final InMemoryTreeHasher freshInMemoryHasher = new InMemoryTreeHasher();
 
-            try {
-                // Read and parse block
-                byte[] blockBytes = readBlockBytes(source);
-                Block block = Block.PROTOBUF.parse(Bytes.wrap(blockBytes));
+        try {
+            // Validate each block
+            for (int i = 0; i < sources.size(); i++) {
+                BlockSource source = sources.get(i);
+                long blockNum = source.blockNumber();
 
-                // Extract block proof for signature validation
-                BlockProof blockProof = null;
+                try {
+                    // Read and parse block
+                    byte[] blockBytes = readBlockBytes(source);
+                    Block block = Block.PROTOBUF.parse(Bytes.wrap(blockBytes));
 
-                for (BlockItem item : block.items()) {
-                    if (item.hasBlockProof()) {
-                        blockProof = item.blockProof();
-                        break;
+                    // Extract block proof and previous block hash from the block footer
+                    BlockProof blockProof = null;
+                    byte[] previousHashInBlock = null;
+                    for (BlockItem item : block.items()) {
+                        if (item.hasBlockProof()) {
+                            blockProof = item.blockProof();
+                        }
+                        if (item.hasBlockFooter()) {
+                            previousHashInBlock =
+                                    item.blockFooter().previousBlockRootHash().toByteArray();
+                        }
                     }
+
+                    // Compute this block's hash using the proper 16-leaf Merkle tree algorithm
+                    byte[] currentBlockHash = BlockStreamBlockHasher.hashBlock(block);
+
+                    // Validate hash chain
+                    boolean hashValid =
+                            validateHashChain(blockNum, previousHashInBlock, previousBlockHash.get(), hashErrors);
+                    previousBlockHash.set(currentBlockHash);
+
+                    // Validate per-block hash against the registry
+                    if (registry != null) {
+                        byte[] storedHash = registry.getBlockHash(blockNum);
+                        if (!Arrays.equals(currentBlockHash, storedHash)) {
+                            PrettyPrint.clearProgress();
+                            System.out.println(Ansi.AUTO.string(
+                                    "@|red Block " + blockNum + ":|@ hash mismatch in blockStreamBlockHashes.bin"));
+                            stateFileErrors++;
+                        }
+                    }
+
+                    // Feed the fresh hashers for post-loop state file comparison
+                    freshStreamingHasher.addNodeByHash(currentBlockHash);
+                    freshInMemoryHasher.addNodeByHash(currentBlockHash);
+
+                    // Validate signatures if enabled
+                    boolean signaturesValid = true;
+                    if (!skipSignatures && blockProof != null && addressBookRegistry != null) {
+                        signaturesValid = validateSignatures(
+                                blockNum, block, blockProof, currentBlockHash, addressBookRegistry, signatureErrors);
+                    }
+
+                    // Print verbose output
+                    if (verbose) {
+                        String status = (hashValid && signaturesValid)
+                                ? Ansi.AUTO.string("@|green VALID|@")
+                                : Ansi.AUTO.string("@|red INVALID|@");
+                        System.out.println(String.format(
+                                "Block %d: %s (hash: %s)",
+                                blockNum,
+                                status,
+                                Bytes.wrap(currentBlockHash).toHex().substring(0, 8)));
+                    }
+
+                    blocksValidated.incrementAndGet();
+
+                    // Update progress
+                    long currentPercent = (blocksValidated.get() * 100) / sources.size();
+                    if (currentPercent != lastReportedPercent.get() || i == sources.size() - 1) {
+                        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+                        long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
+                                blocksValidated.get(), sources.size(), elapsedMillis);
+
+                        String progressString =
+                                String.format("Validated %d/%d blocks", blocksValidated.get(), sources.size());
+                        PrettyPrint.printProgressWithEta(currentPercent, progressString, remainingMillis);
+                        lastReportedPercent.set(currentPercent);
+                    }
+
+                } catch (Exception e) {
+                    PrettyPrint.clearProgress();
+                    System.err.println(
+                            Ansi.AUTO.string("@|red Error processing block " + blockNum + ":|@ " + e.getMessage()));
+                    if (verbose) {
+                        e.printStackTrace();
+                    }
+                    otherErrors.incrementAndGet();
                 }
+            }
 
-                // Compute this block's hash
-                byte[] currentBlockHash = BlockHashCalculator.computeBlockHash(block);
+            // --- Post-loop: validate binary state files ---
 
-                // Track hash chain - in a full implementation we would validate
-                // that the hash stored in the next block matches this computed hash
-                boolean hashValid = true;
-                previousBlockHash.set(currentBlockHash);
-
-                // Validate signatures if enabled
-                boolean signaturesValid = true;
-                if (!skipSignatures && blockProof != null && addressBookRegistry != null) {
-                    signaturesValid = validateSignatures(
-                            blockNum, block, blockProof, currentBlockHash, addressBookRegistry, signatureErrors);
+            // Validate blockStreamBlockHashes.bin highest stored block number
+            if (registry != null) {
+                long expectedHighest = sources.getLast().blockNumber();
+                if (registry.highestBlockNumberStored() != expectedHighest) {
+                    PrettyPrint.clearProgress();
+                    System.out.println(Ansi.AUTO.string(
+                            "@|red State file error:|@ blockStreamBlockHashes.bin highest stored block "
+                                    + registry.highestBlockNumberStored() + " != expected " + expectedHighest));
+                    stateFileErrors++;
                 }
+            }
 
-                // Print verbose output
-                if (verbose) {
-                    String status =
-                            signaturesValid ? Ansi.AUTO.string("@|green VALID|@") : Ansi.AUTO.string("@|red INVALID|@");
-                    System.out.printf(
-                            "Block %d: %s (hash: %s)%n",
-                            blockNum, status, BlockHashCalculator.shortHash(currentBlockHash));
+            // Validate streamingMerkleTree.bin
+            if (streamingMerkleTreePath != null && Files.exists(streamingMerkleTreePath)) {
+                StreamingHasher loadedStreaming = new StreamingHasher();
+                try {
+                    loadedStreaming.load(streamingMerkleTreePath);
+                    long expectedLeaves = sources.size();
+                    if (loadedStreaming.leafCount() != expectedLeaves) {
+                        PrettyPrint.clearProgress();
+                        System.out.println(
+                                Ansi.AUTO.string("@|red State file error:|@ streamingMerkleTree.bin leaf count "
+                                        + loadedStreaming.leafCount() + " != expected " + expectedLeaves));
+                        stateFileErrors++;
+                    }
+                    if (!Arrays.equals(loadedStreaming.computeRootHash(), freshStreamingHasher.computeRootHash())) {
+                        PrettyPrint.clearProgress();
+                        System.out.println(Ansi.AUTO.string(
+                                "@|red State file error:|@ streamingMerkleTree.bin root hash mismatch"));
+                        stateFileErrors++;
+                    }
+                } catch (Exception e) {
+                    PrettyPrint.clearProgress();
+                    System.out.println(Ansi.AUTO.string(
+                            "@|red State file error:|@ Failed to load streamingMerkleTree.bin: " + e.getMessage()));
+                    stateFileErrors++;
                 }
+            }
 
-                blocksValidated.incrementAndGet();
-
-                // Update progress
-                long currentPercent = (blocksValidated.get() * 100) / sources.size();
-                if (currentPercent != lastReportedPercent.get() || i == sources.size() - 1) {
-                    long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-                    long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
-                            blocksValidated.get(), sources.size(), elapsedMillis);
-
-                    String progressString =
-                            String.format("Validated %d/%d blocks", blocksValidated.get(), sources.size());
-                    PrettyPrint.printProgressWithEta(currentPercent, progressString, remainingMillis);
-                    lastReportedPercent.set(currentPercent);
+            // Validate completeMerkleTree.bin
+            if (completeMerkleTreePath != null && Files.exists(completeMerkleTreePath)) {
+                InMemoryTreeHasher loadedInMemory = new InMemoryTreeHasher();
+                try {
+                    loadedInMemory.load(completeMerkleTreePath);
+                    long expectedLeaves = (long) sources.size();
+                    if (loadedInMemory.leafCount() != expectedLeaves) {
+                        PrettyPrint.clearProgress();
+                        System.out.println(
+                                Ansi.AUTO.string("@|red State file error:|@ completeMerkleTree.bin leaf count "
+                                        + loadedInMemory.leafCount() + " != expected " + expectedLeaves));
+                        stateFileErrors++;
+                    }
+                    if (!Arrays.equals(loadedInMemory.computeRootHash(), freshStreamingHasher.computeRootHash())) {
+                        PrettyPrint.clearProgress();
+                        System.out.println(Ansi.AUTO.string(
+                                "@|red State file error:|@ completeMerkleTree.bin root hash mismatch"));
+                        stateFileErrors++;
+                    }
+                } catch (Exception e) {
+                    PrettyPrint.clearProgress();
+                    System.out.println(Ansi.AUTO.string(
+                            "@|red State file error:|@ Failed to load completeMerkleTree.bin: " + e.getMessage()));
+                    stateFileErrors++;
                 }
+            }
 
-            } catch (Exception e) {
-                PrettyPrint.clearProgress();
-                System.err.println(
-                        Ansi.AUTO.string("@|red Error processing block " + blockNum + ":|@ " + e.getMessage()));
-                if (verbose) {
-                    e.printStackTrace();
+            // Validate jumpstart.bin
+            if (jumpstartPath != null && Files.exists(jumpstartPath)) {
+                try (DataInputStream din = new DataInputStream(Files.newInputStream(jumpstartPath))) {
+                    long jBlockNum = din.readLong();
+                    byte[] jHash = new byte[48];
+                    din.readFully(jHash);
+                    long jLeafCount = din.readLong();
+                    int jHashCount = din.readInt();
+                    List<byte[]> jHashes = new ArrayList<>();
+                    for (int i = 0; i < jHashCount; i++) {
+                        byte[] h = new byte[48];
+                        din.readFully(h);
+                        jHashes.add(h);
+                    }
+                    long expectedBlockNum = sources.getLast().blockNumber();
+                    if (jBlockNum != expectedBlockNum) {
+                        PrettyPrint.clearProgress();
+                        System.out.println(Ansi.AUTO.string("@|red State file error:|@ jumpstart.bin block number "
+                                + jBlockNum + " != expected " + expectedBlockNum));
+                        stateFileErrors++;
+                    }
+                    if (registry != null) {
+                        byte[] registryHash = registry.getBlockHash(jBlockNum);
+                        if (!Arrays.equals(jHash, registryHash)) {
+                            PrettyPrint.clearProgress();
+                            System.out.println(Ansi.AUTO.string(
+                                    "@|red State file error:|@ jumpstart.bin block hash does not match registry"));
+                            stateFileErrors++;
+                        }
+                    }
+                    if (jLeafCount != freshStreamingHasher.leafCount()) {
+                        PrettyPrint.clearProgress();
+                        System.out.println(Ansi.AUTO.string("@|red State file error:|@ jumpstart.bin leaf count "
+                                + jLeafCount + " != expected " + freshStreamingHasher.leafCount()));
+                        stateFileErrors++;
+                    }
+                    StreamingHasher jumpstartHasher = new StreamingHasher(jHashes);
+                    if (!Arrays.equals(jumpstartHasher.computeRootHash(), freshStreamingHasher.computeRootHash())) {
+                        PrettyPrint.clearProgress();
+                        System.out.println(Ansi.AUTO.string(
+                                "@|red State file error:|@ jumpstart.bin streaming tree root mismatch"));
+                        stateFileErrors++;
+                    }
+                } catch (Exception e) {
+                    PrettyPrint.clearProgress();
+                    System.out.println(Ansi.AUTO.string(
+                            "@|red State file error:|@ Failed to read jumpstart.bin: " + e.getMessage()));
+                    stateFileErrors++;
                 }
-                otherErrors.incrementAndGet();
+            }
+
+        } finally {
+            if (registry != null) {
+                try {
+                    registry.close();
+                } catch (Exception ignored) {
+                    // best-effort close
+                }
             }
         }
 
@@ -250,8 +454,9 @@ public class ValidateBlocksCommand implements Runnable {
         System.out.println(Ansi.AUTO.string("@|yellow Hash chain errors:|@ " + hashErrors.get()));
         System.out.println(Ansi.AUTO.string("@|yellow Signature errors:|@ " + signatureErrors.get()));
         System.out.println(Ansi.AUTO.string("@|yellow Other errors:|@ " + otherErrors.get()));
+        System.out.println(Ansi.AUTO.string("@|yellow State file errors:|@ " + stateFileErrors));
 
-        long totalErrors = hashErrors.get() + signatureErrors.get() + otherErrors.get();
+        long totalErrors = hashErrors.get() + signatureErrors.get() + otherErrors.get() + stateFileErrors;
         if (totalErrors == 0) {
             System.out.println();
             System.out.println(Ansi.AUTO.string("@|bold,green VALIDATION PASSED|@"));
@@ -268,8 +473,8 @@ public class ValidateBlocksCommand implements Runnable {
      * Validates the hash chain for a block.
      *
      * @param blockNum the block number
-     * @param previousHashInBlock the previous hash stored in the block header
-     * @param computedPreviousHash the computed hash of the previous block
+     * @param previousHashInBlock the previous hash stored in the block footer
+     * @param computedPreviousHash the computed hash of the previous block (null if this is the first block)
      * @param hashErrors counter for hash errors
      * @return true if valid
      */
@@ -279,19 +484,22 @@ public class ValidateBlocksCommand implements Runnable {
         if (previousHashInBlock == null) {
             PrettyPrint.clearProgress();
             System.out.println(
-                    Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Missing previousBlockRootHash in header"));
+                    Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Missing previousBlockRootHash in footer"));
             hashErrors.incrementAndGet();
             return false;
         }
 
         if (computedPreviousHash == null) {
-            // This is the first block - should have zero hash
-            if (!Arrays.equals(previousHashInBlock, ZERO_HASH)) {
+            // This is the first block processed — its previousBlockRootHash must be the empty-tree hash
+            // (the value used by ToWrappedBlocksCommand for the genesis block)
+            if (!Arrays.equals(previousHashInBlock, HashingUtils.EMPTY_TREE_HASH)) {
                 PrettyPrint.clearProgress();
+                System.out.println(Ansi.AUTO.string(
+                        "@|red Block " + blockNum + ":|@ First block should have empty-tree previous hash"));
+                System.out.println("  Expected: "
+                        + Bytes.wrap(HashingUtils.EMPTY_TREE_HASH).toHex());
                 System.out.println(
-                        Ansi.AUTO.string("@|red Block " + blockNum + ":|@ First block should have zero previous hash"));
-                System.out.println("  Expected: " + BlockHashCalculator.hashToHex(ZERO_HASH));
-                System.out.println("  Found:    " + BlockHashCalculator.hashToHex(previousHashInBlock));
+                        "  Found:    " + Bytes.wrap(previousHashInBlock).toHex());
                 hashErrors.incrementAndGet();
                 return false;
             }
@@ -300,8 +508,10 @@ public class ValidateBlocksCommand implements Runnable {
             if (!Arrays.equals(previousHashInBlock, computedPreviousHash)) {
                 PrettyPrint.clearProgress();
                 System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Hash chain broken"));
-                System.out.println("  Expected: " + BlockHashCalculator.hashToHex(computedPreviousHash));
-                System.out.println("  Found:    " + BlockHashCalculator.hashToHex(previousHashInBlock));
+                System.out.println(
+                        "  Expected: " + Bytes.wrap(computedPreviousHash).toHex());
+                System.out.println(
+                        "  Found:    " + Bytes.wrap(previousHashInBlock).toHex());
                 hashErrors.incrementAndGet();
                 return false;
             }
@@ -462,6 +672,8 @@ public class ValidateBlocksCommand implements Runnable {
             }
         } catch (IOException e) {
             System.err.println("Error reading zip file " + zipPath + ": " + e.getMessage());
+            System.err.println("  ↳ This zip has a corrupt or missing central directory."
+                    + " Run 'blocks repair-zips <directory>' to repair it before validating.");
         }
     }
 
