@@ -157,6 +157,7 @@ public class BlockWriter {
         private final FileSystem zipFs;
 
         FsBlockZipAppender(final Path zipFilePath) throws IOException {
+            // "compressionMethod" env key for jdk.nio.zipfs requires JDK 16+.
             this.zipFs = FileSystems.newFileSystem(zipFilePath, Map.of("compressionMethod", "STORED"));
         }
 
@@ -299,22 +300,13 @@ public class BlockWriter {
                 computeBlockPath(baseDirectory, blockNumber, compressionType, powersOfTenPerZipFileContents);
         // create directories
         Files.createDirectories(blockPath.dirPath);
+        // serialize block bytes first
+        final byte[] blockBytes = serializeBlock(block, compressionType);
         // append a block to a zip file, creating a zip file if it doesn't exist
-        try (final ZipOutputStream zipOutputStream = openOrCreateZipFile(blockPath.zipFilePath)) {
-            // calculate CRC-32 checksum and get bytes
-            final byte[] blockBytes = serializeBlock(block, compressionType);
-            final CRC32 crc = new CRC32();
-            crc.update(blockBytes);
-            // create zip entry
-            final ZipEntry zipEntry = new ZipEntry(blockPath.blockFileName);
-            zipEntry.setSize(blockBytes.length);
-            zipEntry.setCompressedSize(blockBytes.length);
-            zipEntry.setCrc(crc.getValue());
-            zipOutputStream.putNextEntry(zipEntry);
-            // write compressed block content
-            zipOutputStream.write(blockBytes);
-            // close zip entry
-            zipOutputStream.closeEntry();
+        // openZipForAppend uses FsBlockZipAppender for existing zips (correct CEN handling) and
+        // StreamBlockZipAppender for new zips, so multiple blocks sharing the same zip are safe.
+        try (final BlockZipAppender appender = openZipForAppend(blockPath.zipFilePath)) {
+            appender.writeEntry(blockPath.blockFileName, blockBytes);
         }
         // return block path
         return blockPath;

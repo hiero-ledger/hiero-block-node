@@ -2,6 +2,7 @@
 package org.hiero.block.tools.utils;
 
 import java.util.HexFormat;
+import picocli.CommandLine.Help.Ansi;
 
 public class PrettyPrint {
     // track whether we've printed progress before so we know when to move the cursor up
@@ -218,5 +219,20 @@ public class PrettyPrint {
      */
     public static String simpleHash(byte[] hash) {
         return HexFormat.of().formatHex(hash).substring(0, 6).toUpperCase();
+    }
+
+    /**
+     * Prints a banner with the given title, surrounded by decorative lines. The title is centered and colored cyan if
+     * supported.
+     *
+     * @param title the title to display in the banner
+     */
+    public static void printBanner(final String title) {
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println(Ansi.AUTO.string("@|bold,cyan   " + title + "|@"));
+        System.out.println(
+                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
+        System.out.println();
     }
 }
