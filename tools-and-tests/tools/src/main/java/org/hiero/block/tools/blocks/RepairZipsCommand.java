@@ -83,6 +83,15 @@ public class RepairZipsCommand implements Callable<Integer> {
     private Path dayBlocksFile = MetadataFiles.DAY_BLOCKS_FILE;
 
     @Option(
+            names = {"--backup"},
+            description = "Directory to copy corrupt zip files into before repairing them. "
+                    + "The relative path from the input directory is preserved, so "
+                    + "\"wrapped-blocks/000/008/72/20000s.zip\" becomes "
+                    + "\"backup-dir/000/008/72/20000s.zip\". "
+                    + "When omitted, corrupt originals are simply replaced in-place.")
+    private Path backupDir = null;
+
+    @Option(
             names = {"--dry-run"},
             description = "Phase 2 only: scan and report missing blocks without re-wrapping or modifying any files")
     private boolean dryRun = false;
@@ -95,7 +104,8 @@ public class RepairZipsCommand implements Callable<Integer> {
             return 1;
         }
 
-        final int repairExit = new ZipRepairEngine(scanThreads, repairThreads, bufferSizeMiB).runScanAndRepair(dir);
+        final int repairExit =
+                new ZipRepairEngine(scanThreads, repairThreads, bufferSizeMiB, backupDir).runScanAndRepair(dir);
 
         if (compressedDaysDir == null) {
             System.out.println();

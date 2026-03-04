@@ -168,6 +168,15 @@ public class ZipRepairEngine {
     private final int repairThreads;
 
     /**
+     * Optional directory to copy corrupt zip files into before repairing them.
+     *
+     * <p>When non-null, each corrupt zip is copied to {@code backupDir / relative-path} at the
+     * start of its repair, preserving the original sub-directory structure. {@code null} means no
+     * backup is made and the corrupt original is replaced in-place.</p>
+     */
+    private final Path backupDir;
+
+    /**
      * Per-thread I/O buffer size in bytes.
      *
      * <p>Files whose on-disk size is ≤ this value are processed entirely in RAM (in-memory path).
@@ -198,7 +207,7 @@ public class ZipRepairEngine {
      * @param repairThreads threads for the parallel repair phase
      */
     public ZipRepairEngine(final int scanThreads, final int repairThreads) {
-        this(scanThreads, repairThreads, 0);
+        this(scanThreads, repairThreads, 0, null);
     }
 
     /**
@@ -209,8 +218,23 @@ public class ZipRepairEngine {
      * @param explicitBufferMiB per-thread buffer size in MiB, or {@code 0} to auto-compute
      */
     public ZipRepairEngine(final int scanThreads, final int repairThreads, final int explicitBufferMiB) {
+        this(scanThreads, repairThreads, explicitBufferMiB, null);
+    }
+
+    /**
+     * Construct a new engine with an explicit buffer size and an optional backup directory.
+     *
+     * @param scanThreads       threads for the parallel validity scan
+     * @param repairThreads     threads for the parallel repair phase
+     * @param explicitBufferMiB per-thread buffer size in MiB, or {@code 0} to auto-compute
+     * @param backupDir         directory to copy corrupt zips into before repair, or {@code null}
+     *                          to repair in-place without a backup
+     */
+    public ZipRepairEngine(
+            final int scanThreads, final int repairThreads, final int explicitBufferMiB, final Path backupDir) {
         this.scanThreads = scanThreads;
         this.repairThreads = repairThreads;
+        this.backupDir = backupDir;
         this.bufferSize = explicitBufferMiB > 0 ? explicitBufferMiB * 1024 * 1024 : computeBufferSize(repairThreads);
         this.threadReadBuf = ThreadLocal.withInitial(() -> new byte[this.bufferSize]);
         this.threadWriteBuf = ThreadLocal.withInitial(() -> new RecyclableOutputStream(this.bufferSize));
@@ -252,6 +276,10 @@ public class ZipRepairEngine {
                 + (ZIP_FF_AVAILABLE
                         ? "@|green zip -FF|@ (native; ~2-3× faster than Java fallback)"
                         : "@|yellow Java LFH scan|@ (install zip for faster repairs)")));
+        if (backupDir != null) {
+            System.out.println(Ansi.AUTO.string("@|yellow Backup dir:|@     " + backupDir.toAbsolutePath()
+                    + " (corrupt originals copied here before repair)"));
+        }
         System.out.println();
 
         System.out.print("Collecting zip file paths … ");
@@ -285,7 +313,7 @@ public class ZipRepairEngine {
         }
         System.out.println();
 
-        final Map<Path, RepairResult> resultMap = repairAllParallel(corruptZips);
+        final Map<Path, RepairResult> resultMap = repairAllParallel(corruptZips, dir);
 
         // Print per-file results in original (sorted) order
         System.out.println();
@@ -459,9 +487,10 @@ public class ZipRepairEngine {
      * {@link #PROGRESS_INTERVAL_NS} regardless of how long individual repair tasks take.</p>
      *
      * @param corruptZips list of corrupt zip paths (will be processed in parallel, arbitrary order)
+     * @param baseDir     root directory, used to compute relative paths for {@link #backupDir}
      * @return map from zip path to its {@link RepairResult}
      */
-    private Map<Path, RepairResult> repairAllParallel(final List<Path> corruptZips) {
+    private Map<Path, RepairResult> repairAllParallel(final List<Path> corruptZips, final Path baseDir) {
         final Map<Path, RepairResult> resultMap = new ConcurrentHashMap<>(corruptZips.size());
         final AtomicInteger unrecoverableCount = new AtomicInteger(0);
         final AtomicInteger doneCount = new AtomicInteger(0);
@@ -511,7 +540,7 @@ public class ZipRepairEngine {
             for (int i = 0; i < total; i++) {
                 final Path zipPath = corruptZips.get(i);
                 futures.add(pool.submit(() -> {
-                    final RepairResult result = repairZip(zipPath, bytesProcessed::addAndGet);
+                    final RepairResult result = repairZip(zipPath, baseDir, bytesProcessed::addAndGet);
                     resultMap.put(zipPath, result);
                     if (result.status() == RepairStatus.UNRECOVERABLE) {
                         unrecoverableCount.incrementAndGet();
@@ -585,12 +614,13 @@ public class ZipRepairEngine {
      * using {@link #repairZipStreaming} — see that method for details.</p>
      *
      * @param zipPath       path to the corrupt zip file
+     * @param baseDir       root directory used to compute the relative backup path
      * @param bytesCallback called with the number of bytes processed; may be called once at
      *                      completion (in-memory / Java streaming) or incrementally per entry
      *                      ({@code zip -FF} path) for smooth progress reporting
      * @return result describing outcome
      */
-    private RepairResult repairZip(final Path zipPath, final LongConsumer bytesCallback) {
+    private RepairResult repairZip(final Path zipPath, final Path baseDir, final LongConsumer bytesCallback) {
         final Path tempFile = zipPath.resolveSibling(zipPath.getFileName() + ".repairtmp");
 
         final long fileSize;
@@ -601,7 +631,7 @@ public class ZipRepairEngine {
         }
 
         if (fileSize > bufferSize) {
-            return repairZipStreaming(zipPath, tempFile, fileSize, bytesCallback);
+            return repairZipStreaming(zipPath, tempFile, fileSize, baseDir, bytesCallback);
         }
 
         // ── In-memory path ──────────────────────────────────────────────────────────────────────
@@ -662,7 +692,7 @@ public class ZipRepairEngine {
             return RepairResult.unrecoverable("Failed to write repaired file: " + e.getMessage());
         }
         try {
-            Files.move(tempFile, zipPath, StandardCopyOption.REPLACE_EXISTING);
+            moveToOriginalWithBackup(tempFile, zipPath, baseDir);
         } catch (IOException e) {
             cleanupTemp(tempFile);
             return RepairResult.unrecoverable("Failed to replace original with repaired file: " + e.getMessage());
@@ -685,21 +715,26 @@ public class ZipRepairEngine {
      * @param zipPath       path to the corrupt zip file
      * @param tempFile      sibling temp file path already computed by the caller
      * @param fileSize      on-disk size of the zip, used as the callback value for the Java path
+     * @param baseDir       root directory used to compute the relative backup path
      * @param bytesCallback called with bytes processed; invoked per entry by zip -FF, or once
      *                      with {@code fileSize} by the Java fallback
      * @return result describing outcome
      */
     private RepairResult repairZipStreaming(
-            final Path zipPath, final Path tempFile, final long fileSize, final LongConsumer bytesCallback) {
+            final Path zipPath,
+            final Path tempFile,
+            final long fileSize,
+            final Path baseDir,
+            final LongConsumer bytesCallback) {
         if (ZIP_FF_AVAILABLE) {
-            final RepairResult result = repairZipWithZipFf(zipPath, tempFile, bytesCallback);
+            final RepairResult result = repairZipWithZipFf(zipPath, tempFile, baseDir, bytesCallback);
             if (result != null) {
                 return result;
             }
             // zip -FF failed (process error or no entries) — clean up and fall through.
             cleanupTemp(tempFile);
         }
-        return repairZipStreamingJava(zipPath, tempFile, fileSize, bytesCallback);
+        return repairZipStreamingJava(zipPath, tempFile, fileSize, baseDir, bytesCallback);
     }
 
     /**
@@ -711,10 +746,12 @@ public class ZipRepairEngine {
      *
      * @param zipPath       input corrupt zip
      * @param tempFile      output path for the repaired zip
+     * @param baseDir       root directory used to compute the relative backup path
      * @param bytesCallback called with each entry's byte count as it is copied
      * @return result on success, or {@code null} if the process failed (caller should fall back)
      */
-    private RepairResult repairZipWithZipFf(final Path zipPath, final Path tempFile, final LongConsumer bytesCallback) {
+    private RepairResult repairZipWithZipFf(
+            final Path zipPath, final Path tempFile, final Path baseDir, final LongConsumer bytesCallback) {
         try {
             final Process process = new ProcessBuilder("zip", "-FF", zipPath.toString(), "--out", tempFile.toString())
                     .redirectErrorStream(false)
@@ -760,7 +797,7 @@ public class ZipRepairEngine {
                 return null;
             }
 
-            Files.move(tempFile, zipPath, StandardCopyOption.REPLACE_EXISTING);
+            moveToOriginalWithBackup(tempFile, zipPath, baseDir);
             return RepairResult.repaired(entriesRecovered);
 
         } catch (IOException | InterruptedException e) {
@@ -786,11 +823,16 @@ public class ZipRepairEngine {
      * @param zipPath       path to the corrupt zip file
      * @param tempFile      sibling temp file path already computed by the caller
      * @param fileSize      on-disk size of the zip; passed to {@code bytesCallback} on success
+     * @param baseDir       root directory used to compute the relative backup path
      * @param bytesCallback called once with {@code fileSize} when repair completes
      * @return result describing outcome
      */
     private RepairResult repairZipStreamingJava(
-            final Path zipPath, final Path tempFile, final long fileSize, final LongConsumer bytesCallback) {
+            final Path zipPath,
+            final Path tempFile,
+            final long fileSize,
+            final Path baseDir,
+            final LongConsumer bytesCallback) {
         final List<RawCenEntry> entries = new ArrayList<>();
         String truncationDetail = null;
 
@@ -910,7 +952,7 @@ public class ZipRepairEngine {
         }
 
         try {
-            Files.move(tempFile, zipPath, StandardCopyOption.REPLACE_EXISTING);
+            moveToOriginalWithBackup(tempFile, zipPath, baseDir);
         } catch (IOException e) {
             cleanupTemp(tempFile);
             return RepairResult.unrecoverable("Failed to replace original with repaired file: " + e.getMessage());
@@ -1111,6 +1153,33 @@ public class ZipRepairEngine {
             zos.putNextEntry(outEntry);
             zos.write(bytes);
             zos.closeEntry();
+        }
+    }
+
+    /**
+     * Move the repaired {@code tempFile} to {@code zipPath}, optionally moving the corrupt
+     * original to {@link #backupDir} first.
+     *
+     * <p>When {@link #backupDir} is set the corrupt original is moved to
+     * {@code backupDir / relativize(baseDir, zipPath)} before the repaired temp is moved into
+     * its place — one move per file rather than a copy + move. When {@link #backupDir} is
+     * {@code null} the temp simply replaces the original with {@link StandardCopyOption#REPLACE_EXISTING}.</p>
+     *
+     * @param tempFile repaired zip temp file to put in place
+     * @param zipPath  original (corrupt) zip path — becomes the final location of the repaired file
+     * @param baseDir  root directory used to compute the relative sub-path for the backup
+     * @throws IOException if any file-system operation fails
+     */
+    private void moveToOriginalWithBackup(final Path tempFile, final Path zipPath, final Path baseDir)
+            throws IOException {
+        if (backupDir != null) {
+            final Path relPath = baseDir.relativize(zipPath);
+            final Path dest = backupDir.resolve(relPath);
+            Files.createDirectories(dest.getParent());
+            Files.move(zipPath, dest);
+            Files.move(tempFile, zipPath);
+        } else {
+            Files.move(tempFile, zipPath, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
