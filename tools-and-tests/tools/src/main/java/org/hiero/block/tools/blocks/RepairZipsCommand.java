@@ -62,6 +62,7 @@ import org.hiero.block.tools.mirrornode.DayBlockInfo;
 import org.hiero.block.tools.records.model.parsed.ParsedRecordBlock;
 import org.hiero.block.tools.records.model.parsed.RecordBlockConverter;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
+import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
 import picocli.CommandLine.Option;
@@ -107,7 +108,7 @@ import picocli.CommandLine.Parameters;
  *       the heap.</li>
  * </ul>
  */
-@SuppressWarnings({"unused", "CallToPrintStackTrace"})
+@SuppressWarnings("CallToPrintStackTrace")
 @Command(
         name = "repair-zips",
         description =
@@ -169,8 +170,8 @@ public class RepairZipsCommand implements Callable<Integer> {
     /** Byte offset of the CEN offset field within the EOCD record. */
     private static final int EOCD_CEN_OFFSET_POS = 16;
 
-    /** I/O buffer size for streaming repair operations (1 MiB). */
-    private static final int BUFFER_SIZE = 1024 * 1024;
+    /** I/O buffer size for streaming repair operations (400 MiB). Should allow whole file to be read */
+    private static final int BUFFER_SIZE = 1024 * 1024 * 400;
 
     /** Blocks per zip file — matches {@link BlockWriter#DEFAULT_POWERS_OF_TEN_PER_ZIP} = 4 (10,000 blocks). */
     private static final long BLOCKS_PER_ZIP = (long) Math.pow(10, BlockWriter.DEFAULT_POWERS_OF_TEN_PER_ZIP);
@@ -216,7 +217,7 @@ public class RepairZipsCommand implements Callable<Integer> {
      * @return {@code 0} on success (all repaired), {@code 1} if any zip was unrecoverable
      */
     private int runRepairPhase(final Path dir) {
-        printBanner("ZIP REPAIR — PHASE 1: CEN REPAIR");
+        PrettyPrint.printBanner("ZIP REPAIR — PHASE 1: CEN REPAIR");
         System.out.println(Ansi.AUTO.string("@|yellow Directory:|@ " + dir.toAbsolutePath()));
         System.out.println(Ansi.AUTO.string("@|yellow Scan threads:|@ " + scanThreads));
         System.out.println();
@@ -242,7 +243,7 @@ public class RepairZipsCommand implements Callable<Integer> {
                 "  Done in %ds — %d corrupt file(s) out of %d.%n%n", scanSecs, corruptZips.size(), allZips.size());
 
         if (corruptZips.isEmpty()) {
-            printBanner("PHASE 1 RESULT");
+            PrettyPrint.printBanner("PHASE 1 RESULT");
             System.out.println(Ansi.AUTO.string(
                     "@|bold,green All " + allZips.size() + " zip files have valid CENs. No repairs needed.|@"));
             return 0;
@@ -283,7 +284,7 @@ public class RepairZipsCommand implements Callable<Integer> {
         }
 
         System.out.println();
-        printBanner("PHASE 1 SUMMARY");
+        PrettyPrint.printBanner("PHASE 1 SUMMARY");
         System.out.println(Ansi.AUTO.string("@|yellow Zip files checked:|@   " + allZips.size()));
         System.out.println(Ansi.AUTO.string("@|yellow Corrupt found:|@        " + corruptZips.size()));
         System.out.println(Ansi.AUTO.string("@|yellow Successfully repaired:|@ " + repaired));
@@ -325,13 +326,12 @@ public class RepairZipsCommand implements Callable<Integer> {
             return 1;
         }
 
-        printBanner("ZIP REPAIR — PHASE 2: FILL MISSING BLOCKS");
+        PrettyPrint.printBanner("ZIP REPAIR — PHASE 2: FILL MISSING BLOCKS");
         System.out.println(Ansi.AUTO.string("@|yellow Output dir:|@ " + outputDir.toAbsolutePath()));
-        if (!dryRun) {
-            System.out.println(Ansi.AUTO.string("@|yellow Source dir:|@ " + compressedDaysDir.toAbsolutePath()));
-        }
         if (dryRun) {
             System.out.println(Ansi.AUTO.string("@|yellow Mode:|@ DRY RUN (no changes will be made)"));
+        } else {
+            System.out.println(Ansi.AUTO.string("@|yellow Source dir:|@ " + compressedDaysDir.toAbsolutePath()));
         }
         System.out.println();
 
@@ -498,6 +498,8 @@ public class RepairZipsCommand implements Callable<Integer> {
 
                 long blockNumInDay = dayFirst;
                 try (Stream<UnparsedRecordBlock> dayStream = TarZstdDayReaderUsingExec.streamTarZstd(dayPath)) {
+                    // Cast stream::iterator as Iterable to use enhanced-for with break/continue without closing the
+                    // stream.
                     for (final UnparsedRecordBlock unparsed : (Iterable<UnparsedRecordBlock>) dayStream::iterator) {
                         final long blockNum = blockNumInDay++;
 
@@ -525,6 +527,7 @@ public class RepairZipsCommand implements Callable<Integer> {
                         final ParsedRecordBlock parsed = unparsed.parse();
                         final NodeAddressBook ab = addressBookRegistry.getAddressBookForBlock(parsed.blockTime());
                         final byte[] signedHash = parsed.recordFile().signedHash();
+                        // this is parallel as signature validation is expensive CPU wise
                         final List<RecordFileSignature> sigs = parsed.signatureFiles().stream()
                                 .parallel()
                                 .filter(psf -> psf.isValid(signedHash, ab))
@@ -539,7 +542,7 @@ public class RepairZipsCommand implements Callable<Integer> {
                         final Block wrapped = RecordBlockConverter.toBlock(
                                 preVerified, blockNum, prevHash, treeRoot, amendmentProvider);
 
-                        // Verify hash matches registry
+                        // Verify the hash matches registry
                         final byte[] recomputedHash = hashBlock(wrapped);
                         final byte[] registryHash = blockRegistry.getBlockHash(blockNum);
                         if (!Arrays.equals(recomputedHash, registryHash)) {
@@ -588,7 +591,7 @@ public class RepairZipsCommand implements Callable<Integer> {
             closeAllAppenders(openAppenders);
 
             System.out.println();
-            printBanner("PHASE 2 SUMMARY");
+            PrettyPrint.printBanner("PHASE 2 SUMMARY");
             System.out.printf("Missing blocks identified: %,d%n", totalMissing);
             System.out.printf("Blocks filled:            %,d%n", totalFilled);
             System.out.printf("Blocks failed:            %,d%n", totalFailed);
@@ -635,7 +638,7 @@ public class RepairZipsCommand implements Callable<Integer> {
      * <p>Each file check is a fast two-seek operation reading only ~26 bytes.</p>
      *
      * @param allZips list of all zip paths to check
-     * @return sorted list of paths that failed the validity check
+     * @return sorted the list of paths that failed the validity check
      */
     private List<Path> findCorruptZipsParallel(final List<Path> allZips) {
         final int total = allZips.size();
@@ -847,6 +850,9 @@ public class RepairZipsCommand implements Callable<Integer> {
             }
 
             final String name = zipPath.getFileName().toString();
+            // Zip file names follow the BlockWriter format: "{digit}{zeros}s.zip"
+            // (e.g. "00000s.zip" for 10K blocks/zip). The 's' delimiter separates the
+            // range-start digits from the trailing zeros — see BlockWriter.computeBlockPath.
             final int sIdx = name.indexOf('s');
             if (sIdx < 0) {
                 continue;
@@ -919,17 +925,6 @@ public class RepairZipsCommand implements Callable<Integer> {
             }
         }
         openAppenders.clear();
-    }
-
-    // ── Shared formatting ─────────────────────────────────────────────────────────────────────────
-
-    private static void printBanner(final String title) {
-        System.out.println(
-                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
-        System.out.println(Ansi.AUTO.string("@|bold,cyan   " + title + "|@"));
-        System.out.println(
-                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
-        System.out.println();
     }
 
     // ── Result types (Phase 1) ────────────────────────────────────────────────────────────────────
