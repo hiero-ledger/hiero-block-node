@@ -7,10 +7,10 @@
 resources:
   requests:
     cpu: "500m"
-    memory: "128m"
+    memory: "128M"
   limits:
     cpu: "1"
-    memory: "128m"
+    memory: "128M"
 
 blockNode:
   config:
