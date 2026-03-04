@@ -51,6 +51,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     public static final AtomicReference<Bytes> ACTIVE_LEDGER_ID = new AtomicReference<>(null);
 
     private final long blockNumber;
+    /** True once loadLedgerId() has successfully found and applied a LedgerIdPublicationTransactionBody. */
+    private boolean ledgerIdLoaded = false;
     // Stream Hashers
     /** The tree hasher for input hashes. */
     private final StreamingTreeHasher inputTreeHasher;
@@ -124,9 +126,10 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 case SIGNED_TRANSACTION -> {
                     inputTreeHasher.addLeaf(getBlockItemHash(item));
                     // LedgerIdPublicationTransactionBody is only present in block 0; stop scanning
-                    // once found (ACTIVE_LEDGER_ID non-null) to avoid redundant protobuf parsing.
-                    if (blockNumber == 0 && ACTIVE_LEDGER_ID.get() == null) {
-                        loadLedgerId(item.signedTransaction());
+                    // once found. Uses a per-session flag so pre-configured ACTIVE_LEDGER_ID does
+                    // not suppress block 0 from initializing the address book and WRAPS VK.
+                    if (blockNumber == 0 && !ledgerIdLoaded) {
+                        ledgerIdLoaded = loadLedgerId(item.signedTransaction());
                     }
                 }
                 case TRANSACTION_RESULT, TRANSACTION_OUTPUT -> outputTreeHasher.addLeaf(getBlockItemHash(item));
@@ -238,14 +241,15 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
     // Parses a signed transaction looking for LedgerIdPublicationTransactionBody; when found,
     // bootstraps TSS native state (address book + WRAPS VK) and sets ACTIVE_LEDGER_ID.
-    private static void loadLedgerId(Bytes signedTxBytes) throws ParseException {
+    // Returns true if the publication was found and applied, false otherwise.
+    private static boolean loadLedgerId(Bytes signedTxBytes) throws ParseException {
         if (signedTxBytes == null || signedTxBytes.length() == 0) {
-            return;
+            return false;
         }
         SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(signedTxBytes);
         TransactionBody body = TransactionBody.PROTOBUF.parse(signedTx.bodyBytes());
         if (!body.hasLedgerIdPublication()) {
-            return;
+            return false;
         }
         LedgerIdPublicationTransactionBody ledgerPub = body.ledgerIdPublicationOrThrow();
         List<LedgerIdNodeContribution> contributions = ledgerPub.nodeContributions();
@@ -265,6 +269,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             WRAPSVerificationKey.setCurrentKey(historyProofVk.toByteArray());
         }
         ACTIVE_LEDGER_ID.set(ledgerPub.ledgerId());
+        return true;
     }
 
     public static <T> T getSingle(List<T> list, Predicate<T> predicate) {
