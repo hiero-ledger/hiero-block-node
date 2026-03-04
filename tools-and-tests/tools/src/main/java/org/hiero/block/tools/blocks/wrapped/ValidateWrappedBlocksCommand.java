@@ -6,6 +6,7 @@ import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.
 import com.hedera.hapi.block.stream.Block;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
@@ -262,11 +263,12 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         String[] bundledFiles = {"accountBalances_91019204.pb.gz"};
 
         for (String filename : bundledFiles) {
-            try (var stream = getClass().getResourceAsStream("/metadata/" + filename)) {
+            try (InputStream stream = getClass().getResourceAsStream("/metadata/" + filename)) {
                 if (stream != null) {
                     // Extract block number from filename
                     String blockStr = filename.replace("accountBalances_", "").replace(".pb.gz", "");
                     long blockNumber = Long.parseLong(blockStr);
+                    // Note: loadFromGzippedStream may close the stream, do not read from it after this call
                     validator.loadFromGzippedStream(stream, blockNumber);
                     System.out.println(Ansi.AUTO.string("@|yellow Loaded bundled checkpoint:|@ block " + blockNumber));
                 }
