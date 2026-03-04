@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -13,7 +14,10 @@ import static org.mockito.Mockito.when;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,17 +26,23 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -57,13 +67,19 @@ class VerificationServicePluginTest
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         this.testTempDir = Objects.requireNonNull(tempDir);
-        Path tempVerificationPath = tempDir.resolve("verificationData.bin");
         defaultConfig = VerificationConfigBuilder.newBuilder()
-                .allBlocksHasherFilePath(tempVerificationPath)
+                .allBlocksHasherFilePath(tempDir.resolve("verificationData.bin"))
                 .allBlocksHasherEnabled(true)
                 .allBlocksHasherPersistenceInterval(2)
+                .ledgerIdFilePath(tempDir.resolve("ledger-id.bin"))
                 .toMap();
         start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), defaultConfig);
+    }
+
+    @BeforeEach
+    void resetLedgerState() {
+        // Reset process-level TSS state to ensure test isolation between test instances.
+        ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.set(null);
     }
 
     @Test
@@ -240,12 +256,151 @@ class VerificationServicePluginTest
         assertFalse(blockNotification.success(), "The verification should be unsuccessful");
     }
 
+    // ==== Ledger ID Bootstrap Path Tests =============================================================================
+
+    @Test
+    @DisplayName("Persisted file takes priority over configured ledger ID string at startup")
+    void fileBootstrapsLedgerId() throws IOException {
+        byte[] fileBytes = new byte[] {1, 2, 3, 4, 5, 6};
+        Path ledgerIdFile = testTempDir.resolve("ledger-id-priority.bin");
+        Files.write(ledgerIdFile, fileBytes);
+
+        blockMessaging = new TestBlockMessagingFacility();
+        Map<String, String> config = new HashMap<>(defaultConfig);
+        config.put("verification.ledgerIdFilePath", ledgerIdFile.toString());
+        config.put("verification.ledgerId", "aabbccdd"); // should be ignored
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
+
+        assertArrayEquals(
+                fileBytes,
+                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get().toByteArray(),
+                "File-persisted ledger ID must take priority over the configured string");
+    }
+
+    @Test
+    @DisplayName("Config string pre-seeds ACTIVE_LEDGER_ID when no persisted file exists")
+    void configStringPreSeededLedgerId() throws IOException {
+        String ledgerIdHex = "deadbeef";
+        Path ledgerIdFile = testTempDir.resolve("ledger-id-config-no-file.bin");
+
+        blockMessaging = new TestBlockMessagingFacility();
+        Map<String, String> config = new HashMap<>(defaultConfig);
+        config.put("verification.ledgerIdFilePath", ledgerIdFile.toString());
+        config.put("verification.ledgerId", ledgerIdHex);
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
+
+        assertEquals(
+                Bytes.fromHex(ledgerIdHex),
+                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get(),
+                "Config string must seed ACTIVE_LEDGER_ID when no persisted file exists");
+        assertFalse(Files.exists(ledgerIdFile), "Config string must NOT create the ledger ID file");
+    }
+
+    @Test
+    @DisplayName("Processing block 0 persists ledger ID to file")
+    void block0PersistsLedgerId() throws IOException, ParseException {
+        Path ledgerIdFile = testTempDir.resolve("ledger-id-block0.bin");
+
+        blockMessaging = new TestBlockMessagingFacility();
+        Map<String, String> config = new HashMap<>(defaultConfig);
+        config.put("verification.ledgerIdFilePath", ledgerIdFile.toString());
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
+
+        assertNull(ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get(), "ACTIVE_LEDGER_ID must be null before block 0");
+        assertFalse(Files.exists(ledgerIdFile), "Ledger ID file must not exist before block 0");
+
+        BlockUnparsed tssBlock0 = loadTssBlock0();
+        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+
+        assertNotNull(ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get(), "ACTIVE_LEDGER_ID must be set after block 0");
+        assertTrue(Files.exists(ledgerIdFile), "Ledger ID file must be created after block 0");
+        assertArrayEquals(
+                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get().toByteArray(),
+                Files.readAllBytes(ledgerIdFile),
+                "File content must match ACTIVE_LEDGER_ID set from block 0");
+    }
+
+    @Test
+    @DisplayName("Block 0 overwrites config-string ledger ID and writes authoritative value to file")
+    void block0OverwritesConfigString() throws IOException, ParseException {
+        String sentinelHex = "aabb1234";
+        Path ledgerIdFile = testTempDir.resolve("ledger-id-overwrite-config.bin");
+
+        blockMessaging = new TestBlockMessagingFacility();
+        Map<String, String> config = new HashMap<>(defaultConfig);
+        config.put("verification.ledgerIdFilePath", ledgerIdFile.toString());
+        config.put("verification.ledgerId", sentinelHex);
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
+
+        Bytes sentinelBytes = Bytes.fromHex(sentinelHex);
+        assertEquals(
+                sentinelBytes,
+                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get(),
+                "Config string seeds ACTIVE_LEDGER_ID before block 0");
+        assertFalse(Files.exists(ledgerIdFile), "Config string must not create ledger ID file");
+
+        BlockUnparsed tssBlock0 = loadTssBlock0();
+        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+
+        assertNotEquals(
+                sentinelBytes,
+                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get(),
+                "Block 0 must overwrite the config-string ledger ID");
+        assertTrue(Files.exists(ledgerIdFile), "Block 0 must write the ledger ID file");
+        assertArrayEquals(
+                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get().toByteArray(),
+                Files.readAllBytes(ledgerIdFile),
+                "File must contain the block 0 ledger ID, not the config-string sentinel");
+    }
+
+    @Test
+    @DisplayName("Block 0 overwrites file-loaded ledger ID in memory and updates the file")
+    void block0UpdatesExistingFile() throws IOException, ParseException {
+        byte[] sentinelBytes = new byte[] {9, 8, 7, 6, 5, 4};
+        Path ledgerIdFile = testTempDir.resolve("ledger-id-update-file.bin");
+        Files.write(ledgerIdFile, sentinelBytes);
+
+        blockMessaging = new TestBlockMessagingFacility();
+        Map<String, String> config = new HashMap<>(defaultConfig);
+        config.put("verification.ledgerIdFilePath", ledgerIdFile.toString());
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
+
+        assertArrayEquals(
+                sentinelBytes,
+                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get().toByteArray(),
+                "Startup must load ledger ID from existing file");
+
+        BlockUnparsed tssBlock0 = loadTssBlock0();
+        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+
+        assertFalse(
+                java.util.Arrays.equals(
+                        sentinelBytes,
+                        ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get().toByteArray()),
+                "Block 0 must overwrite the file-loaded ledger ID in memory");
+        assertArrayEquals(
+                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get().toByteArray(),
+                Files.readAllBytes(ledgerIdFile),
+                "File must be updated with the block 0 ledger ID");
+    }
+
+    // ==== Helpers ====================================================================================================
+
+    private static BlockUnparsed loadTssBlock0() throws IOException, ParseException {
+        try (InputStream stream = TestUtils.class.getModule().getResourceAsStream("test-blocks/tss/TssWraps/0.blk.gz");
+                GZIPInputStream gzip = new GZIPInputStream(stream)) {
+            return BlockUnparsed.PROTOBUF.parse(Bytes.wrap(gzip.readAllBytes()));
+        }
+    }
+
     private static class VerificationConfigBuilder {
 
         // Fields with default values
         private Path allBlocksHasherFilePath;
         private boolean allBlocksHasherEnabled = true;
         private int allBlocksHasherPersistenceInterval = 10;
+        private String ledgerId = "";
+        private Path ledgerIdFilePath = Path.of("");
 
         public static VerificationConfigBuilder newBuilder() {
             return new VerificationConfigBuilder();
@@ -266,9 +421,23 @@ class VerificationServicePluginTest
             return this;
         }
 
+        public VerificationConfigBuilder ledgerId(String value) {
+            this.ledgerId = value;
+            return this;
+        }
+
+        public VerificationConfigBuilder ledgerIdFilePath(Path value) {
+            this.ledgerIdFilePath = value;
+            return this;
+        }
+
         public VerificationConfig build() {
             return new VerificationConfig(
-                    allBlocksHasherFilePath, allBlocksHasherEnabled, allBlocksHasherPersistenceInterval, "");
+                    allBlocksHasherFilePath,
+                    allBlocksHasherEnabled,
+                    allBlocksHasherPersistenceInterval,
+                    ledgerId,
+                    ledgerIdFilePath);
         }
 
         public Map<String, String> toMap() {
@@ -278,6 +447,8 @@ class VerificationServicePluginTest
             configMap.put(
                     "verification.allBlocksHasherPersistenceInterval",
                     String.valueOf(allBlocksHasherPersistenceInterval));
+            configMap.put("verification.ledgerId", ledgerId);
+            configMap.put("verification.ledgerIdFilePath", ledgerIdFilePath.toString());
             return configMap;
         }
     }

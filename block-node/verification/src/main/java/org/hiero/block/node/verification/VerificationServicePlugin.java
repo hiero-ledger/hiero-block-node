@@ -12,6 +12,9 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.util.List;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -99,9 +102,20 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // setting config and context
         this.context = context;
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
-        // If a ledger ID is pre-configured, seed the active ledger ID so blocks can be verified
-        // before block 0 is seen (e.g. when joining a network that is already running).
-        if (!verificationConfig.ledgerId().isBlank()) {
+        // Bootstrap priority for pre-run startup: persisted file > ledgerId config string.
+        // Block 0 is always authoritative and overwrites both when received.
+        final var ledgerIdFile = verificationConfig.ledgerIdFilePath();
+        if (Files.exists(ledgerIdFile)) {
+            try {
+                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.set(Bytes.wrap(Files.readAllBytes(ledgerIdFile)));
+                LOGGER.log(INFO, "Loaded active ledger ID from file: {0}", ledgerIdFile);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to read ledger ID file: " + ledgerIdFile, e);
+            }
+        } else if (!verificationConfig.ledgerId().isBlank()) {
+            // Config string is a runtime-only bootstrap: seeds ACTIVE_LEDGER_ID for nodes joining
+            // a network mid-stream after block 0 has already passed and will never be replayed.
+            // Not persisted — block 0 is the only authoritative source. Once seen, the file takes over.
             ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.set(Bytes.fromHex(verificationConfig.ledgerId()));
             LOGGER.log(INFO, "Pre-seeded active ledger ID from configuration: {0}", verificationConfig.ledgerId());
         }
@@ -202,6 +216,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 if (notification != null) {
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
                     if (notification.success()) {
+                        if (currentBlockNumber == 0) {
+                            persistLedgerId();
+                        }
                         verificationBlocksVerified.increment();
                         // send the notification to the block messaging service
                         LOGGER.log(TRACE, "Sending verification notification for block={0}", currentBlockNumber);
@@ -239,6 +256,21 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             return Bytes.wrap(allBlocksHasherHandler.computeRootHash());
         } else {
             return null;
+        }
+    }
+
+    private void persistLedgerId() {
+        final Bytes ledgerId = ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get();
+        if (ledgerId == null) {
+            return;
+        }
+        final var ledgerIdFile = verificationConfig.ledgerIdFilePath();
+        try {
+            Files.createDirectories(ledgerIdFile.getParent());
+            Files.write(ledgerIdFile, ledgerId.toByteArray());
+            LOGGER.log(INFO, "Persisted active ledger ID to file: {0}", ledgerIdFile);
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to persist ledger ID to {0}: {1}".formatted(ledgerIdFile, e.getMessage()), e);
         }
     }
 
@@ -282,6 +314,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 if (backfillNotification != null) {
                     // Log the backfill verification result
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
+                    // Block 0 is authoritative even when backfilled: persist its ledger ID to file.
+                    if (notification.blockNumber() == 0) {
+                        persistLedgerId();
+                    }
                     // send the verification notification for the backfilled block
                     context.blockMessaging().sendBlockVerification(backfillNotification);
                 } else {
