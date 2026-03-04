@@ -24,6 +24,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
 import org.hiero.block.node.verification.session.VerificationSession;
+import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
 
 /** Provides implementation for the health endpoints of the server. */
 @SuppressWarnings("unused")
@@ -98,6 +99,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // setting config and context
         this.context = context;
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
+        // If a ledger ID is pre-configured, seed the active ledger ID so blocks can be verified
+        // before block 0 is seen (e.g. when joining a network that is already running).
+        if (!verificationConfig.ledgerId().isBlank()) {
+            ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.set(Bytes.fromHex(verificationConfig.ledgerId()));
+            LOGGER.log(INFO, "Pre-seeded active ledger ID from configuration: {0}", verificationConfig.ledgerId());
+        }
         // register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "VerificationServicePlugin");
         // initialize metrics

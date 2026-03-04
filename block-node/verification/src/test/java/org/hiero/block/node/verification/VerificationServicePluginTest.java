@@ -268,7 +268,7 @@ class VerificationServicePluginTest
 
         public VerificationConfig build() {
             return new VerificationConfig(
-                    allBlocksHasherFilePath, allBlocksHasherEnabled, allBlocksHasherPersistenceInterval);
+                    allBlocksHasherFilePath, allBlocksHasherEnabled, allBlocksHasherPersistenceInterval, "");
         }
 
         public Map<String, String> toMap() {
