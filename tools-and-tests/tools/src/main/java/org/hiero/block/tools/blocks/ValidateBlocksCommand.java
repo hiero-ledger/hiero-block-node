@@ -10,6 +10,8 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -21,14 +23,24 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher;
 import org.hiero.block.tools.blocks.model.hashing.HashingUtils;
@@ -74,8 +86,14 @@ import picocli.CommandLine.Parameters;
         mixinStandardHelpOptions = true)
 public class ValidateBlocksCommand implements Runnable {
 
+    /** Read buffer size for ZipInputStream — tunes sequential HDD I/O. */
+    private static final int ZIP_READ_BUFFER = 1 << 20; // 1 MiB
+
     /** Pattern to extract block number from filename. */
     private static final Pattern BLOCK_FILE_PATTERN = Pattern.compile("^(\\d+)\\.blk(\\.gz|\\.zstd)?$");
+
+    /** Number of zip files skipped because their central directory was corrupt. */
+    private long corruptZipCount = 0;
 
     @SuppressWarnings("unused")
     @Parameters(index = "0..*", description = "Block files or directories to validate")
@@ -100,6 +118,19 @@ public class ValidateBlocksCommand implements Runnable {
             names = {"--no-resume"},
             description = "Ignore any existing checkpoint and start validation from scratch")
     private boolean noResume = false;
+
+    @Option(
+            names = {"--threads"},
+            description = "Decompression + parse threads (default: available CPU cores - 1)")
+    private int threads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+
+    @Option(
+            names = {"--prefetch"},
+            description = "Number of blocks to buffer ahead for decompression (default: ${DEFAULT-VALUE})")
+    private int prefetch = 512;
+
+    /** A decoded block together with its block number (from the zip entry filename). */
+    private record ParsedBlock(Block block, long blockNumber) {}
 
     /** Record representing a block source (file or zip entry). */
     private record BlockSource(long blockNumber, Path filePath, String zipEntryName) {
@@ -296,9 +327,9 @@ public class ValidateBlocksCommand implements Runnable {
                 Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|yellow Total blocks to validate:|@ " + sources.size()));
-        System.out.println(
-                Ansi.AUTO.string("@|yellow Block range:|@ " + sources.getFirst().blockNumber() + " - "
-                        + sources.getLast().blockNumber()));
+        System.out.println(Ansi.AUTO.string("@|yellow Block range:|@ "
+                + sources.getFirst().blockNumber() + " - " + sources.getLast().blockNumber()));
+        System.out.println(Ansi.AUTO.string("@|yellow Threads:|@ " + threads + "  prefetch: " + prefetch));
         if (hasStateFiles) {
             System.out.println(Ansi.AUTO.string("@|yellow State files found:|@ blockStreamBlockHashes.bin, "
                     + "streamingMerkleTree.bin, completeMerkleTree.bin, jumpstart.bin"));
@@ -318,7 +349,6 @@ public class ValidateBlocksCommand implements Runnable {
         final long[] stateFileErrors = {checkpoint != null ? checkpoint.stateFileErrors() : 0L};
         final AtomicReference<byte[]> previousBlockHash =
                 new AtomicReference<>(checkpoint != null ? checkpoint.previousBlockHash() : null);
-        final AtomicLong lastReportedPercent = new AtomicLong(-1);
 
         // Check for missing companion state files upfront
         if (hasStateFiles) {
@@ -408,18 +438,133 @@ public class ValidateBlocksCommand implements Runnable {
                         },
                         "validate-shutdown-hook"));
 
+        // ── Pipeline ─────────────────────────────────────────────────────────
+        // Stage 1 (I/O thread)  : stream each zip with ZipInputStream (sequential HDD reads),
+        //                          submit decompression futures to pool
+        // Stage 2 (decompPool)   : decompress + parse protobuf in parallel
+        // Stage 3 (main thread)  : validate in order from blockQueue
+
+        // Decompression pool uses daemon threads so it never prevents JVM exit.
+        // try-with-resources not used: pool is shut down explicitly after the validation loop.
+        ExecutorService decompPool = Executors.newFixedThreadPool(threads, r -> {
+            Thread t = new Thread(r);
+            t.setDaemon(true);
+            return t;
+        });
+
+        // Sentinel: unique object used to signal end-of-stream; detected by reference equality.
+        @SuppressWarnings("unchecked")
+        final Future<ParsedBlock>[] sentinelHolder = new Future[1];
+        sentinelHolder[0] = new CompletableFuture<>();
+        final Future<ParsedBlock> endOfStream = sentinelHolder[0];
+
+        BlockingQueue<Future<ParsedBlock>> blockQueue = new ArrayBlockingQueue<>(prefetch);
+
+        // I/O thread — streams zips sequentially, enqueues decompression futures
+        Thread readerThread = new Thread(
+                () -> {
+                    try {
+                        int i = 0;
+                        while (i < pendingSources.size()) {
+                            BlockSource first = pendingSources.get(i);
+                            if (!first.isZipEntry()) {
+                                // Regular file: read + decompress in pool
+                                final Path path = first.filePath();
+                                final String fname = path.getFileName().toString();
+                                final boolean isZstd = fname.endsWith(".zstd");
+                                final boolean isGz = fname.endsWith(".gz");
+                                final long bNum = first.blockNumber();
+                                blockQueue.put(decompPool.submit(() -> {
+                                    byte[] raw = Files.readAllBytes(path);
+                                    return new ParsedBlock(decompressAndParse(raw, isZstd, isGz), bNum);
+                                }));
+                                i++;
+                            } else {
+                                // Find the run of consecutive sources from the same zip
+                                Path zipPath = first.filePath();
+                                int runEnd = i;
+                                Set<String> wanted = new HashSet<>();
+                                while (runEnd < pendingSources.size()
+                                        && pendingSources.get(runEnd).isZipEntry()
+                                        && pendingSources.get(runEnd).filePath().equals(zipPath)) {
+                                    // ZipFileSystem paths start with "/" but ZipInputStream names do not
+                                    String en = pendingSources.get(runEnd).zipEntryName();
+                                    if (en.startsWith("/")) en = en.substring(1);
+                                    wanted.add(en);
+                                    runEnd++;
+                                }
+
+                                // Stream this zip sequentially — zero random seeks
+                                try (ZipInputStream zis = new ZipInputStream(
+                                        new BufferedInputStream(Files.newInputStream(zipPath), ZIP_READ_BUFFER))) {
+                                    ZipEntry entry;
+                                    while ((entry = zis.getNextEntry()) != null) {
+                                        final String entryName = entry.getName(); // no leading slash
+                                        if (!wanted.contains(entryName)) {
+                                            zis.closeEntry();
+                                            continue;
+                                        }
+                                        final boolean isZstd = entryName.endsWith(".zstd");
+                                        final boolean isGz = entryName.endsWith(".gz");
+                                        final byte[] raw = zis.readAllBytes();
+                                        final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                                        final long bNum = extractBlockNumber(fileName);
+                                        blockQueue.put(decompPool.submit(
+                                                () -> new ParsedBlock(decompressAndParse(raw, isZstd, isGz), bNum)));
+                                    }
+                                } catch (IOException e) {
+                                    corruptZipCount++;
+                                    System.out.println(Ansi.AUTO.string(
+                                            "@|yellow Warning:|@ error streaming zip (blocks skipped): "
+                                                    + zipPath.getFileName() + " — " + e.getMessage()));
+                                    // Push null futures so the validator loop stays in sync
+                                    for (int k = i; k < runEnd; k++) {
+                                        blockQueue.put(CompletableFuture.completedFuture(null));
+                                    }
+                                }
+                                i = runEnd;
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        System.err.println("Reader thread error: " + e.getMessage());
+                    } finally {
+                        // Always signal end-of-stream
+                        try {
+                            blockQueue.put(endOfStream);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                },
+                "block-reader");
+        readerThread.setDaemon(true);
+        readerThread.start();
+
         try {
             long lastCheckpointSaveMs = System.currentTimeMillis();
+            long lastProgressMs = System.currentTimeMillis();
 
-            // Validate each pending block
+            // Validation loop (main thread)
             for (int i = 0; i < pendingSources.size(); i++) {
-                BlockSource source = pendingSources.get(i);
-                long blockNum = source.blockNumber();
+                // Fail fast: stop on the first real validation error
+                if (hashErrors.get() + signatureErrors.get() + otherErrors.get() > 0) {
+                    PrettyPrint.clearProgress();
+                    System.err.println(Ansi.AUTO.string("@|red Stopping validation (fail-fast):|@ error detected"));
+                    break;
+                }
+
+                long blockNum = pendingSources.get(i).blockNumber();
 
                 try {
-                    // Read and parse block
-                    byte[] blockBytes = readBlockBytes(source);
-                    Block block = Block.PROTOBUF.parse(Bytes.wrap(blockBytes));
+                    Future<ParsedBlock> future = blockQueue.take();
+                    if (future == endOfStream) break; // reader exited early
+
+                    ParsedBlock parsed = future.get();
+                    if (parsed == null) continue; // block skipped (corrupt zip mid-stream)
+
+                    Block block = parsed.block();
 
                     // Extract block proof and previous block hash from the block footer
                     BlockProof blockProof = null;
@@ -429,8 +574,9 @@ public class ValidateBlocksCommand implements Runnable {
                             blockProof = item.blockProof();
                         }
                         if (item.hasBlockFooter()) {
-                            previousHashInBlock =
-                                    item.blockFooterOrThrow().previousBlockRootHash().toByteArray();
+                            previousHashInBlock = item.blockFooterOrThrow()
+                                    .previousBlockRootHash()
+                                    .toByteArray();
                         }
                     }
 
@@ -481,35 +627,29 @@ public class ValidateBlocksCommand implements Runnable {
                     // Validate signatures if enabled
                     boolean signaturesValid = true;
                     if (!skipSignatures && blockProof != null && addressBookRegistry != null) {
-                        signaturesValid = validateSignatures(
-                                blockNum, blockProof, addressBookRegistry, signatureErrors);
+                        signaturesValid =
+                                validateSignatures(blockNum, blockProof, addressBookRegistry, signatureErrors);
                     }
 
-                    // Print verbose output
                     if (verbose) {
                         String status = (hashValid && signaturesValid)
                                 ? Ansi.AUTO.string("@|green VALID|@")
                                 : Ansi.AUTO.string("@|red INVALID|@");
-                        System.out.printf(
-                            "Block %d: %s (hash: %s)%n",
-                                blockNum,
-                                status,
-                                Bytes.wrap(currentBlockHash).toHex().substring(0, 8));
+                        System.out.println("Block " + blockNum + ": " + status + " (hash: "
+                                + Bytes.wrap(currentBlockHash).toHex().substring(0, 8) + ")");
                     }
 
                     blocksValidated.incrementAndGet();
 
-                    // Update progress (denominator is allSources.size() for overall % complete)
-                    long currentPercent = (blocksValidated.get() * 100) / sources.size();
-                    if (currentPercent != lastReportedPercent.get() || i == pendingSources.size() - 1) {
+                    // Progress every 5 seconds
+                    if (nowMs - lastProgressMs >= 5_000L || i == pendingSources.size() - 1) {
                         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+                        long currentPercent = (blocksValidated.get() * 100) / sources.size();
                         long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
                                 blocksValidated.get(), sources.size(), elapsedMillis);
-
-                        String progressString =
-                                String.format("Validated %d/%d blocks", blocksValidated.get(), sources.size());
+                        String progressString = "Validated " + blocksValidated.get() + "/" + sources.size() + " blocks";
                         PrettyPrint.printProgressWithEta(currentPercent, progressString, remainingMillis);
-                        lastReportedPercent.set(currentPercent);
+                        lastProgressMs = nowMs;
                     }
 
                 } catch (Exception e) {
@@ -522,6 +662,10 @@ public class ValidateBlocksCommand implements Runnable {
                     otherErrors.incrementAndGet();
                 }
             }
+
+            // Stop reader and decompression pool
+            readerThread.interrupt();
+            decompPool.shutdownNow();
 
             // --- Post-loop: validate binary state files ---
 
@@ -702,6 +846,10 @@ public class ValidateBlocksCommand implements Runnable {
         System.out.println(Ansi.AUTO.string("@|yellow Signature errors:|@ " + signatureErrors.get()));
         System.out.println(Ansi.AUTO.string("@|yellow Other errors:|@ " + otherErrors.get()));
         System.out.println(Ansi.AUTO.string("@|yellow State file errors:|@ " + stateFileErrors[0]));
+        if (corruptZipCount > 0) {
+            System.out.println(Ansi.AUTO.string(
+                    "@|yellow Corrupt zips skipped:|@ " + corruptZipCount + " (blocks inside not validated)"));
+        }
 
         if (totalErrors == 0) {
             System.out.println();
@@ -713,6 +861,31 @@ public class ValidateBlocksCommand implements Runnable {
 
         long elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000L;
         System.out.println(Ansi.AUTO.string("@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
+    }
+
+    /**
+     * Decompresses raw bytes and parses them as a {@link Block} protobuf.
+     *
+     * @param raw compressed or uncompressed block bytes
+     * @param isZstd true if the bytes are zstd-compressed
+     * @param isGz true if the bytes are gzip-compressed
+     * @return the parsed Block
+     * @throws Exception if decompression or parsing fails
+     */
+    private static Block decompressAndParse(byte[] raw, boolean isZstd, boolean isGz) throws Exception {
+        final byte[] blockBytes;
+        if (isZstd) {
+            try (InputStream is = new ZstdInputStream(new ByteArrayInputStream(raw))) {
+                blockBytes = is.readAllBytes();
+            }
+        } else if (isGz) {
+            try (InputStream is = new GZIPInputStream(new ByteArrayInputStream(raw))) {
+                blockBytes = is.readAllBytes();
+            }
+        } else {
+            blockBytes = raw;
+        }
+        return Block.PROTOBUF.parse(Bytes.wrap(blockBytes));
     }
 
     /**
@@ -776,13 +949,9 @@ public class ValidateBlocksCommand implements Runnable {
      * @return true if valid (1/3 + 1 signatures verified)
      */
     private boolean validateSignatures(
-            long blockNum,
-        BlockProof blockProof,
-        AddressBookRegistry addressBookRegistry,
-            AtomicLong signatureErrors) {
+            long blockNum, BlockProof blockProof, AddressBookRegistry addressBookRegistry, AtomicLong signatureErrors) {
 
         try {
-            // Get the address book for this block
             NodeAddressBook addressBook = addressBookRegistry.getCurrentAddressBook();
             if (addressBook == null || addressBook.nodeAddress().isEmpty()) {
                 if (verbose) {
@@ -790,13 +959,21 @@ public class ValidateBlocksCommand implements Runnable {
                     System.out.println(Ansi.AUTO.string(
                             "@|yellow Block " + blockNum + ":|@ No address book available for signature validation"));
                 }
-                return true; // Skip validation if no address book
+                return true;
             }
 
-            int totalNodes = addressBook.nodeAddress().size();
-            int requiredSignatures = (totalNodes / 3) + 1;
+            // Blocks wrapped from record files carry SIGNED_RECORD_FILE_PROOF, not SIGNED_BLOCK_PROOF.
+            // Skip signature validation gracefully for any proof type other than signedBlockProof.
+            if (!blockProof.hasSignedBlockProof()) {
+                if (verbose) {
+                    PrettyPrint.clearProgress();
+                    System.out.println(Ansi.AUTO.string("@|yellow Block " + blockNum
+                            + ":|@ proof type is not signedBlockProof ("
+                            + blockProof.proof().kind() + "), skipping signature check"));
+                }
+                return true;
+            }
 
-            // Get block signatures from proof
             Bytes blockSig = blockProof.signedBlockProofOrThrow().blockSignature();
             if (blockSig.length() == 0) {
                 PrettyPrint.clearProgress();
@@ -805,31 +982,8 @@ public class ValidateBlocksCommand implements Runnable {
                 return false;
             }
 
-            // Verify signatures
-            int validSignatures = 0;
-            byte[] signatureBytes = blockSig.toByteArray();
-
-            // The signature format depends on whether this is a TSS aggregate signature
-            // or individual node signatures. For now, we'll do a simplified check.
-            // In production, this would need to properly parse the signature format.
-
-            // For TSS signatures, we'd verify against the aggregate public key
-            // For individual signatures, we'd verify each one and count valid ones
-
-            // Simplified: assume signature is valid if present and non-empty
-            // A full implementation would use the actual public keys from the address book
-            if (signatureBytes.length > 0) {
-                validSignatures = requiredSignatures; // Placeholder for actual verification
-            }
-
-            if (validSignatures < requiredSignatures) {
-                PrettyPrint.clearProgress();
-                System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Insufficient signatures ("
-                        + validSignatures + "/" + requiredSignatures + " required)"));
-                signatureErrors.incrementAndGet();
-                return false;
-            }
-
+            // Simplified: assume signature is valid if present and non-empty.
+            // A full implementation would verify against the actual public keys.
             return true;
 
         } catch (Exception e) {
@@ -877,7 +1031,7 @@ public class ValidateBlocksCommand implements Runnable {
      */
     private void findBlocksInDirectory(Path dir, List<BlockSource> sources) {
         try (Stream<Path> filesStream = Files.walk(dir)) {
-             filesStream.filter(Files::isRegularFile).forEach(path -> {
+            filesStream.filter(Files::isRegularFile).forEach(path -> {
                 String fileName = path.getFileName().toString();
                 if (fileName.endsWith(".zip")) {
                     findBlocksInZip(path, sources);
@@ -913,9 +1067,9 @@ public class ValidateBlocksCommand implements Runnable {
                 }
             }
         } catch (IOException e) {
-            System.err.println("Error reading zip file " + zipPath + ": " + e.getMessage());
-            System.err.println("  ↳ This zip has a corrupt or missing central directory."
-                    + " Run 'blocks repair-zips <directory>' to repair it before validating.");
+            corruptZipCount++;
+            System.out.println(Ansi.AUTO.string("@|yellow Warning:|@ skipping corrupt zip (validation continues): "
+                    + zipPath.getFileName() + " — " + e.getMessage()));
         }
     }
 
@@ -931,45 +1085,5 @@ public class ValidateBlocksCommand implements Runnable {
             return Long.parseLong(matcher.group(1));
         }
         return -1;
-    }
-
-    /**
-     * Reads block bytes from a source (file or zip entry).
-     *
-     * @param source the block source
-     * @return the decompressed block bytes
-     * @throws IOException if reading fails
-     */
-    private byte[] readBlockBytes(BlockSource source) throws IOException {
-        byte[] compressedBytes;
-
-        if (source.isZipEntry()) {
-            // Read from a zip file
-            try (FileSystem zipFs = FileSystems.newFileSystem(source.filePath())) {
-                Path entryPath = zipFs.getPath(source.zipEntryName());
-                compressedBytes = Files.readAllBytes(entryPath);
-            }
-        } else {
-            // Read from a regular file
-            compressedBytes = Files.readAllBytes(source.filePath());
-        }
-
-        // Decompress based on extension
-        String fileName = source.isZipEntry()
-                ? source.zipEntryName()
-                : source.filePath().getFileName().toString();
-
-        if (fileName.endsWith(".gz")) {
-            try (InputStream is = new GZIPInputStream(new java.io.ByteArrayInputStream(compressedBytes))) {
-                return is.readAllBytes();
-            }
-        } else if (fileName.endsWith(".zstd")) {
-            try (InputStream is = new ZstdInputStream(new java.io.ByteArrayInputStream(compressedBytes))) {
-                return is.readAllBytes();
-            }
-        } else {
-            // Uncompressed
-            return compressedBytes;
-        }
     }
 }
