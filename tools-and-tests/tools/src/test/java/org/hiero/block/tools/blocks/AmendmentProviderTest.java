@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.streams.RecordStreamItem;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -131,21 +133,6 @@ class AmendmentProviderTest {
         }
 
         @Test
-        @DisplayName("Testnet provider has no genesis amendments")
-        void testTestnetNoGenesisAmendments() {
-            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("testnet");
-            assertFalse(provider.hasGenesisAmendments(0));
-            assertTrue(provider.getGenesisAmendments(0).isEmpty());
-        }
-
-        @Test
-        @DisplayName("Testnet provider has no missing record stream items")
-        void testTestnetNoMissingItems() {
-            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("testnet");
-            assertTrue(provider.getMissingRecordStreamItems(0).isEmpty());
-        }
-
-        @Test
         @DisplayName("Mainnet creates MainnetAmendmentProvider")
         void testMainnetCreatesMainnetProvider() {
             AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("mainnet");
@@ -157,14 +144,45 @@ class AmendmentProviderTest {
         void testNoneCreatesNoOpProvider() {
             AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("none");
             assertInstanceOf(NoOpAmendmentProvider.class, provider);
+            assertEquals("none", provider.getNetworkName());
         }
 
         @Test
-        @DisplayName("Unknown network falls through to default NoOpAmendmentProvider")
-        void testUnknownNetworkFallsThrough() {
-            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("unknown");
+        @DisplayName("Disabled creates NoOpAmendmentProvider")
+        void testDisabledCreatesNoOpProvider() {
+            AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("disabled");
             assertInstanceOf(NoOpAmendmentProvider.class, provider);
-            assertEquals("unknown", provider.getNetworkName());
+            assertEquals("none", provider.getNetworkName());
+        }
+
+        @Test
+        @DisplayName("Factory method is case-insensitive")
+        void testCaseInsensitive() {
+            AmendmentProvider upper = AmendmentProvider.createAmendmentProvider("TESTNET");
+            assertInstanceOf(NoOpAmendmentProvider.class, upper);
+            assertEquals("testnet", upper.getNetworkName());
+
+            AmendmentProvider mixed = AmendmentProvider.createAmendmentProvider("Mainnet");
+            assertInstanceOf(MainnetAmendmentProvider.class, mixed);
+        }
+
+        @Test
+        @DisplayName("Unknown network falls through to default NoOpAmendmentProvider and prints warning")
+        void testUnknownNetworkFallsThrough() {
+            PrintStream originalOut = System.out;
+            ByteArrayOutputStream captured = new ByteArrayOutputStream();
+            System.setOut(new PrintStream(captured));
+            try {
+                AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("unknown");
+                assertInstanceOf(NoOpAmendmentProvider.class, provider);
+                assertEquals("unknown", provider.getNetworkName());
+                String output = captured.toString();
+                assertTrue(
+                        output.contains("No specific amendments for network: unknown"),
+                        "Expected warning message in System.out, got: " + output);
+            } finally {
+                System.setOut(originalOut);
+            }
         }
     }
 
