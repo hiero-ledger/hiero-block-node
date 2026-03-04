@@ -241,7 +241,7 @@ public class ToWrappedBlocksCommand implements Runnable {
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
 
-        // Create an amendment provider based on network selection (inherited from parent --network flag)
+        // Create an amendment provider based on network selection
         final AmendmentProvider amendmentProvider =
                 createAmendmentProvider(NetworkConfig.current().networkName());
 
