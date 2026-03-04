@@ -6,10 +6,9 @@ import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.
 import com.hedera.hapi.block.stream.Block;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.Callable;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
@@ -150,6 +149,9 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
                     balanceCheckpointValidator.loadFromDirectory(customBalancesDir);
                 }
 
+                // Auto-load bundled balance checkpoints from resources
+                loadBundledCheckpoints(balanceCheckpointValidator);
+
                 // If no checkpoints loaded, disable balance validation
                 if (balanceCheckpointValidator.getCheckpointCount() == 0) {
                     System.out.println(Ansi.AUTO.string(
@@ -166,10 +168,9 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         }
         System.out.println();
 
-        // Create a streaming hasher and balance maps only if we start from block 0
+        // Create a streaming hasher and accounts state only if we start from block 0
         final StreamingHasher streamingHasher = startsAtZero ? new StreamingHasher() : null;
-        final Map<Long, Long> balanceMap = startsAtZero ? new HashMap<>() : null;
-        final Map<Long, Map<Long, Long>> tokenBalanceMap = startsAtZero ? new HashMap<>() : null;
+        final RunningAccountsState accounts = startsAtZero ? new RunningAccountsState() : null;
 
         // Validation tracking
         final long startNanos = System.nanoTime();
@@ -183,12 +184,12 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
 
                 // Validate against balance checkpoints BEFORE processing the block,
                 // since checkpoints represent state before the block's transactions
-                if (balanceCheckpointValidator != null && balanceMap != null) {
-                    balanceCheckpointValidator.checkBlock(blockNumber, balanceMap, tokenBalanceMap);
+                if (balanceCheckpointValidator != null && accounts != null) {
+                    balanceCheckpointValidator.checkBlock(
+                            blockNumber, accounts.getHbarBalances(), accounts.getTokenBalances());
                 }
 
-                WrappedBlockValidator.validateBlock(
-                        block, blockNumber, previousBlockHash, streamingHasher, balanceMap, tokenBalanceMap);
+                WrappedBlockValidator.validateBlock(block, blockNumber, previousBlockHash, streamingHasher, accounts);
 
                 // Compute block hash and update state for the next block's validation
                 previousBlockHash = hashBlock(block);
@@ -251,5 +252,27 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|bold,green VALIDATION PASSED|@"));
         return 0;
+    }
+
+    /**
+     * Load bundled balance checkpoint files from resources.
+     * These are accountBalances_{blockNumber}.pb.gz files compiled into the jar.
+     */
+    private void loadBundledCheckpoints(BalanceCheckpointValidator validator) throws IOException {
+        // List of bundled checkpoint files (block number extracted from filename)
+        String[] bundledFiles = {"accountBalances_91019204.pb.gz"};
+
+        for (String filename : bundledFiles) {
+            try (InputStream stream = getClass().getResourceAsStream("/metadata/" + filename)) {
+                if (stream != null) {
+                    // Extract block number from filename
+                    String blockStr = filename.replace("accountBalances_", "").replace(".pb.gz", "");
+                    long blockNumber = Long.parseLong(blockStr);
+                    // Note: loadFromGzippedStream may close the stream, do not read from it after this call
+                    validator.loadFromGzippedStream(stream, blockNumber);
+                    System.out.println(Ansi.AUTO.string("@|yellow Loaded bundled checkpoint:|@ block " + blockNumber));
+                }
+            }
+        }
     }
 }

@@ -11,12 +11,12 @@ import com.hedera.hapi.block.stream.output.MapChangeValue;
 import com.hedera.hapi.block.stream.output.MapUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.node.base.AccountAmount;
+import com.hedera.hapi.node.base.NftTransfer;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.TokenTransferList;
 import com.hedera.hapi.streams.RecordStreamItem;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -67,16 +67,17 @@ public final class WrappedBlockValidator {
      * {@code streamingHasher} is null, the all-blocks merkle tree portion of the block hash cannot be validated (e.g.
      * when starting validation from a block other than block zero).
      *
-     * <p>When {@code balanceMap} is non-null, account balances are tracked across blocks and the
-     * total supply is verified to equal 50 billion HBAR (in tinybar) after each block. The map is mutated in place so
-     * the caller can pass the same map across successive blocks. When null, the 50 billion HBAR validation is skipped.
+     * <p>When {@code accounts} is non-null, account balances (HBAR and tokens) are tracked across
+     * blocks and the total HBAR supply is verified to equal 50 billion HBAR (in tinybar) after each
+     * block. The state object is mutated in place so the caller can pass the same instance across
+     * successive blocks. When null, the 50 billion HBAR validation is skipped.
      *
      * @param block             the block to validate
      * @param blockNumber       the expected block number
      * @param previousBlockHash the hash of the previous block, or null for the first block being validated
      * @param streamingHasher   the streaming hasher tracking the all-blocks merkle tree, or null if merkle tree
      *                          validation should be skipped
-     * @param balanceMap        mutable map of account number to tinybar balance, or null to skip supply validation
+     * @param accounts          mutable running account state, or null to skip supply validation
      * @throws ValidationException if the block fails validation
      */
     public static void validateBlock(
@@ -84,39 +85,13 @@ public final class WrappedBlockValidator {
             final long blockNumber,
             final byte[] previousBlockHash,
             final @Nullable StreamingHasher streamingHasher,
-            final @Nullable Map<Long, Long> balanceMap)
-            throws ValidationException {
-        validateBlock(block, blockNumber, previousBlockHash, streamingHasher, balanceMap, null);
-    }
-
-    /**
-     * Validates a single wrapped block with token balance tracking.
-     *
-     * <p>This overload adds token balance tracking in addition to HBAR balance tracking.
-     * Token balances are extracted from token transfer lists in transaction records.
-     *
-     * @param block             the block to validate
-     * @param blockNumber       the expected block number
-     * @param previousBlockHash the hash of the previous block, or null for the first block being validated
-     * @param streamingHasher   the streaming hasher tracking the all-blocks merkle tree, or null if merkle tree
-     *                          validation should be skipped
-     * @param balanceMap        mutable map of account number to tinybar balance, or null to skip supply validation
-     * @param tokenBalanceMap   mutable map of account number to (token number to balance), or null to skip token tracking
-     * @throws ValidationException if the block fails validation
-     */
-    public static void validateBlock(
-            final Block block,
-            final long blockNumber,
-            final byte[] previousBlockHash,
-            final @Nullable StreamingHasher streamingHasher,
-            final @Nullable Map<Long, Long> balanceMap,
-            final @Nullable Map<Long, Map<Long, Long>> tokenBalanceMap)
+            final @Nullable RunningAccountsState accounts)
             throws ValidationException {
         validateBlockChain(blockNumber, block, previousBlockHash);
         validateHistoricalBlockTreeRoot(blockNumber, block, streamingHasher);
         validateRequiredItems(blockNumber, block);
         validateNoExtraItems(blockNumber, block);
-        validate50Billion(blockNumber, block, balanceMap, tokenBalanceMap);
+        validate50Billion(blockNumber, block, accounts);
     }
 
     /**
@@ -330,21 +305,6 @@ public final class WrappedBlockValidator {
 
     /**
      * Validates that the total HBAR supply equals exactly 50 billion HBAR (in tinybar) after
-     * processing this block. This overload does not track token balances.
-     *
-     * @param blockNumber the block number for error reporting
-     * @param block the block to validate
-     * @param balanceMap mutable map of account number to tinybar balance, or null to skip
-     * @throws ValidationException if the total supply does not equal 50 billion HBAR
-     */
-    public static void validate50Billion(
-            final long blockNumber, final Block block, final @Nullable Map<Long, Long> balanceMap)
-            throws ValidationException {
-        validate50Billion(blockNumber, block, balanceMap, null);
-    }
-
-    /**
-     * Validates that the total HBAR supply equals exactly 50 billion HBAR (in tinybar) after
      * processing this block.
      *
      * <p>Account balances are updated from two sources within the block, processed in item order:
@@ -354,8 +314,8 @@ public final class WrappedBlockValidator {
      *   <li>{@code RecordFile} items – transfer lists apply relative balance changes.
      * </ol>
      *
-     * <p>After all items are processed the sum of all account balances must equal
-     * {@link #FIFTY_BILLION_HBAR_IN_TINYBAR}. When {@code balanceMap} is null, this validation is
+     * <p>After all items are processed the sum of all account HBAR balances must equal
+     * {@link #FIFTY_BILLION_HBAR_IN_TINYBAR}. When {@code accounts} is null, this validation is
      * skipped.
      *
      * <p>When {@code tokenBalanceMap} is non-null, token balances are also tracked from token
@@ -363,17 +323,13 @@ public final class WrappedBlockValidator {
      *
      * @param blockNumber the block number for error reporting
      * @param block the block to validate
-     * @param balanceMap mutable map of account number to tinybar balance, or null to skip
-     * @param tokenBalanceMap mutable map of account number to (token number to balance), or null to skip token tracking
+     * @param accounts mutable running account state, or null to skip
      * @throws ValidationException if the total supply does not equal 50 billion HBAR
      */
     public static void validate50Billion(
-            final long blockNumber,
-            final Block block,
-            final @Nullable Map<Long, Long> balanceMap,
-            final @Nullable Map<Long, Map<Long, Long>> tokenBalanceMap)
+            final long blockNumber, final Block block, final @Nullable RunningAccountsState accounts)
             throws ValidationException {
-        if (balanceMap == null) {
+        if (accounts == null) {
             return;
         }
 
@@ -386,14 +342,14 @@ public final class WrappedBlockValidator {
                         final MapChangeKey key = mapUpdate.keyOrThrow();
                         final MapChangeValue value = mapUpdate.valueOrThrow();
                         if (key.hasAccountIdKey() && value.hasAccountValue()) {
-                            balanceMap.put(
+                            accounts.setHbarBalance(
                                     key.accountIdKeyOrThrow().accountNumOrThrow(),
                                     value.accountValueOrThrow().tinybarBalance());
                         }
                     } else if (stateChange.hasMapDelete()) {
                         final MapChangeKey key = stateChange.mapDeleteOrThrow().keyOrThrow();
                         if (key.hasAccountIdKey()) {
-                            balanceMap.remove(key.accountIdKeyOrThrow().accountNumOrThrow());
+                            accounts.deleteAccount(key.accountIdKeyOrThrow().accountNumOrThrow());
                         }
                     }
                 }
@@ -404,40 +360,38 @@ public final class WrappedBlockValidator {
                         recordFile.recordFileContentsOrThrow().recordStreamItems(), recordFile.amendments());
                 // Process merged record stream items
                 for (final RecordStreamItem recordStreamItem : mergedItems) {
-                    // Process HBAR transfers
+                    // HBAR transfers
                     for (final AccountAmount accountAmount : recordStreamItem
                             .recordOrThrow()
                             .transferListOrThrow()
                             .accountAmounts()) {
-                        balanceMap.merge(
-                                accountAmount.accountIDOrThrow().accountNumOrThrow(),
-                                accountAmount.amount(),
-                                Long::sum);
+                        accounts.applyHbarChange(
+                                accountAmount.accountIDOrThrow().accountNumOrThrow(), accountAmount.amount());
                     }
-
-                    // Process token transfers if tracking is enabled
-                    if (tokenBalanceMap != null) {
-                        for (final TokenTransferList tokenTransferList :
-                                recordStreamItem.recordOrThrow().tokenTransferLists()) {
-                            final long tokenNum = tokenTransferList.token().tokenNum();
-                            for (final AccountAmount transfer : tokenTransferList.transfers()) {
-                                final long accountNum =
-                                        transfer.accountIDOrThrow().accountNumOrThrow();
-                                final Map<Long, Long> accountTokens =
-                                        tokenBalanceMap.computeIfAbsent(accountNum, k -> new HashMap<>());
-                                accountTokens.merge(tokenNum, transfer.amount(), Long::sum);
-                            }
+                    // Token transfers
+                    for (final TokenTransferList tokenTransferList :
+                            recordStreamItem.recordOrThrow().tokenTransferLists()) {
+                        final long tokenNum = tokenTransferList.tokenOrThrow().tokenNum();
+                        // Fungible transfers
+                        for (final AccountAmount transfer : tokenTransferList.transfers()) {
+                            accounts.applyFungibleTokenChange(
+                                    transfer.accountIDOrThrow().accountNumOrThrow(), tokenNum, transfer.amount());
+                        }
+                        // NFT transfers – each NFT is uniquely identified by (tokenNum, serialNumber)
+                        for (final NftTransfer nftTransfer : tokenTransferList.nftTransfers()) {
+                            accounts.applyNftTransfer(
+                                    nftTransfer.senderAccountIDOrThrow().accountNumOrThrow(),
+                                    nftTransfer.receiverAccountIDOrThrow().accountNumOrThrow(),
+                                    tokenNum,
+                                    nftTransfer.serialNumber());
                         }
                     }
                 }
             }
         }
 
-        // Sum all balances and verify total supply
-        long totalBalance = 0;
-        for (final long balance : balanceMap.values()) {
-            totalBalance += balance;
-        }
+        // Verify total HBAR supply
+        final long totalBalance = accounts.totalHbarBalance();
         if (totalBalance != FIFTY_BILLION_HBAR_IN_TINYBAR) {
             final long difference = totalBalance - FIFTY_BILLION_HBAR_IN_TINYBAR;
             throw new ValidationException("Block: " + blockNumber + " - Total HBAR supply mismatch. Expected "

@@ -71,6 +71,18 @@ public class BalanceCheckpointValidator {
     }
 
     /**
+     * Load a single balance checkpoint from a gzipped protobuf resource.
+     *
+     * @param inputStream the gzipped protobuf input stream
+     * @param blockNumber the block number for this checkpoint
+     * @throws IOException if the stream cannot be read
+     */
+    public void loadFromGzippedStream(InputStream inputStream, long blockNumber) throws IOException {
+        loader.loadFromGzippedStream(inputStream, blockNumber);
+        initializeSortedBlocks();
+    }
+
+    /**
      * Load custom balance files from a directory.
      * Files must be named {@code accountBalances_{blockNumber}.pb.gz}.
      *
