@@ -11,19 +11,21 @@ import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.node.base.NodeAddressBook;
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -36,6 +38,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -126,6 +129,13 @@ public class RepairZipsCommand implements Callable<Integer> {
                     + "Increase for SSD-backed drives, keep low (1-2) for single-spindle HDDs.")
     private int scanThreads = 4;
 
+    @Option(
+            names = {"--repair-threads"},
+            description = "Number of threads for the parallel CEN repair phase (default: 4). "
+                    + "Each thread holds its own read/write buffer in memory, so memory use is "
+                    + "approximately 2 × BUFFER_SIZE × repairThreads.")
+    private int repairThreads = 4;
+
     // ── Phase 2 (fill) options ────────────────────────────────────────────────────────────────────
 
     @Option(
@@ -182,6 +192,49 @@ public class RepairZipsCommand implements Callable<Integer> {
     /** Hex formatter for diagnostic hash output. */
     private static final HexFormat HEX = HexFormat.of();
 
+    /**
+     * {@link ByteArrayOutputStream} subclass that exposes its internal buffer so repaired zip bytes
+     * can be written to a {@link FileChannel} without an extra copy.
+     *
+     * <p>Calling {@link #reset()} resets the write pointer without releasing the backing array, so
+     * the same instance can be reused across repairs on the same thread.</p>
+     */
+    private static final class RecyclableOutputStream extends ByteArrayOutputStream {
+        RecyclableOutputStream(final int initialCapacity) {
+            super(initialCapacity);
+        }
+
+        /**
+         * Write all accumulated bytes to {@code channel}, looping until fully written.
+         *
+         * @param channel target file channel (must be open for writing)
+         * @throws IOException if the channel write fails
+         */
+        void writeTo(final FileChannel channel) throws IOException {
+            final ByteBuffer bb = ByteBuffer.wrap(buf, 0, count);
+            while (bb.hasRemaining()) {
+                channel.write(bb);
+            }
+        }
+    }
+
+    /**
+     * Per-thread read buffer, lazily allocated to {@link #BUFFER_SIZE} bytes.
+     *
+     * <p>Reused across repair tasks executed by the same thread. For zip files larger than
+     * {@code BUFFER_SIZE} the streaming fallback is used instead (no thread-local needed).</p>
+     */
+    private static final ThreadLocal<byte[]> THREAD_READ_BUF = ThreadLocal.withInitial(() -> new byte[BUFFER_SIZE]);
+
+    /**
+     * Per-thread write buffer, lazily allocated with initial capacity {@link #BUFFER_SIZE}.
+     *
+     * <p>Reset between tasks via {@link RecyclableOutputStream#reset()}, which resets the byte
+     * count to zero without releasing the backing array, avoiding repeated large allocations.</p>
+     */
+    private static final ThreadLocal<RecyclableOutputStream> THREAD_WRITE_BUF =
+            ThreadLocal.withInitial(() -> new RecyclableOutputStream(BUFFER_SIZE));
+
     // ── Entry point ───────────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -218,8 +271,11 @@ public class RepairZipsCommand implements Callable<Integer> {
      */
     private int runRepairPhase(final Path dir) {
         PrettyPrint.printBanner("ZIP REPAIR — PHASE 1: CEN REPAIR");
-        System.out.println(Ansi.AUTO.string("@|yellow Directory:|@ " + dir.toAbsolutePath()));
-        System.out.println(Ansi.AUTO.string("@|yellow Scan threads:|@ " + scanThreads));
+        System.out.println(Ansi.AUTO.string("@|yellow Directory:|@      " + dir.toAbsolutePath()));
+        System.out.println(Ansi.AUTO.string("@|yellow Scan threads:|@   " + scanThreads));
+        System.out.println(Ansi.AUTO.string("@|yellow Repair threads:|@ " + repairThreads));
+        System.out.println(Ansi.AUTO.string(
+                "@|yellow Buffer size:|@    " + (BUFFER_SIZE / (1024 * 1024)) + " MiB per thread (in + out)"));
         System.out.println();
 
         // Collect all zip file paths
@@ -255,33 +311,64 @@ public class RepairZipsCommand implements Callable<Integer> {
         }
         System.out.println();
 
-        // Sequential repair
-        System.out.println("Repairing " + corruptZips.size() + " file(s) …");
-        int repaired = 0;
-        int unrecoverable = 0;
-        for (final Path zipPath : corruptZips) {
-            System.out.print(Ansi.AUTO.string("  @|yellow Repairing|@ " + zipPath + " … "));
-            System.out.flush();
-            final RepairResult result = repairZip(zipPath);
-            switch (result.status()) {
-                case REPAIRED -> {
-                    repaired++;
-                    System.out.println(
-                            Ansi.AUTO.string("@|green OK|@ (" + result.entriesRecovered() + " blocks recovered)"));
-                }
-                case PARTIAL -> {
-                    repaired++;
-                    System.out.println(Ansi.AUTO.string("@|yellow PARTIAL|@ ("
-                            + result.entriesRecovered()
-                            + " blocks recovered; last entry was truncated: "
-                            + result.detail() + ")"));
-                }
-                case UNRECOVERABLE -> {
-                    unrecoverable++;
-                    System.out.println(Ansi.AUTO.string("@|red FAILED|@ — " + result.detail()));
+        // Parallel repair
+        System.out.println("Repairing " + corruptZips.size() + " file(s) using " + repairThreads + " thread(s) …");
+        final AtomicInteger repairedCount = new AtomicInteger(0);
+        final AtomicInteger unrecoverableCount = new AtomicInteger(0);
+        final AtomicInteger doneCount = new AtomicInteger(0);
+        // Use ConcurrentHashMap to collect results; iterate corruptZips in order to print later.
+        final Map<Path, RepairResult> resultMap = new ConcurrentHashMap<>(corruptZips.size());
+
+        final long repairStart = System.nanoTime();
+        try (ExecutorService pool = Executors.newFixedThreadPool(repairThreads)) {
+            final List<Future<?>> futures = new ArrayList<>(corruptZips.size());
+            for (final Path zipPath : corruptZips) {
+                futures.add(pool.submit(() -> {
+                    final RepairResult result = repairZip(zipPath);
+                    resultMap.put(zipPath, result);
+                    switch (result.status()) {
+                        case REPAIRED, PARTIAL -> repairedCount.incrementAndGet();
+                        case UNRECOVERABLE -> unrecoverableCount.incrementAndGet();
+                    }
+                    final int done = doneCount.incrementAndGet();
+                    if (done % Math.max(1, corruptZips.size() / 20) == 0 || done == corruptZips.size()) {
+                        final long elapsedSec = (System.nanoTime() - repairStart) / 1_000_000_000L;
+                        System.out.printf(
+                                "  Repaired %,d / %,d  (%d failed so far)  [%ds]%n",
+                                done, corruptZips.size(), unrecoverableCount.get(), elapsedSec);
+                    }
+                }));
+            }
+            for (final Future<?> f : futures) {
+                try {
+                    f.get();
+                } catch (Exception e) {
+                    System.err.println("Repair task error: " + e.getMessage());
                 }
             }
         }
+
+        // Print per-file results in original (sorted) order
+        System.out.println();
+        for (final Path zipPath : corruptZips) {
+            final RepairResult result = resultMap.get(zipPath);
+            if (result == null) {
+                continue;
+            }
+            switch (result.status()) {
+                case REPAIRED ->
+                    System.out.println(Ansi.AUTO.string("  @|green OK|@      " + zipPath + "  ("
+                            + result.entriesRecovered() + " blocks recovered)"));
+                case PARTIAL ->
+                    System.out.println(Ansi.AUTO.string("  @|yellow PARTIAL|@ "
+                            + zipPath + "  (" + result.entriesRecovered()
+                            + " blocks recovered; last entry was truncated: " + result.detail() + ")"));
+                case UNRECOVERABLE ->
+                    System.out.println(Ansi.AUTO.string("  @|red FAILED|@  " + zipPath + "  — " + result.detail()));
+            }
+        }
+        final int repaired = repairedCount.get();
+        final int unrecoverable = unrecoverableCount.get();
 
         System.out.println();
         PrettyPrint.printBanner("PHASE 1 SUMMARY");
@@ -718,27 +805,65 @@ public class RepairZipsCommand implements Callable<Integer> {
     }
 
     /**
-     * Repair a corrupt zip by streaming local entries from {@link ZipInputStream} into a new
-     * {@link ZipOutputStream} written to a temp file, then atomically replacing the original.
+     * Repair a corrupt zip, using an in-memory strategy when the file fits within
+     * {@link #BUFFER_SIZE} or falling back to streaming for larger files.
+     *
+     * <p><b>In-memory path</b> (file ≤ {@code BUFFER_SIZE}): reads the entire zip into the
+     * calling thread's {@link #THREAD_READ_BUF}, processes entries via {@link ZipInputStream}
+     * over a {@link ByteArrayInputStream}, and accumulates the repaired zip into the calling
+     * thread's {@link #THREAD_WRITE_BUF}. Both buffers are reused across repairs on the same
+     * thread, so no large allocation occurs after the initial warm-up.</p>
+     *
+     * <p><b>Streaming fallback</b> (file > {@code BUFFER_SIZE}): passes through
+     * {@link #repairZipStreaming}, which reads and writes via buffered file streams.</p>
      *
      * @param zipPath path to the corrupt zip file
      * @return result describing outcome
      */
     private static RepairResult repairZip(final Path zipPath) {
         final Path tempFile = zipPath.resolveSibling(zipPath.getFileName() + ".repairtmp");
+
+        final long fileSize;
+        try {
+            fileSize = Files.size(zipPath);
+        } catch (IOException e) {
+            return RepairResult.unrecoverable("Cannot read file size: " + e.getMessage());
+        }
+
+        // Files larger than the thread-local buffer fall back to the streaming path.
+        if (fileSize > BUFFER_SIZE) {
+            return repairZipStreaming(zipPath, tempFile);
+        }
+
+        // ── In-memory path ──────────────────────────────────────────────────────────────────────
+
+        // Read the whole file into the thread-local read buffer.
+        final int readSize = (int) fileSize;
+        final byte[] readBuf = THREAD_READ_BUF.get();
+        try (FileChannel readCh = FileChannel.open(zipPath, StandardOpenOption.READ)) {
+            final ByteBuffer bb = ByteBuffer.wrap(readBuf, 0, readSize);
+            while (bb.hasRemaining()) {
+                if (readCh.read(bb) < 0) {
+                    break;
+                }
+            }
+        } catch (IOException e) {
+            return RepairResult.unrecoverable("Failed to read file into buffer: " + e.getMessage());
+        }
+
+        // Reset the thread-local write buffer (keeps the backing array, resets write pointer).
+        final RecyclableOutputStream writeBuf = THREAD_WRITE_BUF.get();
+        writeBuf.reset();
+
+        // Process entries entirely in RAM.
         int entriesRecovered = 0;
         String truncationDetail = null;
         boolean streamOpenedOk = false;
-
-        try (ZipInputStream zis =
-                        new ZipInputStream(new BufferedInputStream(Files.newInputStream(zipPath), BUFFER_SIZE));
-                ZipOutputStream zos =
-                        new ZipOutputStream(new BufferedOutputStream(Files.newOutputStream(tempFile), BUFFER_SIZE))) {
-
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(readBuf, 0, readSize));
+                ZipOutputStream zos = new ZipOutputStream(writeBuf)) {
             streamOpenedOk = true;
             zos.setMethod(ZipOutputStream.STORED);
             zos.setLevel(Deflater.NO_COMPRESSION);
-
             ZipEntry inEntry;
             while ((inEntry = zis.getNextEntry()) != null) {
                 final String name = inEntry.getName();
@@ -751,7 +876,74 @@ public class RepairZipsCommand implements Callable<Integer> {
                 }
                 zis.closeEntry();
             }
+        } catch (IOException e) {
+            if (!streamOpenedOk || entriesRecovered == 0) {
+                return RepairResult.unrecoverable(
+                        "ZipInputStream failed before reading any entries: " + e.getMessage());
+            }
+            truncationDetail = "stream error after " + entriesRecovered + " entries: " + e.getMessage();
+        }
 
+        if (entriesRecovered == 0) {
+            return RepairResult.unrecoverable("No recoverable entries found in zip");
+        }
+
+        // Write the repaired bytes to a temp file via FileChannel (single write call), then swap.
+        try (FileChannel outCh = FileChannel.open(
+                tempFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            writeBuf.writeTo(outCh);
+        } catch (IOException e) {
+            cleanupTemp(tempFile);
+            return RepairResult.unrecoverable("Failed to write repaired file: " + e.getMessage());
+        }
+        try {
+            Files.move(tempFile, zipPath, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            cleanupTemp(tempFile);
+            return RepairResult.unrecoverable("Failed to replace original with repaired file: " + e.getMessage());
+        }
+
+        return truncationDetail != null
+                ? RepairResult.partial(entriesRecovered, truncationDetail)
+                : RepairResult.repaired(entriesRecovered);
+    }
+
+    /**
+     * Streaming fallback for files larger than {@link #BUFFER_SIZE}.
+     *
+     * <p>Uses a {@link java.io.BufferedInputStream} / {@link java.io.BufferedOutputStream} pair
+     * backed by {@link #BUFFER_SIZE}-byte buffers so that I/O still happens in large chunks even
+     * though the whole file is never held in memory at once. This avoids OOM for the rare very
+     * large (e.g. 15 GiB) zip files.</p>
+     *
+     * @param zipPath  path to the corrupt zip file
+     * @param tempFile sibling temp file path already computed by the caller
+     * @return result describing outcome
+     */
+    private static RepairResult repairZipStreaming(final Path zipPath, final Path tempFile) {
+        int entriesRecovered = 0;
+        String truncationDetail = null;
+        boolean streamOpenedOk = false;
+
+        try (ZipInputStream zis = new ZipInputStream(
+                        new java.io.BufferedInputStream(Files.newInputStream(zipPath), BUFFER_SIZE));
+                ZipOutputStream zos = new ZipOutputStream(
+                        new java.io.BufferedOutputStream(Files.newOutputStream(tempFile), BUFFER_SIZE))) {
+            streamOpenedOk = true;
+            zos.setMethod(ZipOutputStream.STORED);
+            zos.setLevel(Deflater.NO_COMPRESSION);
+            ZipEntry inEntry;
+            while ((inEntry = zis.getNextEntry()) != null) {
+                final String name = inEntry.getName();
+                try {
+                    writeEntry(zis, zos, inEntry);
+                    entriesRecovered++;
+                } catch (IOException e) {
+                    truncationDetail = "entry '" + name + "' truncated: " + e.getMessage();
+                    break;
+                }
+                zis.closeEntry();
+            }
         } catch (IOException e) {
             cleanupTemp(tempFile);
             if (!streamOpenedOk || entriesRecovered == 0) {
