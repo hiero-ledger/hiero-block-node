@@ -19,7 +19,7 @@ export const options = {
         },
     },
     thresholds: { // todo make these good defaults, we need these to display tags in the result, but also to ping us if they go over
-        'grpc_req_duration{name:block_node_server_status}': ['p(100)<300'],
+        'grpc_req_duration{name:block_node_server_status_detail}': ['p(100)<300'],
     },
 };
 
@@ -41,7 +41,7 @@ export default () => {
         });
     }
     const params = {
-        tags: {name: 'block_node_server_status'}
+        tags: {name: 'block_node_server_status_detail'}
     };
     let response = new ServerStatusRequest(client).invoke(params);
     // ignore StatusDeadlineExceeded as it appears there is an issue with K6 grpc

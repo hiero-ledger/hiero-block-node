@@ -70,21 +70,52 @@ run_server_status_test() {
     echo "Running server status test..."
     local out_file=${k6_out_dir}/server_status_test.log
     k6 run ./average-load/bn-server-status.js >> "${out_file}" 2>&1
-    echo "Server status test completed."
+    if [[ $? -ne 0 ]]; then
+        echo "Server status test FAILED."
+        # Optional: exit the script with a specific error code
+        exit 1
+    else
+        echo "Server status test PASSED."
+    fi
+}
+
+run_server_status_detail_test() {
+    echo "Running server status detail test..."
+    local out_file=${k6_out_dir}/server_status_detail_test.log
+    k6 run ./average-load/bn-server-status-detail.js >> "${out_file}" 2>&1
+    if [[ $? -ne 0 ]]; then
+        echo "Server status detail test FAILED."
+        # Optional: exit the script with a specific error code
+        exit 1
+    else
+        echo "Server status detail test PASSED."
+    fi
 }
 
 run_query_validation_test() {
     echo "Running query validation test..."
     local out_file=${k6_out_dir}/query_validation_test.log
     k6 run ./smoke/bn-query-validation.js >> "${out_file}" 2>&1
-    echo "Query validation test completed."
+    if [[ $? -ne 0 ]]; then
+        echo "Query validation test test FAILED."
+        # Optional: exit the script with a specific error code
+        exit 1
+    else
+        echo "Query validation test test PASSED."
+    fi
 }
 
 run_stream_validation_test() {
     echo "Running stream validation test..."
     local out_file=${k6_out_dir}/stream_validation_test.log
     k6 run ./smoke/bn-stream-validation.js >> "${out_file}" 2>&1
-    echo "Stream validation test completed."
+    if [[ $? -ne 0 ]]; then
+        echo "Stream validation test FAILED."
+        # Optional: exit the script with a specific error code
+        exit 1
+    else
+        echo "Stream validation test PASSED."
+    fi
 }
 
 run_shared_node_tests() {
@@ -92,6 +123,7 @@ run_shared_node_tests() {
     run_bn
     run_simulator 0 100
     run_server_status_test
+    run_server_status_detail_test
     run_query_validation_test
     run_stream_validation_test
 }
