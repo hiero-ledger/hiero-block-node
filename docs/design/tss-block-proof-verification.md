@@ -8,21 +8,18 @@ For the broader block verification design, see
 
 ## Terms
 
-<dl>
-<dt>LedgerId</dt>
-<dd>Network identity used as root of trust for <code>TSS.verifyTSS()</code>. Published in block 0
-via <code>LedgerIdPublicationTransactionBody</code>.</dd>
+**LedgerId** — Network identity used as root of trust for `TSS.verifyTSS()`. Published in
+block 0 via `LedgerIdPublicationTransactionBody`.
 
-<dt>TssSignedBlockProof</dt>
-<dd>A <code>BlockProof</code> whose <code>blockSignature</code> layout depends on WRAPS availability:
-<ul>
-<li><strong>Pre-settled</strong> (WRAPS not yet available):
-<code>vk (1,096) || blsSig (1,632) || aggregate_schnorr_sig (192)</code> = 2,920 bytes</li>
-<li><strong>Post-settled</strong> (WRAPS available):
-<code>vk (1,096) || blsSig (1,632) || wraps_compressed_proof (704)</code> = 3,432 bytes</li>
-</ul>
-Both variants are handled internally by <code>TSS.verifyTSS()</code>.</dd>
-</dl>
+**TssSignedBlockProof** — A `BlockProof` whose `blockSignature` layout depends on WRAPS
+availability:
+
+- **Pre-settled** (WRAPS not yet available):
+  `vk (1,096) || blsSig (1,632) || aggregate_schnorr_sig (192)` = 2,920 bytes
+- **Post-settled** (WRAPS available):
+  `vk (1,096) || blsSig (1,632) || wraps_compressed_proof (704)` = 3,432 bytes
+
+Both variants are handled internally by `TSS.verifyTSS()`.
 
 ## Design
 
