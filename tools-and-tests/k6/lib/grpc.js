@@ -12,6 +12,18 @@ class ServerStatusRequest {
     }
 }
 
+class ServerStatusDetailRequest {
+    constructor(client) {
+        this.client = client;
+        this.protoDef = 'org.hiero.block.api.BlockNodeService/serverStatusDetail'
+    }
+
+    invoke(params = {}) {
+        const req = {};
+        return this.client.invoke(this.protoDef, req, params);
+    }
+}
+
 class GetBlockRequest {
     constructor(client) {
         this.client = client;
@@ -35,5 +47,5 @@ class SubscribeBlockStreamRequest {
     }
 }
 
-export { ServerStatusRequest, GetBlockRequest, SubscribeBlockStreamRequest };
+export { ServerStatusRequest, ServerStatusDetailRequest, GetBlockRequest, SubscribeBlockStreamRequest };
 
