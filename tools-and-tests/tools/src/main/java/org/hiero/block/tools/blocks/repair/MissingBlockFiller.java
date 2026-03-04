@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.hiero.block.tools.blocks.AmendmentProvider;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
@@ -69,6 +70,9 @@ public class MissingBlockFiller {
 
     /** Hex formatter for diagnostic hash output. */
     private static final HexFormat HEX = HexFormat.of();
+
+    /** Minimum nanoseconds between progress-bar updates (500 ms). */
+    private static final long PROGRESS_INTERVAL_NS = 500_000_000L;
 
     // ── Configuration ─────────────────────────────────────────────────────────────────────────────
 
@@ -173,6 +177,7 @@ public class MissingBlockFiller {
                         info.zipPath(), info.presentBlocks().size(), missingCount);
             }
             System.out.printf("%nTotal missing blocks: %,d%n%n", totalMissing);
+            final long totalMissingFinal = totalMissing;
 
             if (dryRun) {
                 System.out.println(Ansi.AUTO.string("@|yellow DRY RUN — no changes made.|@"));
@@ -229,9 +234,23 @@ public class MissingBlockFiller {
                 hasherLeafCount = firstDayFirstBlock;
             }
 
-            int totalFilled = 0;
-            int totalFailed = 0;
+            final AtomicInteger totalFilled = new AtomicInteger(0);
+            final AtomicInteger totalFailed = new AtomicInteger(0);
             final Map<Path, BlockZipAppender> openAppenders = new HashMap<>();
+
+            final long fillStart = System.nanoTime();
+            final Thread fillProgressThread = Thread.ofVirtual().start(() -> {
+                while (!Thread.currentThread().isInterrupted()) {
+                    printFillProgress(
+                            totalFilled.get() + totalFailed.get(), totalMissingFinal, totalFailed.get(), fillStart);
+                    try {
+                        Thread.sleep(PROGRESS_INTERVAL_NS / 1_000_000L);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            });
 
             LocalDate currentDay = firstRelevantDay;
             while (!currentDay.isAfter(lastRelevantDay)) {
@@ -271,7 +290,7 @@ public class MissingBlockFiller {
                         final long hi = Math.min(info.lastBlock(), dayLast);
                         for (long bn = lo; bn <= hi; bn++) {
                             if (!info.presentBlocks().contains(bn)) {
-                                totalFailed++;
+                                totalFailed.incrementAndGet();
                             }
                         }
                     }
@@ -284,6 +303,7 @@ public class MissingBlockFiller {
                     continue;
                 }
 
+                PrettyPrint.clearProgress();
                 System.out.printf(
                         "Processing day %s (%s) blocks %,d..%,d …%n",
                         currentDay, dayPath.getFileName(), dayFirst, dayLast);
@@ -337,7 +357,7 @@ public class MissingBlockFiller {
                                             + "  Computed: %s%n"
                                             + "  Skipping this block.%n",
                                     blockNum, HEX.formatHex(registryHash), HEX.formatHex(recomputedHash));
-                            totalFailed++;
+                            totalFailed.incrementAndGet();
                             streamingHasher.addNodeByHash(registryHash);
                             hasherLeafCount = blockNum + 1;
                             continue;
@@ -358,8 +378,7 @@ public class MissingBlockFiller {
 
                         streamingHasher.addNodeByHash(registryHash);
                         hasherLeafCount = blockNum + 1;
-                        totalFilled++;
-                        System.out.printf("  Block %,d filled OK%n", blockNum);
+                        totalFilled.incrementAndGet();
 
                         final IncompleteZipInfo info = zipEntry.getValue();
                         if (blockNum == info.lastBlock()) {
@@ -371,20 +390,31 @@ public class MissingBlockFiller {
                 currentDay = currentDay.plusDays(1);
             }
 
+            fillProgressThread.interrupt();
+            try {
+                fillProgressThread.join(1_000);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            final int filledFinal = totalFilled.get();
+            final int failedFinal = totalFailed.get();
+            printFillProgress(filledFinal + failedFinal, totalMissing, failedFinal, fillStart);
+            PrettyPrint.clearProgress();
+
             closeAllAppenders(openAppenders);
 
             System.out.println();
             PrettyPrint.printBanner("PHASE 2 SUMMARY");
             System.out.printf("Missing blocks identified: %,d%n", totalMissing);
-            System.out.printf("Blocks filled:            %,d%n", totalFilled);
-            System.out.printf("Blocks failed:            %,d%n", totalFailed);
-            if (totalFailed == 0 && totalFilled == totalMissing) {
+            System.out.printf("Blocks filled:            %,d%n", filledFinal);
+            System.out.printf("Blocks failed:            %,d%n", failedFinal);
+            if (failedFinal == 0 && filledFinal == totalMissing) {
                 System.out.println(Ansi.AUTO.string("@|bold,green All missing blocks filled successfully.|@"));
-            } else if (totalFailed > 0) {
+            } else if (failedFinal > 0) {
                 System.out.println(Ansi.AUTO.string("@|bold,red Some blocks could not be filled.|@ "
                         + "Run 'blocks validate' to check the current state."));
             }
-            return totalFailed == 0 ? 0 : 1;
+            return failedFinal == 0 ? 0 : 1;
 
         } catch (Exception e) {
             System.err.println("Fatal error in fill phase: " + e.getMessage());
@@ -495,6 +525,22 @@ public class MissingBlockFiller {
             }
         }
         openAppenders.clear();
+    }
+
+    /**
+     * Print an in-place progress bar for the fill phase.
+     *
+     * @param done       number of blocks processed (filled + failed) so far
+     * @param total      total missing blocks to fill
+     * @param failed     number of blocks that failed to fill
+     * @param startNanos {@link System#nanoTime()} when the fill phase started
+     */
+    private static void printFillProgress(final long done, final long total, final long failed, final long startNanos) {
+        final double percent = total == 0 ? 100.0 : 100.0 * done / total;
+        final long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+        final long remainingMs = PrettyPrint.computeRemainingMilliseconds(done, total, elapsedMs);
+        final String msg = String.format("Filling %,d / %,d blocks (%,d failed)", done, total, failed);
+        PrettyPrint.printProgressWithEta(percent, msg, remainingMs);
     }
 
     // ── Data model ────────────────────────────────────────────────────────────────────────────────

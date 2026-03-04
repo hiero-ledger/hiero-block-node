@@ -52,9 +52,17 @@ public class RepairZipsCommand implements Callable<Integer> {
     @Option(
             names = {"--repair-threads"},
             description = "Number of threads for the parallel CEN repair phase (default: 4). "
-                    + "Each thread holds its own read/write buffer in memory, so memory use is "
-                    + "approximately 2 × BUFFER_SIZE × repairThreads.")
+                    + "Each thread holds its own read/write buffer in memory.")
     private int repairThreads = 4;
+
+    @Option(
+            names = {"--buffer-size"},
+            description = "Per-thread buffer size in MiB for the in-memory repair path. "
+                    + "Files smaller than this value are repaired entirely in RAM; larger files use "
+                    + "zero-copy streaming. Default: auto-computed from available heap and thread count "
+                    + "(~75%% of maxHeap / (2 × repairThreads)). "
+                    + "Example: --buffer-size 2048 for a 2 GiB per-thread buffer.")
+    private int bufferSizeMiB = 0;
 
     @Option(
             names = {"-i", "--input-dir"},
@@ -87,7 +95,7 @@ public class RepairZipsCommand implements Callable<Integer> {
             return 1;
         }
 
-        final int repairExit = new ZipRepairEngine(scanThreads, repairThreads).runScanAndRepair(dir);
+        final int repairExit = new ZipRepairEngine(scanThreads, repairThreads, bufferSizeMiB).runScanAndRepair(dir);
 
         if (compressedDaysDir == null) {
             System.out.println();
