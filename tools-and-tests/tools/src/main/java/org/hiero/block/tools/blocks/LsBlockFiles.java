@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
-import java.io.File;
+import java.nio.file.Path;
 import org.hiero.block.tools.blocks.model.BlockInfo;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -25,7 +25,7 @@ import picocli.CommandLine.Parameters;
 public class LsBlockFiles implements Runnable {
 
     @Parameters(index = "0..*", description = "Block files, directories, or zip archives to process")
-    private File[] files;
+    private Path[] files;
 
     @Option(
             names = {"-ms", "--min-size"},
@@ -40,7 +40,7 @@ public class LsBlockFiles implements Runnable {
     @Option(
             names = {"-o", "--output-file"},
             description = "Output to file rather than stdout")
-    private File outputFile;
+    private Path outputFile;
 
     /** Empty Default constructor to remove the Javadoc warning. */
     public LsBlockFiles() {}

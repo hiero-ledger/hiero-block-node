@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
@@ -16,7 +15,7 @@ import picocli.CommandLine.Spec;
 @Command(name = "ls", description = "List record file sets contained in the provided .tar.zstd files or directories")
 public class Ls implements Runnable {
     @Parameters(index = "0..*", description = "Files or directories to process")
-    private final File[] compressedDayOrDaysDirs = new File[0];
+    private final Path[] compressedDayOrDaysDirs = new Path[0];
 
     @Option(
             names = {"-l", "--extended"},

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.model;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,36 +26,36 @@ public class TarZstdDayUtils {
      * @param compressedDayOrDaysDirs files or directories containing .tar.zstd files to process
      * @return a sorted list of paths to the .tar.zstd files to process
      */
-    public static List<Path> sortedDayPaths(File[] compressedDayOrDaysDirs) {
+    public static List<Path> sortedDayPaths(Path[] compressedDayOrDaysDirs) {
         if (compressedDayOrDaysDirs == null || compressedDayOrDaysDirs.length == 0) {
             throw new IllegalArgumentException("No input paths provided");
         }
         // scan all files or directories building uber list of all .tar.zstd files
         final List<Path> allDayFiles = new ArrayList<>();
-        for (File f : compressedDayOrDaysDirs) {
-            if (f.isDirectory()) {
-                try (Stream<Path> fileStream = Files.walk(f.toPath())) {
+        for (Path p : compressedDayOrDaysDirs) {
+            if (Files.isDirectory(p)) {
+                try (Stream<Path> fileStream = Files.walk(p)) {
                     fileStream
                             .filter(Files::isRegularFile)
                             // Skip files in hidden directories (e.g., .rsync-partial, .tmp, etc.)
-                            .filter(p -> {
-                                for (int i = 0; i < p.getNameCount(); i++) {
-                                    String name = p.getName(i).toString();
+                            .filter(path -> {
+                                for (int i = 0; i < path.getNameCount(); i++) {
+                                    String name = path.getName(i).toString();
                                     if (name.startsWith(".")) {
                                         return false; // skip hidden directories
                                     }
                                 }
                                 return true;
                             })
-                            .filter(p -> DAY_FILE_PATTERN
-                                    .matcher(p.getFileName().toString())
+                            .filter(path -> DAY_FILE_PATTERN
+                                    .matcher(path.getFileName().toString())
                                     .matches())
                             .forEach(allDayFiles::add);
                 } catch (IOException ioe) {
-                    throw new RuntimeException("IO error processing path: " + f + " -> " + ioe.getMessage(), ioe);
+                    throw new RuntimeException("IO error processing path: " + p + " -> " + ioe.getMessage(), ioe);
                 }
-            } else if (DAY_FILE_PATTERN.matcher(f.getName()).matches()) {
-                allDayFiles.add(f.toPath());
+            } else if (DAY_FILE_PATTERN.matcher(p.getFileName().toString()).matches()) {
+                allDayFiles.add(p);
             }
         }
         // sort the input paths for a consistent processing order

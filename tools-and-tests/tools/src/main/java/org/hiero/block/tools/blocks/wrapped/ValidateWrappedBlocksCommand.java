@@ -2,7 +2,6 @@
 package org.hiero.block.tools.blocks.wrapped;
 
 import com.hedera.hapi.block.stream.Block;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -52,7 +51,7 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
 
     @SuppressWarnings("unused")
     @Parameters(index = "0..1", description = "Block files, directories, or zip archives to process")
-    private File[] files;
+    private Path[] files;
 
     @Option(
             names = {"--validate-balances"},
@@ -83,7 +82,7 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ No input directory specified"));
             return 1;
         }
-        final Path inputDir = files[0].toPath();
+        final Path inputDir = files[0];
         // Validate input directory exists
         if (!Files.isDirectory(inputDir)) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ Input directory does not exist: " + inputDir));

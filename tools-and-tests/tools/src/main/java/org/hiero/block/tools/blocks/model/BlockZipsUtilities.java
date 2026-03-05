@@ -94,23 +94,23 @@ public final class BlockZipsUtilities {
      *     throwing; if null, corrupt zips print a warning and are skipped silently
      * @return list of block sources sorted by block number
      */
-    public static List<BlockSource> findBlockSources(java.io.File[] files, AtomicLong corruptZipCounter) {
+    public static List<BlockSource> findBlockSources(Path[] files, AtomicLong corruptZipCounter) {
         List<BlockSource> sources = new ArrayList<>();
-        for (java.io.File file : files) {
-            if (!file.exists()) {
+        for (Path file : files) {
+            if (!Files.exists(file)) {
                 System.err.println("File not found : " + file);
                 continue;
             }
-            if (file.isDirectory()) {
-                findBlocksInDirectory(file.toPath(), sources, corruptZipCounter);
-            } else if (file.getName().endsWith(".zip")) {
-                findBlocksInZip(file.toPath(), sources, corruptZipCounter);
+            if (Files.isDirectory(file)) {
+                findBlocksInDirectory(file, sources, corruptZipCounter);
+            } else if (file.getFileName().toString().endsWith(".zip")) {
+                findBlocksInZip(file, sources, corruptZipCounter);
             } else {
-                String fileName = file.getName();
+                String fileName = file.getFileName().toString();
                 long blockNum = extractBlockNumber(fileName);
                 if (blockNum >= 0) {
                     CompressionType compression = getCompressionType(fileName);
-                    sources.add(new BlockSource(blockNum, file.toPath(), null, compression));
+                    sources.add(new BlockSource(blockNum, file, null, compression));
                 }
             }
         }

@@ -17,12 +17,15 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 /**
  * Unit tests for {@link ConcurrentDownloadManagerVirtualThreadsV3}.
  *
  * Uses Google's LocalStorageHelper for in-memory GCS testing without external mocking libraries.
  */
+@Execution(ExecutionMode.SAME_THREAD)
 class ConcurrentDownloadManagerVirtualThreadsV3Test {
 
     private Storage localStorage;

@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import picocli.CommandLine;
 
 /**
@@ -25,6 +27,7 @@ import picocli.CommandLine;
  * <p>Uses {@link TestBlockFactory} to generate synthetic blocks with real RSA signatures.
  * Blocks are written as uncompressed {@code .blk} files (no zstd dependency needed).
  */
+@Execution(ExecutionMode.SAME_THREAD)
 class ValidateBlocksCommandTest {
 
     @TempDir

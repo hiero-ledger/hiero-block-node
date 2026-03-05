@@ -13,8 +13,11 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import picocli.CommandLine;
 
+@Execution(ExecutionMode.SAME_THREAD)
 class NetworkCapacityTest {
 
     @TempDir

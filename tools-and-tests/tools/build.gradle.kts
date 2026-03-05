@@ -48,6 +48,8 @@ testModuleInfo {
 
 pbj { generateTestClasses = false }
 
+tasks.test { maxParallelForks = Runtime.getRuntime().availableProcessors() }
+
 sourceSets {
     main {
         pbj {

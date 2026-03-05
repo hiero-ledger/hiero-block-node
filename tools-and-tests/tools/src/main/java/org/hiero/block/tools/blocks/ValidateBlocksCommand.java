@@ -7,7 +7,6 @@ import com.google.gson.JsonParser;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedInputStream;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -87,7 +86,7 @@ public class ValidateBlocksCommand implements Runnable {
 
     @SuppressWarnings("unused")
     @Parameters(index = "0..*", description = "Block files or directories to validate")
-    private File[] files;
+    private Path[] files;
 
     @Option(
             names = {"-a", "--address-book"},
@@ -194,9 +193,9 @@ public class ValidateBlocksCommand implements Runnable {
 
         // Auto-detect addressBookHistory.json if not explicitly provided
         if (addressBookFile == null) {
-            for (File file : files) {
-                if (file.isDirectory()) {
-                    Path potentialAddressBook = file.toPath().resolve("addressBookHistory.json");
+            for (Path file : files) {
+                if (Files.isDirectory(file)) {
+                    Path potentialAddressBook = file.resolve("addressBookHistory.json");
                     if (Files.exists(potentialAddressBook)) {
                         addressBookFile = potentialAddressBook;
                         System.out.println(
@@ -227,8 +226,8 @@ public class ValidateBlocksCommand implements Runnable {
 
         // Checkpoint directory lives inside the first input directory
         Path checkpointDir = Arrays.stream(files)
-                .filter(File::isDirectory)
-                .map(f -> f.toPath().resolve("validateCheckpoint"))
+                .filter(Files::isDirectory)
+                .map(f -> f.resolve("validateCheckpoint"))
                 .findFirst()
                 .orElse(Path.of("validateCheckpoint"));
 
@@ -252,9 +251,9 @@ public class ValidateBlocksCommand implements Runnable {
         Path streamingMerkleTreePath = null;
         Path completeMerkleTreePath = null;
         Path jumpstartPath = null;
-        for (File file : files) {
-            if (file.isDirectory()) {
-                Path dir = file.toPath();
+        for (Path file : files) {
+            if (Files.isDirectory(file)) {
+                Path dir = file;
                 if (Files.exists(dir.resolve("blockStreamBlockHashes.bin"))) {
                     hashRegistryPath = dir.resolve("blockStreamBlockHashes.bin");
                     streamingMerkleTreePath = dir.resolve("streamingMerkleTree.bin");

@@ -15,6 +15,8 @@ import java.util.Objects;
 import org.hiero.block.tools.blocks.ToWrappedBlocksCommand;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import picocli.CommandLine;
 
 /**
@@ -27,6 +29,7 @@ import picocli.CommandLine;
  * <p>Unit tests for individual validations have been moved to the
  * {@code org.hiero.block.tools.blocks.validation} package.
  */
+@Execution(ExecutionMode.SAME_THREAD)
 class ValidateWrappedBlocksCommandTest {
 
     @TempDir
