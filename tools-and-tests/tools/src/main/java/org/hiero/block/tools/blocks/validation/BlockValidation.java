@@ -12,14 +12,22 @@ import org.hiero.block.tools.records.model.parsed.ValidationException;
  * <p>Each implementation encapsulates one validation concern (e.g. chain hash continuity,
  * required items, 50-billion HBAR supply) and owns any cross-block state it needs.
  *
- * <p>The validate/commit two-phase protocol ensures that if any validation fails for a
- * block, no validation's state is updated:
+ * <p>The lifecycle has three phases:
  * <ol>
- *   <li>{@link #validate(Block, long)} — checks the block against staged (uncommitted) state.
- *       Must NOT commit state changes. If multiple validations are run, a failure in one
- *       causes all staged changes to be discarded.
- *   <li>{@link #commitState(Block, long)} — called only after ALL validations pass, commits
- *       any staged state (e.g. updating the previous block hash, adding to a streaming hasher).
+ *   <li><b>Per-block validate/commit</b> — the two-phase protocol ensures that if any
+ *       validation fails for a block, no validation's state is updated:
+ *       <ul>
+ *         <li>{@link #validate(Block, long)} — checks the block against staged (uncommitted)
+ *             state. Must NOT commit state changes. If multiple validations are run, a failure
+ *             in one causes all staged changes to be discarded.
+ *         <li>{@link #commitState(Block, long)} — called only after ALL validations pass,
+ *             commits any staged state (e.g. updating the previous block hash, adding to a
+ *             streaming hasher).
+ *       </ul>
+ *   <li><b>Finalize</b> — {@link #finalize(long, long)} is called once after all blocks
+ *       have been processed. Use for end-of-stream checks such as comparing accumulated
+ *       state against saved state files.
+ *   <li><b>Cleanup</b> — {@link #close()} releases any resources held by this validation.
  * </ol>
  */
 public interface BlockValidation {
@@ -89,6 +97,16 @@ public interface BlockValidation {
      * @throws IOException if loading fails
      */
     default void load(Path directory) throws IOException {}
+
+    /**
+     * Called once after all blocks have been validated and committed. Use for end-of-stream
+     * checks such as comparing accumulated state against saved state files.
+     *
+     * @param totalBlocksValidated the total number of blocks that were validated
+     * @param lastBlockNumber the block number of the last validated block
+     * @throws ValidationException if the finalization check fails
+     */
+    default void finalize(long totalBlocksValidated, long lastBlockNumber) throws ValidationException {}
 
     /** Release any resources held by this validation. */
     default void close() {}

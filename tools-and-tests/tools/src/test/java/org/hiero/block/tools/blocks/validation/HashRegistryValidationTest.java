@@ -86,6 +86,42 @@ class HashRegistryValidationTest {
     }
 
     @Test
+    void finalize_matchingHighestBlock_passes(@TempDir Path tempDir) throws Exception {
+        BlockChainValidation chainValidation = new BlockChainValidation();
+        chainValidation.validate(VALID_BLOCK, 0);
+        byte[] blockHash = chainValidation.getStagedBlockHash();
+
+        Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
+        try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {
+            raf.write(blockHash);
+        }
+
+        BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
+        HashRegistryValidation validation = new HashRegistryValidation(registry, chainValidation);
+        assertDoesNotThrow(() -> validation.finalize(1, 0));
+        validation.close();
+    }
+
+    @Test
+    void finalize_mismatchedHighestBlock_fails(@TempDir Path tempDir) throws Exception {
+        BlockChainValidation chainValidation = new BlockChainValidation();
+        chainValidation.validate(VALID_BLOCK, 0);
+        byte[] blockHash = chainValidation.getStagedBlockHash();
+
+        Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
+        try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {
+            raf.write(blockHash);
+        }
+
+        BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
+        HashRegistryValidation validation = new HashRegistryValidation(registry, chainValidation);
+        // Registry has highest block 0, but we claim last block was 5
+        ValidationException ex = assertThrows(ValidationException.class, () -> validation.finalize(6, 5));
+        assertTrue(ex.getMessage().contains("highest stored block"));
+        validation.close();
+    }
+
+    @Test
     void doesNotRequireGenesisStart(@TempDir Path tempDir) throws IOException {
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
         try (RandomAccessFile raf = new RandomAccessFile(registryPath.toFile(), "rw")) {

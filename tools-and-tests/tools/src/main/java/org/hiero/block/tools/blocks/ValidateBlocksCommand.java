@@ -7,7 +7,6 @@ import com.google.gson.JsonParser;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedInputStream;
-import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -32,16 +31,17 @@ import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.BlockSource;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.ParsedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
-import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
-import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.blocks.validation.BlockChainValidation;
 import org.hiero.block.tools.blocks.validation.BlockStructureValidation;
 import org.hiero.block.tools.blocks.validation.BlockValidation;
+import org.hiero.block.tools.blocks.validation.CompleteMerkleTreeValidation;
 import org.hiero.block.tools.blocks.validation.HashRegistryValidation;
 import org.hiero.block.tools.blocks.validation.HbarSupplyValidation;
 import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
+import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
+import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
@@ -51,26 +51,22 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
 /**
- * Validates a wrapped block stream by checking:
- * <ul>
- *   <li>Hash chain continuity - each block's previousBlockRootHash matches computed hash of previous block</li>
- *   <li>First block has the empty-tree hash for previous hash (genesis)</li>
- *   <li>Signature validation - at least 1/3 + 1 of address book nodes must sign</li>
- *   <li>Binary state files produced by {@code ToWrappedBlocksCommand}:
- *     {@code blockStreamBlockHashes.bin}, {@code streamingMerkleTree.bin},
- *     {@code completeMerkleTree.bin}, and {@code jumpstart.bin}</li>
- * </ul>
+ * Validation pipeline orchestrator for wrapped block streams.
  *
- * <p>This command works with both:</p>
- * <ul>
- *   <li>Individual block files (*.blk, *.blk.gz, *.blk.zstd)</li>
- *   <li>Hierarchical directory structures produced by {@code ToWrappedBlocksCommand} and {@code BlockWriter}</li>
- *   <li>Zip archives containing multiple blocks</li>
- * </ul>
+ * <p>This command discovers block sources (individual files, hierarchical directories, or zip
+ * archives), manages a performance-optimized pipeline (multi-threaded decompression, prefetch
+ * queue), handles checkpoint/resume for crash recovery, and delegates all validation logic to
+ * {@link BlockValidation} implementations.
  *
- * <p>When validating output from {@code ToWrappedBlocksCommand}, you can simply pass the output directory
- * as the only parameter. The command will automatically find the {@code addressBookHistory.json} file
- * in that directory if not explicitly specified, and will validate all four binary state files if present.</p>
+ * <p>The validation lifecycle has three phases:
+ * <ol>
+ *   <li><b>Per-block</b> — each block is validated and committed through all {@link BlockValidation}
+ *       instances using the two-phase validate/commit protocol.
+ *   <li><b>Finalize</b> — after all blocks are processed, each validation's
+ *       {@link BlockValidation#finalize(long, long)} method is called for end-of-stream checks
+ *       (e.g. comparing accumulated state against saved state files).
+ *   <li><b>Cleanup</b> — all validations are closed to release resources.
+ * </ol>
  *
  * <p>Validation is fail-fast: the command stops on the first validation error, saves a checkpoint,
  * prints a detailed error report, and exits. Pass {@code --no-resume} to ignore any existing
@@ -289,26 +285,6 @@ public class ValidateBlocksCommand implements Runnable {
         }
         System.out.println();
 
-        // Check for missing companion state files upfront
-        long stateFileErrors = 0;
-        if (hasStateFiles) {
-            if (!Files.exists(streamingMerkleTreePath)) {
-                System.err.println(Ansi.AUTO.string(
-                        "@|red Error:|@ streamingMerkleTree.bin not found alongside blockStreamBlockHashes.bin"));
-                stateFileErrors++;
-            }
-            if (!Files.exists(completeMerkleTreePath)) {
-                System.err.println(Ansi.AUTO.string(
-                        "@|red Error:|@ completeMerkleTree.bin not found alongside blockStreamBlockHashes.bin"));
-                stateFileErrors++;
-            }
-            if (!Files.exists(jumpstartPath)) {
-                System.err.println(Ansi.AUTO.string(
-                        "@|red Error:|@ jumpstart.bin not found alongside blockStreamBlockHashes.bin"));
-                stateFileErrors++;
-            }
-        }
-
         // Check for gaps in block numbers (across the full dataset)
         long expectedBlockNumber = sources.getFirst().blockNumber();
         for (BlockSource source : sources) {
@@ -326,6 +302,8 @@ public class ValidateBlocksCommand implements Runnable {
         BlockChainValidation chainValidation = new BlockChainValidation();
         HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chainValidation);
         HbarSupplyValidation supplyValidation = new HbarSupplyValidation();
+        CompleteMerkleTreeValidation completeMerkleTreeValidation =
+                hasStateFiles ? new CompleteMerkleTreeValidation(completeMerkleTreePath, chainValidation) : null;
 
         List<BlockValidation> validations = new ArrayList<>();
         validations.add(new RequiredItemsValidation());
@@ -337,9 +315,11 @@ public class ValidateBlocksCommand implements Runnable {
         if (registry != null) {
             validations.add(new HashRegistryValidation(registry, chainValidation));
         }
-
-        // InMemoryTreeHasher is only used for post-loop state file validation
-        final InMemoryTreeHasher freshInMemoryHasher = new InMemoryTreeHasher();
+        if (hasStateFiles) {
+            validations.add(completeMerkleTreeValidation);
+            validations.add(new StreamingMerkleTreeValidation(streamingMerkleTreePath, treeValidation));
+            validations.add(new JumpstartValidation(jumpstartPath, treeValidation, registry));
+        }
 
         // Restore validation state from checkpoint
         if (checkpoint != null) {
@@ -361,15 +341,16 @@ public class ValidateBlocksCommand implements Runnable {
             }
         }
 
-        // Rebuild InMemoryTreeHasher by replaying already-validated block hashes from registry
-        if (checkpoint != null && registry != null && checkpoint.lastValidatedBlockNumber() >= 0) {
+        // Rebuild CompleteMerkleTreeValidation by replaying already-validated block hashes from registry
+        if (checkpoint != null
+                && registry != null
+                && completeMerkleTreeValidation != null
+                && checkpoint.lastValidatedBlockNumber() >= 0) {
             long firstBlock = sources.getFirst().blockNumber();
             long replayTo = checkpoint.lastValidatedBlockNumber();
             System.out.println(Ansi.AUTO.string("@|yellow Replaying |@" + (replayTo - firstBlock + 1)
                     + " block hashes into in-memory hasher (blocks " + firstBlock + ".." + replayTo + ")"));
-            for (long bn = firstBlock; bn <= replayTo; bn++) {
-                freshInMemoryHasher.addNodeByHash(registry.getBlockHash(bn));
-            }
+            completeMerkleTreeValidation.replayFromRegistry(registry, firstBlock, replayTo);
         }
 
         // Track validation progress
@@ -544,8 +525,6 @@ public class ValidateBlocksCommand implements Runnable {
                     for (BlockValidation v : validations) {
                         v.commitState(block, blockNum);
                     }
-                    // Also feed the in-memory hasher (not a BlockValidation)
-                    freshInMemoryHasher.addNodeByHash(chainValidation.getPreviousBlockHash());
 
                     lastValidatedRef[0] = blockNum;
                     blocksValidated++;
@@ -596,123 +575,17 @@ public class ValidateBlocksCommand implements Runnable {
             readerThread.interrupt();
             decompPool.shutdownNow();
 
-            // ── Post-loop: validate binary state files ───────────────────────
-            StreamingHasher freshStreamingHasher = treeValidation.getStreamingHasher();
-
-            // Validate blockStreamBlockHashes.bin highest stored block number
-            if (registry != null) {
-                long expectedHighest = sources.getLast().blockNumber();
-                if (registry.highestBlockNumberStored() != expectedHighest) {
-                    PrettyPrint.clearProgress();
-                    System.out.println(Ansi.AUTO.string(
-                            "@|red State file error:|@ blockStreamBlockHashes.bin highest stored block "
-                                    + registry.highestBlockNumberStored() + " != expected " + expectedHighest));
-                    stateFileErrors++;
-                }
-            }
-
-            // Validate streamingMerkleTree.bin
-            if (streamingMerkleTreePath != null && Files.exists(streamingMerkleTreePath)) {
-                StreamingHasher loadedStreaming = new StreamingHasher();
-                try {
-                    loadedStreaming.load(streamingMerkleTreePath);
-                    long expectedLeaves = sources.size();
-                    if (loadedStreaming.leafCount() != expectedLeaves) {
-                        PrettyPrint.clearProgress();
-                        System.out.println(
-                                Ansi.AUTO.string("@|red State file error:|@ streamingMerkleTree.bin leaf count "
-                                        + loadedStreaming.leafCount() + " != expected " + expectedLeaves));
-                        stateFileErrors++;
+            // ── Finalize all validations (end-of-stream checks) ─────────────
+            if (failedValidationName == null) {
+                for (BlockValidation v : validations) {
+                    try {
+                        v.finalize(blocksValidated, lastValidatedRef[0]);
+                    } catch (ValidationException e) {
+                        failedValidationName = v.name();
+                        failureMessage = e.getMessage();
+                        failedBlockNumber = -1; // not a per-block error
+                        break;
                     }
-                    if (!Arrays.equals(loadedStreaming.computeRootHash(), freshStreamingHasher.computeRootHash())) {
-                        PrettyPrint.clearProgress();
-                        System.out.println(Ansi.AUTO.string(
-                                "@|red State file error:|@ streamingMerkleTree.bin root hash mismatch"));
-                        stateFileErrors++;
-                    }
-                } catch (Exception e) {
-                    PrettyPrint.clearProgress();
-                    System.out.println(Ansi.AUTO.string(
-                            "@|red State file error:|@ Failed to load streamingMerkleTree.bin: " + e.getMessage()));
-                    stateFileErrors++;
-                }
-            }
-
-            // Validate completeMerkleTree.bin
-            if (completeMerkleTreePath != null && Files.exists(completeMerkleTreePath)) {
-                InMemoryTreeHasher loadedInMemory = new InMemoryTreeHasher();
-                try {
-                    loadedInMemory.load(completeMerkleTreePath);
-                    long expectedLeaves = sources.size();
-                    if (loadedInMemory.leafCount() != expectedLeaves) {
-                        PrettyPrint.clearProgress();
-                        System.out.println(
-                                Ansi.AUTO.string("@|red State file error:|@ completeMerkleTree.bin leaf count "
-                                        + loadedInMemory.leafCount() + " != expected " + expectedLeaves));
-                        stateFileErrors++;
-                    }
-                    if (!Arrays.equals(loadedInMemory.computeRootHash(), freshInMemoryHasher.computeRootHash())) {
-                        PrettyPrint.clearProgress();
-                        System.out.println(Ansi.AUTO.string(
-                                "@|red State file error:|@ completeMerkleTree.bin root hash mismatch"));
-                        stateFileErrors++;
-                    }
-                } catch (Exception e) {
-                    PrettyPrint.clearProgress();
-                    System.out.println(Ansi.AUTO.string(
-                            "@|red State file error:|@ Failed to load completeMerkleTree.bin: " + e.getMessage()));
-                    stateFileErrors++;
-                }
-            }
-
-            // Validate jumpstart.bin
-            if (jumpstartPath != null && Files.exists(jumpstartPath)) {
-                try (DataInputStream din = new DataInputStream(Files.newInputStream(jumpstartPath))) {
-                    long jBlockNum = din.readLong();
-                    byte[] jHash = new byte[48];
-                    din.readFully(jHash);
-                    long jLeafCount = din.readLong();
-                    int jHashCount = din.readInt();
-                    List<byte[]> jHashes = new ArrayList<>();
-                    for (int i = 0; i < jHashCount; i++) {
-                        byte[] h = new byte[48];
-                        din.readFully(h);
-                        jHashes.add(h);
-                    }
-                    long expectedBlockNum = sources.getLast().blockNumber();
-                    if (jBlockNum != expectedBlockNum) {
-                        PrettyPrint.clearProgress();
-                        System.out.println(Ansi.AUTO.string("@|red State file error:|@ jumpstart.bin block number "
-                                + jBlockNum + " != expected " + expectedBlockNum));
-                        stateFileErrors++;
-                    }
-                    if (registry != null) {
-                        byte[] registryHash = registry.getBlockHash(jBlockNum);
-                        if (!Arrays.equals(jHash, registryHash)) {
-                            PrettyPrint.clearProgress();
-                            System.out.println(Ansi.AUTO.string(
-                                    "@|red State file error:|@ jumpstart.bin block hash does not match registry"));
-                            stateFileErrors++;
-                        }
-                    }
-                    if (jLeafCount != freshStreamingHasher.leafCount()) {
-                        PrettyPrint.clearProgress();
-                        System.out.println(Ansi.AUTO.string("@|red State file error:|@ jumpstart.bin leaf count "
-                                + jLeafCount + " != expected " + freshStreamingHasher.leafCount()));
-                        stateFileErrors++;
-                    }
-                    StreamingHasher jumpstartHasher = new StreamingHasher(jHashes);
-                    if (!Arrays.equals(jumpstartHasher.computeRootHash(), freshStreamingHasher.computeRootHash())) {
-                        PrettyPrint.clearProgress();
-                        System.out.println(Ansi.AUTO.string(
-                                "@|red State file error:|@ jumpstart.bin streaming tree root mismatch"));
-                        stateFileErrors++;
-                    }
-                } catch (Exception e) {
-                    PrettyPrint.clearProgress();
-                    System.out.println(Ansi.AUTO.string(
-                            "@|red State file error:|@ Failed to read jumpstart.bin: " + e.getMessage()));
-                    stateFileErrors++;
                 }
             }
 
@@ -735,7 +608,7 @@ public class ValidateBlocksCommand implements Runnable {
 
         // On full success: remove checkpoint (validation is complete).
         // On partial/error: save a final checkpoint for next resume.
-        if (!validationFailed && stateFileErrors == 0 && allBlocksValidated) {
+        if (!validationFailed && allBlocksValidated) {
             try {
                 // Delete all checkpoint files
                 if (Files.isDirectory(checkpointDir)) {
@@ -778,24 +651,21 @@ public class ValidateBlocksCommand implements Runnable {
             System.out.println(Ansi.AUTO.string(
                     "@|yellow Corrupt zips skipped:|@ " + corruptZipCount.get() + " (blocks inside not validated)"));
         }
-        if (stateFileErrors > 0) {
-            System.out.println(Ansi.AUTO.string("@|yellow State file errors:|@ " + stateFileErrors));
-        }
 
         if (validationFailed) {
             System.out.println();
             System.out.println(Ansi.AUTO.string("@|bold,red VALIDATION FAILED|@"));
-            System.out.println(Ansi.AUTO.string("@|yellow Block:|@ " + failedBlockNumber));
+            if (failedBlockNumber >= 0) {
+                System.out.println(Ansi.AUTO.string("@|yellow Block:|@ " + failedBlockNumber));
+            }
             if (failedValidationName != null) {
                 System.out.println(Ansi.AUTO.string("@|yellow Validation:|@ " + failedValidationName));
             }
             System.out.println(Ansi.AUTO.string("@|yellow Error:|@ " + failureMessage));
-            System.out.println(
-                    Ansi.AUTO.string("@|yellow Checkpoint saved:|@ " + checkpointDir + "/validateProgress.json"));
-        } else if (stateFileErrors > 0) {
-            System.out.println();
-            System.out.println(
-                    Ansi.AUTO.string("@|bold,red VALIDATION FAILED|@ - " + stateFileErrors + " state file errors"));
+            if (lastValidatedRef[0] >= 0) {
+                System.out.println(
+                        Ansi.AUTO.string("@|yellow Checkpoint saved:|@ " + checkpointDir + "/validateProgress.json"));
+            }
         } else {
             System.out.println();
             System.out.println(Ansi.AUTO.string("@|bold,green VALIDATION PASSED|@"));
