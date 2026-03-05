@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.wrapped;
 
-import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
-
 import com.hedera.hapi.block.stream.Block;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Callable;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.tools.blocks.model.BlockReader;
 import org.hiero.block.tools.blocks.model.BlockWriter;
-import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
+import org.hiero.block.tools.blocks.validation.BalanceCheckpointValidation;
+import org.hiero.block.tools.blocks.validation.BlockChainValidation;
+import org.hiero.block.tools.blocks.validation.BlockStructureValidation;
+import org.hiero.block.tools.blocks.validation.BlockValidation;
+import org.hiero.block.tools.blocks.validation.HbarSupplyValidation;
+import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
+import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
@@ -26,13 +32,13 @@ import picocli.CommandLine.Parameters;
  * CLI subcommand that validates wrapped block stream files produced by
  * {@link org.hiero.block.tools.blocks.ToWrappedBlocksCommand}.
  *
- * <p>Walks all blocks in the input directory in order and validates each one using
- * {@link WrappedBlockValidator#validateBlock}. The input directory must be a directory written by
+ * <p>Walks all blocks in the input directory in order and validates each one using a list of
+ * {@link BlockValidation} instances. The input directory must be a directory written by
  * {@link BlockWriter} and readable with {@link BlockReader}.
  *
- * <p>When the directory starts at block zero a {@link StreamingHasher} is created to validate the
- * historical block hash merkle tree. When starting from a later block, merkle tree validation is
- * skipped because the prior tree state is unavailable.
+ * <p>When the directory starts at block zero, genesis-requiring validations (historical block
+ * tree, HBAR supply, balance checkpoints) are enabled. When starting from a later block,
+ * only chain and structural validations run.
  *
  * <p>Balance validation uses pre-fetched checkpoint files created by
  * {@link FetchBalanceCheckpointsCommand} or custom balance files from saved states.
@@ -124,77 +130,87 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
                     "@|yellow Historical Block hash tree validation:|@ disabled (starts at block " + firstBlock + ")"));
         }
 
-        // Initialize balance validator if enabled
-        BalanceCheckpointValidator balanceCheckpointValidator = null;
+        // Build validation list
+        final List<BlockValidation> validations = new ArrayList<>();
+        final BlockChainValidation chainValidation = new BlockChainValidation();
+        validations.add(chainValidation);
+        validations.add(new RequiredItemsValidation());
+        validations.add(new BlockStructureValidation());
 
-        if (validateBalances) {
-            System.out.println(Ansi.AUTO.string("@|yellow Balance validation:|@ enabled"));
-            System.out.println(
-                    Ansi.AUTO.string("@|yellow Balance check interval:|@ every " + balanceCheckIntervalDays + " days"));
+        // Balance checkpoint validation reference (for summary printing)
+        BalanceCheckpointValidation balanceCheckpointValidation = null;
 
-            try {
-                balanceCheckpointValidator = new BalanceCheckpointValidator();
-                balanceCheckpointValidator.setCheckIntervalDays(balanceCheckIntervalDays);
+        if (startsAtZero) {
+            validations.add(new HistoricalBlockTreeValidation(chainValidation));
 
-                // Load from checkpoint file if specified
-                if (balanceCheckpointsFile != null && Files.exists(balanceCheckpointsFile)) {
-                    System.out.println(
-                            Ansi.AUTO.string("@|yellow Balance source:|@ checkpoint file: " + balanceCheckpointsFile));
-                    balanceCheckpointValidator.loadFromFile(balanceCheckpointsFile);
+            final HbarSupplyValidation supplyValidation = new HbarSupplyValidation();
+            validations.add(supplyValidation);
+
+            // Initialize balance checkpoint validator if enabled
+            if (validateBalances) {
+                System.out.println(Ansi.AUTO.string("@|yellow Balance validation:|@ enabled"));
+                System.out.println(Ansi.AUTO.string(
+                        "@|yellow Balance check interval:|@ every " + balanceCheckIntervalDays + " days"));
+
+                try {
+                    final BalanceCheckpointValidator checkpointValidator = new BalanceCheckpointValidator();
+                    checkpointValidator.setCheckIntervalDays(balanceCheckIntervalDays);
+
+                    if (balanceCheckpointsFile != null && Files.exists(balanceCheckpointsFile)) {
+                        System.out.println(Ansi.AUTO.string(
+                                "@|yellow Balance source:|@ checkpoint file: " + balanceCheckpointsFile));
+                        checkpointValidator.loadFromFile(balanceCheckpointsFile);
+                    }
+
+                    if (customBalancesDir != null && Files.isDirectory(customBalancesDir)) {
+                        System.out.println(Ansi.AUTO.string("@|yellow Custom balances dir:|@ " + customBalancesDir));
+                        checkpointValidator.loadFromDirectory(customBalancesDir);
+                    }
+
+                    loadBundledCheckpoints(checkpointValidator);
+
+                    if (checkpointValidator.getCheckpointCount() > 0) {
+                        balanceCheckpointValidation =
+                                new BalanceCheckpointValidation(supplyValidation.getAccounts(), checkpointValidator);
+                        validations.add(balanceCheckpointValidation);
+                    } else {
+                        System.out.println(Ansi.AUTO.string(
+                                "@|yellow Warning:|@ No balance checkpoints loaded, skipping balance validation"));
+                        System.out.println(Ansi.AUTO.string(
+                                "@|yellow Hint:|@ Run 'blocks fetchBalanceCheckpoints' to download checkpoints, "
+                                        + "or specify --balance-checkpoints or --custom-balances-dir"));
+                    }
+                } catch (IOException e) {
+                    System.err.println(
+                            Ansi.AUTO.string("@|red Error loading balance checkpoints:|@ " + e.getMessage()));
+                    return 1;
                 }
-
-                // Load from custom balances directory if specified
-                if (customBalancesDir != null && Files.isDirectory(customBalancesDir)) {
-                    System.out.println(Ansi.AUTO.string("@|yellow Custom balances dir:|@ " + customBalancesDir));
-                    balanceCheckpointValidator.loadFromDirectory(customBalancesDir);
-                }
-
-                // Auto-load bundled balance checkpoints from resources
-                loadBundledCheckpoints(balanceCheckpointValidator);
-
-                // If no checkpoints loaded, disable balance validation
-                if (balanceCheckpointValidator.getCheckpointCount() == 0) {
-                    System.out.println(Ansi.AUTO.string(
-                            "@|yellow Warning:|@ No balance checkpoints loaded, skipping balance validation"));
-                    System.out.println(Ansi.AUTO.string(
-                            "@|yellow Hint:|@ Run 'blocks fetchBalanceCheckpoints' to download checkpoints, "
-                                    + "or specify --balance-checkpoints or --custom-balances-dir"));
-                    balanceCheckpointValidator = null;
-                }
-            } catch (IOException e) {
-                System.err.println(Ansi.AUTO.string("@|red Error loading balance checkpoints:|@ " + e.getMessage()));
-                return 1;
             }
         }
         System.out.println();
 
-        // Create a streaming hasher and accounts state only if we start from block 0
-        final StreamingHasher streamingHasher = startsAtZero ? new StreamingHasher() : null;
-        final RunningAccountsState accounts = startsAtZero ? new RunningAccountsState() : null;
+        // Init all validations
+        for (final BlockValidation validation : validations) {
+            validation.init(firstBlock);
+        }
 
         // Validation tracking
         final long startNanos = System.nanoTime();
         long blocksValidated = 0;
-        byte[] previousBlockHash = null;
 
         // Walk all blocks in order
         for (long blockNumber = firstBlock; blockNumber <= lastBlock; blockNumber++) {
             try {
                 final Block block = BlockReader.readBlock(inputDir, blockNumber);
 
-                // Validate against balance checkpoints BEFORE processing the block,
-                // since checkpoints represent state before the block's transactions
-                if (balanceCheckpointValidator != null && accounts != null) {
-                    balanceCheckpointValidator.checkBlock(
-                            blockNumber, accounts.getHbarBalances(), accounts.getTokenBalances());
+                // Phase 1: validate (no state committed)
+                for (final BlockValidation validation : validations) {
+                    validation.validate(block, blockNumber);
                 }
 
-                WrappedBlockValidator.validateBlock(block, blockNumber, previousBlockHash, streamingHasher, accounts);
-
-                // Compute block hash and update state for the next block's validation
-                previousBlockHash = hashBlock(block);
-                if (streamingHasher != null) {
-                    streamingHasher.addNodeByHash(previousBlockHash);
+                // Phase 2: commit state (all validations passed)
+                for (final BlockValidation validation : validations) {
+                    validation.commitState(block, blockNumber);
                 }
 
                 blocksValidated++;
@@ -220,6 +236,11 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
             }
         }
 
+        // Cleanup
+        for (final BlockValidation validation : validations) {
+            validation.close();
+        }
+
         // Print summary
         PrettyPrint.clearProgress();
         System.out.println();
@@ -242,9 +263,9 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
         System.out.println(Ansi.AUTO.string("@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
 
         // Print balance validation summary if enabled
-        if (balanceCheckpointValidator != null) {
-            balanceCheckpointValidator.printSummary();
-            if (!balanceCheckpointValidator.allPassed()) {
+        if (balanceCheckpointValidation != null) {
+            balanceCheckpointValidation.getCheckpointValidator().printSummary();
+            if (!balanceCheckpointValidation.getCheckpointValidator().allPassed()) {
                 return 1;
             }
         }
@@ -259,16 +280,13 @@ public class ValidateWrappedBlocksCommand implements Callable<Integer> {
      * These are accountBalances_{blockNumber}.pb.gz files compiled into the jar.
      */
     private void loadBundledCheckpoints(BalanceCheckpointValidator validator) throws IOException {
-        // List of bundled checkpoint files (block number extracted from filename)
         String[] bundledFiles = {"accountBalances_91019204.pb.gz"};
 
         for (String filename : bundledFiles) {
             try (InputStream stream = getClass().getResourceAsStream("/metadata/" + filename)) {
                 if (stream != null) {
-                    // Extract block number from filename
                     String blockStr = filename.replace("accountBalances_", "").replace(".pb.gz", "");
                     long blockNumber = Long.parseLong(blockStr);
-                    // Note: loadFromGzippedStream may close the stream, do not read from it after this call
                     validator.loadFromGzippedStream(stream, blockNumber);
                     System.out.println(Ansi.AUTO.string("@|yellow Loaded bundled checkpoint:|@ block " + blockNumber));
                 }

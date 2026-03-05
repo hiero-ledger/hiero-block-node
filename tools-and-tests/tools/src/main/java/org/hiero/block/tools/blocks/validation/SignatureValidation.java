@@ -1,0 +1,156 @@
+// SPDX-License-Identifier: Apache-2.0
+package org.hiero.block.tools.blocks.validation;
+
+import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.RecordFileItem;
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.time.Instant;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.records.SigFileUtils;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
+import org.hiero.block.tools.records.model.parsed.ValidationException;
+
+/**
+ * Validates block signatures by verifying RSA signatures (for SignedRecordFileProof) or
+ * checking non-empty TSS signatures (for SignedBlockProof).
+ *
+ * <p>For SignedRecordFileProof, at least 1/3 + 1 of address book nodes must have valid
+ * RSA-SHA384 signatures. The signed hash is reconstructed from the block's RecordFileItem
+ * and BlockHeader.
+ *
+ * <p>This is a stateless validation — no cross-block state is maintained.
+ */
+public final class SignatureValidation implements BlockValidation {
+
+    /** The address book registry providing public keys for signature verification. */
+    private final AddressBookRegistry addressBookRegistry;
+
+    /**
+     * Creates a new signature validation.
+     *
+     * @param addressBookRegistry the address book registry for public key lookups
+     */
+    public SignatureValidation(final AddressBookRegistry addressBookRegistry) {
+        this.addressBookRegistry = addressBookRegistry;
+    }
+
+    @Override
+    public String name() {
+        return "Signatures";
+    }
+
+    @Override
+    public String description() {
+        return "Verifies RSA signatures (SignedRecordFileProof) or non-empty TSS signatures (SignedBlockProof)";
+    }
+
+    @Override
+    public boolean requiresGenesisStart() {
+        return false;
+    }
+
+    @Override
+    public void validate(final Block block, final long blockNumber) throws ValidationException {
+        // Find the block proof
+        BlockProof blockProof = null;
+        for (final BlockItem item : block.items()) {
+            if (item.hasBlockProof()) {
+                blockProof = item.blockProof();
+                break;
+            }
+        }
+        if (blockProof == null) {
+            throw new ValidationException("Block: " + blockNumber + " - No BlockProof found for signature validation");
+        }
+
+        if (blockProof.hasSignedRecordFileProof()) {
+            validateSignedRecordFileProof(blockNumber, block, blockProof);
+        } else if (blockProof.hasSignedBlockProof()) {
+            // TSS verification not yet implemented — verify non-empty
+            final Bytes blockSig = blockProof.signedBlockProofOrThrow().blockSignature();
+            if (blockSig.length() == 0) {
+                throw new ValidationException("Block: " + blockNumber + " - Empty TSS block signature");
+            }
+        } else {
+            throw new ValidationException("Block: " + blockNumber + " - Unknown proof type: "
+                    + blockProof.proof().kind());
+        }
+    }
+
+    /**
+     * Validates a SignedRecordFileProof by reconstructing the record file hash and verifying
+     * RSA signatures from consensus nodes against the address book.
+     *
+     * @param blockNumber the block number
+     * @param block the full block
+     * @param blockProof the block proof containing the SignedRecordFileProof
+     * @throws ValidationException if signature validation fails
+     */
+    private void validateSignedRecordFileProof(final long blockNumber, final Block block, final BlockProof blockProof)
+            throws ValidationException {
+        final var signedRecordFileProof = blockProof.signedRecordFileProofOrThrow();
+        final var signatures = signedRecordFileProof.recordFileSignatures();
+
+        if (signatures.isEmpty()) {
+            throw new ValidationException("Block: " + blockNumber + " - No signatures in SignedRecordFileProof");
+        }
+
+        // Extract RecordFileItem and BlockHeader from the block
+        RecordFileItem recordFileItem = null;
+        BlockHeader blockHeader = null;
+        for (final BlockItem item : block.items()) {
+            if (item.hasRecordFile()) recordFileItem = item.recordFileOrThrow();
+            if (item.hasBlockHeader()) blockHeader = item.blockHeaderOrThrow();
+        }
+        if (recordFileItem == null || blockHeader == null) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Missing RecordFileItem or BlockHeader for signature verification");
+        }
+
+        // Reconstruct the signed hash via ParsedRecordFile
+        final Timestamp creationTime = recordFileItem.creationTime();
+        final Instant blockTime = Instant.ofEpochSecond(creationTime.seconds(), creationTime.nanos());
+        final byte[] startHash = recordFileItem
+                .recordFileContentsOrThrow()
+                .startObjectRunningHash()
+                .hash()
+                .toByteArray();
+        final ParsedRecordFile parsedRecordFile = ParsedRecordFile.parse(
+                blockTime,
+                signedRecordFileProof.version(),
+                blockHeader.hapiProtoVersion(),
+                startHash,
+                recordFileItem.recordFileContentsOrThrow());
+        final byte[] signedHash = parsedRecordFile.signedHash();
+
+        // Get the address book for this block's timestamp
+        final NodeAddressBook addressBook = addressBookRegistry.getAddressBookForBlock(blockTime);
+        final int totalNodes = addressBook.nodeAddress().size();
+        final int threshold = (totalNodes / 3) + 1;
+
+        // Verify each signature
+        int validCount = 0;
+        for (final var sig : signatures) {
+            final long accountNum = AddressBookRegistry.accountIdForNode(sig.nodeId());
+            try {
+                final String pubKeyHex = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
+                if (SigFileUtils.verifyRsaSha384(
+                        pubKeyHex, signedHash, sig.signaturesBytes().toByteArray())) {
+                    validCount++;
+                }
+            } catch (Exception e) {
+                // Unknown node — skip but count as failed
+            }
+        }
+
+        if (validCount < threshold) {
+            throw new ValidationException("Block: " + blockNumber + " - Insufficient valid signatures: " + validCount
+                    + "/" + signatures.size() + " verified, need " + threshold + "/" + totalNodes);
+        }
+    }
+}

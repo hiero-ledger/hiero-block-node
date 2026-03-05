@@ -39,8 +39,9 @@ import java.util.logging.Logger;
  * </ol>
  *
  * <p>Use {@link #totalHbarBalance()} to compute the sum of all HBAR balances (for the
- * 50-billion-HBAR supply check), and {@link #compare(AllAccountBalances)} to validate the
- * running state against a balance snapshot read from disk.
+ * 50-billion-HBAR supply check), {@link #getHbarBalance(long)} to query a single account,
+ * and {@link #compare(AllAccountBalances)} to validate the running state against a balance
+ * snapshot read from disk.
  */
 public class RunningAccountsState {
 
@@ -133,10 +134,18 @@ public class RunningAccountsState {
     }
 
     /**
-     * Returns the sum of all HBAR balances across all tracked accounts.
+     * Returns the HBAR balance for a single account. Returns 0 if the account does not exist.
      *
-     * <p>Used by the 50-billion-HBAR supply check in
-     * {@link WrappedBlockValidator#validate50Billion}.
+     * @param accountNum the account number
+     * @return the tinybar balance, or 0 if the account is not tracked
+     */
+    public long getHbarBalance(final long accountNum) {
+        final Account account = accounts.get(accountNum);
+        return account == null ? 0L : account.tinyBarBalance;
+    }
+
+    /**
+     * Returns the sum of all HBAR balances across all tracked accounts.
      *
      * @return total tinybar balance across all accounts
      */

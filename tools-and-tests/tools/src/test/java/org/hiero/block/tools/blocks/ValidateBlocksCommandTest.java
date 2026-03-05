@@ -110,9 +110,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertEquals(0, exitCode); // picocli returns 0 for Runnable
-        assertTrue(
-                output.contains("Hash chain broken") || output.contains("Hash chain errors: 1"),
-                "Should detect hash chain error. Output:\n" + output);
+        assertTrue(output.contains("Block Chain"), "Should detect hash chain error. Output:\n" + output);
         assertTrue(output.contains("VALIDATION FAILED"), "Should report FAILED. Output:\n" + output);
     }
 
@@ -128,9 +126,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(
-                output.contains("Structure error") || output.contains("Structure errors: 1"),
-                "Should detect missing header. Output:\n" + output);
+        assertTrue(output.contains("Required Items"), "Should detect missing header. Output:\n" + output);
         assertTrue(output.contains("VALIDATION FAILED"), "Should report FAILED. Output:\n" + output);
     }
 
@@ -144,9 +140,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(
-                output.contains("Structure error") || output.contains("Structure errors: 1"),
-                "Should detect missing footer. Output:\n" + output);
+        assertTrue(output.contains("Required Items"), "Should detect missing footer. Output:\n" + output);
     }
 
     @Test
@@ -159,9 +153,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(
-                output.contains("Structure error") || output.contains("Structure errors: 1"),
-                "Should detect missing record file. Output:\n" + output);
+        assertTrue(output.contains("Required Items"), "Should detect missing record file. Output:\n" + output);
     }
 
     @Test
@@ -174,9 +166,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(
-                output.contains("Structure error") || output.contains("Structure errors: 1"),
-                "Should detect missing proof. Output:\n" + output);
+        assertTrue(output.contains("Required Items"), "Should detect missing proof. Output:\n" + output);
     }
 
     @Test
@@ -189,9 +179,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(
-                output.contains("Structure error") || output.contains("Structure errors: 1"),
-                "Should detect duplicate header. Output:\n" + output);
+        assertTrue(output.contains("Block Structure"), "Should detect duplicate header. Output:\n" + output);
     }
 
     @Test
@@ -204,9 +192,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(
-                output.contains("Structure error") || output.contains("Structure errors: 1"),
-                "Should detect items out of order. Output:\n" + output);
+        assertTrue(output.contains("Block Structure"), "Should detect items out of order. Output:\n" + output);
     }
 
     // ── Historical tree root validation ──
@@ -221,9 +207,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(
-                output.contains("Tree root error") || output.contains("Tree root errors: 1"),
-                "Should detect tree root mismatch. Output:\n" + output);
+        assertTrue(output.contains("Historical Block Tree"), "Should detect tree root mismatch. Output:\n" + output);
         assertTrue(output.contains("VALIDATION FAILED"), "Should report FAILED. Output:\n" + output);
     }
 
@@ -239,7 +223,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(output.contains("Signature errors: 0"), "All signatures should pass. Output:\n" + output);
+        assertTrue(output.contains("VALIDATION PASSED"), "All signatures should pass. Output:\n" + output);
     }
 
     @Test
@@ -254,7 +238,7 @@ class ValidateBlocksCommandTest {
         String output = (String) result[1];
 
         assertTrue(
-                output.contains("Insufficient valid signatures") || output.contains("Signature errors: 1"),
+                output.contains("Insufficient valid signatures") || output.contains("Signatures"),
                 "Should detect insufficient signatures. Output:\n" + output);
     }
 
@@ -286,9 +270,7 @@ class ValidateBlocksCommandTest {
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
-        assertTrue(
-                output.contains("Balance error") || output.contains("Balance errors: 1"),
-                "Should detect HBAR supply mismatch. Output:\n" + output);
+        assertTrue(output.contains("HBAR Supply"), "Should detect HBAR supply mismatch. Output:\n" + output);
         assertTrue(output.contains("VALIDATION FAILED"), "Should report FAILED. Output:\n" + output);
     }
 
@@ -357,9 +339,11 @@ class ValidateBlocksCommandTest {
         Path checkpointDir = tempDir.resolve("validateCheckpoint");
         assertTrue(Files.exists(checkpointDir.resolve("validateProgress.json")), "Progress JSON should exist");
         assertTrue(
-                Files.exists(checkpointDir.resolve("validateStreamingHasher.bin")),
-                "Streaming hasher state should exist");
-        assertTrue(Files.exists(checkpointDir.resolve("validateAccountState.bin")), "Account state should exist");
+                Files.exists(checkpointDir.resolve("historicalTreeValidation.bin")),
+                "Historical tree validation state should exist");
+        assertTrue(
+                Files.exists(checkpointDir.resolve("hbarSupplyValidation.bin")),
+                "HBAR supply validation state should exist");
     }
 
     @Test
@@ -377,9 +361,9 @@ class ValidateBlocksCommandTest {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 
         assertEquals(3, root.get("schemaVersion").getAsInt(), "Schema version should be 3");
-        // Block 3 has the hash chain error; fail-fast stops before block 4
-        assertEquals(3, root.get("lastValidatedBlockNumber").getAsLong(), "Last validated should be block 3");
-        assertEquals(4, root.get("blocksValidated").getAsLong(), "Should have validated 4 blocks (0, 1, 2, 3)");
+        // Block 3 has the hash chain error; fail-fast saves checkpoint at last successful block (2)
+        assertEquals(2, root.get("lastValidatedBlockNumber").getAsLong(), "Last validated should be block 2");
+        assertEquals(3, root.get("blocksValidated").getAsLong(), "Should have validated 3 blocks (0, 1, 2)");
         assertTrue(
                 root.has("previousBlockHashHex")
                         && !root.get("previousBlockHashHex").getAsString().isEmpty(),
@@ -389,7 +373,7 @@ class ValidateBlocksCommandTest {
     @Test
     void resumeFromCheckpoint_skipsAlreadyValidatedBlocks() throws Exception {
         List<Block> blocks = TestBlockFactory.createValidChain(5);
-        // Break block 3 — fail-fast stops after processing block 3, checkpoint saved at block 3
+        // Break block 3 — fail-fast stops at block 3, checkpoint saved at last successful block (2)
         blocks.set(3, TestBlockFactory.withBrokenPreviousHash(blocks.get(3)));
         writeBlocks(blocks);
         writeAddressBook();
@@ -408,7 +392,7 @@ class ValidateBlocksCommandTest {
         assertTrue(
                 output2.contains("Resuming from checkpoint"),
                 "Should report resuming from checkpoint. Output:\n" + output2);
-        assertTrue(output2.contains("last validated block = 3"), "Should resume from block 3. Output:\n" + output2);
+        assertTrue(output2.contains("last validated block = 2"), "Should resume from block 2. Output:\n" + output2);
     }
 
     @Test
