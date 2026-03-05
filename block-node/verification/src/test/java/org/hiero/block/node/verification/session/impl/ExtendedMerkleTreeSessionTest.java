@@ -21,6 +21,7 @@ import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,9 +29,10 @@ import org.junit.jupiter.api.Test;
 class ExtendedMerkleTreeSessionTest {
 
     @BeforeEach
-    void resetLedgerState() {
-        // Reset process-level TSS state to ensure test isolation.
-        ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.set(null);
+    void resetTssState() {
+        VerificationServicePlugin.activeLedgerId = null;
+        VerificationServicePlugin.activeTssPublication = null;
+        VerificationServicePlugin.tssParametersPersisted = false;
     }
 
     @Test
@@ -45,7 +47,7 @@ class ExtendedMerkleTreeSessionTest {
         long blockNumber = blockHeader.number();
 
         ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null);
+                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, null);
 
         BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber, true, true);
         VerificationNotification blockNotification = session.processBlockItems(blockItemsMessage);
@@ -82,51 +84,62 @@ class ExtendedMerkleTreeSessionTest {
     @DisplayName("should verify TssWraps block 0 through the full session pipeline")
     void shouldVerifyTssWrapsBlock_throughSession() throws IOException, ParseException {
         BlockUnparsed block = loadBlock("test-blocks/tss/TssWraps/0.blk.gz");
-        VerificationNotification notification = runSession(block);
+        List<BlockItemUnparsed> items = block.blockItems();
+        long blockNumber = BlockHeader.PROTOBUF
+                .parse(items.getFirst().blockHeaderOrThrow())
+                .number();
+        ExtendedMerkleTreeSession session =
+                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, null);
+        VerificationNotification notification =
+                session.processBlockItems(new BlockItems(items, blockNumber, true, true));
         assertTrue(
                 notification.success(),
                 "TssWraps block 0 should verify successfully through ExtendedMerkleTreeSession");
     }
 
     @Test
-    @DisplayName("should initialize TSS ledger state from LedgerIdPublicationTransactionBody in block 0")
-    void shouldInitializeTssStateFromBlock0() throws IOException, ParseException {
+    @DisplayName("should initialize TSS parameters on plugin when processing block 0")
+    void shouldInitializeTssParametersFromBlock0() throws IOException, ParseException {
         BlockUnparsed block = loadBlock("test-blocks/tss/TssWraps/0.blk.gz");
-        runSession(block);
+        createAndProcessSession(block, null);
         assertNotNull(
-                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get(),
-                "ACTIVE_LEDGER_ID must be set after processing a block 0 with LedgerIdPublicationTransactionBody");
+                VerificationServicePlugin.activeLedgerId,
+                "activeLedgerId must be set after processing block 0 with LedgerIdPublicationTransactionBody");
+        assertNotNull(
+                VerificationServicePlugin.activeTssPublication,
+                "activeTssPublication must be set after processing block 0");
     }
 
     @Test
     @DisplayName("should reject a malformed 10-byte signature as too short for VK prefix")
     void shouldRejectMalformedShortSignature() {
-        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(0L, BlockSource.PUBLISHER, null, null);
+        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(0L, BlockSource.PUBLISHER, null, null, null);
         Bytes hash = Bytes.wrap(new byte[48]);
         Bytes shortSignature = Bytes.wrap(new byte[10]);
         assertFalse(session.verifySignature(hash, shortSignature), "A 10-byte signature must be rejected as too short");
     }
 
     @Test
-    @DisplayName("should reject a zero-filled 2920-byte garbage TssWraps signature")
+    @DisplayName("should reject a zero-filled 2920-byte garbage TssWraps signature when no ledger ID")
     void shouldRejectGarbageTssWrapsSignature() {
-        // ACTIVE_LEDGER_ID is null (reset by @BeforeEach), so verifySignature returns false
-        // before even calling TSS.verifyTSS().  This guards the null-ledger-ID path for TssWraps-sized inputs.
-        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(0L, BlockSource.PUBLISHER, null, null);
+        // No ledgerId provided, so verifySignature returns false before calling TSS.verifyTSS()
+        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(0L, BlockSource.PUBLISHER, null, null, null);
         Bytes hash = Bytes.wrap(new byte[48]);
         Bytes garbageSignature = Bytes.wrap(new byte[2920]);
         assertFalse(
                 session.verifySignature(hash, garbageSignature), "A zero-filled 2920-byte signature must not verify");
     }
 
-    private static VerificationNotification runSession(BlockUnparsed block) throws ParseException {
+    private static ExtendedMerkleTreeSession createAndProcessSession(BlockUnparsed block, Bytes ledgerId)
+            throws ParseException {
         List<BlockItemUnparsed> items = block.blockItems();
         long blockNumber = BlockHeader.PROTOBUF
                 .parse(items.getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null);
-        return session.processBlockItems(new BlockItems(items, blockNumber, true, true));
+                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, ledgerId);
+        session.processBlockItems(new BlockItems(items, blockNumber, true, true));
+        return session;
     }
 
     private static BlockUnparsed loadBlock(String resourcePath) throws IOException, ParseException {

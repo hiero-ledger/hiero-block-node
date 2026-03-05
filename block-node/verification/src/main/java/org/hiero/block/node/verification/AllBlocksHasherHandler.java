@@ -306,7 +306,7 @@ public class AllBlocksHasherHandler {
 
         // Pass null, null so the session uses the block footer's authoritative values
         final VerificationSession session = HapiVersionSessionFactory.createSession(
-                blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion(), null, null);
+                blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion(), null, null, null);
 
         final VerificationNotification result = session.processBlockItems(blockItemsMessage);
 

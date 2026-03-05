@@ -37,7 +37,7 @@ class HapiVersionSessionFactoryTest {
     }
 
     private static <T> void assertCreates(SemanticVersion ver, Class<T> expectedType, BlockSource src) {
-        var session = HapiVersionSessionFactory.createSession(123L, src, ver, null, null);
+        var session = HapiVersionSessionFactory.createSession(123L, src, ver, null, null, null);
         assertNotNull(session, "session should not be null");
         assertTrue(
                 expectedType.isInstance(session),
@@ -108,7 +108,7 @@ class HapiVersionSessionFactoryTest {
     void belowLowestThrows() {
         var ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> HapiVersionSessionFactory.createSession(0L, blockSource, sv(0, 63, 1), null, null));
+                () -> HapiVersionSessionFactory.createSession(0L, blockSource, sv(0, 63, 1), null, null, null));
         assertTrue(
                 ex.getMessage().toLowerCase().contains("unsupported hapi version"),
                 "message should mention unsupported");
@@ -121,7 +121,7 @@ class HapiVersionSessionFactoryTest {
     void nullBlockSourceThrows() {
         assertThrows(
                 NullPointerException.class,
-                () -> HapiVersionSessionFactory.createSession(0L, null, sv(0, 68, 0), null, null));
+                () -> HapiVersionSessionFactory.createSession(0L, null, sv(0, 68, 0), null, null, null));
     }
 
     @Test
@@ -129,7 +129,7 @@ class HapiVersionSessionFactoryTest {
     void nullVersionThrows() {
         assertThrows(
                 NullPointerException.class,
-                () -> HapiVersionSessionFactory.createSession(0L, blockSource, null, null, null));
+                () -> HapiVersionSessionFactory.createSession(0L, blockSource, null, null, null, null));
     }
 
     @Test
@@ -137,7 +137,7 @@ class HapiVersionSessionFactoryTest {
     void negativeBlockNumberThrows() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> HapiVersionSessionFactory.createSession(-1L, blockSource, sv(0, 68, 0), null, null));
+                () -> HapiVersionSessionFactory.createSession(-1L, blockSource, sv(0, 68, 0), null, null, null));
     }
 
     // ---------- Smoke tests with different block numbers ----------
@@ -148,8 +148,9 @@ class HapiVersionSessionFactoryTest {
         @DisplayName("Uses the same impl regardless of blockNumber (0 and large)")
         void blockNumberDoesNotAffectImpl() {
             SemanticVersion v = sv(0, 69, 3);
-            VerificationSession s1 = HapiVersionSessionFactory.createSession(0L, blockSource, v, null, null);
-            VerificationSession s2 = HapiVersionSessionFactory.createSession(9_999_999L, blockSource, v, null, null);
+            VerificationSession s1 = HapiVersionSessionFactory.createSession(0L, blockSource, v, null, null, null);
+            VerificationSession s2 =
+                    HapiVersionSessionFactory.createSession(9_999_999L, blockSource, v, null, null, null);
 
             assertAll(
                     () -> assertTrue(s1 instanceof DummyVerificationSession),

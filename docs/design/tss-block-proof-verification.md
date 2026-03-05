@@ -23,26 +23,46 @@ Both variants are handled internally by `TSS.verifyTSS()`.
 
 ## Design
 
-Block items stream into `ExtendedMerkleTreeSession`, which hashes them into five subtree hashers
-by kind. `SIGNED_TRANSACTION` items in block 0 are also scanned for
-`LedgerIdPublicationTransactionBody` to bootstrap TSS state.
+`VerificationServicePlugin` owns TSS state (`activeLedgerId`, `activeTssPublication`) as public
+static fields and passes the ledger ID to each `ExtendedMerkleTreeSession` via constructor.
+Block items stream into the session, which hashes them into five subtree hashers by kind.
+
+For block 0, `SIGNED_TRANSACTION` items are scanned for `LedgerIdPublicationTransactionBody`.
+When found, the session calls `VerificationServicePlugin.initializeTssParameters()` which sets
+the native TSS state (address book, WRAPS VK) and updates the plugin's static fields.
+Block 0 can overwrite TSS parameters on each attempt until they are persisted after successful
+verification.
 
 On end-of-block, the session computes the block root hash and calls
-`TSS.verifyTSS(ledgerId, signature, hash)` for signatures >= 1,096 bytes. The library handles
-dispatch between the genesis Schnorr path and the settled WRAPS path internally.
+`TSS.verifyTSS(ledgerId, signature, hash)`. The library handles dispatch between the genesis
+Schnorr path and the settled WRAPS path internally, and rejects malformed signatures.
 
-## Ledger ID Bootstrap
+## TSS Parameters Bootstrap
 
-`ACTIVE_LEDGER_ID` is process-level state initialized from one of three sources:
+TSS verification requires three components: the **ledger ID**, the **address book** (node public
+keys, weights, and IDs), and the **WRAPS verification key**. All three are published together in
+a `LedgerIdPublicationTransactionBody` in block 0 and persisted as a single protobuf file.
 
-1. **Persisted file** (`verification.ledgerIdFilePath`) — written by block 0, loaded on restart.
-2. **Config string** (`verification.ledgerId`) — runtime-only seed for nodes joining a network
-   mid-stream after block 0 has already passed. Never persisted.
-3. **Block 0** — always authoritative. Overwrites both in-memory state and the persisted file.
+`activeLedgerId` and `activeTssPublication` are public static fields on
+`VerificationServicePlugin`, initialized from one of two sources:
+
+1. **Persisted file** (`verification.tssParametersFilePath`) — written after block 0 is
+   verified, loaded on restart. Contains a serialized `LedgerIdPublicationTransactionBody`
+   which fully restores all TSS state (address book + WRAPS VK + ledger ID).
+2. **Block stream** — `LedgerIdPublicationTransactionBody` found in a `SIGNED_TRANSACTION`
+   item during block 0 processing. The session calls
+   `VerificationServicePlugin.initializeTssParameters()` directly. When block 0 is verified
+   successfully, the publication is persisted to the file.
+
+TSS parameters can be overwritten by any block 0 until they are persisted (after successful
+verification or file bootstrap). Once persisted, `initializeTssParameters()` becomes a no-op
+(`tssParametersPersisted` guard).
+
+For nodes joining an existing network where block 0 will never be replayed, the TSS parameters
+file can be placed manually into the volume.
 
 ## Configuration
 
-|            Property             |                      Default                       |        Description         |
-|---------------------------------|----------------------------------------------------|----------------------------|
-| `verification.ledgerId`         | `""`                                               | Hex-encoded ledger ID seed |
-| `verification.ledgerIdFilePath` | `/opt/hiero/block-node/verification/ledger-id.bin` | Ledger ID persistence path |
+|               Property               |                         Default                         |           Description           |
+|--------------------------------------|---------------------------------------------------------|---------------------------------|
+| `verification.tssParametersFilePath` | `/opt/hiero/block-node/verification/tss-parameters.bin` | TSS parameters persistence path |

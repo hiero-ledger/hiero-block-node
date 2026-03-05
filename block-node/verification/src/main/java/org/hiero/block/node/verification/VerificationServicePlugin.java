@@ -6,8 +6,12 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
+import com.hedera.cryptography.tss.TSS;
+import com.hedera.cryptography.wraps.WRAPSVerificationKey;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.hapi.node.tss.LedgerIdNodeContribution;
+import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
@@ -27,7 +31,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
 import org.hiero.block.node.verification.session.VerificationSession;
-import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
 
 /** Provides implementation for the health endpoints of the server. */
 @SuppressWarnings("unused")
@@ -60,6 +63,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Bytes previousBlockHash;
     /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
     private AllBlocksHasherHandler allBlocksHasherHandler;
+    /** Trusted ledger ID for TSS verification, initialized from file or block 0. */
+    public static Bytes activeLedgerId;
+    /** Full TSS publication body used for persistence and state restoration. */
+    public static LedgerIdPublicationTransactionBody activeTssPublication;
+    /** True once TSS parameters have been persisted (file bootstrap or successful block 0 verification). */
+    public static boolean tssParametersPersisted;
 
     /**
      * {@inheritDoc}
@@ -102,22 +111,22 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // setting config and context
         this.context = context;
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
-        // Bootstrap priority for pre-run startup: persisted file > ledgerId config string.
-        // Block 0 is always authoritative and overwrites both when received.
-        final var ledgerIdFile = verificationConfig.ledgerIdFilePath();
-        if (Files.exists(ledgerIdFile)) {
+        // Bootstrap TSS parameters from persisted file if available. The file contains a
+        // serialized LedgerIdPublicationTransactionBody with ledger ID, address book, and WRAPS VK.
+        final var tssParametersFile = verificationConfig.tssParametersFilePath();
+        if (Files.exists(tssParametersFile)) {
             try {
-                ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.set(Bytes.wrap(Files.readAllBytes(ledgerIdFile)));
-                LOGGER.log(INFO, "Loaded active ledger ID from file: {0}", ledgerIdFile);
+                Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
+                LedgerIdPublicationTransactionBody publication =
+                        LedgerIdPublicationTransactionBody.PROTOBUF.parse(fileBytes);
+                initializeTssParameters(publication);
+                tssParametersPersisted = true;
+                LOGGER.log(INFO, "Loaded TSS parameters from file: {0}", tssParametersFile);
             } catch (IOException e) {
-                throw new UncheckedIOException("Failed to read ledger ID file: " + ledgerIdFile, e);
+                throw new UncheckedIOException("Failed to read TSS parameters file: " + tssParametersFile, e);
+            } catch (ParseException e) {
+                throw new IllegalStateException("Failed to parse TSS parameters file: " + tssParametersFile, e);
             }
-        } else if (!verificationConfig.ledgerId().isBlank()) {
-            // Config string is a runtime-only bootstrap: seeds ACTIVE_LEDGER_ID for nodes joining
-            // a network mid-stream after block 0 has already passed and will never be replayed.
-            // Not persisted — block 0 is the only authoritative source. Once seen, the file takes over.
-            ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.set(Bytes.fromHex(verificationConfig.ledgerId()));
-            LOGGER.log(INFO, "Pre-seeded active ledger ID from configuration: {0}", verificationConfig.ledgerId());
         }
         // register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "VerificationServicePlugin");
@@ -193,7 +202,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         BlockSource.PUBLISHER,
                         semanticVersion,
                         previousBlockHash,
-                        getRootOfAllPreviousBlocks());
+                        getRootOfAllPreviousBlocks(),
+                        activeLedgerId);
                 LOGGER.log(TRACE, "Started new block verification session for block number {0}", currentBlockNumber);
             } else {
                 headerValid = true; // header not present, assume it was valid
@@ -217,7 +227,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
                     if (notification.success()) {
                         if (currentBlockNumber == 0) {
-                            persistLedgerId();
+                            persistTssParameters();
                         }
                         verificationBlocksVerified.increment();
                         // send the notification to the block messaging service
@@ -259,19 +269,52 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         }
     }
 
-    private void persistLedgerId() {
-        final Bytes ledgerId = ExtendedMerkleTreeSession.ACTIVE_LEDGER_ID.get();
-        if (ledgerId == null) {
+    private void persistTssParameters() {
+        final LedgerIdPublicationTransactionBody publication = activeTssPublication;
+        if (publication == null) {
             return;
         }
-        final var ledgerIdFile = verificationConfig.ledgerIdFilePath();
+        final var tssParametersFile = verificationConfig.tssParametersFilePath();
         try {
-            Files.createDirectories(ledgerIdFile.getParent());
-            Files.write(ledgerIdFile, ledgerId.toByteArray());
-            LOGGER.log(INFO, "Persisted active ledger ID to file: {0}", ledgerIdFile);
+            Files.createDirectories(tssParametersFile.getParent());
+            Bytes serialized = LedgerIdPublicationTransactionBody.PROTOBUF.toBytes(publication);
+            Files.write(tssParametersFile, serialized.toByteArray());
+            tssParametersPersisted = true;
+            LOGGER.log(INFO, "Persisted TSS parameters to file: {0}", tssParametersFile);
         } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to persist ledger ID to {0}: {1}".formatted(ledgerIdFile, e.getMessage()), e);
+            LOGGER.log(
+                    WARNING,
+                    "Failed to persist TSS parameters to {0}: {1}".formatted(tssParametersFile, e.getMessage()),
+                    e);
         }
+    }
+
+    /**
+     * Initializes native TSS state (address book, WRAPS VK) and sets the active ledger ID
+     * and TSS publication. Called from file bootstrap, block 0 processing, and tests.
+     */
+    public static void initializeTssParameters(@NonNull LedgerIdPublicationTransactionBody publication) {
+        if (tssParametersPersisted) {
+            return;
+        }
+        List<LedgerIdNodeContribution> contributions = publication.nodeContributions();
+        int nodeCount = contributions.size();
+        byte[][] publicKeys = new byte[nodeCount][];
+        long[] nodeIds = new long[nodeCount];
+        long[] weights = new long[nodeCount];
+        for (int i = 0; i < nodeCount; i++) {
+            LedgerIdNodeContribution contribution = contributions.get(i);
+            publicKeys[i] = contribution.historyProofKey().toByteArray();
+            nodeIds[i] = contribution.nodeId();
+            weights[i] = contribution.weight();
+        }
+        TSS.setAddressBook(publicKeys, weights, nodeIds);
+        Bytes historyProofVk = publication.historyProofVerificationKey();
+        if (historyProofVk.length() > 0) {
+            WRAPSVerificationKey.setCurrentKey(historyProofVk.toByteArray());
+        }
+        activeLedgerId = publication.ledgerId();
+        activeTssPublication = publication;
     }
 
     private void sendFailureNotification(final long blockNumber, final BlockSource source) {
@@ -305,7 +348,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         BlockSource.BACKFILL,
                         blockHeader.hapiProtoVersionOrThrow(),
                         null,
-                        null);
+                        null,
+                        activeLedgerId);
                 // process the block items in the backfilled notification
                 // For backfill, we wrap items in BlockItems with isEndOfBlock=true (last item should be block proof)
                 BlockItems backfillBlockItems =
@@ -314,9 +358,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 if (backfillNotification != null) {
                     // Log the backfill verification result
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
-                    // Block 0 is authoritative even when backfilled: persist its ledger ID to file.
-                    if (notification.blockNumber() == 0) {
-                        persistLedgerId();
+                    if (backfillNotification.success() && notification.blockNumber() == 0) {
+                        persistTssParameters();
                     }
                     // send the verification notification for the backfilled block
                     context.blockMessaging().sendBlockVerification(backfillNotification);
