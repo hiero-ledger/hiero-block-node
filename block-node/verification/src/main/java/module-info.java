@@ -14,11 +14,11 @@ module org.hiero.block.node.verification {
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
+    requires transitive org.hiero.block.protobuf.pbj;
     requires com.hedera.cryptography.wraps;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
     requires org.hiero.block.node.base;
-    requires transitive org.hiero.block.protobuf.pbj;
     requires com.github.spotbugs.annotations;
     requires org.antlr.antlr4.runtime;
 
