@@ -25,12 +25,15 @@ import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 /**
  * Comprehensive test for BlockWriter and BlockReader using JimFS in-memory file system.
  * Tests all combinations of archive types and compression types.
  */
 @SuppressWarnings("DataFlowIssue")
+@Execution(ExecutionMode.SAME_THREAD)
 class BlockWriterReaderTest {
     private FileSystem fileSystem;
     private Path baseDirectory;

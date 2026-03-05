@@ -120,7 +120,7 @@ public class ValidateSignatureCounts implements Runnable {
         printHeader();
 
         // Get sorted day paths
-        List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir});
+        List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new Path[] {compressedDaysDir.toPath()});
 
         // Filter to only include days in the specified range
         List<Path> filteredDayPaths = dayPaths.stream()

@@ -9,10 +9,10 @@ import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.node.transaction.TransactionBody.DataOneOfType;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -47,7 +47,7 @@ public class BlockInfo {
      * @param outputFile the output file to write to
      * @param minSizeMb the minimum file size in MB to process
      */
-    public static void blockInfo(File[] files, boolean csvMode, File outputFile, double minSizeMb) {
+    public static void blockInfo(Path[] files, boolean csvMode, Path outputFile, double minSizeMb) {
         // atomic counters for total blocks, transactions, items, compressed bytes, and uncompressed bytes
         final AtomicLong totalBlocks = new AtomicLong(0);
         final AtomicLong totalTransactions = new AtomicLong(0);
@@ -61,7 +61,7 @@ public class BlockInfo {
                 System.out.print("Writing CSV output");
             }
             if (outputFile != null) {
-                System.out.print("to : " + outputFile.getAbsoluteFile());
+                System.out.print("to : " + outputFile.toAbsolutePath());
             }
             System.out.print("\n");
             totalTransactions.set(0);
@@ -112,12 +112,12 @@ public class BlockInfo {
                     + "\"Original Size (MB)\",\"Uncompressed Size(MB)\",\"Compression\"";
             if (outputFile != null) {
                 // check if a file exists and throw an error
-                if (outputFile.exists()) {
+                if (Files.exists(outputFile)) {
                     System.err.println("Output file already exists : " + outputFile);
                     System.exit(1);
                 }
                 AtomicInteger completedFileCount = new AtomicInteger(0);
-                try (var writer = Files.newBufferedWriter(outputFile.toPath())) {
+                try (var writer = Files.newBufferedWriter(outputFile)) {
                     if (csvMode) {
                         writer.write(csvHeader);
                         writer.newLine();
@@ -147,7 +147,7 @@ public class BlockInfo {
             }
             // print output file complete
             if (outputFile != null) {
-                System.out.println("\nOutput written to CSV file: " + outputFile.getAbsoluteFile());
+                System.out.println("\nOutput written to CSV file: " + outputFile.toAbsolutePath());
             }
             // print summary
             if (!(csvMode && outputFile != null)) {

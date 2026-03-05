@@ -4,7 +4,6 @@ package org.hiero.block.tools.days.subcommands;
 import static org.hiero.block.tools.utils.PrettyPrint.computeRemainingMilliseconds;
 import static org.hiero.block.tools.utils.PrettyPrint.printProgress;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,7 +28,7 @@ import picocli.CommandLine.Spec;
 @Command(name = "clean", description = "Clean all day .tar.zstd files or day files in directories passed in")
 public class CleanDayOfBadRecordSets implements Runnable {
     @Parameters(index = "0..*", description = "Files or directories to process")
-    private final File[] compressedDayOrDaysDirs = new File[0];
+    private final Path[] compressedDayOrDaysDirs = new Path[0];
 
     @Option(
             names = {"-d", "--bad-files-dir"},

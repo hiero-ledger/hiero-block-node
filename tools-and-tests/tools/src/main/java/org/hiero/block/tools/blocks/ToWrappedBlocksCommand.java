@@ -12,7 +12,6 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import java.io.DataOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
@@ -342,7 +341,7 @@ public class ToWrappedBlocksCommand implements Runnable {
             }
 
             // load day paths from the input directory, filtering to just ones newer than the startBlockDate and sorting
-            final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir.toFile()}).stream()
+            final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new Path[] {compressedDaysDir}).stream()
                     .filter(p -> {
                         final LocalDate fileDate = dayPathToLocalDate(p);
                         return fileDate.isEqual(startBlockDate) || fileDate.isAfter(startBlockDate);

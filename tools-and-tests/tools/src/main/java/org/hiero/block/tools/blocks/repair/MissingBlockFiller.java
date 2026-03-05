@@ -11,7 +11,6 @@ import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.node.base.NodeAddressBook;
-import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystem;
@@ -191,7 +190,7 @@ public class MissingBlockFiller {
                     : new AddressBookRegistry();
             final AmendmentProvider amendmentProvider = createAmendmentProvider(network);
 
-            final List<Path> allDayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir.toFile()});
+            final List<Path> allDayPaths = TarZstdDayUtils.sortedDayPaths(new Path[] {compressedDaysDir});
             final Map<LocalDate, Path> dateToDayPath = new HashMap<>();
             for (final Path p : allDayPaths) {
                 dateToDayPath.put(

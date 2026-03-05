@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
@@ -41,7 +40,7 @@ import picocli.CommandLine.Parameters;
 public class RepairZipsCommand implements Callable<Integer> {
 
     @Parameters(index = "0", description = "Directory containing wrapped block zip files to scan and repair")
-    private File directory;
+    private Path directory;
 
     @Option(
             names = {"--scan-threads"},
@@ -98,14 +97,13 @@ public class RepairZipsCommand implements Callable<Integer> {
 
     @Override
     public Integer call() {
-        final Path dir = directory.toPath();
-        if (!Files.isDirectory(dir)) {
-            System.err.println(Ansi.AUTO.string("@|red Error:|@ Not a directory: " + dir));
+        if (!Files.isDirectory(directory)) {
+            System.err.println(Ansi.AUTO.string("@|red Error:|@ Not a directory: " + directory));
             return 1;
         }
 
         final int repairExit =
-                new ZipRepairEngine(scanThreads, repairThreads, bufferSizeMiB, backupDir).runScanAndRepair(dir);
+                new ZipRepairEngine(scanThreads, repairThreads, bufferSizeMiB, backupDir).runScanAndRepair(directory);
 
         if (compressedDaysDir == null) {
             System.out.println();
@@ -115,7 +113,7 @@ public class RepairZipsCommand implements Callable<Integer> {
         }
 
         final int fillExit = new MissingBlockFiller(
-                        dir,
+                        directory,
                         compressedDaysDir,
                         blockTimesFile,
                         dayBlocksFile,

@@ -29,6 +29,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import picocli.CommandLine;
 
 /**
@@ -37,6 +39,7 @@ import picocli.CommandLine;
  * <p>These tests verify the watermark file, registry truncation, and hasher replay logic
  * without running the full pipeline (which requires tar.zstd inputs and mirror node metadata).
  */
+@Execution(ExecutionMode.SAME_THREAD)
 class ToWrappedBlocksCommandTest {
 
     @TempDir
