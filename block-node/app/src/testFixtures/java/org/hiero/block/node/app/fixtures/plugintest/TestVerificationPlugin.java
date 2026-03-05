@@ -4,10 +4,12 @@ package org.hiero.block.node.app.fixtures.plugintest;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -20,7 +22,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificationHandler, BlockItemHandler {
-    private final Set<Long> blocksToFail = new LinkedHashSet<>();
+    private final Set<Long> blocksToFail = new ConcurrentSkipListSet<>();
+    private final ConcurrentNavigableMap<Long, Long> blocksThatHaveFailed = new ConcurrentSkipListMap<>();
     private BlockNodeContext context;
     private VerificationSession currentSession;
     private BlockSource blockSource = BlockSource.PUBLISHER;
@@ -48,7 +51,13 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
             currentSession = new VerificationSession(blockNumber, blocksToFail.remove(blockNumber), blockSource);
         }
         if (currentSession.processBlockItems(blockItems)) {
+            // first send the notification, most likely it will be handled on the same thread
             context.blockMessaging().sendBlockVerification(currentSession.completeSession());
+            // then mark as a failure
+            if (currentSession.shouldFail) {
+                final long blockNumber = currentSession.blockNumber;
+                blocksThatHaveFailed.put(blockNumber, blocksThatHaveFailed.getOrDefault(blockNumber, 0L) + 1);
+            }
         }
     }
 
@@ -66,6 +75,16 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
         for (final long number : blockNumbers) {
             blocksToFail.add(number);
         }
+    }
+
+    public void doNotFailBlocks(long... blockNumbers) {
+        for (final long number : blockNumbers) {
+            blocksToFail.remove(number);
+        }
+    }
+
+    public long blockFailures(final long blockNumber) {
+        return blocksThatHaveFailed.getOrDefault(blockNumber, 0L);
     }
 
     private static final String NULL_SOURCE_MESSAGE =

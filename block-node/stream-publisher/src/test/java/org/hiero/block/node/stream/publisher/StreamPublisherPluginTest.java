@@ -9,6 +9,7 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.UncheckedParseException;
+import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Collections;
@@ -36,6 +37,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestVerificationPlugin;
+import org.hiero.block.node.app.fixtures.plugintest.VerificationHandlingHistoricalBlockFacility;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -62,7 +64,11 @@ class StreamPublisherPluginTest {
             response -> Objects.requireNonNull(response.endStream()).blockNumber();
     private static final Function<PublishStreamResponse, Long> acknowledgementBlockNumberExtractor =
             response -> Objects.requireNonNull(response.acknowledgement()).blockNumber();
+    private static final Function<PublishStreamResponse, Long> resendBlockNumberExtractor =
+            response -> Objects.requireNonNull(response.resendBlock()).blockNumber();
 
+    /// The historical block facility to use when testing.
+    private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
     private TestVerificationPlugin verificationPlugin;
 
     /// Enable debug logging for each test.
@@ -75,8 +81,6 @@ class StreamPublisherPluginTest {
     @Nested
     @DisplayName("Plugin Tests")
     class PluginTest extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService, ScheduledBlockingExecutor> {
-        private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
-
         /// Constructor for the plugin tests.
         PluginTest() {
             super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
@@ -290,25 +294,11 @@ class StreamPublisherPluginTest {
     @DisplayName("Plugin Tests Pre Earliest Managed Block")
     class PluginTestsPreEarliestManagedBlock
             extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService, ScheduledBlockingExecutor> {
-        private static final long RESPONSE_TIMEOUT_NS = 5_000_000_000L; // 5 seconds
-        /// The historical block facility to use when testing.
-        private final SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
-
         /// Constructor for the plugin tests.
         PluginTestsPreEarliestManagedBlock() {
             super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             verificationPlugin = new TestVerificationPlugin();
-        }
-
-        /// Polls until `fromPluginBytes` reaches the expected size or the
-        /// 5-second timeout expires. Uses short polling intervals instead of a
-        /// fixed sleep to avoid timing-based test flakiness.
-        private void awaitResponse(final int expectedCount) {
-            final long deadline = System.nanoTime() + RESPONSE_TIMEOUT_NS;
-            while (fromPluginBytes.size() < expectedCount && System.nanoTime() < deadline) {
-                parkNanos(1_000_000L);
-            }
         }
 
         private void activatePlugin(final long earliestManagedBlock) {
@@ -343,7 +333,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, block.number());
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -386,7 +376,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, blockNumber);
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -431,7 +421,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -478,7 +468,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -519,7 +509,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, block.number());
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -549,7 +539,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             endThisBlock(toPluginPipe, block0.number());
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -568,7 +558,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(secondRequest));
             endThisBlock(toPluginPipe, block1.number());
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -603,7 +593,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -653,7 +643,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -667,7 +657,7 @@ class StreamPublisherPluginTest {
             // Now attempt to send the same request again, that should not be possible
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             // Await to ensure async execution and assert response
-            awaitResponse(1);
+            awaitPluginResponses(1);
             // Assert end stream
             assertThat(fromPluginBytes)
                     .hasSize(1)
@@ -681,5 +671,130 @@ class StreamPublisherPluginTest {
 
         // @todo(1693) add tests:
         //    - add e2e test cases to test plan
+    }
+
+    /// Tests for failed block verification
+    @Nested
+    @DisplayName("Failed Verification Tests")
+    class PluginTestsFailedVerification
+            extends GrpcPluginTestBase<StreamPublisherPlugin, ExecutorService, ScheduledBlockingExecutor> {
+        private final VerificationHandlingHistoricalBlockFacility historicalBlockFacility;
+
+        protected PluginTestsFailedVerification() {
+            super(Executors.newSingleThreadExecutor(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            historicalBlockFacility = new VerificationHandlingHistoricalBlockFacility();
+            final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
+            verificationPlugin = new TestVerificationPlugin();
+            final List<BlockNodePlugin> additionalPlugins = List.of(verificationPlugin);
+            start(toTest, toTest.methods().getFirst(), historicalBlockFacility, additionalPlugins);
+        }
+
+        /// This test aims to asser that if a block fails verification, it will be scheduled to be resent.
+        /// When an active publisher finishes the current block it streams, it must receive the ResendBlock
+        /// message for the block that failed verification.
+        @Test
+        @DisplayName(
+                "Test receive the ResendBlock message on block that failed verification when a publisher ends it's current block")
+        void testResendBlockReceived() {
+            // Create a second publisher, the first one is automatically created by the plugin test base
+            final TestPipeline secondPublisher = createNewPipeline();
+            // In the first stage, both publishers expect an acknowledgement for the first streamed block that
+            // successfully passes verification and is persisted successfully
+            final List<List<Bytes>> ackReceivers = List.of(fromPluginBytes, secondPublisher.fromPluginBytes());
+            // Create the test blocks
+            final List<TestBlock> blocks0To3 = TestBlockBuilder.generateBlocksInRange(0, 2);
+            // Stream block 0, verification will be successful, also the block will be persisted, this will trigger
+            // the acknowledgement of the block, we expect every connected publisher to receive the acknowledgement
+            streamBlockAndAwaitAcknowledgement(secondPublisher.toPluginPipe(), ackReceivers, blocks0To3.get(0));
+            final TestBlock block1 = blocks0To3.get(1);
+            sendBlock(secondPublisher.toPluginPipe(), block1);
+            // Now we have to start streaming the next expected block from the first publisher, we want to leave it
+            // in a state where it is mid-block. Do not end this yet.
+            final TestBlock block2 = blocks0To3.get(2);
+            sendBlock(toPluginPipe, block2);
+            // Now tell the test verification plugin that we want to fail the verification of block 1, this will also
+            // result in the block not being persisted. The publisher that supplied the block will receive the
+            // bad block proof end of stream code.
+            verificationPlugin.failBlocks(block1.number());
+            // End block 1, this will trigger the test verification plugin to fail the verification of block 1.
+            endThisBlock(secondPublisher.toPluginPipe(), block1.number());
+            // Await and ensure block has failed and the publisher is now closed
+            awaitBadBlockProof(secondPublisher.fromPluginBytes(), block1);
+            // Now we can end streaming block 2, we expect to receive the ResendBlock message because the block
+            // that failed should be scheduled for a resend.
+            endThisBlock(toPluginPipe, block2.number());
+            awaitResend(fromPluginBytes, block1);
+        }
+
+        private static void sendBlock(final Pipeline<? super Bytes> requestSender, final TestBlock block) {
+            final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                    .blockItems(block.asItemSetUnparsed())
+                    .build();
+            requestSender.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
+        }
+
+        private void streamBlockAndAwaitAcknowledgement(
+                final Pipeline<? super Bytes> requestSender,
+                final List<List<Bytes>> acknowledgementReceivers,
+                final TestBlock block) {
+            sendBlock(requestSender, block);
+            endThisBlock(requestSender, block.number());
+            awaitAcknowledgements(acknowledgementReceivers, block);
+        }
+
+        private void awaitAcknowledgements(final List<List<Bytes>> acknowledgementReceivers, final TestBlock block) {
+            // Await to ensure async execution and assert response
+            awaitPluginResponses(acknowledgementReceivers, 1);
+            // Assert that the block has been successfully streamed
+            assertThat(acknowledgementReceivers).allSatisfy(receiver -> {
+                assertThat(receiver)
+                        .hasSize(1)
+                        .first()
+                        .extracting(bytesToPublishStreamResponseMapper)
+                        .isNotNull()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(block.number(), acknowledgementBlockNumberExtractor);
+                receiver.clear();
+            });
+        }
+
+        private void awaitBadBlockProof(final List<Bytes> badBlockProofReceiver, final TestBlock block) {
+            final long timeout = 5_000_000_000L; // 5 seconds
+            final long deadline = System.nanoTime() + timeout;
+            while (verificationPlugin.blockFailures(block.number()) <= 0 && System.nanoTime() < deadline) {
+                parkNanos(1_000_000L);
+            }
+            // Assert that the block has failed verification
+            assertThat(verificationPlugin.blockFailures(block.number())).isOne();
+            // Assert bad block proof received by publisher that has supplied the failing block
+            assertThat(badBlockProofReceiver)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                    .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
+                    .returns(historicalBlockFacility.availableBlocks().max(), endStreamResponseBlockNumberExtractor);
+            badBlockProofReceiver.clear();
+        }
+
+        private void awaitResend(final List<Bytes> resendReceiver, final TestBlock block) {
+            final long timeout = 5_000_000_000L; // 5 seconds
+            final long deadline = System.nanoTime() + timeout;
+            while (verificationPlugin.blockFailures(block.number()) <= 0 && System.nanoTime() < deadline) {
+                parkNanos(1_000_000L);
+            }
+            // Assert that the block has failed verification
+            assertThat(verificationPlugin.blockFailures(block.number())).isOne();
+            // Assert bad block proof received by publisher that has supplied the failing block
+            assertThat(resendReceiver)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                    .returns(block.number(), resendBlockNumberExtractor);
+            resendReceiver.clear();
+        }
     }
 }

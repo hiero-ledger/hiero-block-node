@@ -2,6 +2,7 @@
 package org.hiero.block.node.app.fixtures.plugintest;
 
 import static java.lang.System.Logger.Level.TRACE;
+import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -19,6 +20,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Predicate;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -37,6 +39,8 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 public abstract class GrpcPluginTestBase<
                 P extends BlockNodePlugin, E extends ExecutorService, S extends ScheduledExecutorService>
         extends PluginTestBase<P, E, S> implements ServiceBuilder {
+    private static final long RESPONSE_TIMEOUT_NS = 5_000_000_000L; // 5 seconds
+
     private record ReqOptions(Optional<String> authority, boolean isProtobuf, boolean isJson, String contentType)
             implements ServiceInterface.RequestOptions {}
     /** The GRPC bytes received from the plugin. */
@@ -95,9 +99,18 @@ public abstract class GrpcPluginTestBase<
     }
 
     /// Setup new pipelines to be used.
-    public void setupNewPipelines() {
+    protected void setupNewPipelines() {
+        final TestPipeline newPipeline = createNewPipeline();
+        fromPluginPipe = newPipeline.fromPluginPipe;
+        toPluginPipe = newPipeline.toPluginPipe;
+        fromPluginBytes = newPipeline.fromPluginBytes;
+    }
+
+    /// Setup new pipelines to be used.
+    protected TestPipeline createNewPipeline() {
+        final List<Bytes> bytes = new CopyOnWriteArrayList<>();
         // setup to receive bytes from the plugin
-        fromPluginPipe = new Pipeline<>() {
+        final Pipeline<Bytes> fromPipe = new Pipeline<>() {
             @Override
             public void clientEndStreamReceived() {
                 LOGGER.log(TRACE, "clientEndStreamReceived");
@@ -105,7 +118,7 @@ public abstract class GrpcPluginTestBase<
 
             @Override
             public void onNext(Bytes item) throws RuntimeException {
-                fromPluginBytes.add(item);
+                bytes.add(item);
             }
 
             @Override
@@ -124,10 +137,11 @@ public abstract class GrpcPluginTestBase<
             }
         };
         // open a fake GRPC connection to the plugin
-        toPluginPipe = serviceInterface.open(
+        final Pipeline<? super Bytes> toPipe = serviceInterface.open(
                 Objects.requireNonNull(method),
                 new ReqOptions(Optional.empty(), true, false, "application/grpc"),
-                fromPluginPipe);
+                fromPipe);
+        return new TestPipeline(toPipe, fromPipe, bytes);
     }
 
     @Override
@@ -139,4 +153,35 @@ public abstract class GrpcPluginTestBase<
     public void registerGrpcService(@NonNull ServiceInterface service) {
         serviceInterface = service;
     }
+
+    /// Polls until `fromPluginBytes` reaches the expected size or the
+    /// 5-second timeout expires. Uses short polling intervals instead of a
+    /// fixed sleep to avoid timing-based test flakiness.
+    protected void awaitPluginResponses(final int expectedCount) {
+        final long deadline = System.nanoTime() + RESPONSE_TIMEOUT_NS;
+        while (fromPluginBytes.size() < expectedCount && System.nanoTime() < deadline) {
+            parkNanos(1_000_000L);
+        }
+    }
+
+    /// Polls until all receivers reach the expected size or the
+    /// 5-second timeout expires. Uses short polling intervals instead of a
+    /// fixed sleep to avoid timing-based test flakiness.
+    protected void awaitPluginResponses(final List<List<Bytes>> receivers, final int expectedCount) {
+        final long deadline = System.nanoTime() + RESPONSE_TIMEOUT_NS;
+        final Predicate<List<List<Bytes>>> expectedCountReceivedPredicate = r -> {
+            for (final List<Bytes> receiver : receivers) {
+                if (receiver.size() < expectedCount) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        while (expectedCountReceivedPredicate.test(receivers) && System.nanoTime() < deadline) {
+            parkNanos(1_000_000L);
+        }
+    }
+
+    protected record TestPipeline(
+            Pipeline<? super Bytes> toPluginPipe, Pipeline<Bytes> fromPluginPipe, List<Bytes> fromPluginBytes) {}
 }
