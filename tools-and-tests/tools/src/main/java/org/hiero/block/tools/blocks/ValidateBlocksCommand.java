@@ -8,7 +8,10 @@ import com.google.gson.JsonParser;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.RecordFileItem;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -20,6 +23,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -46,7 +50,12 @@ import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher;
 import org.hiero.block.tools.blocks.model.hashing.HashingUtils;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
+import org.hiero.block.tools.blocks.wrapped.RunningAccountsState;
+import org.hiero.block.tools.blocks.wrapped.WrappedBlockValidator;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.records.SigFileUtils;
+import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
+import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Help.Ansi;
@@ -105,11 +114,6 @@ public class ValidateBlocksCommand implements Runnable {
     private Path addressBookFile;
 
     @Option(
-            names = {"--skip-signatures"},
-            description = "Skip signature validation (only check hash chain)")
-    private boolean skipSignatures = false;
-
-    @Option(
             names = {"-v", "--verbose"},
             description = "Print details for each block")
     private boolean verbose = false;
@@ -140,38 +144,28 @@ public class ValidateBlocksCommand implements Runnable {
     }
 
     /** Lightweight state loaded from a checkpoint JSON file. */
-    private record CheckpointState(
-            long lastValidatedBlockNumber,
-            long blocksValidated,
-            long hashErrors,
-            long signatureErrors,
-            long otherErrors,
-            long stateFileErrors,
-            byte[] previousBlockHash) {}
+    private record CheckpointState(long lastValidatedBlockNumber, long blocksValidated, byte[] previousBlockHash) {}
 
     /**
      * Saves checkpoint state atomically using {@link HasherStateFiles#saveAtomically}.
      *
+     * <p>Only progress state is saved — error counters are not persisted because the command
+     * is fail-fast (stops on the first error), so they would always be zero on a successful resume.
+     *
      * @param checkpointDir directory to write checkpoint files into
      * @param lastValidatedBlockNumber the last block number that was fully validated
      * @param blocksValidated number of blocks validated so far
-     * @param hashErrors number of hash errors so far
-     * @param signatureErrors number of signature errors so far
-     * @param otherErrors number of other errors so far
-     * @param stateFileErrors number of state file errors so far
      * @param previousBlockHash hash of the last validated block
      * @param freshStreamingHasher streaming hasher state to persist
+     * @param accounts running account state to persist (may be null)
      */
     private static void saveCheckpoint(
             Path checkpointDir,
             long lastValidatedBlockNumber,
             long blocksValidated,
-            long hashErrors,
-            long signatureErrors,
-            long otherErrors,
-            long stateFileErrors,
             byte[] previousBlockHash,
-            StreamingHasher freshStreamingHasher) {
+            StreamingHasher freshStreamingHasher,
+            RunningAccountsState accounts) {
         // Save StreamingHasher binary state atomically
         try {
             HasherStateFiles.saveAtomically(
@@ -179,15 +173,19 @@ public class ValidateBlocksCommand implements Runnable {
         } catch (Exception e) {
             System.err.println("Warning: could not save streaming hasher: " + e.getMessage());
         }
+        // Save RunningAccountsState binary state atomically
+        if (accounts != null) {
+            try {
+                HasherStateFiles.saveAtomically(checkpointDir.resolve("validateAccountState.bin"), accounts::save);
+            } catch (Exception e) {
+                System.err.println("Warning: could not save account state: " + e.getMessage());
+            }
+        }
         // Build and save JSON checkpoint atomically
         JsonObject root = new JsonObject();
-        root.addProperty("schemaVersion", 1);
+        root.addProperty("schemaVersion", 3);
         root.addProperty("lastValidatedBlockNumber", lastValidatedBlockNumber);
         root.addProperty("blocksValidated", blocksValidated);
-        root.addProperty("hashErrors", hashErrors);
-        root.addProperty("signatureErrors", signatureErrors);
-        root.addProperty("otherErrors", otherErrors);
-        root.addProperty("stateFileErrors", stateFileErrors);
         root.addProperty("previousBlockHashHex", Bytes.wrap(previousBlockHash).toHex());
         final String json = new GsonBuilder().setPrettyPrinting().create().toJson(root);
         try {
@@ -214,19 +212,11 @@ public class ValidateBlocksCommand implements Runnable {
         HasherStateFiles.loadWithFallback(jsonFile, path -> {
             try (var reader = Files.newBufferedReader(path)) {
                 JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-                if (root.get("schemaVersion").getAsInt() != 1) {
-                    System.err.println("Unknown checkpoint schema version, ignoring");
-                    return;
-                }
                 byte[] prevHash =
                         HexFormat.of().parseHex(root.get("previousBlockHashHex").getAsString());
                 result[0] = new CheckpointState(
                         root.get("lastValidatedBlockNumber").getAsLong(),
                         root.get("blocksValidated").getAsLong(),
-                        root.get("hashErrors").getAsLong(),
-                        root.get("signatureErrors").getAsLong(),
-                        root.get("otherErrors").getAsLong(),
-                        root.get("stateFileErrors").getAsLong(),
                         prevHash);
             }
         });
@@ -242,7 +232,7 @@ public class ValidateBlocksCommand implements Runnable {
 
         // Auto-detect addressBookHistory.json if not explicitly provided
         // Check if any input is a directory containing addressBookHistory.json
-        if (addressBookFile == null && !skipSignatures) {
+        if (addressBookFile == null) {
             for (File file : files) {
                 if (file.isDirectory()) {
                     Path potentialAddressBook = file.toPath().resolve("addressBookHistory.json");
@@ -256,17 +246,15 @@ public class ValidateBlocksCommand implements Runnable {
             }
         }
 
-        // Load the address book registry if signature validation is enabled
+        // Load the address book registry — required for signature validation
         AddressBookRegistry addressBookRegistry = null;
-        if (!skipSignatures) {
-            if (addressBookFile != null && Files.exists(addressBookFile)) {
-                addressBookRegistry = new AddressBookRegistry(addressBookFile);
-                System.out.println(Ansi.AUTO.string("@|yellow Loaded address book from:|@ " + addressBookFile));
-            } else {
-                System.out.println(Ansi.AUTO.string(
-                        "@|yellow Warning:|@ No address book provided, signature validation will be skipped"));
-                skipSignatures = true;
-            }
+        if (addressBookFile != null && Files.exists(addressBookFile)) {
+            addressBookRegistry = new AddressBookRegistry(addressBookFile);
+            System.out.println(Ansi.AUTO.string("@|yellow Loaded address book from:|@ " + addressBookFile));
+        } else {
+            System.err.println(Ansi.AUTO.string("@|red Error:|@ No address book found. Provide --address-book or place "
+                    + "addressBookHistory.json in the input directory."));
+            return;
         }
 
         // Find all block sources
@@ -340,15 +328,21 @@ public class ValidateBlocksCommand implements Runnable {
         }
         System.out.println();
 
-        // Validation tracking — counters restored from checkpoint when resuming
+        // Validation tracking — error counters always start at 0 (fail-fast stops on first error)
         final long startNanos = System.nanoTime();
         final AtomicLong blocksValidated = new AtomicLong(checkpoint != null ? checkpoint.blocksValidated() : 0);
-        final AtomicLong hashErrors = new AtomicLong(checkpoint != null ? checkpoint.hashErrors() : 0);
-        final AtomicLong signatureErrors = new AtomicLong(checkpoint != null ? checkpoint.signatureErrors() : 0);
-        final AtomicLong otherErrors = new AtomicLong(checkpoint != null ? checkpoint.otherErrors() : 0);
-        final AtomicLong stateFileErrors = new AtomicLong(checkpoint != null ? checkpoint.stateFileErrors() : 0L);
+        final AtomicLong hashErrors = new AtomicLong(0);
+        final AtomicLong signatureErrors = new AtomicLong(0);
+        final AtomicLong otherErrors = new AtomicLong(0);
+        final AtomicLong stateFileErrors = new AtomicLong(0);
+        final AtomicLong structureErrors = new AtomicLong(0);
+        final AtomicLong treeRootErrors = new AtomicLong(0);
+        final AtomicLong balanceErrors = new AtomicLong(0);
         final AtomicReference<byte[]> previousBlockHash =
                 new AtomicReference<>(checkpoint != null ? checkpoint.previousBlockHash() : null);
+
+        // Running accounts state for 50 billion HBAR supply validation
+        final RunningAccountsState accounts = new RunningAccountsState();
 
         // Check for missing companion state files upfront
         if (hasStateFiles) {
@@ -398,6 +392,7 @@ public class ValidateBlocksCommand implements Runnable {
                 System.out.println(Ansi.AUTO.string(
                         "@|yellow Restored streaming hasher:|@ leafCount = " + freshStreamingHasher.leafCount()));
             }
+            HasherStateFiles.loadWithFallback(checkpointDir.resolve("validateAccountState.bin"), accounts::load);
         }
 
         // Rebuild InMemoryTreeHasher by replaying already-validated block hashes from registry
@@ -432,12 +427,9 @@ public class ValidateBlocksCommand implements Runnable {
                                 checkpointDir,
                                 lastValidatedRef[0],
                                 blocksValidated.get(),
-                                hashErrors.get(),
-                                signatureErrors.get(),
-                                otherErrors.get(),
-                                stateFileErrors.get(),
                                 previousBlockHash.get(),
-                                freshStreamingHasher);
+                                freshStreamingHasher,
+                                accounts);
                     }
                 },
                 "validate-shutdown-hook");
@@ -554,7 +546,13 @@ public class ValidateBlocksCommand implements Runnable {
             // Validation loop (main thread)
             for (int i = 0; i < pendingSources.size(); i++) {
                 // Fail fast: stop on the first real validation error
-                if (hashErrors.get() + signatureErrors.get() + otherErrors.get() > 0) {
+                long totalValidationErrors = hashErrors.get()
+                        + signatureErrors.get()
+                        + otherErrors.get()
+                        + structureErrors.get()
+                        + treeRootErrors.get()
+                        + balanceErrors.get();
+                if (totalValidationErrors > 0) {
                     PrettyPrint.clearProgress();
                     System.err.println(Ansi.AUTO.string("@|red Stopping validation (fail-fast):|@ error detected"));
                     break;
@@ -571,6 +569,11 @@ public class ValidateBlocksCommand implements Runnable {
 
                     Block block = parsed.block();
 
+                    // 1. Validate block structure (required items + ordering)
+                    if (!validateBlockStructure(blockNum, block, structureErrors)) {
+                        break;
+                    }
+
                     // Extract block proof and previous block hash from the block footer
                     BlockProof blockProof = null;
                     byte[] previousHashInBlock = null;
@@ -585,15 +588,22 @@ public class ValidateBlocksCommand implements Runnable {
                         }
                     }
 
-                    // Compute this block's hash using the proper 16-leaf Merkle tree algorithm
+                    // 2. Compute this block's hash using the proper 16-leaf Merkle tree algorithm
                     byte[] currentBlockHash = BlockStreamBlockHasher.hashBlock(block);
 
-                    // Validate hash chain
+                    // 3. Validate hash chain
                     boolean hashValid =
                             validateHashChain(blockNum, previousHashInBlock, previousBlockHash.get(), hashErrors);
-                    previousBlockHash.set(currentBlockHash);
 
-                    // Validate per-block hash against the registry
+                    // 4. Validate historical block tree root (before adding this block's hash)
+                    validateHistoricalBlockTreeRoot(blockNum, block, freshStreamingHasher, treeRootErrors);
+
+                    // 5. Update previous hash and feed hashers
+                    previousBlockHash.set(currentBlockHash);
+                    freshStreamingHasher.addNodeByHash(currentBlockHash);
+                    freshInMemoryHasher.addNodeByHash(currentBlockHash);
+
+                    // 6. Validate per-block hash against the registry (if state files present)
                     if (registry != null) {
                         byte[] storedHash = registry.getBlockHash(blockNum);
                         if (!Arrays.equals(currentBlockHash, storedHash)) {
@@ -604,9 +614,22 @@ public class ValidateBlocksCommand implements Runnable {
                         }
                     }
 
-                    // Feed the fresh hashers for post-loop state file comparison
-                    freshStreamingHasher.addNodeByHash(currentBlockHash);
-                    freshInMemoryHasher.addNodeByHash(currentBlockHash);
+                    // 7. Validate 50 billion HBAR supply
+                    try {
+                        WrappedBlockValidator.validate50Billion(blockNum, block, accounts);
+                    } catch (ValidationException e) {
+                        PrettyPrint.clearProgress();
+                        System.out.println(
+                                Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Balance error: " + e.getMessage()));
+                        balanceErrors.incrementAndGet();
+                    }
+
+                    // 8. Validate signatures
+                    boolean signaturesValid = true;
+                    if (blockProof != null) {
+                        signaturesValid = validateSignatures(
+                                blockNum, block, blockProof, addressBookRegistry, signatureErrors, currentBlockHash);
+                    }
 
                     // Update last-validated reference and save periodic checkpoint
                     lastValidatedRef[0] = blockNum;
@@ -620,20 +643,10 @@ public class ValidateBlocksCommand implements Runnable {
                                 checkpointDir,
                                 blockNum,
                                 blocksValidated.get() + 1,
-                                hashErrors.get(),
-                                signatureErrors.get(),
-                                otherErrors.get(),
-                                stateFileErrors.get(),
                                 currentBlockHash,
-                                freshStreamingHasher);
+                                freshStreamingHasher,
+                                accounts);
                         lastCheckpointSaveMs = nowMs;
-                    }
-
-                    // Validate signatures if enabled
-                    boolean signaturesValid = true;
-                    if (!skipSignatures && blockProof != null && addressBookRegistry != null) {
-                        signaturesValid = validateSignatures(
-                                blockNum, blockProof, addressBookRegistry, signatureErrors, currentBlockHash);
                     }
 
                     if (verbose) {
@@ -726,7 +739,7 @@ public class ValidateBlocksCommand implements Runnable {
                                         + loadedInMemory.leafCount() + " != expected " + expectedLeaves));
                         stateFileErrors.incrementAndGet();
                     }
-                    if (!Arrays.equals(loadedInMemory.computeRootHash(), freshStreamingHasher.computeRootHash())) {
+                    if (!Arrays.equals(loadedInMemory.computeRootHash(), freshInMemoryHasher.computeRootHash())) {
                         PrettyPrint.clearProgress();
                         System.out.println(Ansi.AUTO.string(
                                 "@|red State file error:|@ completeMerkleTree.bin root hash mismatch"));
@@ -808,7 +821,13 @@ public class ValidateBlocksCommand implements Runnable {
         }
 
         // Determine total errors
-        long totalErrors = hashErrors.get() + signatureErrors.get() + otherErrors.get() + stateFileErrors.get();
+        long totalErrors = hashErrors.get()
+                + signatureErrors.get()
+                + otherErrors.get()
+                + stateFileErrors.get()
+                + structureErrors.get()
+                + treeRootErrors.get()
+                + balanceErrors.get();
         boolean allBlocksValidated = (blocksValidated.get() == sources.size());
 
         // On full success: remove checkpoint (validation is complete).
@@ -819,6 +838,8 @@ public class ValidateBlocksCommand implements Runnable {
                 Files.deleteIfExists(checkpointDir.resolve("validateProgress.json.bak"));
                 Files.deleteIfExists(checkpointDir.resolve("validateStreamingHasher.bin"));
                 Files.deleteIfExists(checkpointDir.resolve("validateStreamingHasher.bin.bak"));
+                Files.deleteIfExists(checkpointDir.resolve("validateAccountState.bin"));
+                Files.deleteIfExists(checkpointDir.resolve("validateAccountState.bin.bak"));
                 Files.deleteIfExists(checkpointDir);
                 System.out.println(Ansi.AUTO.string("@|yellow Checkpoint deleted|@ (validation complete)"));
             } catch (IOException e) {
@@ -833,12 +854,9 @@ public class ValidateBlocksCommand implements Runnable {
                     checkpointDir,
                     lastValidatedRef[0],
                     blocksValidated.get(),
-                    hashErrors.get(),
-                    signatureErrors.get(),
-                    otherErrors.get(),
-                    stateFileErrors.get(),
                     previousBlockHash.get(),
-                    freshStreamingHasher);
+                    freshStreamingHasher,
+                    accounts);
             System.out.println(
                     Ansi.AUTO.string("@|yellow Checkpoint saved:|@ " + checkpointDir + "/validateProgress.json"));
         }
@@ -854,6 +872,9 @@ public class ValidateBlocksCommand implements Runnable {
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|yellow Blocks validated:|@ " + blocksValidated.get()));
         System.out.println(Ansi.AUTO.string("@|yellow Hash chain errors:|@ " + hashErrors.get()));
+        System.out.println(Ansi.AUTO.string("@|yellow Structure errors:|@ " + structureErrors.get()));
+        System.out.println(Ansi.AUTO.string("@|yellow Tree root errors:|@ " + treeRootErrors.get()));
+        System.out.println(Ansi.AUTO.string("@|yellow Balance errors:|@ " + balanceErrors.get()));
         System.out.println(Ansi.AUTO.string("@|yellow Signature errors:|@ " + signatureErrors.get()));
         System.out.println(Ansi.AUTO.string("@|yellow Other errors:|@ " + otherErrors.get()));
         System.out.println(Ansi.AUTO.string("@|yellow State file errors:|@ " + stateFileErrors.get()));
@@ -897,6 +918,49 @@ public class ValidateBlocksCommand implements Runnable {
             blockBytes = raw;
         }
         return Block.PROTOBUF.parse(Bytes.wrap(blockBytes));
+    }
+
+    /**
+     * Validates block structure by checking required items and ordering.
+     *
+     * @param blockNum the block number
+     * @param block the block to validate
+     * @param structureErrors counter for structure errors
+     * @return true if valid
+     */
+    private boolean validateBlockStructure(long blockNum, Block block, AtomicLong structureErrors) {
+        try {
+            WrappedBlockValidator.validateRequiredItems(blockNum, block);
+            WrappedBlockValidator.validateNoExtraItems(blockNum, block);
+            return true;
+        } catch (ValidationException e) {
+            PrettyPrint.clearProgress();
+            System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Structure error: " + e.getMessage()));
+            structureErrors.incrementAndGet();
+            return false;
+        }
+    }
+
+    /**
+     * Validates the historical block tree root stored in the block footer.
+     *
+     * @param blockNum the block number
+     * @param block the block to validate
+     * @param streamingHasher the streaming hasher with current tree state
+     * @param treeRootErrors counter for tree root errors
+     * @return true if valid
+     */
+    private boolean validateHistoricalBlockTreeRoot(
+            long blockNum, Block block, StreamingHasher streamingHasher, AtomicLong treeRootErrors) {
+        try {
+            WrappedBlockValidator.validateHistoricalBlockTreeRoot(blockNum, block, streamingHasher);
+            return true;
+        } catch (ValidationException e) {
+            PrettyPrint.clearProgress();
+            System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Tree root error: " + e.getMessage()));
+            treeRootErrors.incrementAndGet();
+            return false;
+        }
     }
 
     /**
@@ -954,6 +1018,7 @@ public class ValidateBlocksCommand implements Runnable {
      * Validates signatures on a block.
      *
      * @param blockNum            the block number
+     * @param block               the full block (needed for extracting RecordFileItem and BlockHeader)
      * @param blockProof          the block proof containing signatures
      * @param addressBookRegistry the address book registry for public keys
      * @param signatureErrors     counter for signature errors
@@ -962,53 +1027,143 @@ public class ValidateBlocksCommand implements Runnable {
      */
     private boolean validateSignatures(
             long blockNum,
+            Block block,
             BlockProof blockProof,
             AddressBookRegistry addressBookRegistry,
             AtomicLong signatureErrors,
             byte[] blockHash) {
 
         try {
-            NodeAddressBook addressBook = addressBookRegistry.getCurrentAddressBook();
-            if (addressBook == null || addressBook.nodeAddress().isEmpty()) {
-                if (verbose) {
+            if (blockProof.hasSignedRecordFileProof()) {
+                return validateSignedRecordFileProof(blockNum, block, blockProof, addressBookRegistry, signatureErrors);
+            } else if (blockProof.hasSignedBlockProof()) {
+                // TSS verification not yet implemented — verify non-empty
+                Bytes blockSig = blockProof.signedBlockProofOrThrow().blockSignature();
+                if (blockSig.length() == 0) {
                     PrettyPrint.clearProgress();
-                    System.out.println(Ansi.AUTO.string(
-                            "@|yellow Block " + blockNum + ":|@ No address book available for signature validation"));
+                    System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Empty TSS block signature"));
+                    signatureErrors.incrementAndGet();
+                    return false;
                 }
-                return true;
-            }
-
-            // Blocks wrapped from record files carry SIGNED_RECORD_FILE_PROOF, not SIGNED_BLOCK_PROOF.
-            // Skip signature validation gracefully for any proof type other than signedBlockProof.
-            if (!blockProof.hasSignedBlockProof()) {
                 if (verbose) {
                     PrettyPrint.clearProgress();
                     System.out.println(Ansi.AUTO.string("@|yellow Block " + blockNum
-                            + ":|@ proof type is not signedBlockProof ("
-                            + blockProof.proof().kind() + "), skipping signature check"));
+                            + ":|@ TSS signature present but verification not yet implemented"));
                 }
                 return true;
-            }
-
-            Bytes blockSig = blockProof.signedBlockProofOrThrow().blockSignature();
-            if (blockSig.length() == 0) {
+            } else {
                 PrettyPrint.clearProgress();
-                System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ No signatures in block proof"));
+                System.out.println(Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Unknown proof type: "
+                        + blockProof.proof().kind()));
                 signatureErrors.incrementAndGet();
                 return false;
             }
-
-            // TODO: implement TSS signature verification using blockHash against ledger ID public keys.
-            // For now, assume signature is valid if present and non-empty.
-            return true;
-
         } catch (Exception e) {
             PrettyPrint.clearProgress();
             System.out.println(
                     Ansi.AUTO.string("@|red Block " + blockNum + ":|@ Signature validation error: " + e.getMessage()));
+            if (verbose) {
+                e.printStackTrace();
+            }
             signatureErrors.incrementAndGet();
             return false;
         }
+    }
+
+    /**
+     * Validates a SignedRecordFileProof by reconstructing the record file hash and verifying
+     * RSA signatures from consensus nodes against the address book.
+     *
+     * @param blockNum            the block number
+     * @param block               the full block
+     * @param blockProof          the block proof containing the SignedRecordFileProof
+     * @param addressBookRegistry the address book registry for public keys
+     * @param signatureErrors     counter for signature errors
+     * @return true if the threshold number of signatures verified successfully
+     */
+    private boolean validateSignedRecordFileProof(
+            long blockNum,
+            Block block,
+            BlockProof blockProof,
+            AddressBookRegistry addressBookRegistry,
+            AtomicLong signatureErrors) {
+
+        final var signedRecordFileProof = blockProof.signedRecordFileProofOrThrow();
+        final var signatures = signedRecordFileProof.recordFileSignatures();
+
+        if (signatures.isEmpty()) {
+            PrettyPrint.clearProgress();
+            System.out.println(
+                    Ansi.AUTO.string("@|red Block " + blockNum + ":|@ No signatures in SignedRecordFileProof"));
+            signatureErrors.incrementAndGet();
+            return false;
+        }
+
+        // Extract RecordFileItem and BlockHeader from the block
+        RecordFileItem recordFileItem = null;
+        BlockHeader blockHeader = null;
+        for (BlockItem item : block.items()) {
+            if (item.hasRecordFile()) recordFileItem = item.recordFileOrThrow();
+            if (item.hasBlockHeader()) blockHeader = item.blockHeaderOrThrow();
+        }
+        if (recordFileItem == null || blockHeader == null) {
+            PrettyPrint.clearProgress();
+            System.out.println(Ansi.AUTO.string("@|red Block " + blockNum
+                    + ":|@ Missing RecordFileItem or BlockHeader for signature verification"));
+            signatureErrors.incrementAndGet();
+            return false;
+        }
+
+        // Reconstruct the signed hash via ParsedRecordFile
+        final Timestamp creationTime = recordFileItem.creationTime();
+        final Instant blockTime = Instant.ofEpochSecond(creationTime.seconds(), creationTime.nanos());
+        final byte[] startHash = recordFileItem
+                .recordFileContentsOrThrow()
+                .startObjectRunningHash()
+                .hash()
+                .toByteArray();
+        final ParsedRecordFile parsedRecordFile = ParsedRecordFile.parse(
+                blockTime,
+                signedRecordFileProof.version(),
+                blockHeader.hapiProtoVersion(),
+                startHash,
+                recordFileItem.recordFileContentsOrThrow());
+        final byte[] signedHash = parsedRecordFile.signedHash();
+
+        // Get the address book for this block's timestamp
+        final NodeAddressBook addressBook = addressBookRegistry.getAddressBookForBlock(blockTime);
+        final int totalNodes = addressBook.nodeAddress().size();
+        final int threshold = (totalNodes / 3) + 1;
+
+        // Verify each signature
+        int validCount = 0;
+        int failedCount = 0;
+        for (var sig : signatures) {
+            final long accountNum = AddressBookRegistry.accountIdForNode(sig.nodeId());
+            try {
+                final String pubKeyHex = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
+                if (SigFileUtils.verifyRsaSha384(
+                        pubKeyHex, signedHash, sig.signaturesBytes().toByteArray())) {
+                    validCount++;
+                } else {
+                    failedCount++;
+                }
+            } catch (Exception e) {
+                // Unknown node — skip but count as failed
+                failedCount++;
+            }
+        }
+
+        if (validCount < threshold) {
+            PrettyPrint.clearProgress();
+            System.out.println(Ansi.AUTO.string("@|red Block " + blockNum
+                    + ":|@ Insufficient valid signatures: " + validCount + "/" + signatures.size()
+                    + " verified, need " + threshold + "/" + totalNodes));
+            signatureErrors.incrementAndGet();
+            return false;
+        }
+
+        return true;
     }
 
     /**
