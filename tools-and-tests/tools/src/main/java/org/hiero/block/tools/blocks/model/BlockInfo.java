@@ -11,26 +11,16 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.StringWriter;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Stream;
-import java.util.zip.GZIPInputStream;
-import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.tools.blocks.ConvertToJson;
+import org.hiero.block.tools.blocks.model.BlockZipsUtilities.BlockSource;
 
 /**
  * Command line command that prints info for block files
@@ -44,183 +34,10 @@ import org.hiero.block.tools.blocks.ConvertToJson;
 })
 public class BlockInfo {
 
-    /** Pattern to match block file names and extract the block number */
-    private static final Pattern BLOCK_FILE_PATTERN = Pattern.compile("^(\\d+)\\.blk(\\.gz|\\.zstd)?$");
-
     /**
      * Empty Default constructor to remove Javadoc warning
      */
     private BlockInfo() {}
-
-    /**
-     * Represents a source for reading a block - either a standalone file or an entry in a zip archive.
-     *
-     * @param blockNumber the block number extracted from the filename
-     * @param filePath the path to the file (either the block file or the zip file)
-     * @param zipEntryName the name of the entry within the zip file, or null for standalone files
-     * @param compressionType the compression type of the block data
-     */
-    public record BlockSource(long blockNumber, Path filePath, String zipEntryName, CompressionType compressionType) {
-        /** Check if this is a zip entry source. */
-        public boolean isZipEntry() {
-            return zipEntryName != null;
-        }
-    }
-
-    /**
-     * Extract a block number from a filename matching block file patterns.
-     *
-     * @param fileName the file name to parse
-     * @return the block number, or -1 if not a valid block file name
-     */
-    private static long extractBlockNumber(String fileName) {
-        Matcher matcher = BLOCK_FILE_PATTERN.matcher(fileName);
-        if (matcher.matches()) {
-            return Long.parseLong(matcher.group(1));
-        }
-        return -1;
-    }
-
-    /**
-     * Determine the compression type from a file name.
-     *
-     * @param fileName the file name
-     * @return the compression type
-     */
-    private static CompressionType getCompressionType(String fileName) {
-        if (fileName.endsWith(".gz")) {
-            return null; // Special case for gzip - handled separately
-        } else if (fileName.endsWith(".zstd")) {
-            return CompressionType.ZSTD;
-        }
-        return CompressionType.NONE;
-    }
-
-    /**
-     * Find all block sources from given files and directories.
-     *
-     * @param files the input files or directories
-     * @param minSizeMb minimum file size filter in MB
-     * @return list of block sources sorted by block number
-     */
-    private static List<BlockSource> findBlockSources(File[] files, double minSizeMb) {
-        List<BlockSource> sources = new ArrayList<>();
-
-        Arrays.stream(files)
-                .filter(f -> {
-                    if (!f.exists()) {
-                        System.err.println("File not found : " + f);
-                        return false;
-                    }
-                    return true;
-                })
-                .map(File::toPath)
-                .flatMap(path -> {
-                    try {
-                        return Files.walk(path);
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .filter(Files::isRegularFile)
-                .forEach(file -> {
-                    String fileName = file.getFileName().toString();
-
-                    // Check for standalone block files (.blk, .blk.gz, .blk.zstd)
-                    if (fileName.endsWith(".blk") || fileName.endsWith(".blk.gz") || fileName.endsWith(".blk.zstd")) {
-                        long blockNumber = extractBlockNumber(fileName);
-                        if (blockNumber >= 0) {
-                            try {
-                                long fileSize = Files.size(file);
-                                if (minSizeMb == Double.MAX_VALUE || fileSize / 1024.0 / 1024.0 >= minSizeMb) {
-                                    CompressionType compression = getCompressionType(fileName);
-                                    sources.add(new BlockSource(blockNumber, file, null, compression));
-                                }
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                    }
-                    // Check for zip files containing blocks
-                    else if (fileName.endsWith(".zip")) {
-                        try {
-                            findBlocksInZip(file, sources, minSizeMb);
-                        } catch (IOException e) {
-                            System.err.println("Error reading zip file: " + file + " - " + e.getMessage());
-                        }
-                    }
-                });
-
-        // Sort by block number
-        sources.sort(Comparator.comparingLong(BlockSource::blockNumber));
-        return sources;
-    }
-
-    /**
-     * Find all blocks within a zip file and add them to the source list.
-     *
-     * @param zipFile the zip file path
-     * @param sources the list to add block sources to
-     * @param minSizeMb minimum size filter (applied to compressed size in zip)
-     * @throws IOException if an error occurs reading the zip
-     */
-    private static void findBlocksInZip(Path zipFile, List<BlockSource> sources, double minSizeMb) throws IOException {
-        try (FileSystem zipFs = FileSystems.newFileSystem(zipFile);
-                Stream<Path> entries = Files.list(zipFs.getPath("/"))) {
-            entries.forEach(entry -> {
-                String entryName = entry.getFileName().toString();
-                if (entryName.endsWith(".blk") || entryName.endsWith(".blk.zstd")) {
-                    long blockNumber = extractBlockNumber(entryName);
-                    if (blockNumber >= 0) {
-                        try {
-                            long entrySize = Files.size(entry);
-                            if (minSizeMb == Double.MAX_VALUE || entrySize / 1024.0 / 1024.0 >= minSizeMb) {
-                                CompressionType compression = getCompressionType(entryName);
-                                sources.add(new BlockSource(blockNumber, zipFile, entryName, compression));
-                            }
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }
-                }
-            });
-        }
-    }
-
-    /**
-     * Read block data from a BlockSource.
-     *
-     * @param source the block source
-     * @return array containing [compressedBytes, uncompressedBytes]
-     * @throws IOException if an error occurs, reading
-     */
-    private static byte[][] readBlockData(BlockSource source) throws IOException {
-        byte[] compressedBytes;
-        byte[] uncompressedBytes;
-
-        if (source.isZipEntry()) {
-            // Read from a zip file
-            try (FileSystem zipFs = FileSystems.newFileSystem(source.filePath())) {
-                Path entryPath = zipFs.getPath("/", source.zipEntryName());
-                compressedBytes = Files.readAllBytes(entryPath);
-            }
-        } else {
-            // Read from a standalone file
-            compressedBytes = Files.readAllBytes(source.filePath());
-        }
-
-        // Decompress based on a compression type
-        if (source.compressionType() == null) {
-            // Special case for .gz files
-            try (InputStream in = new GZIPInputStream(new java.io.ByteArrayInputStream(compressedBytes))) {
-                uncompressedBytes = in.readAllBytes();
-            }
-        } else {
-            uncompressedBytes = source.compressionType().decompress(compressedBytes);
-        }
-
-        return new byte[][] {compressedBytes, uncompressedBytes};
-    }
 
     /**
      * Produce information for a list of block files
@@ -251,8 +68,30 @@ public class BlockInfo {
             totalItems.set(0);
             totalBytesCompressed.set(0);
             totalBytesUncompressed.set(0);
-            // Find all block sources (files and zip entries) sorted by block number
-            final List<BlockSource> blockSources = findBlockSources(files, minSizeMb);
+            // Find all block sources (files and zip entries) sorted by block number, then filter by size
+            List<BlockSource> allSources = BlockZipsUtilities.findBlockSources(files, null);
+            final List<BlockSource> blockSources;
+            if (minSizeMb != Double.MAX_VALUE) {
+                blockSources = allSources.stream()
+                        .filter(s -> {
+                            try {
+                                long size;
+                                if (s.isZipEntry()) {
+                                    // For zip entries, we can't easily get the size without opening the zip,
+                                    // so include all zip entries (consistent with original behavior for most cases)
+                                    return true;
+                                } else {
+                                    size = Files.size(s.filePath());
+                                }
+                                return size / 1024.0 / 1024.0 >= minSizeMb;
+                            } catch (IOException e) {
+                                return true;
+                            }
+                        })
+                        .toList();
+            } else {
+                blockSources = allSources;
+            }
             if (blockSources.isEmpty()) {
                 System.err.println("No block files found");
                 System.exit(1);
@@ -388,7 +227,7 @@ public class BlockInfo {
             final AtomicLong totalBytesCompressed,
             final AtomicLong totalBytesUncompressed) {
         try {
-            byte[][] data = readBlockData(source);
+            byte[][] data = BlockZipsUtilities.readBlockData(source);
             byte[] compressedData = data[0];
             byte[] uncompressedData = data[1];
 

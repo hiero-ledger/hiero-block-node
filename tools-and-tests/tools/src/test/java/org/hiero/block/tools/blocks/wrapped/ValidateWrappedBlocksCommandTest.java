@@ -1,23 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.wrapped;
 
-import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
-import com.hedera.hapi.block.stream.BlockProof;
-import com.hedera.hapi.block.stream.RecordFileItem;
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.hapi.block.stream.output.StateChanges;
-import com.hedera.hapi.node.base.Timestamp;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -25,57 +13,24 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import org.hiero.block.tools.blocks.ToWrappedBlocksCommand;
-import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 
 /**
- * Tests that wrapped blocks produced from real mainnet record data can be validated successfully,
- * and unit tests for individual validation methods in {@link WrappedBlockValidator}.
+ * End-to-end test that converts mainnet record blocks to wrapped format and then validates them.
  *
  * <p>Uses test resources containing {@code .tar.zstd} day files (mainnet record data). All
  * {@code .tar.zstd} files found in the test resources directory are included automatically,
  * so users can drop additional day files for extended coverage without code changes.
+ *
+ * <p>Unit tests for individual validations have been moved to the
+ * {@code org.hiero.block.tools.blocks.validation} package.
  */
 class ValidateWrappedBlocksCommandTest {
 
-    /** Minimal BlockHeader item for structure tests. */
-    private static final BlockItem HEADER_ITEM = BlockItem.newBuilder()
-            .blockHeader(BlockHeader.newBuilder().number(0).build())
-            .build();
-
-    /** Minimal RecordFile item for structure tests. */
-    private static final BlockItem RECORD_FILE_ITEM =
-            BlockItem.newBuilder().recordFile(RecordFileItem.DEFAULT).build();
-
-    /** Minimal BlockFooter item for structure tests. */
-    private static final BlockItem FOOTER_ITEM = BlockItem.newBuilder()
-            .blockFooter(com.hedera.hapi.block.stream.output.BlockFooter.newBuilder()
-                    .previousBlockRootHash(Bytes.wrap(EMPTY_TREE_HASH))
-                    .rootHashOfAllBlockHashesTree(Bytes.wrap(EMPTY_TREE_HASH))
-                    .startOfBlockStateRootHash(Bytes.wrap(EMPTY_TREE_HASH))
-                    .build())
-            .build();
-
-    /** Minimal BlockProof item for structure tests. */
-    private static final BlockItem PROOF_ITEM =
-            BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
-
-    /** Minimal StateChanges item for structure tests. */
-    private static final BlockItem STATE_CHANGES_ITEM = BlockItem.newBuilder()
-            .stateChanges(StateChanges.newBuilder()
-                    .consensusTimestamp(Timestamp.newBuilder().seconds(1L).build())
-                    .build())
-            .build();
-
-    /** A valid minimal block: [BlockHeader, RecordFile, BlockFooter, BlockProof]. */
-    private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-
     @TempDir
     Path tempDir;
-
-    // ===== End-to-end test =====
 
     /**
      * End-to-end test: convert mainnet record blocks to wrapped format using
@@ -159,143 +114,6 @@ class ValidateWrappedBlocksCommandTest {
                 errorOutput.contains("Address book file not found"),
                 "Balance validation should be disabled: " + errorOutput);
         assertEquals(0, validateExitCode, "Validation should pass for all blocks. Errors: " + errorOutput);
-    }
-
-    // ===== validateRequiredItems tests =====
-
-    @Test
-    void validateRequiredItems_validBlock_passes() {
-        assertDoesNotThrow(() -> WrappedBlockValidator.validateRequiredItems(0, VALID_BLOCK));
-    }
-
-    @Test
-    void validateRequiredItems_emptyBlock_fails() {
-        Block emptyBlock = new Block(List.of());
-        ValidationException ex = assertThrows(
-                ValidationException.class, () -> WrappedBlockValidator.validateRequiredItems(0, emptyBlock));
-        assertTrue(ex.getMessage().contains("no items"));
-    }
-
-    @Test
-    void validateRequiredItems_missingHeader_fails() {
-        Block block = new Block(List.of(RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateRequiredItems(0, block));
-        assertTrue(ex.getMessage().contains("BlockHeader"));
-    }
-
-    @Test
-    void validateRequiredItems_missingRecordFile_fails() {
-        Block block = new Block(List.of(HEADER_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateRequiredItems(0, block));
-        assertTrue(ex.getMessage().contains("RecordFile"));
-    }
-
-    @Test
-    void validateRequiredItems_missingFooter_fails() {
-        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, PROOF_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateRequiredItems(0, block));
-        assertTrue(ex.getMessage().contains("BlockFooter"));
-    }
-
-    @Test
-    void validateRequiredItems_missingProof_fails() {
-        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateRequiredItems(0, block));
-        assertTrue(ex.getMessage().contains("BlockProof"));
-    }
-
-    // ===== validate50Billion tests =====
-
-    @Test
-    void validate50Billion_nullMap_skipsValidation() {
-        assertDoesNotThrow(() -> WrappedBlockValidator.validate50Billion(0, VALID_BLOCK, null));
-    }
-
-    // ===== validateNoExtraItems tests =====
-
-    @Test
-    void validateNoExtraItems_validBlock_passes() {
-        assertDoesNotThrow(() -> WrappedBlockValidator.validateNoExtraItems(0, VALID_BLOCK));
-    }
-
-    @Test
-    void validateNoExtraItems_withStateChanges_passes() {
-        Block block = new Block(List.of(
-                HEADER_ITEM, STATE_CHANGES_ITEM, STATE_CHANGES_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        assertDoesNotThrow(() -> WrappedBlockValidator.validateNoExtraItems(0, block));
-    }
-
-    @Test
-    void validateNoExtraItems_multipleProofs_passes() {
-        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM, PROOF_ITEM));
-        assertDoesNotThrow(() -> WrappedBlockValidator.validateNoExtraItems(0, block));
-    }
-
-    @Test
-    void validateNoExtraItems_withStateChangesAndMultipleProofs_passes() {
-        Block block = new Block(List.of(
-                HEADER_ITEM, STATE_CHANGES_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM, PROOF_ITEM, PROOF_ITEM));
-        assertDoesNotThrow(() -> WrappedBlockValidator.validateNoExtraItems(0, block));
-    }
-
-    @Test
-    void validateNoExtraItems_duplicateHeader_fails() {
-        Block block = new Block(List.of(HEADER_ITEM, HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateNoExtraItems(0, block));
-        assertTrue(ex.getMessage().contains("Multiple BlockHeaders"));
-    }
-
-    @Test
-    void validateNoExtraItems_duplicateRecordFile_fails() {
-        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateNoExtraItems(0, block));
-        assertTrue(ex.getMessage().contains("Multiple RecordFile"));
-    }
-
-    @Test
-    void validateNoExtraItems_duplicateFooter_fails() {
-        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateNoExtraItems(0, block));
-        assertTrue(ex.getMessage().contains("Multiple BlockFooter"));
-    }
-
-    @Test
-    void validateNoExtraItems_stateChangesAfterRecordFile_fails() {
-        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, STATE_CHANGES_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateNoExtraItems(0, block));
-        assertTrue(ex.getMessage().contains("Expected BlockFooter"));
-    }
-
-    @Test
-    void validateNoExtraItems_headerNotFirst_fails() {
-        Block block = new Block(List.of(RECORD_FILE_ITEM, HEADER_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateNoExtraItems(0, block));
-        assertTrue(ex.getMessage().contains("First item must be a BlockHeader"));
-    }
-
-    @Test
-    void validateNoExtraItems_unexpectedItemAfterProofs_fails() {
-        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM, RECORD_FILE_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateNoExtraItems(0, block));
-        assertTrue(ex.getMessage().contains("Unexpected"));
-    }
-
-    @Test
-    void validateNoExtraItems_missingProof_fails() {
-        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM));
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> WrappedBlockValidator.validateNoExtraItems(0, block));
-        assertTrue(ex.getMessage().contains("Expected BlockProof"));
     }
 
     // ===== Helpers =====
