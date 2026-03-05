@@ -110,6 +110,33 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
     }
 
     /**
+     * Truncates the registry so that only hashes for blocks 0 through {@code blockNumber}
+     * (inclusive) are retained. Passing {@code -1} clears the entire file.
+     *
+     * <p>After truncation, {@link #highestBlockNumberStored()} returns {@code blockNumber} and
+     * {@link #mostRecentBlockHash()} returns the hash of that block (or {@code EMPTY_TREE_HASH}
+     * if the file is now empty).
+     *
+     * @param blockNumber the last block number to keep, or {@code -1} to clear all
+     * @throws IllegalArgumentException if {@code blockNumber} is less than {@code -1} or greater
+     *     than the current highest stored block number
+     */
+    public void truncateTo(long blockNumber) {
+        if (blockNumber < -1 || blockNumber > highestBlockNumberStored) {
+            throw new IllegalArgumentException(
+                    "Cannot truncate to block " + blockNumber + "; highest stored is " + highestBlockNumberStored);
+        }
+        try {
+            final long newLength = (blockNumber + 1) * Sha384.SHA_384_HASH_SIZE;
+            randomAccessFile.setLength(newLength);
+            highestBlockNumberStored = blockNumber;
+            mostRecentBlockHash = blockNumber >= 0 ? getBlockHash(blockNumber) : EMPTY_TREE_HASH;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
      * Closes this resource, relinquishing any underlying resources. This method is invoked automatically on objects
      * managed by the {@code try}-with-resources statement.
      */
