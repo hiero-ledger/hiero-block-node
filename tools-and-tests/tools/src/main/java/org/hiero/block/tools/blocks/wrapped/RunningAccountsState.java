@@ -4,6 +4,11 @@ package org.hiero.block.tools.blocks.wrapped;
 import com.hedera.hapi.streams.AllAccountBalances;
 import com.hedera.hapi.streams.SingleAccountBalances;
 import com.hedera.hapi.streams.TokenUnitBalance;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -249,5 +254,95 @@ public class RunningAccountsState {
             }
         }
         return result;
+    }
+
+    /**
+     * Saves the full account state to a binary file for checkpoint persistence.
+     *
+     * <p>Binary format (DataOutputStream):
+     * <ol>
+     *   <li>{@code int} version = 1
+     *   <li>{@code int} accountCount
+     *   <li>For each account:
+     *     <ul>
+     *       <li>{@code long} accountNum
+     *       <li>{@code long} tinyBarBalance
+     *       <li>{@code int} fungibleTokenCount
+     *       <li>For each fungible token: {@code long} tokenNum, {@code long} balance
+     *       <li>{@code int} nftTokenCount
+     *       <li>For each NFT token: {@code long} tokenNum, {@code int} serialCount,
+     *           then each {@code long} serialNumber
+     *     </ul>
+     * </ol>
+     *
+     * @param path the file path to write to
+     * @throws IOException if writing fails
+     */
+    public void save(final Path path) throws IOException {
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(path))) {
+            out.writeInt(1); // version
+            out.writeInt(accounts.size());
+            for (final Map.Entry<Long, Account> entry : accounts.entrySet()) {
+                out.writeLong(entry.getKey());
+                final Account account = entry.getValue();
+                out.writeLong(account.tinyBarBalance);
+                // Fungible tokens
+                out.writeInt(account.fungibleBalances.size());
+                for (final Map.Entry<Long, Long> fungible : account.fungibleBalances.entrySet()) {
+                    out.writeLong(fungible.getKey());
+                    out.writeLong(fungible.getValue());
+                }
+                // NFT tokens
+                out.writeInt(account.nftSerials.size());
+                for (final Map.Entry<Long, Set<Long>> nft : account.nftSerials.entrySet()) {
+                    out.writeLong(nft.getKey());
+                    final Set<Long> serials = nft.getValue();
+                    out.writeInt(serials.size());
+                    for (final long serial : serials) {
+                        out.writeLong(serial);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Loads account state from a binary file, replacing any existing state.
+     *
+     * @param path the file path to read from
+     * @throws IOException if reading fails
+     * @see #save(Path)
+     */
+    public void load(final Path path) throws IOException {
+        accounts.clear();
+        try (DataInputStream in = new DataInputStream(Files.newInputStream(path))) {
+            final int version = in.readInt();
+            if (version != 1) {
+                throw new IOException("Unknown RunningAccountsState version: " + version);
+            }
+            final int accountCount = in.readInt();
+            for (int i = 0; i < accountCount; i++) {
+                final long accountNum = in.readLong();
+                final Account account = new Account();
+                account.tinyBarBalance = in.readLong();
+                // Fungible tokens
+                final int fungibleCount = in.readInt();
+                for (int j = 0; j < fungibleCount; j++) {
+                    account.fungibleBalances.put(in.readLong(), in.readLong());
+                }
+                // NFT tokens
+                final int nftCount = in.readInt();
+                for (int j = 0; j < nftCount; j++) {
+                    final long tokenNum = in.readLong();
+                    final int serialCount = in.readInt();
+                    final Set<Long> serials = new HashSet<>();
+                    for (int k = 0; k < serialCount; k++) {
+                        serials.add(in.readLong());
+                    }
+                    account.nftSerials.put(tokenNum, serials);
+                }
+                accounts.put(accountNum, account);
+            }
+        }
     }
 }

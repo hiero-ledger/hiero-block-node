@@ -13,6 +13,7 @@ import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
@@ -79,6 +80,99 @@ import org.hiero.block.node.base.CompressionType;
 public class BlockWriter {
 
     /**
+     * Abstraction over zip writing that supports both fresh zip files and resuming into an
+     * existing partial zip.
+     *
+     * <p>Obtain instances via {@link BlockWriter#openZipForAppend(Path)}. Always close in a
+     * try-with-resources or finally block so the Central Directory is flushed correctly.</p>
+     *
+     * <p>Two implementations exist:</p>
+     * <ul>
+     *   <li>{@link StreamBlockZipAppender} — backed by {@link ZipOutputStream}. Used for new
+     *       (non-existing) zip files. Fast: writes entries directly without reading any existing
+     *       state.</li>
+     *   <li>{@link FsBlockZipAppender} — backed by a {@link java.nio.file.FileSystem} over the
+     *       existing zip. Used when a partial zip is already present on disk (mid-zip resume).
+     *       The ZipFileSystem reads the current Central Directory on open and rewrites it
+     *       correctly on {@link #close()}, avoiding the {@link ZipOutputStream} APPEND-mode bug
+     *       where the internal byte-offset counter starts at 0 regardless of existing file
+     *       content.</li>
+     * </ul>
+     */
+    public interface BlockZipAppender extends AutoCloseable {
+        /**
+         * Write one pre-serialized block entry into this zip.
+         *
+         * @param entryName the zip entry name (e.g., {@code "0000000000000000123.blk.zstd"})
+         * @param bytes the pre-serialized, optionally compressed block bytes
+         * @throws IOException if writing fails
+         */
+        void writeEntry(String entryName, byte[] bytes) throws IOException;
+
+        /** Flush and close the zip, writing or updating the Central Directory. */
+        @Override
+        void close() throws IOException;
+    }
+
+    /**
+     * Fast {@link BlockZipAppender} backed by a long-lived {@link ZipOutputStream}.
+     * Used for new zip files where no prior entries exist.
+     */
+    private static final class StreamBlockZipAppender implements BlockZipAppender {
+        private final ZipOutputStream zos;
+
+        StreamBlockZipAppender(final Path zipFilePath) throws IOException {
+            this.zos = openOrCreateZipFile(zipFilePath);
+        }
+
+        @Override
+        public void writeEntry(final String entryName, final byte[] bytes) throws IOException {
+            final CRC32 crc = new CRC32();
+            crc.update(bytes);
+            final ZipEntry entry = new ZipEntry(entryName);
+            entry.setSize(bytes.length);
+            entry.setCompressedSize(bytes.length);
+            entry.setCrc(crc.getValue());
+            zos.putNextEntry(entry);
+            zos.write(bytes);
+            zos.closeEntry();
+        }
+
+        @Override
+        public void close() throws IOException {
+            zos.close();
+        }
+    }
+
+    /**
+     * Resume-safe {@link BlockZipAppender} backed by a {@link java.nio.file.FileSystem} over an
+     * existing zip file.
+     *
+     * <p>Used when the wrap command is resumed mid-zip: the ZipFileSystem reads the current
+     * Central Directory on open and correctly rewrites it with all entries (old + new) on
+     * {@link #close()}. Entries are written in STORED mode ({@code compressionMethod=STORED},
+     * supported since JDK 16) to match the entries already in the file.</p>
+     */
+    private static final class FsBlockZipAppender implements BlockZipAppender {
+        private final FileSystem zipFs;
+
+        FsBlockZipAppender(final Path zipFilePath) throws IOException {
+            // "compressionMethod" env key for jdk.nio.zipfs requires JDK 16+.
+            this.zipFs = FileSystems.newFileSystem(zipFilePath, Map.of("compressionMethod", "STORED"));
+        }
+
+        @Override
+        public void writeEntry(final String entryName, final byte[] bytes) throws IOException {
+            Files.write(zipFs.getPath("/" + entryName), bytes);
+        }
+
+        @Override
+        public void close() throws IOException {
+            zipFs.close();
+        }
+    }
+
+    /**
      * Record for block path components.
      *
      * @param dirPath The directory path for the directory that contains the zip file
@@ -103,7 +197,7 @@ public class BlockWriter {
     /** The number of digits for zip file name selection (1 = 10 zip files per directory) */
     private static final int DIGITS_PER_ZIP_FILE_NAME = 1;
     /** Default number of blocks per zip file in powers of 10 (4 = 10,000 blocks per zip) */
-    private static final int DEFAULT_POWERS_OF_TEN_PER_ZIP = 4;
+    public static final int DEFAULT_POWERS_OF_TEN_PER_ZIP = 4;
     /** Default compression type to match FilesHistoricConfig default */
     public static final CompressionType DEFAULT_COMPRESSION = CompressionType.ZSTD;
 
@@ -115,6 +209,7 @@ public class BlockWriter {
      * @return The path to the block file
      * @throws IOException If an error occurs writing the block
      */
+    @SuppressWarnings("UnusedReturnValue")
     public static BlockPath writeBlock(final Path baseDirectory, final Block block) throws IOException {
         return writeBlock(
                 baseDirectory,
@@ -206,22 +301,13 @@ public class BlockWriter {
                 computeBlockPath(baseDirectory, blockNumber, compressionType, powersOfTenPerZipFileContents);
         // create directories
         Files.createDirectories(blockPath.dirPath);
+        // serialize block bytes first
+        final byte[] blockBytes = serializeBlock(block, compressionType);
         // append a block to a zip file, creating a zip file if it doesn't exist
-        try (final ZipOutputStream zipOutputStream = openOrCreateZipFile(blockPath.zipFilePath)) {
-            // calculate CRC-32 checksum and get bytes
-            final byte[] blockBytes = serializeBlock(block, compressionType);
-            final CRC32 crc = new CRC32();
-            crc.update(blockBytes);
-            // create zip entry
-            final ZipEntry zipEntry = new ZipEntry(blockPath.blockFileName);
-            zipEntry.setSize(blockBytes.length);
-            zipEntry.setCompressedSize(blockBytes.length);
-            zipEntry.setCrc(crc.getValue());
-            zipOutputStream.putNextEntry(zipEntry);
-            // write compressed block content
-            zipOutputStream.write(blockBytes);
-            // close zip entry
-            zipOutputStream.closeEntry();
+        // openZipForAppend uses FsBlockZipAppender for existing zips (correct CEN handling) and
+        // StreamBlockZipAppender for new zips, so multiple blocks sharing the same zip are safe.
+        try (final BlockZipAppender appender = openZipForAppend(blockPath.zipFilePath)) {
+            appender.writeEntry(blockPath.blockFileName, blockBytes);
         }
         // return block path
         return blockPath;
@@ -351,6 +437,24 @@ public class BlockWriter {
     }
 
     /**
+     * Returns the first block number of the zip-file range that contains {@code blockNumber}.
+     *
+     * <p>For example, with the default 10,000 blocks per zip ({@code powersOfTen=4}),
+     * block 15,000 maps to zip-range start 10,000, and block 10,000 also maps to 10,000.
+     * Used by the resume logic in
+     * {@link org.hiero.block.tools.blocks.ToWrappedBlocksCommand} to detect a mid-zip
+     * resume and back up to the zip boundary before rewriting.
+     *
+     * @param blockNumber the block number to query
+     * @param powersOfTenPerZipFileContents number of blocks per zip in powers of 10 (default {@link #DEFAULT_POWERS_OF_TEN_PER_ZIP})
+     * @return the first block number of the zip range containing {@code blockNumber}
+     */
+    public static long zipRangeFirstBlock(final long blockNumber, final int powersOfTenPerZipFileContents) {
+        final long blocksPerZip = (long) Math.pow(10, powersOfTenPerZipFileContents);
+        return (blockNumber / blocksPerZip) * blocksPerZip;
+    }
+
+    /**
      * Compute the path to a block file for the given archive type using default compression.
      *
      * <p>For {@link BlockArchiveType#UNCOMPRESSED_ZIP} this delegates to
@@ -394,43 +498,67 @@ public class BlockWriter {
     }
 
     /**
-     * Open an existing zip file or create a new one for appending blocks.
+     * Open (or create) a zip file for sequential block writing, returning the appropriate
+     * {@link BlockZipAppender} for the situation.
      *
-     * <p>Exposed as a public method so the pipeline's zip-write thread can keep a single
-     * {@link ZipOutputStream} open across many consecutive blocks, closing it only when the block
-     * number crosses into a new zip-file range (every 10,000 blocks by default).
+     * <p>Two cases are handled automatically:</p>
+     * <ul>
+     *   <li><b>New zip</b> (file does not yet exist, or is empty): returns a
+     *       {@link StreamBlockZipAppender} backed by a freshly created {@link ZipOutputStream}.
+     *       This is the fast path used when writing a complete 10,000-block zip range in one
+     *       uninterrupted pass.</li>
+     *   <li><b>Existing partial zip</b> (file already has content from a previous run): returns a
+     *       {@link FsBlockZipAppender} backed by a {@link java.nio.file.FileSystem} over the zip.
+     *       The ZipFileSystem reads the existing Central Directory on open and rewrites it
+     *       correctly with all entries (old + new) on {@link BlockZipAppender#close()}. This
+     *       avoids the classic {@link ZipOutputStream} APPEND-mode bug: when
+     *       {@code ZipOutputStream} is layered over an append-mode stream, its internal
+     *       byte-offset counter starts at 0 regardless of the file's current size, causing the
+     *       CEN to record wrong entry offsets and producing
+     *       {@code "invalid CEN header (bad signature)"} errors on the next read.</li>
+     * </ul>
      *
-     * @param zipFilePath The path to the zip file
-     * @return A {@link ZipOutputStream} configured for STORED mode, ready for appending
-     * @throws IOException If an I/O error occurs
+     * <p>The caller is responsible for keeping the returned {@link BlockZipAppender} open while
+     * writing the current zip range and closing it when the block number crosses into the next
+     * range (or at the end of processing), so the Central Directory is written exactly once.</p>
+     *
+     * @param zipFilePath the path to the zip file
+     * @return a {@link BlockZipAppender} ready for writing
+     * @throws IOException if an I/O error occurs, or if the existing zip file is corrupt and
+     *     cannot be opened (run {@code blocks repair-zips} before resuming)
      */
-    public static ZipOutputStream openZipForAppend(final Path zipFilePath) throws IOException {
-        return openOrCreateZipFile(zipFilePath);
+    public static BlockZipAppender openZipForAppend(final Path zipFilePath) throws IOException {
+        if (Files.exists(zipFilePath) && Files.size(zipFilePath) > 0) {
+            // Resume into an existing partial zip: use ZipFileSystem so the CEN is updated
+            // correctly without the ZipOutputStream APPEND-mode offset bug.
+            try {
+                return new FsBlockZipAppender(zipFilePath);
+            } catch (IOException e) {
+                throw new IOException(
+                        "Cannot open partial zip for resume (it may be corrupt): " + zipFilePath
+                                + ". Run 'blocks repair-zips' on the output directory and retry.",
+                        e);
+            }
+        }
+        // New zip: use the fast ZipOutputStream path.
+        return new StreamBlockZipAppender(zipFilePath);
     }
 
     /**
-     * Write a pre-serialized block entry into an already-open {@link ZipOutputStream}.
+     * Write a pre-serialized block entry into an already-open {@link BlockZipAppender}.
      *
-     * <p>Computes the CRC-32 checksum, creates a {@link java.util.zip.ZipEntry} with STORED
-     * method (no additional compression), writes the bytes, and closes the entry. The caller is
-     * responsible for managing the lifecycle of {@code zip} (opening and closing it).
+     * <p>Delegates to {@link BlockZipAppender#writeEntry}, which handles CRC computation and
+     * entry creation appropriate for the underlying implementation (stream or filesystem).
+     * The caller is responsible for managing the appender lifecycle (opening and closing it).
      *
-     * @param zip The open zip output stream to write to
-     * @param blockPath The block path record containing the block file name
-     * @param blockBytes The pre-serialized (and optionally pre-compressed) block bytes
-     * @throws IOException If an I/O error occurs
+     * @param appender the open zip appender to write to
+     * @param blockPath the block path record containing the block file name
+     * @param blockBytes the pre-serialized (and optionally pre-compressed) block bytes
+     * @throws IOException if an I/O error occurs
      */
-    public static void writeBlockEntry(final ZipOutputStream zip, final BlockPath blockPath, final byte[] blockBytes)
-            throws IOException {
-        final CRC32 crc = new CRC32();
-        crc.update(blockBytes);
-        final ZipEntry zipEntry = new ZipEntry(blockPath.blockFileName());
-        zipEntry.setSize(blockBytes.length);
-        zipEntry.setCompressedSize(blockBytes.length);
-        zipEntry.setCrc(crc.getValue());
-        zip.putNextEntry(zipEntry);
-        zip.write(blockBytes);
-        zip.closeEntry();
+    public static void writeBlockEntry(
+            final BlockZipAppender appender, final BlockPath blockPath, final byte[] blockBytes) throws IOException {
+        appender.writeEntry(blockPath.blockFileName(), blockBytes);
     }
 
     /**
@@ -468,16 +596,34 @@ public class BlockWriter {
     }
 
     /**
-     * Open an existing zip file or create a new one for appending blocks.
+     * Open or create a zip file for writing, always starting from byte offset zero.
      *
-     * @param zipFilePath The path to the zip file
-     * @return A ZipOutputStream configured for STORED mode
-     * @throws IOException If an error occurs
+     * <p><b>Why TRUNCATE_EXISTING instead of APPEND:</b> {@link ZipOutputStream} maintains an
+     * internal byte-offset counter starting at 0. When used with {@code APPEND} on an existing
+     * file, the OS file position starts at the end of the file (offset N), but
+     * {@code ZipOutputStream} still counts from 0. The Central Directory it writes on
+     * {@link ZipOutputStream#close()} therefore records entry offsets relative to 0, while the
+     * entries are physically at offsets ≥ N. Any standard zip reader will then follow those wrong
+     * offsets and find garbage instead of local file headers, producing
+     * {@code "invalid CEN header (bad signature)"} errors. Using {@code TRUNCATE_EXISTING}
+     * ensures the stream always starts at file offset 0, keeping the internal counter in sync with
+     * the actual file position.
+     *
+     * <p>This method is only used internally by {@link StreamBlockZipAppender} for <em>new</em>
+     * zip files. For existing partial zips (mid-zip resume), {@link #openZipForAppend(Path)}
+     * returns a {@link FsBlockZipAppender} instead, which handles the Central Directory correctly.
+     *
+     * @param zipFilePath the path to the zip file
+     * @return a {@link ZipOutputStream} configured for STORED mode, positioned at byte 0
+     * @throws IOException if an I/O error occurs
      */
     private static ZipOutputStream openOrCreateZipFile(final Path zipFilePath) throws IOException {
-        // CREATE creates the file if absent; APPEND opens it for appending if it already exists
+        // CREATE creates the file if absent; TRUNCATE_EXISTING resets an existing file to length 0
+        // so that ZipOutputStream's internal offset counter (which always starts at 0) stays in
+        // sync with the actual position in the file.  Using APPEND here was the original bug.
         final ZipOutputStream zipOutputStream = new ZipOutputStream(new BufferedOutputStream(
-                Files.newOutputStream(zipFilePath, StandardOpenOption.CREATE, StandardOpenOption.APPEND), 1024 * 1024));
+                Files.newOutputStream(zipFilePath, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING),
+                1024 * 1024));
         // don't compress the zip file as files are already compressed
         zipOutputStream.setMethod(ZipOutputStream.STORED);
         zipOutputStream.setLevel(Deflater.NO_COMPRESSION);

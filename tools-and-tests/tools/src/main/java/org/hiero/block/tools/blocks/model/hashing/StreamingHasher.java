@@ -7,6 +7,8 @@ import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
@@ -108,7 +110,8 @@ public class StreamingHasher implements Hasher {
      */
     @Override
     public void save(Path filePath) throws Exception {
-        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(filePath))) {
+        try (DataOutputStream out =
+                new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(filePath), 8192))) {
             out.writeLong(leafCount);
             out.writeInt(hashList.size());
             for (byte[] hash : hashList) { // all hashes are 48 bytes (SHA-384)
@@ -125,7 +128,7 @@ public class StreamingHasher implements Hasher {
      */
     @Override
     public void load(Path filePath) throws Exception {
-        try (DataInputStream din = new DataInputStream(Files.newInputStream(filePath))) {
+        try (DataInputStream din = new DataInputStream(new BufferedInputStream(Files.newInputStream(filePath), 8192))) {
             leafCount = din.readLong();
             int hashCount = din.readInt();
             hashList.clear();
