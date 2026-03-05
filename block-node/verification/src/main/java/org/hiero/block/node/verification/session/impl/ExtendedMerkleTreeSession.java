@@ -5,12 +5,17 @@ import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
 
+import com.hedera.cryptography.tss.TSS;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.transaction.SignedTransaction;
+import com.hedera.hapi.node.transaction.TransactionBody;
+import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -23,13 +28,15 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.hiero.block.node.verification.session.VerificationSession;
 
-// todo(1661) there is a follow-up task to implement this class based on the expected spec (latest)
 public class ExtendedMerkleTreeSession implements VerificationSession {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
-    /** The block number being verified. */
+    /** Byte length of a legacy SHA384 signature (non-TSS blocks). */
+    private static final int HASH_LENGTH = 48;
+
     private final long blockNumber;
     // Stream Hashers
     /** The tree hasher for input hashes. */
@@ -62,21 +69,30 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     private final Bytes allPreviousBlockRootHash;
 
     /**
+     * Trusted ledger ID for TSS verification. Passed from the plugin (may be null for block 0).
+     * For block 0, this is set internally when LedgerIdPublicationTransactionBody is found.
+     */
+    private Bytes ledgerId;
+
+    /**
      * Constructor for ExtendedMerkleTreeSession.
      *
      * @param blockNumber the block number
      * @param blockSource the source of the block
      * @param previousBlockHash the previous block hash, may be null
      * @param allPreviousBlocksRootHash the all previous blocks root hash, may be null
+     * @param ledgerId the trusted ledger ID for TSS verification, may be null for block 0
      */
     public ExtendedMerkleTreeSession(
             final long blockNumber,
             final BlockSource blockSource,
             final Bytes previousBlockHash,
-            final Bytes allPreviousBlocksRootHash) {
+            final Bytes allPreviousBlocksRootHash,
+            final Bytes ledgerId) {
         this.blockNumber = blockNumber;
         this.previousBlockHash = previousBlockHash;
         this.allPreviousBlockRootHash = allPreviousBlocksRootHash;
+        this.ledgerId = ledgerId;
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
@@ -91,7 +107,6 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     public VerificationNotification processBlockItems(BlockItems blockItemsMessage) throws ParseException {
         List<BlockItemUnparsed> blockItems = blockItemsMessage.blockItems();
 
-        // collect block items
         this.blockItems.addAll(blockItems);
 
         for (BlockItemUnparsed item : blockItems) {
@@ -102,7 +117,17 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     outputTreeHasher.addLeaf(getBlockItemHash(item));
                 }
                 case ROUND_HEADER, EVENT_HEADER -> consensusHeaderHasher.addLeaf(getBlockItemHash(item));
-                case SIGNED_TRANSACTION -> inputTreeHasher.addLeaf(getBlockItemHash(item));
+                case SIGNED_TRANSACTION -> {
+                    inputTreeHasher.addLeaf(getBlockItemHash(item));
+                    if (blockItemsMessage.blockNumber() == 0) {
+                        LedgerIdPublicationTransactionBody publication =
+                                findLedgerIdPublication(item.signedTransaction());
+                        if (publication != null) {
+                            VerificationServicePlugin.initializeTssParameters(publication);
+                            this.ledgerId = publication.ledgerId();
+                        }
+                    }
+                }
                 case TRANSACTION_RESULT, TRANSACTION_OUTPUT -> outputTreeHasher.addLeaf(getBlockItemHash(item));
                 case STATE_CHANGES -> stateChangesHasher.addLeaf(getBlockItemHash(item));
                 case TRACE_DATA -> traceDataHasher.addLeaf(getBlockItemHash(item));
@@ -137,7 +162,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // if provided, use the provided previous block hash, otherwise use the one from the footer
         Bytes previousBlockHashToUse =
                 previousBlockHash != null ? previousBlockHash : this.blockFooter.previousBlockRootHash();
-        // while we don't have state management, we use the start of block state root hash from the footer
+        // while we don't have state management, use the start of block state root hash from the footer
         Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
 
         // for now, we only support TSS based signature proofs, we expect only 1 of these.
@@ -183,20 +208,42 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 verified, blockNumber, blockRootHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);
     }
 
-    /**
-     * Verifies the signature of a hash, for the dummy implementation this always returns true.
-     *
-     * @param hash the hash to verify
-     * @param signature the signature to verify
-     * @return true if the signature is valid, false otherwise
-     */
     protected Boolean verifySignature(@NonNull Bytes hash, @NonNull Bytes signature) {
-        // TODO we are close to having real TSS signature verification, we maybe should have a config if we are work on
-        // TODO preview or production block stream and hence which verification to use
+        // Legacy path: non-TSS blocks carry SHA384(blockHash) as the signature (48 bytes).
+        // TODO: Remove this path before production — real network block proofs are never hash-of-hash.
+        if (signature.length() == HASH_LENGTH) {
+            return signature.equals(noThrowSha384HashOf(hash));
+        }
+        if (this.ledgerId == null) {
+            return false;
+        }
+        // TSS.verifyTSS() handles both the genesis (Schnorr aggregate) and post-genesis (WRAPS) paths.
+        // Signatures without a recognized proof suffix are rejected by the library.
+        try {
+            return TSS.verifyTSS(this.ledgerId.toByteArray(), signature.toByteArray(), hash.toByteArray());
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return false;
+        }
+    }
 
-        // Dummy implementation
-        // signature = is Hash384( BlockHash )
-        return signature.equals(noThrowSha384HashOf(hash));
+    /**
+     * Extracts a {@link LedgerIdPublicationTransactionBody} from a signed transaction, if present.
+     * Pure parsing — no side effects.
+     *
+     * @param signedTxBytes the raw signed transaction bytes
+     * @return the parsed publication body, or {@code null} if not present
+     */
+    @Nullable
+    private LedgerIdPublicationTransactionBody findLedgerIdPublication(Bytes signedTxBytes) throws ParseException {
+        if (signedTxBytes == null || signedTxBytes.length() == 0) {
+            return null;
+        }
+        SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(signedTxBytes);
+        TransactionBody body = TransactionBody.PROTOBUF.parse(signedTx.bodyBytes());
+        if (!body.hasLedgerIdPublication()) {
+            return null;
+        }
+        return body.ledgerIdPublicationOrThrow();
     }
 
     public static <T> T getSingle(List<T> list, Predicate<T> predicate) {

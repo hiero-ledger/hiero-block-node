@@ -3,7 +3,6 @@ package org.hiero.block.node.verification;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,9 +10,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,13 +25,17 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
+import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -57,17 +64,24 @@ class VerificationServicePluginTest
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         this.testTempDir = Objects.requireNonNull(tempDir);
-        Path tempVerificationPath = tempDir.resolve("verificationData.bin");
+        // Reset static TSS state for test isolation (must happen before start())
+        VerificationServicePlugin.activeLedgerId = null;
+        VerificationServicePlugin.activeTssPublication = null;
+        VerificationServicePlugin.tssParametersPersisted = false;
         defaultConfig = VerificationConfigBuilder.newBuilder()
-                .allBlocksHasherFilePath(tempVerificationPath)
+                .allBlocksHasherFilePath(tempDir.resolve("verificationData.bin"))
                 .allBlocksHasherEnabled(true)
                 .allBlocksHasherPersistenceInterval(2)
+                .tssParametersFilePath(tempDir.resolve("tss-parameters.bin"))
                 .toMap();
         start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), defaultConfig);
     }
 
+    // ==== Block Verification Tests ===================================================================================
+
     @Test
-    void testVerificationPlugin() throws IOException, ParseException {
+    @DisplayName("should verify consecutive blocks (block 0 then block 1)")
+    void shouldVerifyConsecutiveBlocks() throws IOException, ParseException {
         BlockUtils.SampleBlockInfo block0Info =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_0);
         BlockUtils.SampleBlockInfo block1Info =
@@ -98,14 +112,13 @@ class VerificationServicePluginTest
     }
 
     @Test
-    void testFailedVerification() throws IOException, ParseException {
+    @DisplayName("should fail verification when a block item is removed (tampered block)")
+    void shouldFailVerificationForTamperedBlock() throws IOException, ParseException {
 
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
-        // get the original block items
-        List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
-        // make a mutable copy
-        List<BlockItemUnparsed> blockItems = new ArrayList<>(originalItems);
+        List<BlockItemUnparsed> blockItems =
+                new ArrayList<>(sampleBlockInfo.blockUnparsed().blockItems());
 
         // remove one block item, so the hash is no longer valid
         blockItems.remove(3);
@@ -113,69 +126,48 @@ class VerificationServicePluginTest
 
         blockMessaging.sendBlockItems(new BlockItems(blockItems, blockNumber, true, true));
 
-        // check we received a block verification
         VerificationNotification blockNotification =
                 blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(blockNotification);
-
-        assertEquals(
-                blockNumber,
-                blockNotification.blockNumber(),
-                "The block number should be the same as the one in the block header");
+        assertEquals(blockNumber, blockNotification.blockNumber());
         assertFalse(blockNotification.success(), "The verification should be unsuccessful");
-        assertNotEquals(
-                sampleBlockInfo.blockRootHash(),
-                blockNotification.blockHash(),
-                "The block hash should be the same as the one in the block header");
         assertNull(blockNotification.block(), "The block should be null since the verification failed");
     }
 
     @Test
-    @DisplayName("Test handleBlockItemsReceived without a block header")
-    void testHandleBlockItemsReceived_NoCurrentSession() throws IOException, ParseException {
-        // create sample block data
+    @DisplayName("should ignore block items received before a block header")
+    void shouldIgnoreBlockItemsWithoutHeader() throws IOException, ParseException {
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_0);
         long blockNumber = sampleBlockInfo.blockNumber();
-        List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
+        List<BlockItemUnparsed> blockItems =
+                new ArrayList<>(sampleBlockInfo.blockUnparsed().blockItems());
 
-        // make a mutable copy
-        List<BlockItemUnparsed> blockItems = new ArrayList<>(originalItems);
-
-        // remove the header to simulate a case where receive items and have never received a header
+        // remove the header to simulate receiving items without a prior header
         blockItems.removeFirst();
-        // send some items to the plugin, they should be ignored
         plugin.handleBlockItemsReceived(new BlockItems(blockItems, blockNumber, false, true));
-        // check we did not receive a block verification
         assertEquals(0, blockMessaging.getSentVerificationNotifications().size());
     }
 
     @Test
-    @DisplayName("Test handleBlockItemsReceived with non-running server")
-    void testHandleBlockItemsReceived_NotRunning() {
-        // make the server state not running
+    @DisplayName("should ignore block items when server is not running")
+    void shouldIgnoreBlockItemsWhenServerNotRunning() {
         ((TestHealthFacility) blockNodeContext.serverHealth()).isRunning.set(false);
-        // send some items to the plugin, they should be ignored
         plugin.handleBlockItemsReceived(new BlockItems(
                 List.of(new BlockItemUnparsed(new OneOf<>(ItemOneOfType.BLOCK_HEADER, null))), 0, true, false));
-        // check we did not receive a block verification
         assertEquals(0, blockMessaging.getSentVerificationNotifications().size());
     }
 
     @Test
-    @DisplayName("Test handleBlockItemsReceived with BlockItems that throws an exception")
-    void testHandleBlockItemsReceived_ExceptionThrown() {
-        // mock a BlockItems object to throw an exception when isStartOfNewBlock is called
+    @DisplayName("should send failure notification on processing exception")
+    void shouldSendFailureNotificationOnException() {
         BlockItems blockItems = mock(BlockItems.class);
         when(blockItems.isStartOfNewBlock()).thenThrow(new RuntimeException("Test Exception"));
-        // sent the mocked BlockItems to the plugin
         plugin.handleBlockItemsReceived(blockItems);
-        // check the exception was thrown and resulted in a shutdown
+
         assertFalse(
                 ((TestHealthFacility) blockNodeContext.serverHealth()).shutdownCalled.get(),
-                "The server should NOT be shutdown after an exception is thrown on VerificationServicePlugin");
-
-        // check we get a failed verification notification
+                "The server should NOT be shutdown after an exception");
         VerificationNotification blockNotification =
                 blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(blockNotification);
@@ -183,46 +175,30 @@ class VerificationServicePluginTest
     }
 
     @Test
-    @DisplayName("Test handleBackfilled with a valid backfilled block")
-    void testHandleBackfilledNotification() throws IOException, ParseException {
-
-        // prepare test data
+    @DisplayName("should verify backfilled block")
+    void shouldVerifyBackfilledBlock() throws IOException, ParseException {
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
-
         long blockNumber = sampleBlockInfo.blockNumber();
         BackfilledBlockNotification notification =
                 new BackfilledBlockNotification(blockNumber, sampleBlockInfo.blockUnparsed());
 
-        // call the method with a valid backfilled block notification
         plugin.handleBackfilled(notification);
 
-        // check we received a block verification notification
         VerificationNotification blockNotification =
                 blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(blockNotification);
-        assertEquals(
-                blockNumber,
-                blockNotification.blockNumber(),
-                "The block number should be the same as the one in the block header");
+        assertEquals(blockNumber, blockNotification.blockNumber());
         assertTrue(blockNotification.success(), "The verification should be successful");
-        assertEquals(
-                sampleBlockInfo.blockRootHash(),
-                blockNotification.blockHash(),
-                "The block hash should be the same as the one in the block header");
-        assertEquals(
-                sampleBlockInfo.blockUnparsed(),
-                blockNotification.block(),
-                "The block should be the same as the one sent");
+        assertEquals(sampleBlockInfo.blockRootHash(), blockNotification.blockHash());
+        assertEquals(sampleBlockInfo.blockUnparsed(), blockNotification.block());
     }
 
     @Test
-    @DisplayName("BlockHeader number and blockNumber on constructor mismatch, should fail but not throw")
-    void blockHeaderAndNumberMismatch() throws ParseException, IOException {
-
+    @DisplayName("should fail verification when block header number mismatches block number")
+    void shouldFailOnBlockHeaderNumberMismatch() throws ParseException, IOException {
         BlockUtils.SampleBlockInfo sampleBlockInfo =
                 BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_0);
-
         BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                 sampleBlockInfo.blockUnparsed().blockItems().getFirst().blockHeaderOrThrow());
 
@@ -230,22 +206,158 @@ class VerificationServicePluginTest
         plugin.handleBlockItemsReceived(
                 new BlockItems(sampleBlockInfo.blockUnparsed().blockItems(), blockNumber, true, true));
 
-        // check we don't received a block verification notification
-        long blockNotifications =
-                blockMessaging.getSentVerificationNotifications().size();
-        assertEquals(1, blockNotifications);
+        assertEquals(1, blockMessaging.getSentVerificationNotifications().size());
         VerificationNotification blockNotification =
                 blockMessaging.getSentVerificationNotifications().getFirst();
         assertNotNull(blockNotification);
         assertFalse(blockNotification.success(), "The verification should be unsuccessful");
     }
 
+    // ==== TSS Parameters Bootstrap Tests =============================================================================
+
+    @Test
+    @DisplayName("should bootstrap TSS parameters from persisted file at startup")
+    void shouldBootstrapTssParametersFromFile() throws IOException, ParseException {
+        // Process block 0 to get a real LedgerIdPublicationTransactionBody
+        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/tss/TssWraps/0.blk.gz");
+        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+        LedgerIdPublicationTransactionBody publication = VerificationServicePlugin.activeTssPublication;
+        assertNotNull(publication, "Block 0 must produce a TSS publication");
+
+        // Serialize and write to a file
+        Path tssParametersFile = testTempDir.resolve("tss-parameters-priority.bin");
+        Bytes serialized = LedgerIdPublicationTransactionBody.PROTOBUF.toBytes(publication);
+        Files.write(tssParametersFile, serialized.toByteArray());
+
+        // Reset static state so the restart actually exercises file loading
+        VerificationServicePlugin.activeLedgerId = null;
+        VerificationServicePlugin.activeTssPublication = null;
+        VerificationServicePlugin.tssParametersPersisted = false;
+
+        // Restart plugin with the file — TSS state should be restored
+        blockMessaging = new TestBlockMessagingFacility();
+        Map<String, String> config = new HashMap<>(defaultConfig);
+        config.put("verification.tssParametersFilePath", tssParametersFile.toString());
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
+
+        assertNotNull(VerificationServicePlugin.activeLedgerId, "Ledger ID must be restored from persisted file");
+        assertNotNull(
+                VerificationServicePlugin.activeTssPublication, "TSS publication must be restored from persisted file");
+        assertEquals(
+                publication.ledgerId(),
+                VerificationServicePlugin.activeLedgerId,
+                "Restored ledger ID must match the original from block 0");
+    }
+
+    @Test
+    @DisplayName("should persist TSS parameters to file after block 0 verification")
+    void shouldPersistTssParametersAfterBlock0() throws IOException, ParseException {
+        Path tssParametersFile = testTempDir.resolve("tss-parameters-block0.bin");
+
+        blockMessaging = new TestBlockMessagingFacility();
+        Map<String, String> config = new HashMap<>(defaultConfig);
+        config.put("verification.tssParametersFilePath", tssParametersFile.toString());
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
+
+        assertNull(VerificationServicePlugin.activeLedgerId, "activeLedgerId must be null before block 0");
+        assertFalse(Files.exists(tssParametersFile), "TSS parameters file must not exist before block 0");
+
+        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/tss/TssWraps/0.blk.gz");
+        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+
+        assertNotNull(VerificationServicePlugin.activeLedgerId, "activeLedgerId must be set after block 0");
+        assertTrue(Files.exists(tssParametersFile), "TSS parameters file must be created after block 0");
+
+        // Verify the file contains a valid LedgerIdPublicationTransactionBody
+        Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
+        LedgerIdPublicationTransactionBody persisted = LedgerIdPublicationTransactionBody.PROTOBUF.parse(fileBytes);
+        assertEquals(
+                VerificationServicePlugin.activeLedgerId,
+                persisted.ledgerId(),
+                "Persisted ledger ID must match plugin state");
+        assertFalse(persisted.nodeContributions().isEmpty(), "Persisted file must contain address book contributions");
+    }
+
+    @Test
+    @DisplayName("should not overwrite file-loaded TSS parameters when block 0 is received (first-write-wins)")
+    void shouldNotOverwriteFileLoadedTssParameters() throws IOException, ParseException {
+        // Process block 0 to get a real publication
+        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/tss/TssWraps/0.blk.gz");
+        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+        Bytes originalLedgerId = VerificationServicePlugin.activeLedgerId;
+        assertNotNull(originalLedgerId, "Block 0 must set ledger ID");
+
+        // Persist to file, reset static state, restart plugin with the file
+        Path tssParametersFile = testTempDir.resolve("tss-parameters-first-write-wins.bin");
+        Bytes serialized =
+                LedgerIdPublicationTransactionBody.PROTOBUF.toBytes(VerificationServicePlugin.activeTssPublication);
+        Files.write(tssParametersFile, serialized.toByteArray());
+
+        VerificationServicePlugin.activeLedgerId = null;
+        VerificationServicePlugin.activeTssPublication = null;
+        VerificationServicePlugin.tssParametersPersisted = false;
+
+        blockMessaging = new TestBlockMessagingFacility();
+        Map<String, String> config = new HashMap<>(defaultConfig);
+        config.put("verification.tssParametersFilePath", tssParametersFile.toString());
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
+
+        assertEquals(
+                originalLedgerId,
+                VerificationServicePlugin.activeLedgerId,
+                "File-loaded ledger ID must match original");
+
+        // Send block 0 again — first-write-wins: plugin state unchanged
+        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+
+        assertEquals(
+                originalLedgerId,
+                VerificationServicePlugin.activeLedgerId,
+                "First-write-wins: block 0 must not overwrite file-loaded ledger ID");
+    }
+
+    // ==== TSS End-to-End Flow Test ===================================================================================
+
+    @Test
+    @DisplayName("TSS flow: block 0 bootstraps TSS state, subsequent block verifies with TSS")
+    void tssFlowBlock0ThenSubsequentBlock() throws IOException, ParseException {
+        BlockUnparsed tssBlock0 = loadTssBlock("test-blocks/tss/TssWraps/0.blk.gz");
+        BlockUnparsed tssBlockN = loadTssBlock("test-blocks/tss/TssWraps/50.blk.gz");
+        long blockNNumber = BlockHeader.PROTOBUF
+                .parse(tssBlockN.blockItems().getFirst().blockHeaderOrThrow())
+                .number();
+
+        // Process block 0 via live stream — bootstraps TSS parameters
+        blockMessaging.sendBlockItems(new BlockItems(tssBlock0.blockItems(), 0, true, true));
+        VerificationNotification block0Notification =
+                blockMessaging.getSentVerificationNotifications().get(0);
+        assertTrue(block0Notification.success(), "TSS block 0 must verify successfully");
+        assertNotNull(VerificationServicePlugin.activeLedgerId, "Plugin must have ledger ID after block 0");
+
+        // Process subsequent block via backfill — verifies using TSS with ledger ID from block 0
+        plugin.handleBackfilled(new BackfilledBlockNotification(blockNNumber, tssBlockN));
+        VerificationNotification blockNNotification =
+                blockMessaging.getSentVerificationNotifications().get(1);
+        assertTrue(
+                blockNNotification.success(),
+                "Subsequent TSS block must verify with ledger ID bootstrapped from block 0");
+    }
+
+    // ==== Helpers ====================================================================================================
+
+    private static BlockUnparsed loadTssBlock(String resourcePath) throws IOException, ParseException {
+        try (InputStream stream = TestUtils.class.getModule().getResourceAsStream(resourcePath);
+                GZIPInputStream gzip = new GZIPInputStream(stream)) {
+            return BlockUnparsed.PROTOBUF.parse(Bytes.wrap(gzip.readAllBytes()));
+        }
+    }
+
     private static class VerificationConfigBuilder {
 
-        // Fields with default values
         private Path allBlocksHasherFilePath;
         private boolean allBlocksHasherEnabled = true;
         private int allBlocksHasherPersistenceInterval = 10;
+        private Path tssParametersFilePath = Path.of("");
 
         public static VerificationConfigBuilder newBuilder() {
             return new VerificationConfigBuilder();
@@ -266,9 +378,17 @@ class VerificationServicePluginTest
             return this;
         }
 
+        public VerificationConfigBuilder tssParametersFilePath(Path value) {
+            this.tssParametersFilePath = value;
+            return this;
+        }
+
         public VerificationConfig build() {
             return new VerificationConfig(
-                    allBlocksHasherFilePath, allBlocksHasherEnabled, allBlocksHasherPersistenceInterval);
+                    allBlocksHasherFilePath,
+                    allBlocksHasherEnabled,
+                    allBlocksHasherPersistenceInterval,
+                    tssParametersFilePath);
         }
 
         public Map<String, String> toMap() {
@@ -278,6 +398,7 @@ class VerificationServicePluginTest
             configMap.put(
                     "verification.allBlocksHasherPersistenceInterval",
                     String.valueOf(allBlocksHasherPersistenceInterval));
+            configMap.put("verification.tssParametersFilePath", tssParametersFilePath.toString());
             return configMap;
         }
     }

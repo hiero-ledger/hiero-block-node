@@ -35,6 +35,9 @@ module org.hiero.block.protobuf.pbj {
     exports com.hedera.hapi.node.transaction;
     exports com.hedera.hapi.node.transaction.codec;
     exports com.hedera.hapi.node.transaction.schema;
+    exports com.hedera.hapi.node.tss;
+    exports com.hedera.hapi.node.tss.codec;
+    exports com.hedera.hapi.node.tss.schema;
     exports com.hedera.hapi.node.util;
     exports com.hedera.hapi.node.util.codec;
     exports com.hedera.hapi.node.util.schema;

@@ -6,12 +6,19 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
+import com.hedera.cryptography.tss.TSS;
+import com.hedera.cryptography.wraps.WRAPSVerificationKey;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.hapi.node.tss.LedgerIdNodeContribution;
+import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.util.List;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -56,6 +63,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Bytes previousBlockHash;
     /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
     private AllBlocksHasherHandler allBlocksHasherHandler;
+    /** Trusted ledger ID for TSS verification, initialized from file or block 0. */
+    public static Bytes activeLedgerId;
+    /** Full TSS publication body used for persistence and state restoration. */
+    public static LedgerIdPublicationTransactionBody activeTssPublication;
+    /** True once TSS parameters have been persisted (file bootstrap or successful block 0 verification). */
+    public static boolean tssParametersPersisted;
 
     /**
      * {@inheritDoc}
@@ -98,6 +111,23 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // setting config and context
         this.context = context;
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
+        // Bootstrap TSS parameters from persisted file if available. The file contains a
+        // serialized LedgerIdPublicationTransactionBody with ledger ID, address book, and WRAPS VK.
+        final var tssParametersFile = verificationConfig.tssParametersFilePath();
+        if (Files.exists(tssParametersFile)) {
+            try {
+                Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
+                LedgerIdPublicationTransactionBody publication =
+                        LedgerIdPublicationTransactionBody.PROTOBUF.parse(fileBytes);
+                initializeTssParameters(publication);
+                tssParametersPersisted = true;
+                LOGGER.log(INFO, "Loaded TSS parameters from file: {0}", tssParametersFile);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to read TSS parameters file: " + tssParametersFile, e);
+            } catch (ParseException e) {
+                throw new IllegalStateException("Failed to parse TSS parameters file: " + tssParametersFile, e);
+            }
+        }
         // register the service
         context.blockMessaging().registerBlockNotificationHandler(this, false, "VerificationServicePlugin");
         // initialize metrics
@@ -172,7 +202,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         BlockSource.PUBLISHER,
                         semanticVersion,
                         previousBlockHash,
-                        getRootOfAllPreviousBlocks());
+                        getRootOfAllPreviousBlocks(),
+                        activeLedgerId);
                 LOGGER.log(TRACE, "Started new block verification session for block number {0}", currentBlockNumber);
             } else {
                 headerValid = true; // header not present, assume it was valid
@@ -195,6 +226,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 if (notification != null) {
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
                     if (notification.success()) {
+                        if (currentBlockNumber == 0) {
+                            persistTssParameters();
+                        }
                         verificationBlocksVerified.increment();
                         // send the notification to the block messaging service
                         LOGGER.log(TRACE, "Sending verification notification for block={0}", currentBlockNumber);
@@ -235,6 +269,54 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         }
     }
 
+    private void persistTssParameters() {
+        final LedgerIdPublicationTransactionBody publication = activeTssPublication;
+        if (publication == null) {
+            return;
+        }
+        final var tssParametersFile = verificationConfig.tssParametersFilePath();
+        try {
+            Files.createDirectories(tssParametersFile.getParent());
+            Bytes serialized = LedgerIdPublicationTransactionBody.PROTOBUF.toBytes(publication);
+            Files.write(tssParametersFile, serialized.toByteArray());
+            tssParametersPersisted = true;
+            LOGGER.log(INFO, "Persisted TSS parameters to file: {0}", tssParametersFile);
+        } catch (IOException e) {
+            LOGGER.log(
+                    WARNING,
+                    "Failed to persist TSS parameters to {0}: {1}".formatted(tssParametersFile, e.getMessage()),
+                    e);
+        }
+    }
+
+    /**
+     * Initializes native TSS state (address book, WRAPS VK) and sets the active ledger ID
+     * and TSS publication. Called from file bootstrap, block 0 processing, and tests.
+     */
+    public static void initializeTssParameters(@NonNull LedgerIdPublicationTransactionBody publication) {
+        if (tssParametersPersisted) {
+            return;
+        }
+        List<LedgerIdNodeContribution> contributions = publication.nodeContributions();
+        int nodeCount = contributions.size();
+        byte[][] publicKeys = new byte[nodeCount][];
+        long[] nodeIds = new long[nodeCount];
+        long[] weights = new long[nodeCount];
+        for (int i = 0; i < nodeCount; i++) {
+            LedgerIdNodeContribution contribution = contributions.get(i);
+            publicKeys[i] = contribution.historyProofKey().toByteArray();
+            nodeIds[i] = contribution.nodeId();
+            weights[i] = contribution.weight();
+        }
+        TSS.setAddressBook(publicKeys, weights, nodeIds);
+        Bytes historyProofVk = publication.historyProofVerificationKey();
+        if (historyProofVk.length() > 0) {
+            WRAPSVerificationKey.setCurrentKey(historyProofVk.toByteArray());
+        }
+        activeLedgerId = publication.ledgerId();
+        activeTssPublication = publication;
+    }
+
     private void sendFailureNotification(final long blockNumber, final BlockSource source) {
         verificationBlocksError.increment();
         // Return a success=false notification to indicate failure and include the block number.
@@ -266,7 +348,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         BlockSource.BACKFILL,
                         blockHeader.hapiProtoVersionOrThrow(),
                         null,
-                        null);
+                        null,
+                        activeLedgerId);
                 // process the block items in the backfilled notification
                 // For backfill, we wrap items in BlockItems with isEndOfBlock=true (last item should be block proof)
                 BlockItems backfillBlockItems =
@@ -275,6 +358,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 if (backfillNotification != null) {
                     // Log the backfill verification result
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
+                    if (backfillNotification.success() && notification.blockNumber() == 0) {
+                        persistTssParameters();
+                    }
                     // send the verification notification for the backfilled block
                     context.blockMessaging().sendBlockVerification(backfillNotification);
                 } else {

@@ -7,6 +7,7 @@ dependencies {
 dependencies.constraints {
     val daggerVersion = "2.59.2"
     val grpcIoVersion = "1.79.0"
+    val hederaCryptographyVersion = "3.6.0"
     val helidonVersion = "4.3.4"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.34.0"
@@ -36,6 +37,12 @@ dependencies.constraints {
     api("com.lmax:disruptor:4.0.0") { because("com.lmax.disruptor") }
     api("com.swirlds:swirlds-common:$swirldsVersion") { because("com.swirlds.common") }
     api("com.swirlds:swirlds-config-impl:$swirldsVersion") { because("com.swirlds.config.impl") }
+    api("com.hedera.cryptography:hedera-cryptography-wraps:$hederaCryptographyVersion") {
+        because("com.hedera.cryptography.wraps")
+    }
+    api("com.hedera.common:hedera-common-nativesupport:$hederaCryptographyVersion") {
+        because("com.hedera.common.nativesupport")
+    }
     api("io.helidon.logging:helidon-logging-jul:$helidonVersion") {
         because("io.helidon.logging.jul")
     }

@@ -49,7 +49,7 @@ class TestVerificationHapiVersions {
         final VerificationSession session = assertTimeoutPreemptively(
                 Duration.ofSeconds(2),
                 () -> HapiVersionSessionFactory.createSession(
-                        blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion(), null, null),
+                        blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion(), null, null, null),
                 sampleName + ": creating verification session exceeded time budget");
 
         final VerificationNotification note = assertTimeoutPreemptively(
