@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.hedera.hapi.block.stream.Block;
@@ -19,7 +20,6 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -34,11 +34,9 @@ import picocli.CommandLine;
  * Tests that wrapped blocks produced from real mainnet record data can be validated successfully,
  * and unit tests for individual validation methods in {@link WrappedBlockValidator}.
  *
- * <p>Uses the test resource {@code 2019-09-13.tar.zstd} (first day of mainnet) as source data.
- * Converts record file blocks to wrapped format using {@link ToWrappedBlocksCommand} invoked via
- * picocli, then validates with {@link ValidateWrappedBlocksCommand} also invoked via picocli. If
- * {@code 2019-09-14.tar.zstd} is present in test resources it is included automatically, giving
- * broader coverage without requiring the file to be checked in.
+ * <p>Uses test resources containing {@code .tar.zstd} day files (mainnet record data). All
+ * {@code .tar.zstd} files found in the test resources directory are included automatically,
+ * so users can drop additional day files for extended coverage without code changes.
  */
 class ValidateWrappedBlocksCommandTest {
 
@@ -84,31 +82,38 @@ class ValidateWrappedBlocksCommandTest {
      * {@link ToWrappedBlocksCommand}, then validate with {@link ValidateWrappedBlocksCommand}.
      * Both commands are invoked via picocli exactly as they would be from the CLI.
      *
-     * <p>Always uses {@code 2019-09-13.tar.zstd} (first day, checked in). If
-     * {@code 2019-09-14.tar.zstd} is present in test resources it is included automatically.
+     * <p>Dynamically scans test resources for all {@code .tar.zstd} files so users can add more
+     * day files for extended coverage without code changes.
      */
     @Test
     void testConvertAndValidateFirstDayBlocks() throws Exception {
         assumeTrue(isZstdAvailable(), "Skipping test: zstd command not available");
 
         // Locate required test resources
-        final Path day1 = Path.of(Objects.requireNonNull(getClass().getResource("/2019-09-13.tar.zstd"))
-                .toURI());
+        final Path resourceDir = Path.of(Objects.requireNonNull(getClass().getResource("/2019-09-13.tar.zstd"))
+                        .toURI())
+                .getParent();
         final Path blockTimesFile = Path.of(Objects.requireNonNull(getClass().getResource("/metadata/block_times.bin"))
                 .toURI());
         final Path dayBlocksFile = Path.of(Objects.requireNonNull(getClass().getResource("/metadata/day_blocks.json"))
                 .toURI());
 
+        // Scan for all .tar.zstd files in test resources
+        final List<Path> tarZstdFiles;
+        try (var stream = Files.list(resourceDir)) {
+            tarZstdFiles = stream.filter(p -> p.getFileName().toString().endsWith(".tar.zstd"))
+                    .sorted()
+                    .toList();
+        }
+        assumeFalse(tarZstdFiles.isEmpty(), "No .tar.zstd files found in test resources");
+        System.out.println("Found " + tarZstdFiles.size() + " day file(s): "
+                + tarZstdFiles.stream().map(p -> p.getFileName().toString()).toList());
+
         // Set up the input directory with copies of day files (zstd CLI ignores symlinks)
         final Path inputDir = tempDir.resolve("input");
         Files.createDirectories(inputDir);
-        Files.copy(day1, inputDir.resolve(day1.getFileName()));
-
-        final URL secondDay = getClass().getResource("/2019-09-14.tar.zstd");
-        if (secondDay != null) {
-            final Path day2 = Path.of(secondDay.toURI());
-            Files.copy(day2, inputDir.resolve(day2.getFileName()));
-            System.out.println("Including optional second day: 2019-09-14.tar.zstd");
+        for (Path tarZstd : tarZstdFiles) {
+            Files.copy(tarZstd, inputDir.resolve(tarZstd.getFileName()));
         }
 
         final Path outputDir = tempDir.resolve("output");
