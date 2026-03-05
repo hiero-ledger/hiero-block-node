@@ -84,13 +84,56 @@ public class UpdateDayListingsCommand implements Runnable {
             description = "GCP project to bill for requester-pays bucket access (default: from GCP_PROJECT_ID env var)")
     private String userProject = DownloadConstants.GCP_PROJECT_ID;
 
+    @Option(
+            names = {"--day"},
+            description = "Regenerate listing for a specific day (YYYY-MM-DD). Deletes existing listing first.")
+    private LocalDate targetDay;
+
     /**
      * Main entry point for the command. Discovers the last complete day on disk,
      * then updates listings for all subsequent days up to yesterday.
+     *
+     * <p>When {@code --day} is specified, only that single day's listing is regenerated
+     * (any existing listing file is deleted first).
      */
     @Override
     public void run() {
-        updateDayListings(listingDir, cacheDir.toPath(), cacheEnabled, minNodeAccountId, maxNodeAccountId, userProject);
+        if (targetDay != null) {
+            // Delete existing listing file so it gets regenerated fresh
+            deleteExistingListing(listingDir, targetDay);
+            updateListingsForSingleDay(
+                    listingDir,
+                    cacheDir.toPath(),
+                    cacheEnabled,
+                    minNodeAccountId,
+                    maxNodeAccountId,
+                    userProject,
+                    targetDay);
+        } else {
+            updateDayListings(
+                    listingDir, cacheDir.toPath(), cacheEnabled, minNodeAccountId, maxNodeAccountId, userProject);
+        }
+    }
+
+    /**
+     * Deletes the existing listing file for a given day, if it exists.
+     *
+     * @param listingDir the listing directory
+     * @param day the day whose listing file should be deleted
+     */
+    private static void deleteExistingListing(final Path listingDir, final LocalDate day) {
+        final Path dayFile = listingDir
+                .resolve(String.format("%04d", day.getYear()))
+                .resolve(String.format("%02d", day.getMonthValue()))
+                .resolve(String.format("%02d.bin", day.getDayOfMonth()));
+        if (Files.exists(dayFile)) {
+            try {
+                Files.delete(dayFile);
+                System.out.println("Deleted existing listing: " + dayFile);
+            } catch (IOException e) {
+                System.err.println("Warning: Could not delete existing listing " + dayFile + ": " + e.getMessage());
+            }
+        }
     }
 
     /** The first day of the active Hedera network, from {@link NetworkConfig}. */

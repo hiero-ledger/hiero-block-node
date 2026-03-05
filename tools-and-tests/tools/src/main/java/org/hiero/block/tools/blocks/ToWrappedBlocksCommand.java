@@ -43,6 +43,7 @@ import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
+import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
@@ -174,11 +175,6 @@ public class ToWrappedBlocksCommand implements Runnable {
     private Path outputBlocksDir = Path.of("wrappedBlocks");
 
     @Option(
-            names = {"-n", "--network"},
-            description = "Network name for applying amendments (mainnet, testnet, none). Default: mainnet")
-    private String network = "mainnet";
-
-    @Option(
             names = {"--parse-threads"},
             description = "Thread count for the parse + RSA-verify stage. Default: CPU count minus 1")
     private int parseThreads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
@@ -244,8 +240,9 @@ public class ToWrappedBlocksCommand implements Runnable {
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
 
-        // Create an amendment provider based on network selection
-        final AmendmentProvider amendmentProvider = createAmendmentProvider(network);
+        // Create an amendment provider based on network selection (inherited from parent --network flag)
+        final AmendmentProvider amendmentProvider =
+                createAmendmentProvider(NetworkConfig.current().networkName());
 
         // ---- Pipeline executor services ----
         final int resolvedPrefetch = prefetchSize < 1 ? parseThreads : prefetchSize;
