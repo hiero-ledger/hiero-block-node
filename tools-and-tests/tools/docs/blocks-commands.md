@@ -167,7 +167,7 @@ value.
 
 - When starting from block 0, a `StreamingHasher` is created to validate the historical block hash merkle tree and a balance map is maintained for 50 billion HBAR supply validation. When starting from a later block, both are skipped because the prior state is unavailable.
 - Supports both individual block files (nested directories of `.blk.zstd`) and zip archives produced by the `wrap` command.
-- Progress is printed every 1000 blocks with an ETA.
+- Progress is printed every 1000 blocks with an ETA and on the last block.
 - If no balance checkpoints are loaded, balance validation is automatically skipped with a warning.
 
 #### Example
@@ -199,6 +199,7 @@ Converts record file blocks organized in daily tar.zstd files into wrapped Block
 
 ```
 blocks wrap [-u] [-n=<network>] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<inputDir>] [-o=<outputDir>]
+            [--parse-threads=<N>] [--serialize-threads=<N>] [--prefetch=<N>]
 ```
 
 #### Options
@@ -211,6 +212,9 @@ blocks wrap [-u] [-n=<network>] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<
 | `-u`, `--unzipped`               | Write output files as individual files in nested directories, rather than in uncompressed zip batches of 10k. |
 | `-i`, `--input-dir <dir>`        | Directory of record file tar.zstd days to process (default: `compressedDays`).                                |
 | `-o`, `--output-dir <dir>`       | Directory to write the output wrapped blocks (default: `wrappedBlocks`).                                      |
+| `--parse-threads <N>`            | Thread count for the parse + RSA-verify stage (default: CPU count - 1).                                       |
+| `--serialize-threads <N>`        | Thread count for the block serialization + compression stage (default: CPU count - 1).                        |
+| `--prefetch <N>`                 | Number of parse+verify futures to keep in-flight ahead of the convert thread (default: same as `--parse-threads`). |
 
 #### Prerequisites
 
@@ -235,12 +239,15 @@ The command writes:
 - `addressBookHistory.json` - address book history copied/generated during conversion
 - `blockStreamBlockHashes.bin` - registry of computed block hashes
 - `streamingMerkleTree.bin` and `completeMerkleTree.bin` - Merkle tree state for resume capability
+- `wrap-commit.bin` - durable commit watermark tracking the highest block number fully written to zip
+- `jumpstart.bin` - jumpstart data (block number, hash, streaming hasher state) for Consensus Node continuation
 
 #### Notes
 
-- The command can resume from where it left off if interrupted
-- Progress is saved periodically via shutdown hooks
-- A merkle tree of block hashes is computed during conversion
+- The command can resume from where it left off if interrupted. Resume uses a durable watermark (`wrap-commit.bin`); on crash, blocks beyond the watermark are re-processed.
+- State checkpoints (merkle trees, address book) are saved monthly and on shutdown.
+- A 4-stage concurrent pipeline processes blocks: parse+RSA-verify → convert+chain-state → serialize+compress → zip-write.
+- Progress is printed once per consensus-minute with processing speed multiplier and ETA.
 
 #### Example
 

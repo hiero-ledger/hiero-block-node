@@ -6,21 +6,30 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.hedera.hapi.block.stream.Block;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
+import java.util.zip.ZipFile;
 import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
+import org.hiero.block.tools.blocks.wrapped.ValidateWrappedBlocksCommand;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import picocli.CommandLine;
 
 /**
  * Tests for the durability, watermark, and resume infrastructure in {@link ToWrappedBlocksCommand}.
@@ -452,6 +461,332 @@ class ToWrappedBlocksCommandTest {
             HasherStateFiles.loadWithFallback(primary, loaded::load);
 
             assertEquals(original.leafCount(), loaded.leafCount());
+        }
+    }
+
+    // ===== Real-data E2E tests using mainnet tar.zstd files =====
+
+    @Nested
+    @DisplayName("Real-data E2E tests")
+    class RealDataE2ETests {
+
+        @TempDir
+        Path e2eTempDir;
+
+        /** Scans test resources for all .tar.zstd files, sorted by name. */
+        private List<Path> findTarZstdFiles() throws Exception {
+            final Path resourceDir = Path.of(Objects.requireNonNull(getClass().getResource("/2019-09-13.tar.zstd"))
+                            .toURI())
+                    .getParent();
+            try (var stream = Files.list(resourceDir)) {
+                return stream.filter(p -> p.getFileName().toString().endsWith(".tar.zstd"))
+                        .sorted()
+                        .toList();
+            }
+        }
+
+        /** Returns the path to the block_times.bin test resource. */
+        private Path blockTimesFile() throws Exception {
+            return Path.of(Objects.requireNonNull(getClass().getResource("/metadata/block_times.bin"))
+                    .toURI());
+        }
+
+        /** Returns the path to the day_blocks.json test resource. */
+        private Path dayBlocksFile() throws Exception {
+            return Path.of(Objects.requireNonNull(getClass().getResource("/metadata/day_blocks.json"))
+                    .toURI());
+        }
+
+        /** Copies tar.zstd files into a fresh input directory. */
+        private Path setupInputDir(List<Path> tarZstdFiles) throws IOException {
+            final Path inputDir = e2eTempDir.resolve("input");
+            Files.createDirectories(inputDir);
+            for (Path tarZstd : tarZstdFiles) {
+                Files.copy(tarZstd, inputDir.resolve(tarZstd.getFileName()));
+            }
+            return inputDir;
+        }
+
+        /** Runs the wrap command and asserts exit code 0. */
+        private Path runWrap(Path inputDir, boolean unzipped) throws Exception {
+            final Path outputDir = e2eTempDir.resolve(unzipped ? "output-unzipped" : "output-zipped");
+            final var args = new java.util.ArrayList<>(List.of(
+                    "-i", inputDir.toString(),
+                    "-o", outputDir.toString(),
+                    "-b", blockTimesFile().toString(),
+                    "-d", dayBlocksFile().toString()));
+            if (unzipped) {
+                args.add("-u");
+            }
+            int exitCode = new CommandLine(new ToWrappedBlocksCommand()).execute(args.toArray(String[]::new));
+            assertEquals(0, exitCode, "Wrap command should exit with code 0");
+            return outputDir;
+        }
+
+        /** Runs validate-wrapped and asserts exit code 0 with no error output. */
+        private void runValidate(Path outputDir) {
+            final PrintStream originalErr = System.err;
+            final ByteArrayOutputStream errCapture = new ByteArrayOutputStream();
+            System.setErr(new PrintStream(errCapture));
+            int exitCode;
+            try {
+                exitCode = new CommandLine(new ValidateWrappedBlocksCommand())
+                        .execute(outputDir.toString(), "--validate-balances=false");
+            } finally {
+                System.setErr(originalErr);
+            }
+            final String errorOutput = errCapture.toString();
+            if (!errorOutput.isEmpty()) {
+                System.err.print(errorOutput);
+            }
+            assertFalse(errorOutput.contains("Blockchain is not valid"), "Chain validation failed: " + errorOutput);
+            assertFalse(errorOutput.contains("HBAR supply mismatch"), "50 billion HBAR check failed: " + errorOutput);
+            assertEquals(0, exitCode, "Validation should pass. Errors: " + errorOutput);
+        }
+
+        @Test
+        @DisplayName("Wrap in zip mode then validate")
+        void testWrapZipModeAndValidate() throws Exception {
+            assumeTrue(isZstdAvailable(), "zstd not available");
+            final List<Path> tarZstdFiles = findTarZstdFiles();
+            assumeFalse(tarZstdFiles.isEmpty(), "No .tar.zstd files in test resources");
+
+            final Path inputDir = setupInputDir(tarZstdFiles);
+            final Path outputDir = runWrap(inputDir, false);
+
+            // Verify essential output files exist
+            assertTrue(Files.exists(outputDir.resolve("addressBookHistory.json")));
+            assertTrue(Files.exists(outputDir.resolve("blockStreamBlockHashes.bin")));
+            assertTrue(Files.exists(outputDir.resolve("streamingMerkleTree.bin")));
+            assertTrue(Files.exists(outputDir.resolve("completeMerkleTree.bin")));
+            assertTrue(Files.exists(outputDir.resolve("wrap-commit.bin")));
+            assertTrue(Files.exists(outputDir.resolve("jumpstart.bin")));
+
+            // Verify zip files are valid
+            try (var zipStream = Files.walk(outputDir)) {
+                final List<Path> zipFiles = zipStream
+                        .filter(p -> p.getFileName().toString().endsWith(".zip"))
+                        .toList();
+                assertFalse(zipFiles.isEmpty(), "Expected at least one zip file");
+                for (Path zipPath : zipFiles) {
+                    try (ZipFile zf = new ZipFile(zipPath.toFile())) {
+                        assertTrue(zf.size() > 0, "Zip file should contain entries: " + zipPath);
+                    }
+                }
+            }
+
+            // Validate the wrapped output
+            runValidate(outputDir);
+        }
+
+        @Test
+        @DisplayName("Wrap in unzipped mode then validate")
+        void testWrapUnzippedModeAndValidate() throws Exception {
+            assumeTrue(isZstdAvailable(), "zstd not available");
+            final List<Path> tarZstdFiles = findTarZstdFiles();
+            assumeFalse(tarZstdFiles.isEmpty(), "No .tar.zstd files in test resources");
+
+            final Path inputDir = setupInputDir(tarZstdFiles);
+            final Path outputDir = runWrap(inputDir, true);
+
+            // Verify essential output files exist
+            assertTrue(Files.exists(outputDir.resolve("addressBookHistory.json")));
+            assertTrue(Files.exists(outputDir.resolve("blockStreamBlockHashes.bin")));
+            assertTrue(Files.exists(outputDir.resolve("streamingMerkleTree.bin")));
+            assertTrue(Files.exists(outputDir.resolve("completeMerkleTree.bin")));
+            assertTrue(Files.exists(outputDir.resolve("wrap-commit.bin")));
+            assertTrue(Files.exists(outputDir.resolve("jumpstart.bin")));
+
+            // Verify individual .blk.zstd files exist
+            try (var blkStream = Files.walk(outputDir)) {
+                final long blkCount = blkStream
+                        .filter(p -> p.getFileName().toString().endsWith(".blk.zstd"))
+                        .count();
+                assertTrue(blkCount > 0, "Expected individual .blk.zstd files in unzipped mode");
+            }
+
+            // Validate the wrapped output
+            runValidate(outputDir);
+        }
+
+        @Test
+        @DisplayName("Wrap resume from partial run")
+        void testWrapResumeFromPartial() throws Exception {
+            assumeTrue(isZstdAvailable(), "zstd not available");
+            final List<Path> tarZstdFiles = findTarZstdFiles();
+            assumeTrue(tarZstdFiles.size() >= 2, "Need at least 2 .tar.zstd files for resume test");
+
+            // Phase 1: wrap with only the first day file
+            final Path inputDir = e2eTempDir.resolve("input-resume");
+            Files.createDirectories(inputDir);
+            Files.copy(
+                    tarZstdFiles.getFirst(),
+                    inputDir.resolve(tarZstdFiles.getFirst().getFileName()));
+
+            final Path outputDir = e2eTempDir.resolve("output-resume");
+            int exitCode1 = new CommandLine(new ToWrappedBlocksCommand())
+                    .execute(
+                            "-i", inputDir.toString(),
+                            "-o", outputDir.toString(),
+                            "-b", blockTimesFile().toString(),
+                            "-d", dayBlocksFile().toString());
+            assertEquals(0, exitCode1, "First wrap run should succeed");
+
+            // Record watermark after first run
+            final long watermarkAfterFirstRun =
+                    ToWrappedBlocksCommand.loadWatermark(outputDir.resolve("wrap-commit.bin"));
+            assertTrue(watermarkAfterFirstRun >= 0, "Watermark should be set after first run");
+
+            // Phase 2: add remaining day files and wrap again (resume)
+            for (int i = 1; i < tarZstdFiles.size(); i++) {
+                Files.copy(
+                        tarZstdFiles.get(i),
+                        inputDir.resolve(tarZstdFiles.get(i).getFileName()));
+            }
+
+            int exitCode2 = new CommandLine(new ToWrappedBlocksCommand())
+                    .execute(
+                            "-i", inputDir.toString(),
+                            "-o", outputDir.toString(),
+                            "-b", blockTimesFile().toString(),
+                            "-d", dayBlocksFile().toString());
+            assertEquals(0, exitCode2, "Resume wrap run should succeed");
+
+            // Watermark should have advanced
+            final long watermarkAfterResume =
+                    ToWrappedBlocksCommand.loadWatermark(outputDir.resolve("wrap-commit.bin"));
+            assertTrue(
+                    watermarkAfterResume > watermarkAfterFirstRun,
+                    "Watermark should advance after resume: " + watermarkAfterResume + " > " + watermarkAfterFirstRun);
+
+            // Validate the complete output
+            runValidate(outputDir);
+        }
+
+        @Test
+        @DisplayName("Watermark matches last block in registry")
+        void testWatermarkMatchesLastBlock() throws Exception {
+            assumeTrue(isZstdAvailable(), "zstd not available");
+            final List<Path> tarZstdFiles = findTarZstdFiles();
+            assumeFalse(tarZstdFiles.isEmpty(), "No .tar.zstd files in test resources");
+
+            final Path inputDir = setupInputDir(tarZstdFiles);
+            final Path outputDir = runWrap(inputDir, false);
+
+            // Load watermark
+            final long watermark = ToWrappedBlocksCommand.loadWatermark(outputDir.resolve("wrap-commit.bin"));
+            assertTrue(watermark >= 0, "Watermark should be set");
+
+            // Load registry and verify watermark matches highest block
+            try (BlockStreamBlockHashRegistry registry =
+                    new BlockStreamBlockHashRegistry(outputDir.resolve("blockStreamBlockHashes.bin"))) {
+                assertEquals(
+                        watermark,
+                        registry.highestBlockNumberStored(),
+                        "Watermark should match registry's highest block");
+            }
+        }
+
+        @Test
+        @DisplayName("Jumpstart data is valid")
+        void testJumpstartDataValid() throws Exception {
+            assumeTrue(isZstdAvailable(), "zstd not available");
+            final List<Path> tarZstdFiles = findTarZstdFiles();
+            assumeFalse(tarZstdFiles.isEmpty(), "No .tar.zstd files in test resources");
+
+            final Path inputDir = setupInputDir(tarZstdFiles);
+            final Path outputDir = runWrap(inputDir, false);
+
+            final Path jumpstartFile = outputDir.resolve("jumpstart.bin");
+            assertTrue(Files.exists(jumpstartFile), "jumpstart.bin should exist");
+
+            // Read jumpstart data
+            try (DataInputStream in = new DataInputStream(Files.newInputStream(jumpstartFile))) {
+                final long blockNumber = in.readLong();
+                assertTrue(blockNumber >= 0, "Jumpstart block number should be non-negative");
+
+                // Block hash is 48 bytes (SHA-384)
+                final byte[] blockHash = new byte[48];
+                in.readFully(blockHash);
+
+                // Verify hash is non-empty (not all zeros)
+                boolean allZero = true;
+                for (byte b : blockHash) {
+                    if (b != 0) {
+                        allZero = false;
+                        break;
+                    }
+                }
+                assertFalse(allZero, "Jumpstart block hash should not be all zeros");
+
+                // Streaming hasher state
+                final long leafCount = in.readLong();
+                assertTrue(leafCount > 0, "Leaf count should be positive");
+                assertEquals(blockNumber + 1, leafCount, "Leaf count should equal block count");
+
+                final int hashListSize = in.readInt();
+                assertTrue(hashListSize >= 0, "Hash list size should be non-negative");
+                for (int i = 0; i < hashListSize; i++) {
+                    final byte[] hash = new byte[48];
+                    in.readFully(hash);
+                }
+            }
+
+            // Verify jumpstart block number matches watermark
+            final long watermark = ToWrappedBlocksCommand.loadWatermark(outputDir.resolve("wrap-commit.bin"));
+            try (DataInputStream in = new DataInputStream(Files.newInputStream(jumpstartFile))) {
+                assertEquals(watermark, in.readLong(), "Jumpstart block number should match watermark");
+            }
+        }
+
+        @Test
+        @DisplayName("Hasher state files are consistent after wrap")
+        void testHasherStatesConsistent() throws Exception {
+            assumeTrue(isZstdAvailable(), "zstd not available");
+            final List<Path> tarZstdFiles = findTarZstdFiles();
+            assumeFalse(tarZstdFiles.isEmpty(), "No .tar.zstd files in test resources");
+
+            final Path inputDir = setupInputDir(tarZstdFiles);
+            final Path outputDir = runWrap(inputDir, false);
+
+            // Load both hasher state files
+            final StreamingHasher streamingHasher = new StreamingHasher();
+            streamingHasher.load(outputDir.resolve("streamingMerkleTree.bin"));
+
+            final InMemoryTreeHasher inMemoryHasher = new InMemoryTreeHasher();
+            inMemoryHasher.load(outputDir.resolve("completeMerkleTree.bin"));
+
+            // Both should have same leaf count
+            assertEquals(
+                    streamingHasher.leafCount(),
+                    inMemoryHasher.leafCount(),
+                    "Streaming and in-memory hashers should have the same leaf count");
+
+            // Leaf count should match registry block count
+            try (BlockStreamBlockHashRegistry registry =
+                    new BlockStreamBlockHashRegistry(outputDir.resolve("blockStreamBlockHashes.bin"))) {
+                assertEquals(
+                        registry.highestBlockNumberStored() + 1,
+                        streamingHasher.leafCount(),
+                        "Hasher leaf count should equal number of blocks in registry");
+            }
+
+            // Root hashes should be non-empty
+            final byte[] streamingRoot = streamingHasher.computeRootHash();
+            final byte[] inMemoryRoot = inMemoryHasher.computeRootHash();
+            assertTrue(streamingRoot.length > 0, "Streaming root hash should be non-empty");
+            assertTrue(inMemoryRoot.length > 0, "In-memory root hash should be non-empty");
+        }
+    }
+
+    // ===== Helpers =====
+
+    private static boolean isZstdAvailable() {
+        try {
+            Process p = new ProcessBuilder("which", "zstd").start();
+            return p.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
         }
     }
 }
