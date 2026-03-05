@@ -8,6 +8,8 @@ import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
@@ -407,7 +409,8 @@ public class InMemoryTreeHasher implements Hasher {
      */
     @Override
     public void save(Path filePath) throws Exception {
-        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(filePath))) {
+        try (DataOutputStream out =
+                new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(filePath), 4 * 1024 * 1024))) {
             // Write leaf count
             out.writeLong(leafCount);
 
@@ -439,7 +442,8 @@ public class InMemoryTreeHasher implements Hasher {
      */
     @Override
     public void load(Path filePath) throws Exception {
-        try (DataInputStream din = new DataInputStream(Files.newInputStream(filePath))) {
+        try (DataInputStream din =
+                new DataInputStream(new BufferedInputStream(Files.newInputStream(filePath), 4 * 1024 * 1024))) {
             // Read leaf count
             leafCount = din.readLong();
 

@@ -209,6 +209,7 @@ public class BlockWriter {
      * @return The path to the block file
      * @throws IOException If an error occurs writing the block
      */
+    @SuppressWarnings("UnusedReturnValue")
     public static BlockPath writeBlock(final Path baseDirectory, final Block block) throws IOException {
         return writeBlock(
                 baseDirectory,
@@ -608,10 +609,9 @@ public class BlockWriter {
      * ensures the stream always starts at file offset 0, keeping the internal counter in sync with
      * the actual file position.
      *
-     * <p>The caller is responsible for ensuring that an existing zip file is only opened here
-     * when it is safe to overwrite: the resume logic in
-     * {@link org.hiero.block.tools.blocks.ToWrappedBlocksCommand} backs up {@code startBlock}
-     * to the zip-range boundary and deletes any partial zip before this method is called.
+     * <p>This method is only used internally by {@link StreamBlockZipAppender} for <em>new</em>
+     * zip files. For existing partial zips (mid-zip resume), {@link #openZipForAppend(Path)}
+     * returns a {@link FsBlockZipAppender} instead, which handles the Central Directory correctly.
      *
      * @param zipFilePath the path to the zip file
      * @return a {@link ZipOutputStream} configured for STORED mode, positioned at byte 0
