@@ -18,7 +18,7 @@ module org.hiero.block.node.verification {
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
     requires org.hiero.block.node.base;
-    requires org.hiero.block.protobuf.pbj;
+    requires transitive org.hiero.block.protobuf.pbj;
     requires com.github.spotbugs.annotations;
     requires org.antlr.antlr4.runtime;
 

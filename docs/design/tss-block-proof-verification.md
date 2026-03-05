@@ -49,7 +49,7 @@ a `LedgerIdPublicationTransactionBody` in block 0 and persisted as a single prot
 1. **Persisted file** (`verification.tssParametersFilePath`) — written after block 0 is
    verified, loaded on restart. Contains a serialized `LedgerIdPublicationTransactionBody`
    which fully restores all TSS state (address book + WRAPS VK + ledger ID).
-2. **Block stream** — `LedgerIdPublicationTransactionBody` found in a `SIGNED_TRANSACTION`
+2. **Block Stream** — `LedgerIdPublicationTransactionBody` found in a `SIGNED_TRANSACTION`
    item during block 0 processing. The session calls
    `VerificationServicePlugin.initializeTssParameters()` directly. When block 0 is verified
    successfully, the publication is persisted to the file.
