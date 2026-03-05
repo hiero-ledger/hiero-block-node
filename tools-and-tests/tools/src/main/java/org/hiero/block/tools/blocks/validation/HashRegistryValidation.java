@@ -63,6 +63,15 @@ public final class HashRegistryValidation implements BlockValidation {
     }
 
     @Override
+    public void finalize(final long totalBlocksValidated, final long lastBlockNumber) throws ValidationException {
+        long highestStored = registry.highestBlockNumberStored();
+        if (highestStored != lastBlockNumber) {
+            throw new ValidationException("blockStreamBlockHashes.bin highest stored block " + highestStored
+                    + " != expected " + lastBlockNumber);
+        }
+    }
+
+    @Override
     public void close() {
         try {
             registry.close();
