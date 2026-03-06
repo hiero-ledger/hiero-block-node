@@ -134,7 +134,7 @@ Validates wrapped block stream files produced by the `wrap` command. Walks all b
 #### Usage
 
 ```
-blocks validate-wrapped [-n=<network>] [--[no-]validate-balances] [--balance-checkpoints=<file>]
+blocks validate-wrapped [--network=<network>] [--[no-]validate-balances] [--balance-checkpoints=<file>]
                         [--custom-balances-dir=<dir>] [--balance-check-interval-days=<days>] [<files>...]
 ```
 
@@ -142,7 +142,7 @@ blocks validate-wrapped [-n=<network>] [--[no-]validate-balances] [--balance-che
 
 |                      Option                      |                                           Description                                            |
 |--------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| `-n`, `--network <name>`                         | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
+| `--network <name>`                           | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
 | `--validate-balances` / `--no-validate-balances` | Enable or disable balance checkpoint validation. Default: enabled.                               |
 | `--balance-checkpoints <file>`                   | Path to pre-fetched balance checkpoints file (`balance_checkpoints.zstd`).                       |
 | `--custom-balances-dir <dir>`                    | Directory containing custom balance files (`accountBalances_{blockNumber}.pb.gz`).               |
@@ -202,7 +202,7 @@ Converts record file blocks organized in daily tar.zstd files into wrapped Block
 #### Usage
 
 ```
-blocks wrap [-u] [-n=<network>] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<inputDir>] [-o=<outputDir>]
+blocks wrap [-u] [--network=<network>] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<inputDir>] [-o=<outputDir>]
             [--parse-threads=<N>] [--serialize-threads=<N>] [--prefetch=<N>]
 ```
 
@@ -212,7 +212,7 @@ blocks wrap [-u] [-n=<network>] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<
 |----------------------------------|--------------------------------------------------------------------------------------------------------------------|
 | `-b`, `--blocktimes-file <file>` | BlockTimes file for mapping record file times to blocks (default: `metadata/block_times.bin`).                     |
 | `-d`, `--day-blocks <file>`      | Path to the day blocks JSON file (default: `metadata/day_blocks.json`).                                            |
-| `-n`, `--network <name>`         | Network name for applying amendments (`mainnet`, `testnet`, `none`). Default: `mainnet`.                           |
+| `--network <name>`               | Network name for applying amendments (`mainnet`, `testnet`, `none`). Default: `mainnet`.                           |
 | `-u`, `--unzipped`               | Write output files as individual files in nested directories, rather than in uncompressed zip batches of 10k.      |
 | `-i`, `--input-dir <dir>`        | Directory of record file tar.zstd days to process (default: `compressedDays`).                                     |
 | `-o`, `--output-dir <dir>`       | Directory to write the output wrapped blocks (default: `wrappedBlocks`).                                           |

@@ -45,7 +45,7 @@ public final class BlockStreamTool {
      * @param network the network name: "mainnet" (default) or "testnet"
      */
     @Option(
-            names = {"-n", "--network"},
+            names = "--network",
             description = "Network to use: mainnet (default), testnet",
             defaultValue = "mainnet",
             scope = ScopeType.INHERIT)
