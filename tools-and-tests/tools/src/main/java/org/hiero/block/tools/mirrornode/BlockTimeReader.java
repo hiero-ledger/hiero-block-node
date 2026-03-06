@@ -61,7 +61,14 @@ public class BlockTimeReader implements AutoCloseable {
      * @return the block time as Instant
      */
     public Instant getBlockInstant(long blockNumber) {
-        return blockTimeLongToInstant(mappedLongBuffer.get((int) blockNumber));
+        int index = (int) blockNumber;
+        int limit = mappedLongBuffer.limit();
+        if (index < 0 || index >= limit) {
+            throw new IndexOutOfBoundsException("Block " + blockNumber + " is out of bounds. "
+                    + "block_times.bin only contains data for blocks 0-" + (limit - 1) + ". "
+                    + "Try running UpdateBlockData to fetch latest block times from mirror node.");
+        }
+        return blockTimeLongToInstant(mappedLongBuffer.get(index));
     }
 
     /**

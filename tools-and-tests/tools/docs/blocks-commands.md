@@ -208,16 +208,16 @@ blocks wrap [-u] [-n=<network>] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<
 
 #### Options
 
-|              Option              |                                                  Description                                                  |
-|----------------------------------|---------------------------------------------------------------------------------------------------------------|
-| `-b`, `--blocktimes-file <file>` | BlockTimes file for mapping record file times to blocks (default: `metadata/block_times.bin`).                |
-| `-d`, `--day-blocks <file>`      | Path to the day blocks JSON file (default: `metadata/day_blocks.json`).                                       |
-| `-n`, `--network <name>`         | Network name for applying amendments (`mainnet`, `testnet`, `none`). Default: `mainnet`.                      |
-| `-u`, `--unzipped`               | Write output files as individual files in nested directories, rather than in uncompressed zip batches of 10k. |
-| `-i`, `--input-dir <dir>`        | Directory of record file tar.zstd days to process (default: `compressedDays`).                                |
-| `-o`, `--output-dir <dir>`       | Directory to write the output wrapped blocks (default: `wrappedBlocks`).                                      |
-| `--parse-threads <N>`            | Thread count for the parse + RSA-verify stage (default: CPU count - 1).                                       |
-| `--serialize-threads <N>`        | Thread count for the block serialization + compression stage (default: CPU count - 1).                        |
+|              Option              |                                                    Description                                                     |
+|----------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `-b`, `--blocktimes-file <file>` | BlockTimes file for mapping record file times to blocks (default: `metadata/block_times.bin`).                     |
+| `-d`, `--day-blocks <file>`      | Path to the day blocks JSON file (default: `metadata/day_blocks.json`).                                            |
+| `-n`, `--network <name>`         | Network name for applying amendments (`mainnet`, `testnet`, `none`). Default: `mainnet`.                           |
+| `-u`, `--unzipped`               | Write output files as individual files in nested directories, rather than in uncompressed zip batches of 10k.      |
+| `-i`, `--input-dir <dir>`        | Directory of record file tar.zstd days to process (default: `compressedDays`).                                     |
+| `-o`, `--output-dir <dir>`       | Directory to write the output wrapped blocks (default: `wrappedBlocks`).                                           |
+| `--parse-threads <N>`            | Thread count for the parse + RSA-verify stage (default: CPU count - 1).                                            |
+| `--serialize-threads <N>`        | Thread count for the block serialization + compression stage (default: CPU count - 1).                             |
 | `--prefetch <N>`                 | Number of parse+verify futures to keep in-flight ahead of the convert thread (default: same as `--parse-threads`). |
 
 #### Prerequisites

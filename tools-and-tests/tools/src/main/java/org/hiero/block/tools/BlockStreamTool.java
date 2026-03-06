@@ -17,7 +17,6 @@ import picocli.CommandLine.ScopeType;
 /**
  * Command line tool for working with Hedera block stream files
  */
-@SuppressWarnings("InstantiationOfUtilityClass")
 @Command(
         name = "subcommands",
         mixinStandardHelpOptions = true,
@@ -46,7 +45,7 @@ public final class BlockStreamTool {
      * @param network the network name: "mainnet" (default) or "testnet"
      */
     @Option(
-            names = "--network",
+            names = {"-n", "--network"},
             description = "Network to use: mainnet (default), testnet",
             defaultValue = "mainnet",
             scope = ScopeType.INHERIT)
@@ -58,7 +57,7 @@ public final class BlockStreamTool {
      * Main entry point for the app
      * @param args command line arguments
      */
-    public static void main(String... args) {
+    static void main(String... args) {
         int exitCode = new CommandLine(new BlockStreamTool()).execute(args);
         System.exit(exitCode);
     }

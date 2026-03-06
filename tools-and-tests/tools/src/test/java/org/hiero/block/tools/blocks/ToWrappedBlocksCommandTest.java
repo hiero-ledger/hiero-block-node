@@ -824,7 +824,9 @@ class ToWrappedBlocksCommandTest {
                 assertEquals(
                         chain.get(i).items().size(), readBack.items().size(), "Item count mismatch for block " + i);
                 assertEquals(
-                        i, readBack.items().getFirst().blockHeader().number(), "Block number mismatch for block " + i);
+                        i,
+                        readBack.items().getFirst().blockHeaderOrThrow().number(),
+                        "Block number mismatch for block " + i);
             }
         }
 
@@ -844,7 +846,9 @@ class ToWrappedBlocksCommandTest {
                 assertEquals(
                         chain.get(i).items().size(), readBack.items().size(), "Item count mismatch for block " + i);
                 assertEquals(
-                        i, readBack.items().getFirst().blockHeader().number(), "Block number mismatch for block " + i);
+                        i,
+                        readBack.items().getFirst().blockHeaderOrThrow().number(),
+                        "Block number mismatch for block " + i);
             }
         }
 
@@ -863,8 +867,8 @@ class ToWrappedBlocksCommandTest {
 
             assertEquals(original.items().size(), readBack.items().size());
             assertEquals(
-                    original.items().getFirst().blockHeader().number(),
-                    readBack.items().getFirst().blockHeader().number());
+                    original.items().getFirst().blockHeaderOrThrow().number(),
+                    readBack.items().getFirst().blockHeaderOrThrow().number());
             assertTrue(serialized.length > 0, "Serialized bytes should be non-empty");
         }
 
@@ -1470,6 +1474,45 @@ class ToWrappedBlocksCommandTest {
 
             assertEquals(49, ToWrappedBlocksCommand.loadWatermark(wf));
             assertEquals(0, blocksSinceWatermarkFlush.get());
+        }
+    }
+
+    // ===== Thread option validation tests =====
+
+    @Nested
+    @DisplayName("Thread option validation")
+    class ThreadOptionValidation {
+
+        @Test
+        @DisplayName("--parse-threads 0 prints error")
+        void invalidParseThreads_printsError() {
+            final ByteArrayOutputStream errOut = new ByteArrayOutputStream();
+            final PrintStream originalErr = System.err;
+            System.setErr(new PrintStream(errOut));
+            try {
+                final int exitCode = new CommandLine(new ToWrappedBlocksCommand())
+                        .execute("--parse-threads", "0", "-i", tempDir.toString(), "-o", tempDir.toString());
+                final String output = errOut.toString();
+                assertTrue(output.contains("must be >= 1"), "Expected error about parse-threads, got: " + output);
+            } finally {
+                System.setErr(originalErr);
+            }
+        }
+
+        @Test
+        @DisplayName("--serialize-threads 0 prints error")
+        void invalidSerializeThreads_printsError() {
+            final ByteArrayOutputStream errOut = new ByteArrayOutputStream();
+            final PrintStream originalErr = System.err;
+            System.setErr(new PrintStream(errOut));
+            try {
+                final int exitCode = new CommandLine(new ToWrappedBlocksCommand())
+                        .execute("--serialize-threads", "0", "-i", tempDir.toString(), "-o", tempDir.toString());
+                final String output = errOut.toString();
+                assertTrue(output.contains("must be >= 1"), "Expected error about serialize-threads, got: " + output);
+            } finally {
+                System.setErr(originalErr);
+            }
         }
     }
 

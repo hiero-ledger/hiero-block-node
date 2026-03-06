@@ -211,6 +211,15 @@ public class ToWrappedBlocksCommand implements Runnable {
      */
     @Override
     public void run() {
+        // ---- Validate thread options ----
+        if (parseThreads < 1) {
+            System.err.println("Error: --parse-threads must be >= 1, got " + parseThreads);
+            return;
+        }
+        if (serializeThreads < 1) {
+            System.err.println("Error: --serialize-threads must be >= 1, got " + serializeThreads);
+            return;
+        }
         // create an output directory if it does not exist
         try {
             Files.createDirectories(outputBlocksDir);
@@ -331,6 +340,13 @@ public class ToWrappedBlocksCommand implements Runnable {
 
             System.out.println(Ansi.AUTO.string("@|yellow Starting from block:|@ " + effectiveHighest));
 
+            // Bounds check: ensure block_times.bin covers the resume block
+            if (effectiveHighest >= 0 && effectiveHighest > blockTimeReader.getMaxBlockNumber()) {
+                throw new RuntimeException("Registry highest block (" + effectiveHighest
+                        + ") exceeds block_times.bin range (max=" + blockTimeReader.getMaxBlockNumber()
+                        + "). Run UpdateBlockData to fetch latest block times.");
+            }
+
             // Use a time just before the first block so block 0 passes the isAfter filter
             final Instant highestStoredBlockTime = effectiveHighest == -1
                     ? FIRST_BLOCK_TIME_INSTANT.minusNanos(1)
@@ -384,6 +400,16 @@ public class ToWrappedBlocksCommand implements Runnable {
                         + dayPathToLocalDate(dayPaths.getFirst())
                         + " @|yellow to|@ "
                         + dayPathToLocalDate(dayPaths.getLast())));
+            }
+
+            // Validate all day paths have matching entries in day_blocks.json
+            final List<LocalDate> missingDates = dayPaths.stream()
+                    .map(ToWrappedBlocksCommand::dayPathToLocalDate)
+                    .filter(d -> !dayMap.containsKey(d))
+                    .toList();
+            if (!missingDates.isEmpty()) {
+                throw new RuntimeException("Day archives found without matching entries in day_blocks.json: "
+                        + missingDates + ". Run 'mirror extractDayBlock' to regenerate metadata.");
             }
 
             // Progress tracking setup
@@ -697,7 +723,10 @@ public class ToWrappedBlocksCommand implements Runnable {
                     if (shutdownRequested) {
                         break; // Ctrl+C: shutdown hook already saved state
                     }
-                    throw new RuntimeException(e);
+                    // Non-parse exception: request orderly drain, then rethrow after state save
+                    parseFailureMessage = "Non-parse exception during day processing: " + e.getMessage();
+                    shutdownRequested = true;
+                    break;
                 }
                 if (shutdownRequested) {
                     break;

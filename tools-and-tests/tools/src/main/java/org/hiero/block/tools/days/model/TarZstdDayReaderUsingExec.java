@@ -265,7 +265,7 @@ public class TarZstdDayReaderUsingExec {
             String name = f.path().getFileName().toString();
             if (name.endsWith(".rcd")) {
                 String baseKey = extractBaseKey(name);
-                byBase.computeIfAbsent(baseKey, k -> new ArrayList<>()).add(f);
+                byBase.computeIfAbsent(baseKey, _ -> new ArrayList<>()).add(f);
             } else if (name.endsWith(".rcs_sig") || name.endsWith(".rcd_sig")) {
                 signatureFilesAll.add(f);
             }
@@ -285,10 +285,10 @@ public class TarZstdDayReaderUsingExec {
                 byBase.get(dirBaseKey).add(sig);
             } else if (dirBaseKey != null) {
                 // create a group keyed by dirBaseKey and add the signature (no rcd files present in that dir)
-                byBase.computeIfAbsent(dirBaseKey, k -> new ArrayList<>()).add(sig);
+                byBase.computeIfAbsent(dirBaseKey, _ -> new ArrayList<>()).add(sig);
             } else {
                 // fallback: group by sigBase alone
-                byBase.computeIfAbsent(sigBase, k -> new ArrayList<>()).add(sig);
+                byBase.computeIfAbsent(sigBase, _ -> new ArrayList<>()).add(sig);
             }
         }
 
@@ -369,7 +369,7 @@ public class TarZstdDayReaderUsingExec {
                     int sidecarIndex = extractSidecarIndex(noExt, baseKey);
                     if (sidecarIndex > 0) {
                         otherSidecarsByIndex
-                                .computeIfAbsent(sidecarIndex, k -> new ArrayList<>())
+                                .computeIfAbsent(sidecarIndex, _ -> new ArrayList<>())
                                 .add(f);
                     }
                     otherSidecarFiles.add(f);
@@ -411,6 +411,8 @@ public class TarZstdDayReaderUsingExec {
                 recordTime = parseInstantFromBaseKey(baseKey);
             } catch (Exception ex) {
                 // if parsing fails, use epoch as fallback to avoid crash and still return a set
+                System.err.println("WARNING: Failed to parse timestamp from tar entry base key '" + baseKey + "': "
+                        + ex.getMessage() + ". Using Instant.EPOCH as fallback.");
                 recordTime = Instant.EPOCH;
             }
 
