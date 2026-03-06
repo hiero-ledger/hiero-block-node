@@ -58,7 +58,6 @@ class BlocksCommandTest {
         assertTrue(output.contains("ls"), "Should list 'ls' subcommand");
         assertTrue(output.contains("validate"), "Should list 'validate' subcommand");
         assertTrue(output.contains("wrap"), "Should list 'wrap' subcommand");
-        assertTrue(output.contains("validate-wrapped"), "Should list 'validate-wrapped' subcommand");
     }
 
     // ===== Subcommand help tests =====
@@ -74,19 +73,6 @@ class BlocksCommandTest {
         assertEquals(0, exitCode);
         String output = out.toString();
         assertTrue(output.contains("validate"), "Should contain validate in output");
-    }
-
-    @Test
-    void validateWrappedHelp_printsUsage() {
-        StringWriter out = new StringWriter();
-        CommandLine cmd = new CommandLine(new BlocksCommand());
-        cmd.setOut(new PrintWriter(out));
-
-        int exitCode = cmd.execute("validate-wrapped", "--help");
-
-        assertEquals(0, exitCode);
-        String output = out.toString();
-        assertTrue(output.contains("validate-wrapped"), "Should contain validate-wrapped in output");
     }
 
     // ===== Subcommand no-args behavior =====

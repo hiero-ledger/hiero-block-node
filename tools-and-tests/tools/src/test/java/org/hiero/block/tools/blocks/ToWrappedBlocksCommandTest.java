@@ -32,7 +32,6 @@ import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
-import org.hiero.block.tools.blocks.wrapped.ValidateWrappedBlocksCommand;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -542,8 +541,8 @@ class ToWrappedBlocksCommandTest {
             System.setErr(new PrintStream(errCapture));
             int exitCode;
             try {
-                exitCode = new CommandLine(new ValidateWrappedBlocksCommand())
-                        .execute(outputDir.toString(), "--validate-balances=false");
+                exitCode = new CommandLine(new ValidateBlocksCommand())
+                        .execute(outputDir.toString(), "--skip-signatures", "--validate-balances=false");
             } finally {
                 System.setErr(originalErr);
             }
