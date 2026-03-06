@@ -13,18 +13,21 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Counter;
+import com.swirlds.metrics.api.Counter.Config;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.util.Deque;
 import java.util.List;
 import java.util.NavigableSet;
 import java.util.Objects;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
@@ -37,75 +40,70 @@ import org.hiero.block.api.PublishStreamResponse.SkipBlock;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.stream.publisher.StreamPublisherManager.ActionForBlock;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
 
-/**
- * A handler for processing publish stream requests.
- * Each distinct publisher will have its own instance of this handler. Each
- * handler will be on it`s own separate thread. The handler is responsible for
- * processing incoming publish stream requests to the extent that it will
- * propagate incoming data to the {@link StreamPublisherManager} based on what
- * {@link BlockAction} the publisher manager returns for the current streaming
- * block. This handler will also return responses to the publisher it handles.
- * Calls made to the publisher manager are to be considered thread-safe and also
- * whatever action the manager returns for the current streaming block is to be
- * considered valid. Logic that needs to execute based on the action is safe to
- * execute in the handler thread. An important note is that an action needs to
- * be queried every time a new request is received
- * (the {@link #onNext(PublishStreamRequestUnparsed)} method is called) because
- * subsequent requests might be related to the same block and the status may
- * have changed since the last request, but also if we start streaming a new
- * block, the action for it might be different that what is usually expected,
- * especially true in a multi-publisher environment.
- */
+/// A handler for processing publish stream requests.
+/// Each distinct publisher will have its own instance of this handler. Each
+/// handler will be on it`s own separate thread. The handler is responsible for
+/// processing incoming publish stream requests to the extent that it will
+/// propagate incoming data to the [StreamPublisherManager] based on what
+/// [BlockAction] the publisher manager returns for the current streaming
+/// block. This handler will also return responses to the publisher it handles.
+/// Calls made to the publisher manager are to be considered thread-safe and also
+/// whatever action the manager returns for the current streaming block is to be
+/// considered valid. Logic that needs to execute based on the action is safe to
+/// execute in the handler thread. An important note is that an action needs to
+/// be queried every time a new request is received
+/// (the [#onNext(PublishStreamRequestUnparsed)] method is called) because
+/// subsequent requests might be related to the same block and the status may
+/// have changed since the last request, but also if we start streaming a new
+/// block, the action for it might be different that what is usually expected,
+/// especially true in a multi-publisher environment.
 public final class PublisherHandler implements Pipeline<PublishStreamRequestUnparsed> {
     private final Logger LOGGER = System.getLogger(getClass().getName());
-    /** The replies pipeline, used for sending responses to the publisher. */
+    /// The replies pipeline, used for sending responses to the publisher.
     private final Pipeline<? super PublishStreamResponse> replies;
-    /** Metrics for the handlers. This instance is shared between all handlers. */
+    /// Metrics for the handlers. This instance is shared between all handlers.
     private final MetricsHolder metrics;
-    /** The publisher manager. We use it to make {@link BlockAction} queries. */
+    /// The publisher manager. We use it to make [BlockAction] queries.
     private final StreamPublisherManager publisherManager;
-    /** The transfer queue for propagating incoming items. Each handler has it`s own queue. */
-    private final BlockingQueue<BlockItemSetUnparsed> blockItemsQueue;
-    /** The ID of this handler. This is used to identify the handler within the publisher manager. */
+    /// The ID of this handler. This is used to identify the handler within the publisher manager.
     private final long handlerId;
-    /** The current streaming block number. This is used to track the current block being streamed. */
+    /// The current streaming block number. This is used to track the current block being streamed.
     private final AtomicLong currentStreamingBlockNumber;
-    /** The unacknowledged blocks that were streamed to completion by this handler. */
+    /// The current queue of the block currently streaming
+    private final AtomicReference<Deque<BlockItemSetUnparsed>> currentBlockQueue;
+    /// The unacknowledged blocks that were streamed to completion by this handler.
     private final NavigableSet<Long> unacknowledgedStreamedBlocks;
     // @todo() remove this (and its usage) and use telemetry or metrics queries instead
-    /** The start time in nanos of block being currently streamed */
+    /// The start time in nanos of block being currently streamed
     private long currentStreamingBlockHeaderReceivedTime = System.nanoTime();
 
-    /**
-     * The current block action.
-     * This is tracked to help the manager determine what to do with the current
-     * block.
-     */
-    private BlockAction blockAction;
+    /// The current block action.
+    /// This is tracked to help the manager determine what to do with the current
+    /// block.
+    private final AtomicReference<BlockAction> blockAction;
 
-    /**
-     * Initialize a new publisher handler.
-     *
-     * @param nextId the next handler ID to use
-     * @param replyPipeline the pipeline to send replies to
-     * @param handlerMetrics the metrics for this handler
-     * @param manager the publisher manager that manages this handler
-     * @param transferQueue the queue for transferring block items to the manager
-     */
+    /// Initialize a new publisher handler.
+    ///
+    /// @param nextId the next handler ID to use
+    /// @param replyPipeline the pipeline to send replies to
+    /// @param handlerMetrics the metrics for this handler
+    /// @param manager the publisher manager that manages this handler
     public PublisherHandler(
             final long nextId,
             @NonNull final Pipeline<? super PublishStreamResponse> replyPipeline,
             @NonNull final MetricsHolder handlerMetrics,
-            @NonNull final StreamPublisherManager manager,
-            @NonNull final BlockingQueue<BlockItemSetUnparsed> transferQueue) {
+            @NonNull final StreamPublisherManager manager) {
         handlerId = nextId;
         replies = Objects.requireNonNull(replyPipeline);
         metrics = Objects.requireNonNull(handlerMetrics);
         publisherManager = Objects.requireNonNull(manager);
-        blockItemsQueue = Objects.requireNonNull(transferQueue);
         currentStreamingBlockNumber = new AtomicLong(UNKNOWN_BLOCK_NUMBER);
+        currentBlockQueue = new AtomicReference<>();
+        blockAction = new AtomicReference<>();
         unacknowledgedStreamedBlocks = new ConcurrentSkipListSet<>();
     }
 
@@ -153,23 +151,98 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         } catch (final InterruptedException | RuntimeException e) {
             // If we reach here, it means that the handler was interrupted or
             // an unexpected error occurred. We should log the error and shut down.
-            LOGGER.log(INFO, "Error processing request: %s", e);
+            LOGGER.log(INFO, "Error processing request: %s".formatted(e.getMessage()), e);
             sendEndAndResetState(Code.ERROR);
         }
     }
 
-    /**
-     * This method returns the ID of this handler.
-     *
-     * @return the ID of this handler
-     */
+    /// This method returns the ID of this handler.
+    ///
+    /// @return the ID of this handler
     long getId() {
         return handlerId;
     }
 
-    /**
-     * todo(1420) add documentation
-     */
+    /// Send an acknowledgement for the last block number that was persisted.
+    ///
+    /// This method is called when the a block is persisted and verified
+    /// so we need to acknowledge it to the publisher. The acknowledgement
+    /// is sent as a response to the publisher, indicating that all blocks up to
+    /// and including the given block number are safely stored in this block node.
+    ///
+    /// @param newLastAcknowledgedBlockNumber the last block number that was
+    ///     verified and persisted.
+    public void sendAcknowledgement(final long newLastAcknowledgedBlockNumber) {
+        LOGGER.log(
+                TRACE, "Handler {0} sending acknowledgement for block {1}", handlerId, newLastAcknowledgedBlockNumber);
+        // We only ever need to acknowledge once for a given block number, even
+        // if there are several blocks "behind" that acknowledgement.
+        // The publishers expect that acknowledgement for block N implicitly
+        // acknowledges all blocks up to and including N.
+        final BlockAcknowledgement ack = BlockAcknowledgement.newBuilder()
+                .blockNumber(newLastAcknowledgedBlockNumber)
+                .build();
+        final PublishStreamResponse response =
+                PublishStreamResponse.newBuilder().acknowledgement(ack).build();
+        if (sendResponse(response)) {
+            // if response was sent successfully, we can remove
+            // all unacknowledged blocks that are less than or equal to the
+            // new last acknowledged block number.
+            unacknowledgedStreamedBlocks
+                    .headSet(newLastAcknowledgedBlockNumber, true)
+                    .clear();
+            metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
+
+            final String ackMessage = "Sent acknowledgement for block {0,number,#} from handler {1}";
+            final String traceMessage =
+                    "metric-end-to-end-latency-by-block-end block={0,number,#} nsTimestamp={1,number,#} handlerId={2}";
+            LOGGER.log(TRACE, traceMessage, newLastAcknowledgedBlockNumber, System.nanoTime(), handlerId);
+            LOGGER.log(TRACE, ackMessage, newLastAcknowledgedBlockNumber, handlerId);
+        }
+    }
+
+    /// This method must be called when a verification fails for a given block.
+    /// If this handler was the one that streamed the block, we will attempt to
+    /// send an [EndOfStream] with a [Code#BAD_BLOCK_PROOF] and proceed to shut
+    /// down the handler.
+    ///
+    /// @param blockNumber of the block that failed verification
+    /// @return true if the handler has sent the [Code#BAD_BLOCK_PROOF] message
+    boolean handleFailedVerification(final long blockNumber) {
+        LOGGER.log(DEBUG, "Handler {0} handling failed verification for block {1}", handlerId, blockNumber);
+        if (unacknowledgedStreamedBlocks.remove(blockNumber)) {
+            // If the block number that failed verification was sent by this
+            // handler, we need to send an EndOfStream with BAD_BLOCK_PROOF code.
+            try {
+                sendEndOfStream(Code.BAD_BLOCK_PROOF);
+                return true;
+            } finally {
+                shutdown();
+            }
+        } else {
+            return false;
+        }
+    }
+
+    /// This method must be called when persistence fails for a given block.
+    /// We will attempt to send an [EndOfStream] with a [Code#PERSISTENCE_FAILED] and
+    /// proceed to shut down the handler.
+    void handleFailedPersistence() {
+        LOGGER.log(DEBUG, "Handler {0} handling failed persistence", handlerId);
+        try {
+            sendEndOfStream(Code.PERSISTENCE_FAILED);
+        } finally {
+            shutdown();
+        }
+    }
+
+    /// This method is called when the manager is shutting down and needs
+    /// to force all handlers to close their publisher communication channels.
+    void closeCommunication() {
+        sendEndOfStream(Code.SUCCESS);
+    }
+
+    /// todo(1420) add documentation
     private void processNextRequestUnparsed(final PublishStreamRequestUnparsed request) throws InterruptedException {
         if (request.hasBlockItems()) {
             final BlockItemSetUnparsed itemSetUnparsed = Objects.requireNonNull(request.blockItems());
@@ -186,52 +259,23 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 shutdown();
             }
         } else if (request.hasEndOfBlock()) {
-            handleEndOfBlock(request.endOfBlock());
+            handleEndOfBlock(Objects.requireNonNull(request.endOfBlock()));
         } else {
             // this should never happen
             sendEndAndResetState(Code.ERROR);
         }
     }
 
-    private void handleEndOfBlock(final BlockEnd endOfBlock) {
-        final long blockNumber = endOfBlock.blockNumber();
-        final long expectedBlockNumber = currentStreamingBlockNumber.get();
-        if (blockNumber != expectedBlockNumber) {
-            final String message = "Expected to close block {0}, but received close for block {1}.";
-            LOGGER.log(Level.INFO, message, expectedBlockNumber, blockNumber);
-            // @todo(2159) should we take another action as part of the additional handling of the end of block message?
-        }
-        metrics.receiveBlockTimeLatencyNs.add(System.nanoTime() - currentStreamingBlockHeaderReceivedTime);
-        publisherManager.endOfBlock(blockNumber);
-        publisherManager.closeBlock(handlerId);
-        unacknowledgedStreamedBlocks.add(blockNumber);
-        resetState();
-    }
-
-    /**
-     * todo(1420) add documentation
-     */
-    private void sendEndAndResetState(final Code endOfStreamCode) {
-        try {
-            sendEndOfStream(endOfStreamCode);
-            resetState();
-        } finally {
-            shutdown();
-        }
-    }
-
-    /**
-     * todo(1420) add documentation
-     */
+    /// todo(1420) add documentation
     private void handleBlockItemsRequest(
-            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems)
-            throws InterruptedException {
+            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems) {
         long blockNumber = currentStreamingBlockNumber.get();
         final BlockItemUnparsed first = blockItems.getFirst();
         // every time we receive an item set, we need to check if we have
         // a block header, if we do, we need to take the number and store it
         // in memory, this is now the current streaming block number.
-        if (first.hasBlockHeader()) {
+        final boolean requestContainsHeader = first.hasBlockHeader();
+        if (requestContainsHeader) {
             // if we have a block header, this means that we are at the
             // start of a new block, so we can update the current streaming
             if (UNKNOWN_BLOCK_NUMBER == blockNumber) {
@@ -260,7 +304,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                         "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2}";
                 currentStreamingBlockHeaderReceivedTime = System.nanoTime();
                 LOGGER.log(TRACE, traceMessage, blockNumber, currentStreamingBlockHeaderReceivedTime, handlerId);
-                currentStreamingBlockNumber.set(blockNumber);
             } else {
                 LOGGER.log(
                         DEBUG,
@@ -294,22 +337,30 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         // the current received set is in the middle of the batch, because
         // the response that is received from the manager might have changed.
         // query here
-        blockAction = publisherManager.getActionForBlock(blockNumber, blockAction, handlerId);
+        final BlockAction actionFromPublisher =
+                publisherManager.getActionForBlock(blockNumber, blockAction.get(), handlerId);
+        blockAction.set(actionFromPublisher);
         final BatchHandleResult handleResult =
-                switch (blockAction) {
-                    case ACCEPT -> handleAccept(itemSetUnparsed, blockItems);
+                switch (actionFromPublisher) {
+                    case ACCEPT -> handleAccept(blockNumber, requestContainsHeader, itemSetUnparsed);
                     case SKIP -> handleSkip(blockNumber);
-                    case RESEND -> handleResend();
+                    case RESEND -> {
+                        final String errorMessage =
+                                "Handler {0} unexpectedly received the block action {1} as an action for new header/block in progress";
+                        yield handleEndError(WARNING, errorMessage, handlerId, actionFromPublisher);
+                    }
                     case SEND_BEHIND -> handleSendBehind();
                     case END_DUPLICATE -> handleEndDuplicate();
-                    case END_ERROR -> handleEndError();
+                    case END_ERROR -> {
+                        final String errorMessage =
+                                "Handler {0} received the block action {1} as an action for new header/block in progress";
+                        yield handleEndError(DEBUG, errorMessage, handlerId, actionFromPublisher);
+                    }
                 };
         handleBlockActionResult(handleResult);
     }
 
-    /**
-     * todo(1420) add documentation
-     */
+    /// todo(1420) add documentation
     private void handleEndStreamRequest(final EndStream endStream) {
         final EndStream.Code code = endStream.endCode();
         final long endStreamEarliestBlockNumber = endStream.earliestBlockNumber();
@@ -331,6 +382,43 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     "Handler %d received an invalid EndStream request with code %s. %s"
                             .formatted(handlerId, code, earliestAndLatestBlockNumbers));
         }
+    }
+
+    private void handleEndOfBlock(final BlockEnd endOfBlock) {
+        final long endOfBlockNumber = endOfBlock.blockNumber();
+        final long expectedBlockNumber = currentStreamingBlockNumber.get();
+        if (endOfBlockNumber != expectedBlockNumber) {
+            final String message = "Expected to close block {0}, but received close for block {1}.";
+            LOGGER.log(INFO, message, expectedBlockNumber, endOfBlockNumber);
+            // @todo(2200) should we take another action as part of the additional handling of the end of block message?
+        }
+        metrics.receiveBlockTimeLatencyNs.add(System.nanoTime() - currentStreamingBlockHeaderReceivedTime);
+        final ActionForBlock actionForBlock = publisherManager.endOfBlock(endOfBlockNumber);
+        publisherManager.closeBlock(handlerId);
+        unacknowledgedStreamedBlocks.add(endOfBlockNumber);
+        final BatchHandleResult result =
+                switch (actionForBlock.action()) {
+                    // If we get ACCEPT, we must simply reset the state and continue
+                    case ACCEPT -> {
+                        if (endOfBlockNumber == actionForBlock.blockNumber()) {
+                            yield new BatchHandleResult(false, true);
+                        } else {
+                            yield unexpectedActionForEndOfBlock(actionForBlock, endOfBlockNumber);
+                        }
+                    }
+                    // If we get a resend, we must handle it
+                    case RESEND -> handleResend(actionForBlock.blockNumber());
+                    // These cases are not expected to be returned
+                    case SKIP, SEND_BEHIND, END_DUPLICATE, END_ERROR ->
+                        unexpectedActionForEndOfBlock(actionForBlock, endOfBlockNumber);
+                };
+        handleBlockActionResult(result);
+    }
+
+    private BatchHandleResult unexpectedActionForEndOfBlock(
+            final ActionForBlock actionForBlock, final long endOfBlockNumber) {
+        final String errorMessage = "Handler {0} received unexpected action for block: {1}, when ending block {2}";
+        return handleEndError(WARNING, errorMessage, handlerId, actionForBlock, endOfBlockNumber);
     }
 
     private boolean isEndStreamRequestValid(
@@ -385,60 +473,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         };
     }
 
-    /**
-     * This method is called when the manager is shutting down and needs
-     * to force all handlers to close their publisher communication channels.
-     */
-    public void closeCommunication() {
-        sendEndOfStream(Code.SUCCESS);
-    }
-
     // ==== Publisher Response Methods =========================================
 
-    /**
-     * Send an acknowledgement for the last block number that was persisted.
-     * <p>
-     * This method is called when the a block is persisted and verified
-     * so we need to acknowledge it to the publisher. The acknowledgement
-     * is sent as a response to the publisher, indicating that all blocks up to
-     * and including the given block number are safely stored in this block node.
-     *
-     * @param newLastAcknowledgedBlockNumber the last block number that was
-     *     verified and persisted.
-     */
-    public void sendAcknowledgement(final long newLastAcknowledgedBlockNumber) {
-        LOGGER.log(
-                TRACE, "Handler {0} sending acknowledgement for block {1}", handlerId, newLastAcknowledgedBlockNumber);
-        // We only ever need to acknowledge once for a given block number, even
-        // if there are several blocks "behind" that acknowledgement.
-        // The publishers expect that acknowledgement for block N implicitly
-        // acknowledges all blocks up to and including N.
-        final BlockAcknowledgement ack = BlockAcknowledgement.newBuilder()
-                .blockNumber(newLastAcknowledgedBlockNumber)
-                .build();
-        final PublishStreamResponse response =
-                PublishStreamResponse.newBuilder().acknowledgement(ack).build();
-        if (sendResponse(response)) {
-            // if response was sent successfully, we can remove
-            // all unacknowledged blocks that are less than or equal to the
-            // new last acknowledged block number.
-            unacknowledgedStreamedBlocks
-                    .headSet(newLastAcknowledgedBlockNumber, true)
-                    .clear();
-            metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
-
-            final String ackMessage = "Sent acknowledgement for block {0,number,#} from handler {1}";
-            final String traceMessage =
-                    "metric-end-to-end-latency-by-block-end block={0,number,#} nsTimestamp={1,number,#} handlerId={2}";
-            LOGGER.log(TRACE, traceMessage, newLastAcknowledgedBlockNumber, System.nanoTime(), handlerId);
-            LOGGER.log(TRACE, ackMessage, newLastAcknowledgedBlockNumber, handlerId);
-        }
-    }
-
-    /**
-     * todo(1420) add documentation
-     */
-    private void sendEndOfStream(final EndOfStream.Code codeToSend) {
+    /// todo(1420) add documentation
+    private void sendEndOfStream(final Code codeToSend) {
         final EndOfStream endOfStream = EndOfStream.newBuilder()
                 .status(codeToSend)
                 .blockNumber(publisherManager.getLatestBlockNumber())
@@ -450,14 +488,22 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         }
     }
 
-    /**
-     * Everytime we interact with the response pipeline we need to make sure we
-     * catch all exceptions, as it is very possible that the pipeline will throw.
-     * In such cases, the method will call {@link #shutdown()} before returning.
-     *
-     * @param response to be sent to the pipeline
-     * @return boolean value if the response was successfully sent
-     */
+    /// todo(1420) add documentation
+    private void sendEndAndResetState(final Code endOfStreamCode) {
+        try {
+            sendEndOfStream(endOfStreamCode);
+            resetState();
+        } finally {
+            shutdown();
+        }
+    }
+
+    /// Everytime we interact with the response pipeline we need to make sure we
+    /// catch all exceptions, as it is very possible that the pipeline will throw.
+    /// In such cases, the method will call [#shutdown()] before returning.
+    ///
+    /// @param response to be sent to the pipeline
+    /// @return boolean value if the response was successfully sent
     private boolean sendResponse(final PublishStreamResponse response) {
         try {
             long start = System.nanoTime();
@@ -480,7 +526,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final String messageFormat = "Publisher closed the connection unexpectedly for client %d: %s";
             final String exceptionMessage = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
             final String message = messageFormat.formatted(handlerId, exceptionMessage);
-            LOGGER.log(Level.DEBUG, message, e);
+            LOGGER.log(DEBUG, message, e);
             metrics.sendResponseFailed.increment(); // @todo(1415) add label
             return false;
         } catch (final RuntimeException e) {
@@ -493,95 +539,42 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         }
     }
 
-    /**
-     * This method must be called when a verification fails for a given block.
-     * If this handler was the one that streamed the block, we will attempt to
-     * send an {@link EndOfStream} with a {@link Code#BAD_BLOCK_PROOF} and
-     * proceed to shut down the handler.
-     * Otherwise, we will send a {@link ResendBlock} response to the publisher.
-     * If the response fails to send, we will shut down the handler.
-     *
-     * @param blockNumber of the block that failed verification
-     * @return the id of this handler
-     */
-    public long handleFailedVerification(final long blockNumber) {
-        LOGGER.log(DEBUG, "Handler {0} handling failed verification for block {1}", handlerId, blockNumber);
-        if (unacknowledgedStreamedBlocks.remove(blockNumber)) {
-            // If the block number that failed verification was sent by this
-            // handler, we need to send an EndOfStream with BAD_BLOCK_PROOF code.
-            try {
-                sendEndOfStream(Code.BAD_BLOCK_PROOF);
-            } finally {
-                shutdown();
-            }
-        } else {
-            // Else we need to send a RESEND response, if sending the response
-            // fails, we will shut down the handler.
-            handleBlockActionResult(handleResend());
-        }
-        return handlerId;
-    }
-
-    /**
-     * This method must be called when persistence fails for a given block.
-     * We will attempt to send an {@link EndOfStream} with a {@link Code#PERSISTENCE_FAILED} and
-     * proceed to shut down the handler.
-     *
-     * @return the id of this handler
-     */
-    public long handleFailedPersistence() {
-        LOGGER.log(DEBUG, "Handler {0} handling failed persistence", handlerId);
-        try {
-            sendEndOfStream(Code.PERSISTENCE_FAILED);
-        } finally {
-            shutdown();
-        }
-
-        return handlerId;
-    }
-
     // ==== Block Action Handling Methods ======================================
 
-    /**
-     * A batch handling result.
-     * <p>
-     * A simple record to return when handling a batch. This result informs
-     * the caller whether the handler should shut down and/or reset its current
-     * block action and current streaming block number.
-     */
+    /// A batch handling result.
+    ///
+    /// A simple record to return when handling a batch. This result informs
+    /// the caller whether the handler should shut down and/or reset its current
+    /// block action and current streaming block number.
     private record BatchHandleResult(boolean shouldShutdown, boolean shouldReset) {}
 
-    /**
-     * This method handles the result of a block action handle.
-     *
-     * @param handleResult the result to handle
-     */
+    /// This method handles the result of a block action handle.
+    ///
+    /// @param handleResult the result to handle
     private void handleBlockActionResult(final BatchHandleResult handleResult) {
-        if (handleResult.shouldReset()) {
-            resetState();
-        }
         if (handleResult.shouldShutdown()) {
             shutdown();
         }
+        if (handleResult.shouldReset()) {
+            resetState();
+        }
     }
 
-    /**
-     * Handle the ACCEPT action for a block.
-     */
+    /// Handle the ACCEPT action for a block.
     private BatchHandleResult handleAccept(
-            final BlockItemSetUnparsed itemSetUnparsed, final List<BlockItemUnparsed> blockItems)
-            throws InterruptedException {
-        // If the action is ACCEPT, we can safely propagate the items
-        // to the manager.
-        blockItemsQueue.put(itemSetUnparsed);
-        final int itemsReceived = blockItems.size();
-        metrics.liveBlockItemsReceived.add(itemsReceived); // @todo(1415) add label
+            final long blockNumber, final boolean requestContainsHeader, final BlockItemSetUnparsed itemSetUnparsed) {
+        if (requestContainsHeader) {
+            final ConcurrentLinkedDeque<BlockItemSetUnparsed> newBlockQueue = new ConcurrentLinkedDeque<>();
+            publisherManager.registerQueueForBlock(newBlockQueue, blockNumber);
+            currentBlockQueue.set(newBlockQueue);
+            currentStreamingBlockNumber.set(blockNumber);
+        }
+        currentBlockQueue.get().offer(itemSetUnparsed);
+        metrics.liveBlockItemsReceived.add(itemSetUnparsed.blockItems().size()); // @todo(1415) add label
         return new BatchHandleResult(false, false);
     }
 
-    /**
-     * Handle the SKIP action for a block.
-     */
+    /// Handle the SKIP action for a block.
     private BatchHandleResult handleSkip(final long blockNumber) {
         LOGGER.log(DEBUG, "Handler {0} is sending SKIP for block {1}", handlerId, blockNumber);
         // If the action is SKIP, we need to send a skip response
@@ -598,30 +591,31 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         }
     }
 
-    /**
-     * Handle the RESEND action for a block.
-     */
-    private BatchHandleResult handleResend() {
-        final long blockToResend = publisherManager.getLatestBlockNumber() + 1L;
-        LOGGER.log(DEBUG, "Handler {0} is sending RESEND({1})", handlerId, blockToResend);
-        // If the action is RESEND, we need to send a resend
-        // response to the publisher and not propagate the items.
-        final ResendBlock resendBlock = ResendBlock.newBuilder()
-                .blockNumber(publisherManager.getLatestBlockNumber() + 1L)
-                .build();
-        final PublishStreamResponse response =
-                PublishStreamResponse.newBuilder().resendBlock(resendBlock).build();
-        if (sendResponse(response)) {
-            metrics.blockResendsSent.increment(); // @todo(1415) add label
-            return new BatchHandleResult(false, true);
+    /// Handle the RESEND action for a block.
+    private BatchHandleResult handleResend(final long blockToResend) {
+        if (blockToResend > UNKNOWN_BLOCK_NUMBER) {
+            LOGGER.log(DEBUG, "Handler {0} is sending RESEND({1})", handlerId, blockToResend);
+            // If the action is RESEND, we need to send a resend
+            // response to the publisher and not propagate the items.
+            final ResendBlock resendBlock =
+                    ResendBlock.newBuilder().blockNumber(blockToResend).build();
+            final PublishStreamResponse response =
+                    PublishStreamResponse.newBuilder().resendBlock(resendBlock).build();
+            if (sendResponse(response)) {
+                metrics.blockResendsSent.increment(); // @todo(1415) add label
+                return new BatchHandleResult(false, true);
+            } else {
+                return new BatchHandleResult(true, true);
+            }
         } else {
-            return new BatchHandleResult(true, true);
+            // This should not happen, the publisher should hot be handling a RESEND action with invalid block number
+            // to resend
+            final String message = "Handler {0} received a RESEND action with invalid block number {1}";
+            return handleEndError(WARNING, message, handlerId, blockToResend);
         }
     }
 
-    /**
-     * Handle the END_BEHIND action for a block.
-     */
+    /// Handle the END_BEHIND action for a block.
     private BatchHandleResult handleSendBehind() {
         LOGGER.log(DEBUG, "Handler {0} is sending Behind({1}).", handlerId, publisherManager.getLatestBlockNumber());
         // If the action is SEND_BEHIND, we need to send an end of stream
@@ -640,9 +634,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         }
     }
 
-    /**
-     * Handle the END_DUPLICATE action for a block.
-     */
+    /// Handle the END_DUPLICATE action for a block.
     private BatchHandleResult handleEndDuplicate() {
         LOGGER.log(
                 DEBUG,
@@ -655,11 +647,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return new BatchHandleResult(true, true);
     }
 
-    /**
-     * Handle the END_ERROR action for a block.
-     */
-    private BatchHandleResult handleEndError() {
-        LOGGER.log(DEBUG, "Handler {0} is sending ERROR", handlerId);
+    /// Handle the END_ERROR action for a block with an error message.
+    private BatchHandleResult handleEndError(
+            final Level logLevel, final String errorMessage, final Object... errorMessageParams) {
+        LOGGER.log(logLevel, errorMessage, errorMessageParams);
         // If the action is END_ERROR, we need to send an end of stream
         // response to the publisher and not propagate the items.
         sendEndOfStream(Code.ERROR);
@@ -669,40 +660,34 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     // ==== EndStream Handling Methods =========================================
 
-    /**
-     * Simple record to hold the result of an end stream request handling.
-     *
-     * @param shouldShutdown boolean value indicating whether the handler should
-     * shut down after handling the end stream request.
-     */
+    /// Simple record to hold the result of an end stream request handling.
+    ///
+    /// @param shouldShutdown boolean value indicating whether the handler should
+    /// shut down after handling the end stream request.
     private record EndStreamResult(boolean shouldShutdown) {}
 
-    /**
-     * This method handles an {@link EndStream} requests with codes
-     * <pre>
-     *     {@link EndStream.Code#UNKNOWN}
-     *     {@link EndStream.Code#RESET}
-     *     {@link EndStream.Code#TIMEOUT}
-     *     {@link EndStream.Code#ERROR}
-     * </pre>
-     */
+    /// This method handles an [EndStream] requests with codes
+    /// <pre>
+    ///     [EndStream.Code#UNKNOWN]
+    ///     [EndStream.Code#RESET]
+    ///     [EndStream.Code#TIMEOUT]
+    ///     [EndStream.Code#ERROR]
+    /// </pre>
     private EndStreamResult handleEndStream(final Level logLevel, final String message) {
         LOGGER.log(logLevel, message);
-        final long blockNumber = currentStreamingBlockNumber.get();
-        if ((blockAction != null) && (UNKNOWN_BLOCK_NUMBER != blockNumber)) {
+        final long blockInProgress = currentStreamingBlockNumber.get();
+        if (blockInProgress != UNKNOWN_BLOCK_NUMBER && currentBlockQueue.get() != null) {
             // This should generally not happen, we expect an end stream request
             // from a publisher after it has completely streamed a full block.
-            LOGGER.log(INFO, "Handler %d is ending mid-block %d".formatted(handlerId, blockNumber));
-            publisherManager.handlerIsEnding(blockNumber, handlerId);
+            LOGGER.log(INFO, "Handler %d is ending mid-block %d".formatted(handlerId, blockInProgress));
+            publisherManager.handlerIsEnding(blockInProgress, handlerId);
         }
         metrics.endStreamsReceived.increment();
         return new EndStreamResult(true);
     }
 
-    /**
-     * This method handles an {@link EndStream} request with
-     * {@link EndStream.Code#TOO_FAR_BEHIND}.
-     */
+    /// This method handles an [EndStream] request with
+    /// [EndStream.Code#TOO_FAR_BEHIND].
     private EndStreamResult handleEndStreamBehind(
             final Level logLevel, final String message, final long endStreamLatestBlockNumber) {
         if (endStreamLatestBlockNumber > publisherManager.getLatestBlockNumber()) {
@@ -713,26 +698,21 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     // ==== Private Methods ====================================================
 
-    /**
-     * This method will reset the state of the handler. Block action will be
-     * set to null, and the current streaming block number will be set to
-     * {@value org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER}.
-     */
+    /// This method will reset the state of the handler. Block action will be
+    /// set to null, and the current streaming block number will be set to
+    /// {@value BlockNodePlugin#UNKNOWN_BLOCK_NUMBER}.
     private void resetState() {
-        // reset the block action
-        blockAction = null;
-        // reset the current streaming block number
+        blockAction.set(null);
         currentStreamingBlockNumber.set(UNKNOWN_BLOCK_NUMBER);
+        currentBlockQueue.set(null);
     }
 
-    /**
-     * This method is called when we want to orderly shut down the handler.
-     * Any cleanup that is needed should be done here.
-     */
+    /// This method is called when we want to orderly shut down the handler.
+    /// Any cleanup that is needed should be done here.
     private void shutdown() {
         try {
             final long blockInProgress = currentStreamingBlockNumber.getAndSet(UNKNOWN_BLOCK_NUMBER);
-            if (blockInProgress != UNKNOWN_BLOCK_NUMBER) {
+            if (blockInProgress != UNKNOWN_BLOCK_NUMBER && currentBlockQueue.get() != null) {
                 publisherManager.handlerIsEnding(blockInProgress, handlerId);
                 publisherManager.closeBlock(handlerId);
             }
@@ -760,19 +740,19 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     }
 
     // ==== Metrics ============================================================
-    /**
-     * Metrics for tracking publisher handler activity:
-     * <pre>
-     * {@link #liveBlockItemsReceived} - Count of live block items received from a producer
-     * {@link #blockAcknowledgementsSent} - Count of acknowledgements sent
-     * {@link #streamErrors} - Count of stream errors
-     * {@link #blockSkipsSent} - Count of block skip responses
-     * {@link #blockResendsSent} - Count of block resend responses
-     * {@link #endOfStreamsSent} - Count of end of stream responses (should always be at most 1 per stream)
-     * {@link #endStreamsReceived} - Count of end streams received (should always be at most 1 per stream)
-     * {@link #receiveBlockTimeLatencyNs} - Time it takes for a block to be received from block header to block proof, in nanoseconds
-     * </pre>
-     */
+
+    /// Metrics for tracking publisher handler activity:
+    /// <pre>
+    /// [#liveBlockItemsReceived] - Count of live block items received from a producer
+    /// [#blockAcknowledgementsSent] - Count of acknowledgements sent
+    /// [#streamErrors] - Count of stream errors
+    /// [#blockSkipsSent] - Count of block skip responses
+    /// [#blockResendsSent] - Count of block resend responses
+    /// [#endOfStreamsSent] - Count of end of stream responses (should always be at most 1 per stream)
+    /// [#endStreamsReceived] - Count of end streams received (should always be at most 1 per stream)
+    /// [#receiveBlockTimeLatencyNs] - Time it takes for a block to be received from block header to block proof, in
+    /// nanoseconds
+    /// </pre>
     public record MetricsHolder(
             Counter liveBlockItemsReceived,
             Counter blockAcknowledgementsSent,
@@ -785,45 +765,42 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             Counter sendResponseFailed,
             Counter endStreamsReceived,
             Counter receiveBlockTimeLatencyNs) {
-        /**
-         * Factory method.
-         * Creates a new instance of {@link MetricsHolder} using the provided
-         * {@link Metrics} instance.
-         * @return a new, valid, fully initialized {@link MetricsHolder} instance
-         */
+        /// Factory method.
+        /// Creates a new instance of [MetricsHolder] using the provided
+        /// [Metrics] instance.
+        /// @return a new, valid, fully initialized [MetricsHolder] instance
         static MetricsHolder createMetrics(@NonNull final Metrics metrics) {
             final Counter liveBlockItemsReceived =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_items_received")
+                    metrics.getOrCreate(new Config(METRICS_CATEGORY, "publisher_block_items_received")
                             .withDescription("Live block items received"));
             final Counter blockAcknowledgementsSent =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_ack_sent")
+                    metrics.getOrCreate(new Config(METRICS_CATEGORY, "publisher_blocks_ack_sent")
                             .withDescription("Block‑ack messages sent"));
-            final Counter blockItemSetsDropped = metrics.getOrCreate(new Counter.Config(
+            final Counter blockItemSetsDropped = metrics.getOrCreate(new Config(
                             METRICS_CATEGORY, "publisher_stream_sets_dropped")
                     .withDescription("Publisher block item sets dropped because the block is missing a header."));
-            final Counter streamErrors =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_stream_errors")
-                            .withDescription("Publisher connection streams that end in an error"));
+            final Counter streamErrors = metrics.getOrCreate(new Config(METRICS_CATEGORY, "publisher_stream_errors")
+                    .withDescription("Publisher connection streams that end in an error"));
             final Counter blockSkipsSent =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_skips_sent")
+                    metrics.getOrCreate(new Config(METRICS_CATEGORY, "publisher_blocks_skips_sent")
                             .withDescription("Block‑ack skips sent"));
             final Counter blockResendsSent =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_resend_sent")
+                    metrics.getOrCreate(new Config(METRICS_CATEGORY, "publisher_blocks_resend_sent")
                             .withDescription("Block Resend messages sent"));
             final Counter nodeBehindSent =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_node_behind_sent")
+                    metrics.getOrCreate(new Config(METRICS_CATEGORY, "publisher_block_node_behind_sent")
                             .withDescription("Node Behind Publisher messages sent"));
             final Counter endOfStreamsSent =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_endofstream_sent")
+                    metrics.getOrCreate(new Config(METRICS_CATEGORY, "publisher_block_endofstream_sent")
                             .withDescription("Block End-of-Stream messages sent"));
             final Counter sendResponseFailed =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_send_response_failed")
+                    metrics.getOrCreate(new Config(METRICS_CATEGORY, "publisher_block_send_response_failed")
                             .withDescription("Count of failures to send responses to a publisher"));
             final Counter endStreamsReceived =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_endstream_received")
+                    metrics.getOrCreate(new Config(METRICS_CATEGORY, "publisher_block_endstream_received")
                             .withDescription("Block End-Stream messages received"));
             final Counter receiveBlockTimeLatencyNs = metrics.getOrCreate(
-                    new Counter.Config(METRICS_CATEGORY, "publisher_receive_latency_ns")
+                    new Config(METRICS_CATEGORY, "publisher_receive_latency_ns")
                             .withDescription(
                                     "Latency in nanoseconds between block being sent by publisher and being fully streamed from block header to block proof, also known as of network in-transit time latency"));
 

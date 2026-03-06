@@ -6,15 +6,13 @@ import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
-/**
- * Configuration for a block stream publisher plugin.
- *
- * @param batchForwardLimit The maximum number of batches that can be forwarded
- * by a single forwarding task before it needs a refresh.
- * @param publisherUnavailabilityTimeout The time in seconds to wait when we
- * have no active publishers before sending a publisher unavailability timeout
- * status update.
- */
+/// Configuration for a block stream publisher plugin.
+///
+/// @param batchForwardLimit The maximum number of batches that can be forwarded
+/// by a single forwarding task before it needs a refresh.
+/// @param publisherUnavailabilityTimeout The time in seconds to wait when we
+/// have no active publishers before sending a publisher unavailability timeout
+/// status update.
 @ConfigData("producer")
 public record PublisherConfig(
         // spotless:off

@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher.fixtures;
 
+import static org.assertj.core.api.Assertions.*;
+
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -19,29 +25,30 @@ import org.hiero.block.node.stream.publisher.PublisherHandler;
 import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager;
 
-/**
- * A test fixture for the {@link StreamPublisherManager}.
- */
+/// A test fixture for the [StreamPublisherManager].
 public class TestStreamPublisherManager implements StreamPublisherManager {
-    /** The message to be used when the handlePersisted method is called in an illegal state. */
+    /// The message to be used when the handlePersisted method is called in an illegal state.
     private static final String PERSISTED_NOTIFICATION_ILLEGAL_STATE_MESSAGE = """
     Illegal state for publisher manager test fixture.
     `handlePersisted` is called when `latestBlockNumber` is greater than the argument notification's end block number.
     This is not allowed in fixtures, the latest block number must always be set explicitly to a valid value before calling `handlePersisted` in order to mitigate false positives.
     latestBlockNumber: %d, notification end block number: %d
     """;
-    /** The map of calls to closeBlock, with the handler id as key and the number of calls as value. */
+    /// The map of calls to closeBlock, with the handler id as key and the number of calls as value.
     final Map<Long, Integer> closeBlockCalls = new LinkedHashMap<>();
-    /** The list of publisher handlers managed by this manager. This could be a map with handler id as key if needed */
+    /// The list of publisher handlers managed by this manager. This could be a map with handler id as key if needed
     private final List<PublisherHandler> publisherHandlers = new ArrayList<>();
-    /** The test block messaging facility used by this manager. */
+    /// The test block messaging facility used by this manager.
     private final TestBlockMessagingFacility blockMessagingFacility;
-    /** The BlockAction to return when querying for next action for a block. */
-    private BlockAction blockAction;
-    /** The latest block number to be returned. */
+    /// The BlockAction to return when querying for next action for a block.
+    private BlockAction blockActionForBlock;
+    /// The BlockAction to return when querying for next action for end of a block.
+    private ActionForBlock blockActionForEndOfBlock;
+    /// The latest block number to be returned.
     private long latestBlockNumber = -1L;
 
-    private NavigableSet<Long> endOfBlocksReceived = new ConcurrentSkipListSet<>();
+    private final NavigableSet<Long> endOfBlocksReceived = new ConcurrentSkipListSet<>();
+    private final ConcurrentMap<Long, Deque<BlockItemSetUnparsed>> queueByBlockMap = new ConcurrentSkipListMap<>();
 
     public TestStreamPublisherManager(final TestBlockMessagingFacility testBlockMessagingFacility) {
         this.blockMessagingFacility = Objects.requireNonNull(testBlockMessagingFacility);
@@ -63,9 +70,23 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     @Override
     public BlockAction getActionForBlock(
             final long blockNumber, final BlockAction previousAction, final long handlerId) {
-        return blockAction;
-        // @todo consider if we should reset the action here so we know that
-        //    the action returned is always set separately for each message.
+        return assertThat(blockActionForBlock)
+                .withFailMessage("Action for block to be received at end of block was not set")
+                .isNotNull()
+                .actual();
+    }
+
+    public ConcurrentMap<Long, Deque<BlockItemSetUnparsed>> getQueueByBlockMap() {
+        return queueByBlockMap;
+    }
+
+    public Deque<BlockItemSetUnparsed> getQueueForBlock(final long blockNumber) {
+        return queueByBlockMap.get(blockNumber);
+    }
+
+    @Override
+    public void registerQueueForBlock(final Deque<BlockItemSetUnparsed> queue, final long blockNumber) {
+        queueByBlockMap.put(blockNumber, queue);
     }
 
     @Override
@@ -75,8 +96,12 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
-    public void endOfBlock(final long blockNumber) {
+    public ActionForBlock endOfBlock(final long blockNumber) {
         endOfBlocksReceived.add(blockNumber);
+        return assertThat(blockActionForEndOfBlock)
+                .withFailMessage("Action for block to be received at end of block was not set")
+                .isNotNull()
+                .actual();
     }
 
     @Override
@@ -106,17 +131,15 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
         throw new UnsupportedOperationException("implement handleVerification in test fixture if needed");
     }
 
-    /**
-     * Handle a persisted notification.
-     * <p>
-     * Please note that this fixture implementation should be called only
-     * after explicitly setting the latest block number to a valid value. A
-     * valid value is a value that is lower than the end block number
-     * of the notification. This is done so that we can make a best effort to
-     * mitigate false positives in tests that use this fixture. Also, this
-     * method will NOT update the state of the manager (latestBlockNumber)! Any
-     * updates must be explicit!
-     */
+    /// Handle a persisted notification.
+    ///
+    /// Please note that this fixture implementation should be called only
+    /// after explicitly setting the latest block number to a valid value. A
+    /// valid value is a value that is lower than the end block number
+    /// of the notification. This is done so that we can make a best effort to
+    /// mitigate false positives in tests that use this fixture. Also, this
+    /// method will NOT update the state of the manager (latestBlockNumber)! Any
+    /// updates must be explicit!
     @Override
     public void handlePersisted(final PersistedNotification notification) {
         final long newLastPersistedBlock = notification.blockNumber();
@@ -128,61 +151,59 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
         }
     }
 
-    /**
-     * Fixture method to get the number of calls to closeBlock for a handler.
-     * <p>
-     * Returns the number of calls to {@link #closeBlock(long)}
-     * made by the handler with the given ID. If the handler ID is not found,
-     * returns -1.
-     */
+    /// Fixture method to get the number of calls to closeBlock for a handler.
+    ///
+    /// Returns the number of calls to [#closeBlock(long)]
+    /// made by the handler with the given ID. If the handler ID is not found,
+    /// returns -1.
     public int closeBlockCallsForHandler(final long handlerId) {
         return closeBlockCalls.getOrDefault(handlerId, -1);
     }
 
-    /**
-     * Fixture method to add a handler.
-     * <p>
-     * This method is used when we want to add an already initialized handler
-     * to the manager and not use the {@link #addHandler(Pipeline, MetricsHolder)}
-     * method.<br/>
-     */
+    /// Fixture method to add a handler.
+    ///
+    /// This method is used when we want to add an already initialized handler
+    /// to the manager and not use the [#addHandler(Pipeline, MetricsHolder)]
+    /// method.
     public void addHandler(@NonNull final PublisherHandler handler) {
         publisherHandlers.add(Objects.requireNonNull(handler));
     }
 
-    /**
-     * Fixture method to set the block action.
-     * <p>
-     * This method will set the action to be returned by
-     * {@link StreamPublisherManager#getActionForBlock(long, BlockAction, long)}.<br/>
-     * Overwritable.<br/>
-     * If this method has not been called, the default return from getActionForBlock is null.<br/>
-     * We use null so as to always be explicit about the action to be returned in tests,
-     * otherwise we might think tests are covering cases that are not covered.
-     *
-     * @param blockAction The action to return. This value is returned until
-     *     this method is called again.
-     */
-    public void setBlockAction(final BlockAction blockAction) {
-        this.blockAction = blockAction;
+    /// Fixture method to set the block action.
+    ///
+    /// This method will set the action to be returned by
+    /// [StreamPublisherManager#getActionForBlock(long, BlockAction, long)].
+    /// Overwritable.
+    /// If this method has not been called, the default return from getActionForBlock is null.
+    /// We use null so as to always be explicit about the action to be returned in tests,
+    /// otherwise we might think tests are covering cases that are not covered.
+    ///
+    /// @param blockAction The action to return. This value is returned until
+    ///     this method is called again.
+    public void setBlockActionForBlock(final BlockAction blockAction) {
+        this.blockActionForBlock = blockAction;
     }
 
-    /**
-     * Fixture method. This method will set the latest block number to be returned
-     * by {@link #getLatestBlockNumber()}. Overwritable. If not set, it will
-     * return -1L, which is a best effort to ensure no false positives.
-     *
-     * @param latestBlockNumber to set
-     */
+    public void setBlockActionForEndOfBlock(final BlockAction blockAction, final long blockNumber) {
+        setBlockActionForEndOfBlock(new ActionForBlock(blockAction, blockNumber));
+    }
+
+    public void setBlockActionForEndOfBlock(final ActionForBlock action) {
+        this.blockActionForEndOfBlock = action;
+    }
+
+    /// Fixture method. This method will set the latest block number to be returned
+    /// by [#getLatestBlockNumber()]. Overwritable. If not set, it will
+    /// return -1L, which is a best effort to ensure no false positives.
+    ///
+    /// @param latestBlockNumber to set
     public void setLatestBlockNumber(final long latestBlockNumber) {
         this.latestBlockNumber = latestBlockNumber;
     }
 
-    /**
-     * Fixture method. Returns the internal block messaging facility used.
-     *
-     * @return the test block messaging facility used by this manager.
-     */
+    /// Fixture method. Returns the internal block messaging facility used.
+    ///
+    /// @return the test block messaging facility used by this manager.
     public TestBlockMessagingFacility getBlockMessagingFacility() {
         return blockMessagingFacility;
     }
