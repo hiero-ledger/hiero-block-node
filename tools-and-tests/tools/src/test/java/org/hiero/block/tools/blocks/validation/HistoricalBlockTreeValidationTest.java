@@ -84,10 +84,10 @@ class HistoricalBlockTreeValidationTest {
         // Process block 0 through chain + tree
         BlockChainValidation chainValidation = new BlockChainValidation();
         HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chainValidation);
-        chainValidation.validate(chain.get(0), 0);
-        treeValidation.validate(chain.get(0), 0);
-        treeValidation.commitState(chain.get(0), 0);
-        chainValidation.commitState(chain.get(0), 0);
+        chainValidation.validate(chain.getFirst(), 0);
+        treeValidation.validate(chain.getFirst(), 0);
+        treeValidation.commitState(chain.getFirst(), 0);
+        chainValidation.commitState(chain.getFirst(), 0);
         // Save tree state
         treeValidation.save(tempDir);
         chainValidation.save(tempDir);
