@@ -57,6 +57,14 @@ public final class BalanceCheckpointValidation implements BlockValidation {
         checkpointValidator.checkBlock(blockNumber, accounts.getHbarBalances(), accounts.getTokenBalances());
     }
 
+    @Override
+    public void finalize(final long totalBlocksValidated, final long lastBlockNumber) throws ValidationException {
+        checkpointValidator.printSummary();
+        if (!checkpointValidator.allPassed()) {
+            throw new ValidationException("Balance checkpoint validation failed — see summary above");
+        }
+    }
+
     /**
      * Returns the underlying checkpoint validator for summary printing and status checks.
      *

@@ -9,6 +9,7 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -32,6 +33,7 @@ import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.BlockSource;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.PreValidatedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
+import org.hiero.block.tools.blocks.validation.BalanceCheckpointValidation;
 import org.hiero.block.tools.blocks.validation.BlockChainValidation;
 import org.hiero.block.tools.blocks.validation.BlockStructureValidation;
 import org.hiero.block.tools.blocks.validation.BlockValidation;
@@ -43,6 +45,7 @@ import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
+import org.hiero.block.tools.blocks.wrapped.BalanceCheckpointValidator;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
@@ -119,6 +122,29 @@ public class ValidateBlocksCommand implements Runnable {
             names = {"--skip-signatures"},
             description = "Skip signature validation (only check hash chain and state)")
     private boolean skipSignatures = false;
+
+    @Option(
+            names = {"--validate-balances"},
+            description = "Enable validation of account balances (enabled by default)",
+            defaultValue = "true",
+            negatable = true)
+    private boolean validateBalances = true;
+
+    @Option(
+            names = {"--balance-checkpoints"},
+            description = "Path to pre-fetched balance checkpoints file (balance_checkpoints.zstd)")
+    private Path balanceCheckpointsFile;
+
+    @Option(
+            names = {"--custom-balances-dir"},
+            description = "Directory containing custom balance files (accountBalances_{blockNumber}.pb.gz)")
+    private Path customBalancesDir;
+
+    @Option(
+            names = {"--balance-check-interval-days"},
+            description = "Only validate balance checkpoints every N days (default: 30 = monthly)",
+            defaultValue = "30")
+    private int balanceCheckIntervalDays = 30;
 
     /** Lightweight state loaded from a checkpoint JSON file. */
     private record CheckpointState(long lastValidatedBlockNumber, long blocksValidated, byte[] previousBlockHash) {}
@@ -226,6 +252,8 @@ public class ValidateBlocksCommand implements Runnable {
         if (addressBookFile != null && Files.exists(addressBookFile)) {
             addressBookRegistry = new AddressBookRegistry(addressBookFile);
             System.out.println(Ansi.AUTO.string("@|yellow Loaded address book from:|@ " + addressBookFile));
+        } else if (skipSignatures) {
+            addressBookRegistry = null;
         } else {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ No address book found. Provide --address-book or place "
                     + "addressBookHistory.json in the input directory."));
@@ -343,13 +371,38 @@ public class ValidateBlocksCommand implements Runnable {
             sequentialValidations.add(new JumpstartValidation(jumpstartPath, treeValidation, registry));
         }
 
+        // Balance checkpoint validation (genesis-requiring, optional)
+        final long firstBlockNumber = sources.getFirst().blockNumber();
+        if (firstBlockNumber == 0 && validateBalances) {
+            try {
+                final BalanceCheckpointValidator checkpointValidator = new BalanceCheckpointValidator();
+                checkpointValidator.setCheckIntervalDays(balanceCheckIntervalDays);
+                if (balanceCheckpointsFile != null && Files.exists(balanceCheckpointsFile)) {
+                    checkpointValidator.loadFromFile(balanceCheckpointsFile);
+                }
+                if (customBalancesDir != null && Files.isDirectory(customBalancesDir)) {
+                    checkpointValidator.loadFromDirectory(customBalancesDir);
+                }
+                loadBundledCheckpoints(checkpointValidator);
+                if (checkpointValidator.getCheckpointCount() > 0) {
+                    sequentialValidations.add(
+                            new BalanceCheckpointValidation(supplyValidation.getAccounts(), checkpointValidator));
+                } else {
+                    System.out.println(Ansi.AUTO.string(
+                            "@|yellow Warning:|@ No balance checkpoints loaded, skipping balance validation"));
+                }
+            } catch (IOException e) {
+                System.err.println(Ansi.AUTO.string("@|red Error loading balance checkpoints:|@ " + e.getMessage()));
+                return;
+            }
+        }
+
         // Combined list for checkpoint save/load/finalize/close
         List<BlockValidation> validations = new ArrayList<>();
         validations.addAll(parallelValidations);
         validations.addAll(sequentialValidations);
 
         // Filter out genesis-required validations when not starting from block 0 and no checkpoint
-        final long firstBlockNumber = sources.getFirst().blockNumber();
         if (firstBlockNumber != 0 && checkpoint == null) {
             List<BlockValidation> genesisSkipped = new ArrayList<>();
             sequentialValidations.removeIf(v -> {
@@ -776,6 +829,27 @@ public class ValidateBlocksCommand implements Runnable {
 
         long elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000L;
         System.out.println(Ansi.AUTO.string("@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
+    }
+
+    /**
+     * Loads bundled balance checkpoint files from jar resources.
+     *
+     * @param validator the validator to load checkpoints into
+     * @throws IOException if reading a resource stream fails
+     */
+    private void loadBundledCheckpoints(final BalanceCheckpointValidator validator) throws IOException {
+        final String[] bundledFiles = {"accountBalances_91019204.pb.gz"};
+        for (String filename : bundledFiles) {
+            try (InputStream stream = getClass().getResourceAsStream("/metadata/" + filename)) {
+                if (stream != null) {
+                    final String blockStr = filename.replace("accountBalances_", "").replace(".pb.gz", "");
+                    final long blockNumber = Long.parseLong(blockStr);
+                    validator.loadFromGzippedStream(stream, blockNumber);
+                    System.out.println(
+                            Ansi.AUTO.string("@|yellow Loaded bundled checkpoint:|@ block " + blockNumber));
+                }
+            }
+        }
     }
 
     /**

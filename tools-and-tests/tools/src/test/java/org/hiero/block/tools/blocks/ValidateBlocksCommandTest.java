@@ -70,6 +70,8 @@ class ValidateBlocksCommandTest {
 
             List<String> args = new ArrayList<>();
             args.add(tempDir.toString());
+            // Disable balance validation to avoid loading large bundled checkpoint files in unit tests
+            args.add("--validate-balances=false");
             args.addAll(List.of(extraArgs));
 
             exitCode = new CommandLine(new ValidateBlocksCommand()).execute(args.toArray(new String[0]));
