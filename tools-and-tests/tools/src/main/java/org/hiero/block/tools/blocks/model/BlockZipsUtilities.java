@@ -58,6 +58,17 @@ public final class BlockZipsUtilities {
     public record ParsedBlock(Block block, long blockNumber) {}
 
     /**
+     * Block that has been decompressed, parsed, and pre-validated (stateless checks run in parallel).
+     *
+     * @param block the parsed block
+     * @param blockNumber the block number
+     * @param preValidationName the name of the validation that failed, or null if all passed
+     * @param preValidationError the first validation failure from the parallel stage, or null if all passed
+     */
+    public record PreValidatedBlock(
+            Block block, long blockNumber, String preValidationName, Exception preValidationError) {}
+
+    /**
      * Extract a block number from a filename matching block file patterns.
      *
      * @param fileName the file name to parse

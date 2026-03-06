@@ -28,7 +28,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.BlockSource;
-import org.hiero.block.tools.blocks.model.BlockZipsUtilities.ParsedBlock;
+import org.hiero.block.tools.blocks.model.BlockZipsUtilities.PreValidatedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.validation.BlockChainValidation;
 import org.hiero.block.tools.blocks.validation.BlockStructureValidation;
@@ -304,21 +304,31 @@ public class ValidateBlocksCommand implements Runnable {
         CompleteMerkleTreeValidation completeMerkleTreeValidation =
                 hasStateFiles ? new CompleteMerkleTreeValidation(completeMerkleTreePath, chainValidation) : null;
 
-        List<BlockValidation> validations = new ArrayList<>();
-        validations.add(new RequiredItemsValidation());
-        validations.add(new BlockStructureValidation());
-        validations.add(chainValidation);
-        validations.add(treeValidation);
-        validations.add(supplyValidation);
-        validations.add(new SignatureValidation(addressBookRegistry));
+        // Parallel validations (stateless, run in decompPool threads)
+        final AddressBookRegistry abRegistry = addressBookRegistry;
+        List<BlockValidation> parallelValidations = new ArrayList<>();
+        parallelValidations.add(new RequiredItemsValidation());
+        parallelValidations.add(new BlockStructureValidation());
+        parallelValidations.add(new SignatureValidation(abRegistry));
+
+        // Sequential validations (stateful, run on main thread)
+        List<BlockValidation> sequentialValidations = new ArrayList<>();
+        sequentialValidations.add(chainValidation);
+        sequentialValidations.add(treeValidation);
+        sequentialValidations.add(supplyValidation);
         if (registry != null) {
-            validations.add(new HashRegistryValidation(registry, chainValidation));
+            sequentialValidations.add(new HashRegistryValidation(registry, chainValidation));
         }
         if (hasStateFiles) {
-            validations.add(completeMerkleTreeValidation);
-            validations.add(new StreamingMerkleTreeValidation(streamingMerkleTreePath, treeValidation));
-            validations.add(new JumpstartValidation(jumpstartPath, treeValidation, registry));
+            sequentialValidations.add(completeMerkleTreeValidation);
+            sequentialValidations.add(new StreamingMerkleTreeValidation(streamingMerkleTreePath, treeValidation));
+            sequentialValidations.add(new JumpstartValidation(jumpstartPath, treeValidation, registry));
         }
+
+        // Combined list for checkpoint save/load/finalize/close
+        List<BlockValidation> validations = new ArrayList<>();
+        validations.addAll(parallelValidations);
+        validations.addAll(sequentialValidations);
 
         // Restore validation state from checkpoint
         if (checkpoint != null) {
@@ -391,11 +401,11 @@ public class ValidateBlocksCommand implements Runnable {
         });
 
         @SuppressWarnings("unchecked")
-        final Future<ParsedBlock>[] sentinelHolder = new Future[1];
+        final Future<PreValidatedBlock>[] sentinelHolder = new Future[1];
         sentinelHolder[0] = new CompletableFuture<>();
-        final Future<ParsedBlock> endOfStream = sentinelHolder[0];
+        final Future<PreValidatedBlock> endOfStream = sentinelHolder[0];
 
-        BlockingQueue<Future<ParsedBlock>> blockQueue = new ArrayBlockingQueue<>(prefetch);
+        BlockingQueue<Future<PreValidatedBlock>> blockQueue = new ArrayBlockingQueue<>(prefetch);
 
         // I/O thread — streams zips sequentially, enqueues decompression futures
         Thread readerThread = new Thread(
@@ -412,8 +422,11 @@ public class ValidateBlocksCommand implements Runnable {
                                 final long bNum = first.blockNumber();
                                 blockQueue.put(decompPool.submit(() -> {
                                     byte[] raw = Files.readAllBytes(path);
-                                    return new ParsedBlock(
-                                            BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz), bNum);
+                                    Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
+                                    Object[] err = runParallelValidations(abRegistry, block, bNum);
+                                    return err != null
+                                            ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
+                                            : new PreValidatedBlock(block, bNum, null, null);
                                 }));
                                 i++;
                             } else {
@@ -444,8 +457,14 @@ public class ValidateBlocksCommand implements Runnable {
                                         final byte[] raw = zis.readAllBytes();
                                         final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
                                         final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
-                                        blockQueue.put(decompPool.submit(() -> new ParsedBlock(
-                                                BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz), bNum)));
+                                        blockQueue.put(decompPool.submit(() -> {
+                                            Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
+                                            Object[] err = runParallelValidations(abRegistry, block, bNum);
+                                            return err != null
+                                                    ? new PreValidatedBlock(
+                                                            block, bNum, (String) err[0], (Exception) err[1])
+                                                    : new PreValidatedBlock(block, bNum, null, null);
+                                        }));
                                     }
                                 } catch (IOException e) {
                                     corruptZipCount.incrementAndGet();
@@ -453,7 +472,8 @@ public class ValidateBlocksCommand implements Runnable {
                                             "@|yellow Warning:|@ error streaming zip (blocks skipped): "
                                                     + zipPath.getFileName() + " — " + e.getMessage()));
                                     for (int k = i; k < runEnd; k++) {
-                                        blockQueue.put(CompletableFuture.completedFuture(null));
+                                        blockQueue.put(CompletableFuture.completedFuture(
+                                                new PreValidatedBlock(null, -1, null, null)));
                                     }
                                 }
                                 i = runEnd;
@@ -488,16 +508,34 @@ public class ValidateBlocksCommand implements Runnable {
                 long blockNum = pendingSources.get(i).blockNumber();
 
                 try {
-                    Future<ParsedBlock> future = blockQueue.take();
+                    Future<PreValidatedBlock> future = blockQueue.take();
                     if (future == endOfStream) break;
 
-                    ParsedBlock parsed = future.get();
-                    if (parsed == null) continue; // block skipped (corrupt zip mid-stream)
+                    PreValidatedBlock preValidated = future.get();
+                    if (preValidated.block() == null) continue; // block skipped (corrupt zip mid-stream)
 
-                    Block block = parsed.block();
+                    // Check for pre-validation errors (from parallel stage)
+                    if (preValidated.preValidationError() != null) {
+                        failedValidationName = preValidated.preValidationName();
+                        failureMessage = preValidated.preValidationError().getMessage();
+                        failedBlockNumber = preValidated.blockNumber();
+                        try {
+                            Files.createDirectories(checkpointDir);
+                        } catch (IOException ignored) {
+                        }
+                        saveCheckpoint(
+                                checkpointDir,
+                                lastValidatedRef[0],
+                                blocksValidatedRef[0],
+                                chainValidation,
+                                validations);
+                        break;
+                    }
 
-                    // Phase 1: validate all
-                    for (BlockValidation v : validations) {
+                    Block block = preValidated.block();
+
+                    // Phase 1: validate sequential (stateful) validations only
+                    for (BlockValidation v : sequentialValidations) {
                         try {
                             v.validate(block, blockNum);
                         } catch (ValidationException e) {
@@ -520,7 +558,7 @@ public class ValidateBlocksCommand implements Runnable {
                     }
                     if (failedValidationName != null) break;
 
-                    // Phase 2: commit all
+                    // Phase 2: commit all validations
                     for (BlockValidation v : validations) {
                         v.commitState(block, blockNum);
                     }
@@ -672,5 +710,29 @@ public class ValidateBlocksCommand implements Runnable {
 
         long elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000L;
         System.out.println(Ansi.AUTO.string("@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
+    }
+
+    /**
+     * Runs stateless validations that can safely execute in parallel on worker threads. Creates fresh validation
+     * instances per call to make thread safety obvious (construction is cheap).
+     *
+     * @param addressBookRegistry the address book registry for signature validation
+     * @param block the parsed block to validate
+     * @param blockNumber the block number
+     * @return a two-element array {@code [validationName, exception]} on failure, or null if all passed
+     */
+    private static Object[] runParallelValidations(
+            AddressBookRegistry addressBookRegistry, Block block, long blockNumber) {
+        BlockValidation[] checks = {
+            new RequiredItemsValidation(), new BlockStructureValidation(), new SignatureValidation(addressBookRegistry),
+        };
+        for (BlockValidation v : checks) {
+            try {
+                v.validate(block, blockNumber);
+            } catch (Exception e) {
+                return new Object[] {v.name(), e};
+            }
+        }
+        return null;
     }
 }
