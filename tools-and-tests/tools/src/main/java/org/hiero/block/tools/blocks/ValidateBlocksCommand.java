@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -402,6 +403,11 @@ public class ValidateBlocksCommand implements Runnable {
         long blocksValidated = checkpoint != null ? checkpoint.blocksValidated() : 0;
         long lastValidatedBlockNum = checkpoint != null ? checkpoint.lastValidatedBlockNumber() : -1L;
 
+        // Speed tracking: ratio of consensus-time elapsed to wall-clock elapsed
+        long speedCalcBlockTimeMillis = 0; // consensus epoch millis at last speed-calc reset
+        long speedCalcRealTimeNanos = System.nanoTime();
+        String speedString = "";
+
         // Flag set in the finally block to prevent the shutdown hook from double-saving.
         final boolean[] completed = {false};
         // Mutable holders for shutdown hook access
@@ -633,7 +639,42 @@ public class ValidateBlocksCommand implements Runnable {
                         long currentPercent = (blocksValidated * 100) / sources.size();
                         long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
                                 blocksValidated, sources.size(), elapsedMillis);
-                        String progressString = "Validated " + blocksValidated + "/" + sources.size() + " blocks";
+
+                        // Compute speed multiplier (consensus-time / wall-clock)
+                        Timestamp blockTs =
+                                block.items().getFirst().blockHeader().blockTimestampOrElse(null);
+                        if (blockTs != null) {
+                            long blockEpochMillis = blockTs.seconds() * 1000L + blockTs.nanos() / 1_000_000L;
+                            long currentNanos = System.nanoTime();
+                            if (speedCalcBlockTimeMillis == 0) {
+                                speedCalcBlockTimeMillis = blockEpochMillis;
+                                speedCalcRealTimeNanos = currentNanos;
+                                speedString = "";
+                            } else {
+                                long realElapsedNanos = currentNanos - speedCalcRealTimeNanos;
+                                // Reset tracking window every 10 seconds of real time
+                                if (realElapsedNanos >= 10_000_000_000L) {
+                                    long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
+                                    long realTimeMs = realElapsedNanos / 1_000_000L;
+                                    if (realTimeMs > 0) {
+                                        double multiplier = (double) dataTimeMs / (double) realTimeMs;
+                                        speedString = String.format(" speed %.1fx", multiplier);
+                                    }
+                                    speedCalcBlockTimeMillis = blockEpochMillis;
+                                    speedCalcRealTimeNanos = currentNanos;
+                                } else if (realElapsedNanos >= 1_000_000_000L) {
+                                    long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
+                                    long realTimeMs = realElapsedNanos / 1_000_000L;
+                                    if (realTimeMs > 0) {
+                                        double multiplier = (double) dataTimeMs / (double) realTimeMs;
+                                        speedString = String.format(" speed %.1fx", multiplier);
+                                    }
+                                }
+                            }
+                        }
+
+                        String progressString =
+                                "Validated " + blocksValidated + "/" + sources.size() + " blocks" + speedString;
                         PrettyPrint.printProgressWithEta(currentPercent, progressString, remainingMillis);
                         lastProgressMs = nowMs;
                     }
