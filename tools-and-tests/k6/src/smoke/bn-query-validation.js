@@ -49,8 +49,8 @@ export default async () => {
         console.log(`No blocks to fetch, exiting test.`);
     } else {
         for (
-            let i = parseInt(firstAvailableBlock);
-            i <= parseInt(lastAvailableBlock);
+            let i = parseInt(firstAvailableBlock, 2);
+            i <= parseInt(lastAvailableBlock, 2);
             i++
         ) {
             const getBlockRequestParams = {
@@ -67,7 +67,8 @@ export default async () => {
                     "fetched block number is correct": (r) =>
                         r &&
                         parseInt(
-                            r.message.block.items[0].blockHeader.number
+                            r.message.block.items[0].blockHeader.number,
+                            2
                         ) === i,
                 });
             } catch (e) {
