@@ -302,13 +302,13 @@ public class ToWrappedBlocksCommand implements Runnable {
             }
 
             final long effectiveHighest = blockRegistry.highestBlockNumberStored();
-            System.out.println(Ansi.AUTO.string("@|yellow Starting from block:|@ " + effectiveHighest + " @|"));
+            System.out.println(Ansi.AUTO.string("@|yellow Starting from block:|@ " + effectiveHighest));
 
             // Use a time just before the first block so block 0 passes the isAfter filter
             final Instant highestStoredBlockTime = effectiveHighest == -1
                     ? FIRST_BLOCK_TIME_INSTANT.minusNanos(1)
                     : blockTimeReader.getBlockInstant(effectiveHighest);
-            System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockTime + " @|"));
+            System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockTime));
 
             // compute the block to start processing at
             final long startBlock = effectiveHighest == -1 ? 0 : effectiveHighest + 1;
@@ -451,8 +451,9 @@ public class ToWrappedBlocksCommand implements Runnable {
                 }
                 final LocalDate dayDate = dayPathToLocalDate(dayPath);
                 long currentBlockNumberBeingRead = dayMap.get(dayDate).firstBlockNumber;
-                System.out.println(Ansi.AUTO.string("\n@|yellow Starting processing day:|@ " + dayPath
-                        + " @|yellow at block:|@ " + currentBlockNumberBeingRead + " @|"));
+                PrettyPrint.clearProgress();
+                System.out.println(Ansi.AUTO.string("@|yellow Starting processing day:|@ " + dayPath
+                        + " @|yellow at block:|@ " + currentBlockNumberBeingRead));
                 if (currentBlockNumberBeingRead > startBlock) {
                     // double-check blockCounter is in sync
                     if (blockCounter.get() != currentBlockNumberBeingRead) {
