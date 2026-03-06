@@ -422,6 +422,77 @@ class ValidateBlocksCommandTest {
                 "Checkpoint JSON should be deleted after full success");
     }
 
+    // ── CLI validation ──
+
+    @Test
+    void invalidThreads_printsErrorAndExits() throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(1);
+        writeBlocks(blocks);
+        writeAddressBook();
+
+        Object[] result = runValidate("--threads", "0", "--no-resume");
+        String output = (String) result[1];
+
+        assertTrue(output.contains("must be >= 1"), "Should reject --threads 0. Output:\n" + output);
+    }
+
+    @Test
+    void invalidPrefetch_printsErrorAndExits() throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(1);
+        writeBlocks(blocks);
+        writeAddressBook();
+
+        Object[] result = runValidate("--prefetch", "0", "--no-resume");
+        String output = (String) result[1];
+
+        assertTrue(output.contains("must be >= 1"), "Should reject --prefetch 0. Output:\n" + output);
+    }
+
+    @Test
+    void skipSignatures_skipsSignatureValidation() throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(3);
+        // Only 1 signature — normally fails threshold of 2
+        blocks.set(1, TestBlockFactory.withInsufficientSignatures(blocks.get(1)));
+        writeBlocks(blocks);
+        writeAddressBook();
+
+        Object[] result = runValidate("--skip-signatures", "--no-resume");
+        String output = (String) result[1];
+
+        // With --skip-signatures, the insufficient signatures should be ignored.
+        // However, withInsufficientSignatures changes the block proof which breaks the block hash
+        // chain. So we check that "Signature" is mentioned as skipped.
+        assertTrue(
+                output.contains("Skipping") && output.contains("Signature"),
+                "Should skip signature validation. Output:\n" + output);
+    }
+
+    @Test
+    void nonGenesisStart_skipsGenesisRequiredValidations() throws Exception {
+        List<Block> blocks = TestBlockFactory.createValidChain(3);
+        // Write only blocks 1 and 2 (skip block 0)
+        for (int i = 1; i < blocks.size(); i++) {
+            Block block = blocks.get(i);
+            long blockNum = block.items().stream()
+                    .filter(item -> item.hasBlockHeader())
+                    .findFirst()
+                    .map(item -> item.blockHeaderOrThrow().number())
+                    .orElse((long) i);
+            byte[] bytes = Block.PROTOBUF.toBytes(block).toByteArray();
+            Files.write(tempDir.resolve(blockNum + ".blk"), bytes);
+        }
+        writeAddressBook();
+
+        Object[] result = runValidate("--no-resume");
+        String output = (String) result[1];
+
+        // Should print Skipping warnings for genesis-required validations
+        assertTrue(output.contains("Skipping"), "Should skip genesis-required validations. Output:\n" + output);
+        assertTrue(
+                output.contains("requires genesis start"),
+                "Should mention genesis start requirement. Output:\n" + output);
+    }
+
     @Test
     void noResumeIgnoresExistingCheckpoint() throws Exception {
         List<Block> blocks = TestBlockFactory.createValidChain(5);

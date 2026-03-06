@@ -667,6 +667,9 @@ public class ToWrappedBlocksCommand implements Runnable {
                                 lastReportedMinute);
                     }
                 } catch (Exception e) {
+                    if (shutdownRequested) {
+                        break; // Ctrl+C: shutdown hook already saved state
+                    }
                     throw new RuntimeException(e);
                 }
                 if (shutdownRequested) {
