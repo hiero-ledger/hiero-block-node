@@ -732,9 +732,15 @@ public class ToWrappedBlocksCommand implements Runnable {
             serializePool.shutdown();
             zipWritePool.shutdown();
             try {
-                parseAndVerifyPool.awaitTermination(10, TimeUnit.SECONDS);
-                serializePool.awaitTermination(10, TimeUnit.SECONDS);
-                zipWritePool.awaitTermination(10, TimeUnit.SECONDS);
+                if (!parseAndVerifyPool.awaitTermination(10, TimeUnit.SECONDS)) {
+                    parseAndVerifyPool.shutdownNow();
+                }
+                if (!serializePool.awaitTermination(10, TimeUnit.SECONDS)) {
+                    serializePool.shutdownNow();
+                }
+                if (!zipWritePool.awaitTermination(10, TimeUnit.SECONDS)) {
+                    zipWritePool.shutdownNow();
+                }
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }

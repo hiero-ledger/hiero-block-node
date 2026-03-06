@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -41,7 +42,7 @@ class ValidateBlocksCommandTest {
             Block block = blocks.get(i);
             // Try to get block number from header; fall back to index
             long blockNum = block.items().stream()
-                    .filter(item -> item.hasBlockHeader())
+                    .filter(BlockItem::hasBlockHeader)
                     .findFirst()
                     .map(item -> item.blockHeaderOrThrow().number())
                     .orElse((long) i);
@@ -474,7 +475,7 @@ class ValidateBlocksCommandTest {
         for (int i = 1; i < blocks.size(); i++) {
             Block block = blocks.get(i);
             long blockNum = block.items().stream()
-                    .filter(item -> item.hasBlockHeader())
+                    .filter(BlockItem::hasBlockHeader)
                     .findFirst()
                     .map(item -> item.blockHeaderOrThrow().number())
                     .orElse((long) i);

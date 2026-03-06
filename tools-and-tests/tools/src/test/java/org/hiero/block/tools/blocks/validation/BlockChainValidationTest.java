@@ -3,6 +3,7 @@ package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -94,7 +95,7 @@ class BlockChainValidationTest {
     @Test
     void doesNotRequireGenesisStart() {
         BlockChainValidation validation = new BlockChainValidation();
-        assertTrue(!validation.requiresGenesisStart());
+        assertFalse(validation.requiresGenesisStart());
     }
 
     @Test
@@ -102,8 +103,8 @@ class BlockChainValidationTest {
         // Validate + commit block 0 using TestBlockFactory chain
         List<Block> chain = TestBlockFactory.createValidChain(2);
         BlockChainValidation validation = new BlockChainValidation();
-        validation.validate(chain.get(0), 0);
-        validation.commitState(chain.get(0), 0);
+        validation.validate(chain.getFirst(), 0);
+        validation.commitState(chain.getFirst(), 0);
         // Save state
         validation.save(tempDir);
         // Load into new instance

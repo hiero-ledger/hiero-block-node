@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /** Tests for {@link HbarSupplyValidation}. */
+@SuppressWarnings("SameParameterValue")
 class HbarSupplyValidationTest {
 
     private static final BlockItem HEADER_ITEM = BlockItem.newBuilder()
@@ -50,7 +51,6 @@ class HbarSupplyValidationTest {
             .build();
     private static final BlockItem PROOF_ITEM =
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
-    private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
 
     @Test
     void emptyBlock_zeroSupply_throwsValidationException() {
@@ -59,13 +59,9 @@ class HbarSupplyValidationTest {
         HbarSupplyValidation validation = new HbarSupplyValidation();
         // Build a block with only a header + footer + proof (no RecordFile or StateChanges)
         Block blockNoRecordFile = new Block(List.of(HEADER_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        try {
-            validation.validate(blockNoRecordFile, 0);
-            // Should have thrown
-            assertTrue(false, "Should have thrown ValidationException for zero supply");
-        } catch (ValidationException e) {
-            assertTrue(e.getMessage().contains("HBAR supply mismatch"));
-        }
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(blockNoRecordFile, 0));
+        assertTrue(ex.getMessage().contains("HBAR supply mismatch"));
     }
 
     @Test
