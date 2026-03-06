@@ -15,9 +15,12 @@ import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.tools.blocks.TestBlockFactory;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Tests for {@link BlockChainValidation}. */
 class BlockChainValidationTest {
@@ -92,5 +95,29 @@ class BlockChainValidationTest {
     void doesNotRequireGenesisStart() {
         BlockChainValidation validation = new BlockChainValidation();
         assertTrue(!validation.requiresGenesisStart());
+    }
+
+    @Test
+    void saveLoadRoundTrip_preservesHash(@TempDir Path tempDir) throws Exception {
+        // Validate + commit block 0 using TestBlockFactory chain
+        List<Block> chain = TestBlockFactory.createValidChain(2);
+        BlockChainValidation validation = new BlockChainValidation();
+        validation.validate(chain.get(0), 0);
+        validation.commitState(chain.get(0), 0);
+        // Save state
+        validation.save(tempDir);
+        // Load into new instance
+        BlockChainValidation restored = new BlockChainValidation();
+        restored.load(tempDir);
+        // Validate block 1 — should pass because the restored hash matches
+        assertDoesNotThrow(() -> restored.validate(chain.get(1), 1));
+    }
+
+    @Test
+    void missingFooter_throwsValidationException() {
+        BlockChainValidation validation = new BlockChainValidation();
+        Block noFooter = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, PROOF_ITEM));
+        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(noFooter, 0));
+        assertTrue(ex.getMessage().contains("Block footer"));
     }
 }

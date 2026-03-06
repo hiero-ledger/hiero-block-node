@@ -13,9 +13,12 @@ import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.tools.blocks.TestBlockFactory;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Tests for {@link HistoricalBlockTreeValidation}. */
 class HistoricalBlockTreeValidationTest {
@@ -72,5 +75,29 @@ class HistoricalBlockTreeValidationTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation validation = new HistoricalBlockTreeValidation(chain);
         assertTrue(validation.requiresGenesisStart());
+    }
+
+    @Test
+    void saveLoadRoundTrip_preservesStreamingHasher(@TempDir Path tempDir) throws Exception {
+        // Create a 2-block valid chain
+        List<Block> chain = TestBlockFactory.createValidChain(2);
+        // Process block 0 through chain + tree
+        BlockChainValidation chainValidation = new BlockChainValidation();
+        HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chainValidation);
+        chainValidation.validate(chain.get(0), 0);
+        treeValidation.validate(chain.get(0), 0);
+        treeValidation.commitState(chain.get(0), 0);
+        chainValidation.commitState(chain.get(0), 0);
+        // Save tree state
+        treeValidation.save(tempDir);
+        chainValidation.save(tempDir);
+        // Create new instances and load
+        BlockChainValidation restoredChain = new BlockChainValidation();
+        restoredChain.load(tempDir);
+        HistoricalBlockTreeValidation restoredTree = new HistoricalBlockTreeValidation(restoredChain);
+        restoredTree.load(tempDir);
+        // Validate block 1 — should pass because the streaming hasher was correctly restored
+        restoredChain.validate(chain.get(1), 1);
+        assertDoesNotThrow(() -> restoredTree.validate(chain.get(1), 1));
     }
 }

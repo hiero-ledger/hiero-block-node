@@ -10,15 +10,21 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.RecordFileItem;
+import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.block.stream.SignedRecordFileProof;
 import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import org.hiero.block.tools.blocks.TestBlockFactory;
+import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Tests for {@link SignatureValidation}. */
 class SignatureValidationTest {
@@ -104,5 +110,81 @@ class SignatureValidationTest {
     void doesNotRequireGenesisStart() {
         SignatureValidation validation = new SignatureValidation(null);
         assertFalse(validation.requiresGenesisStart());
+    }
+
+    @Test
+    void duplicateSignerEntries_countedOnceForThreshold(@TempDir Path tempDir) throws Exception {
+        // Create a valid chain (5 nodes, threshold = 2)
+        List<Block> chain = TestBlockFactory.createValidChain(1);
+        Block block = chain.getFirst();
+        // Replace signatures with 3 copies of node 0's signature
+        List<BlockItem> items = new ArrayList<>();
+        for (BlockItem item : block.items()) {
+            if (item.hasBlockProof()) {
+                SignedRecordFileProof orig = item.blockProofOrThrow().signedRecordFileProofOrThrow();
+                RecordFileSignature firstSig = orig.recordFileSignatures().getFirst();
+                // 3 copies of node 0
+                List<RecordFileSignature> duplicatedSigs = List.of(firstSig, firstSig, firstSig);
+                SignedRecordFileProof newProof = SignedRecordFileProof.newBuilder()
+                        .version(orig.version())
+                        .recordFileSignatures(duplicatedSigs)
+                        .build();
+                items.add(BlockItem.newBuilder()
+                        .blockProof(BlockProof.newBuilder()
+                                .signedRecordFileProof(newProof)
+                                .build())
+                        .build());
+            } else {
+                items.add(item);
+            }
+        }
+        Block blockWithDuplicateSigs = new Block(items);
+        // Write address book history and create registry
+        TestBlockFactory.writeAddressBookHistory(tempDir);
+        AddressBookRegistry registry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
+        SignatureValidation validation = new SignatureValidation(registry);
+        // Only 1 unique node signed — below threshold of 2
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(blockWithDuplicateSigs, 0));
+        assertTrue(ex.getMessage().contains("Insufficient valid signatures"));
+    }
+
+    @Test
+    void unknownSignerMixedWithValid_thresholdStillMet(@TempDir Path tempDir) throws Exception {
+        // Create a valid chain (5 nodes, threshold = 2)
+        List<Block> chain = TestBlockFactory.createValidChain(1);
+        Block block = chain.getFirst();
+        // Keep only 2 valid signatures and add one from an unknown node (nodeId=99)
+        List<BlockItem> items = new ArrayList<>();
+        for (BlockItem item : block.items()) {
+            if (item.hasBlockProof()) {
+                SignedRecordFileProof orig = item.blockProofOrThrow().signedRecordFileProofOrThrow();
+                List<RecordFileSignature> twoValid =
+                        new ArrayList<>(orig.recordFileSignatures().subList(0, 2));
+                // Add unknown node signature (bogus bytes)
+                twoValid.add(RecordFileSignature.newBuilder()
+                        .nodeId(99)
+                        .signaturesBytes(Bytes.wrap(new byte[] {1, 2, 3}))
+                        .build());
+                SignedRecordFileProof newProof = SignedRecordFileProof.newBuilder()
+                        .version(orig.version())
+                        .recordFileSignatures(twoValid)
+                        .build();
+                items.add(BlockItem.newBuilder()
+                        .blockProof(BlockProof.newBuilder()
+                                .signedRecordFileProof(newProof)
+                                .build())
+                        .build());
+            } else {
+                items.add(item);
+            }
+        }
+        Block blockWithUnknownSigner = new Block(items);
+        // Write address book and create registry
+        TestBlockFactory.writeAddressBookHistory(tempDir);
+        AddressBookRegistry registry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
+        SignatureValidation validation = new SignatureValidation(registry);
+        // 2 valid nodes >= threshold of 2 → should pass
+        assertDoesNotThrow(() -> validation.validate(blockWithUnknownSigner, 0));
     }
 }

@@ -13,6 +13,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.LinkedList;
 import java.util.List;
@@ -110,14 +111,16 @@ public class StreamingHasher implements Hasher {
      */
     @Override
     public void save(Path filePath) throws Exception {
+        final Path tmpPath = filePath.resolveSibling(filePath.getFileName() + ".tmp");
         try (DataOutputStream out =
-                new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(filePath), 8192))) {
+                new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(tmpPath), 8192))) {
             out.writeLong(leafCount);
             out.writeInt(hashList.size());
             for (byte[] hash : hashList) { // all hashes are 48 bytes (SHA-384)
                 out.write(hash);
             }
         }
+        Files.move(tmpPath, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
     }
 
     /**
@@ -128,16 +131,21 @@ public class StreamingHasher implements Hasher {
      */
     @Override
     public void load(Path filePath) throws Exception {
+        final long newLeafCount;
+        final LinkedList<byte[]> newHashList = new LinkedList<>();
         try (DataInputStream din = new DataInputStream(new BufferedInputStream(Files.newInputStream(filePath), 8192))) {
-            leafCount = din.readLong();
+            newLeafCount = din.readLong();
             int hashCount = din.readInt();
-            hashList.clear();
             for (int i = 0; i < hashCount; i++) {
                 byte[] hash = new byte[48]; // SHA-384 produces 48-byte hashes
                 din.readFully(hash);
-                hashList.add(hash);
+                newHashList.add(hash);
             }
         }
+        // Commit only after all reads succeed
+        leafCount = newLeafCount;
+        hashList.clear();
+        hashList.addAll(newHashList);
     }
 
     /**
