@@ -10,6 +10,8 @@ import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.SigFileUtils;
 import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
@@ -133,24 +135,25 @@ public final class SignatureValidation implements BlockValidation {
         final int totalNodes = addressBook.nodeAddress().size();
         final int threshold = (totalNodes / 3) + 1;
 
-        // Verify each signature
-        int validCount = 0;
+        // Verify each signature, tracking unique nodes to avoid counting duplicates
+        final Set<Long> validatedNodes = new HashSet<>();
         for (final var sig : signatures) {
             final long accountNum = AddressBookRegistry.accountIdForNode(sig.nodeId());
             try {
                 final String pubKeyHex = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
                 if (SigFileUtils.verifyRsaSha384(
                         pubKeyHex, signedHash, sig.signaturesBytes().toByteArray())) {
-                    validCount++;
+                    validatedNodes.add(accountNum);
                 }
             } catch (Exception e) {
                 // Unknown node — skip but count as failed
             }
         }
 
-        if (validCount < threshold) {
-            throw new ValidationException("Block: " + blockNumber + " - Insufficient valid signatures: " + validCount
-                    + "/" + signatures.size() + " verified, need " + threshold + "/" + totalNodes);
+        if (validatedNodes.size() < threshold) {
+            throw new ValidationException("Block: " + blockNumber + " - Insufficient valid signatures: "
+                    + validatedNodes.size() + " unique nodes/" + totalNodes + " verified, need " + threshold + "/"
+                    + totalNodes);
         }
     }
 }

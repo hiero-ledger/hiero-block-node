@@ -86,7 +86,8 @@ Validates a wrapped Block Stream by checking:
 #### Usage
 
 ```
-blocks validate [-v] [--skip-signatures] [-a=<addressBookFile>] [<files>...]
+blocks validate [-v] [--skip-signatures] [--no-resume] [--threads=<N>] [--prefetch=<N>]
+                [-a=<addressBookFile>] [<files>...]
 ```
 
 #### Options
@@ -94,7 +95,10 @@ blocks validate [-v] [--skip-signatures] [-a=<addressBookFile>] [<files>...]
 |            Option             |                                                      Description                                                       |
 |-------------------------------|------------------------------------------------------------------------------------------------------------------------|
 | `-a`, `--address-book <file>` | Path to address book history JSON file. If not specified, auto-detects `addressBookHistory.json` in input directories. |
-| `--skip-signatures`           | Skip signature validation (only check hash chain).                                                                     |
+| `--skip-signatures`           | Skip signature validation (only check hash chain and state).                                                           |
+| `--no-resume`                 | Ignore any existing checkpoint and start validation from scratch.                                                      |
+| `--threads <N>`               | Decompression + parse threads (default: available CPU cores - 1).                                                      |
+| `--prefetch <N>`              | Number of blocks to buffer ahead for decompression (default: 512).                                                     |
 | `-v`, `--verbose`             | Print details for each block.                                                                                          |
 | `<files>...`                  | Block files or directories to validate.                                                                                |
 

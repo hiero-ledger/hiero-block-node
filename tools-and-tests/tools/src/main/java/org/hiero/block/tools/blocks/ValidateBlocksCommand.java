@@ -113,6 +113,11 @@ public class ValidateBlocksCommand implements Runnable {
             description = "Number of blocks to buffer ahead for decompression (default: ${DEFAULT-VALUE})")
     private int prefetch = 512;
 
+    @Option(
+            names = {"--skip-signatures"},
+            description = "Skip signature validation (only check hash chain and state)")
+    private boolean skipSignatures = false;
+
     /** Lightweight state loaded from a checkpoint JSON file. */
     private record CheckpointState(long lastValidatedBlockNumber, long blocksValidated, byte[] previousBlockHash) {}
 
@@ -188,6 +193,14 @@ public class ValidateBlocksCommand implements Runnable {
     public void run() {
         if (files == null || files.length == 0) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ No files to validate"));
+            return;
+        }
+        if (threads <= 0) {
+            System.err.println(Ansi.AUTO.string("@|red Error:|@ --threads must be >= 1"));
+            return;
+        }
+        if (prefetch <= 0) {
+            System.err.println(Ansi.AUTO.string("@|red Error:|@ --prefetch must be >= 1"));
             return;
         }
 
@@ -309,7 +322,11 @@ public class ValidateBlocksCommand implements Runnable {
         List<BlockValidation> parallelValidations = new ArrayList<>();
         parallelValidations.add(new RequiredItemsValidation());
         parallelValidations.add(new BlockStructureValidation());
-        parallelValidations.add(new SignatureValidation(abRegistry));
+        if (!skipSignatures) {
+            parallelValidations.add(new SignatureValidation(abRegistry));
+        } else {
+            System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ Signature validation (--skip-signatures)"));
+        }
 
         // Sequential validations (stateful, run on main thread)
         List<BlockValidation> sequentialValidations = new ArrayList<>();
@@ -329,6 +346,24 @@ public class ValidateBlocksCommand implements Runnable {
         List<BlockValidation> validations = new ArrayList<>();
         validations.addAll(parallelValidations);
         validations.addAll(sequentialValidations);
+
+        // Filter out genesis-required validations when not starting from block 0 and no checkpoint
+        final long firstBlockNumber = sources.getFirst().blockNumber();
+        if (firstBlockNumber != 0 && checkpoint == null) {
+            List<BlockValidation> genesisSkipped = new ArrayList<>();
+            sequentialValidations.removeIf(v -> {
+                if (v.requiresGenesisStart()) {
+                    genesisSkipped.add(v);
+                    return true;
+                }
+                return false;
+            });
+            validations.removeIf(v -> genesisSkipped.contains(v));
+            for (BlockValidation skipped : genesisSkipped) {
+                System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ " + skipped.name()
+                        + " (requires genesis start, first block is " + firstBlockNumber + ")"));
+            }
+        }
 
         // Restore validation state from checkpoint
         if (checkpoint != null) {
@@ -423,7 +458,7 @@ public class ValidateBlocksCommand implements Runnable {
                                 blockQueue.put(decompPool.submit(() -> {
                                     byte[] raw = Files.readAllBytes(path);
                                     Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
-                                    Object[] err = runParallelValidations(abRegistry, block, bNum);
+                                    Object[] err = runParallelValidations(abRegistry, block, bNum, skipSignatures);
                                     return err != null
                                             ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
                                             : new PreValidatedBlock(block, bNum, null, null);
@@ -459,7 +494,8 @@ public class ValidateBlocksCommand implements Runnable {
                                         final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                                         blockQueue.put(decompPool.submit(() -> {
                                             Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
-                                            Object[] err = runParallelValidations(abRegistry, block, bNum);
+                                            Object[] err =
+                                                    runParallelValidations(abRegistry, block, bNum, skipSignatures);
                                             return err != null
                                                     ? new PreValidatedBlock(
                                                             block, bNum, (String) err[0], (Exception) err[1])
@@ -499,6 +535,7 @@ public class ValidateBlocksCommand implements Runnable {
         String failedValidationName = null;
         String failureMessage = null;
         long failedBlockNumber = -1;
+        long skippedBlockCount = 0;
 
         try {
             long lastCheckpointSaveMs = System.currentTimeMillis();
@@ -512,7 +549,10 @@ public class ValidateBlocksCommand implements Runnable {
                     if (future == endOfStream) break;
 
                     PreValidatedBlock preValidated = future.get();
-                    if (preValidated.block() == null) continue; // block skipped (corrupt zip mid-stream)
+                    if (preValidated.block() == null) {
+                        skippedBlockCount++;
+                        continue; // block skipped (corrupt zip mid-stream)
+                    }
 
                     // Check for pre-validation errors (from parallel stage)
                     if (preValidated.preValidationError() != null) {
@@ -626,6 +666,13 @@ public class ValidateBlocksCommand implements Runnable {
                 }
             }
 
+            // Fail if blocks were skipped due to corrupt zips
+            if (failedValidationName == null && skippedBlockCount > 0) {
+                failedValidationName = "Skipped Blocks";
+                failureMessage =
+                        skippedBlockCount + " blocks were skipped (corrupt zip files) and could not be" + " validated";
+            }
+
         } finally {
             completed[0] = true;
             try {
@@ -684,6 +731,10 @@ public class ValidateBlocksCommand implements Runnable {
                 Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
         System.out.println();
         System.out.println(Ansi.AUTO.string("@|yellow Blocks validated:|@ " + blocksValidated));
+        if (skippedBlockCount > 0) {
+            System.out.println(
+                    Ansi.AUTO.string("@|yellow Blocks skipped:|@ " + skippedBlockCount + " (corrupt zip mid-stream)"));
+        }
         if (corruptZipCount.get() > 0) {
             System.out.println(Ansi.AUTO.string(
                     "@|yellow Corrupt zips skipped:|@ " + corruptZipCount.get() + " (blocks inside not validated)"));
@@ -719,13 +770,17 @@ public class ValidateBlocksCommand implements Runnable {
      * @param addressBookRegistry the address book registry for signature validation
      * @param block the parsed block to validate
      * @param blockNumber the block number
+     * @param skipSignatures whether to skip signature validation
      * @return a two-element array {@code [validationName, exception]} on failure, or null if all passed
      */
     private static Object[] runParallelValidations(
-            AddressBookRegistry addressBookRegistry, Block block, long blockNumber) {
-        BlockValidation[] checks = {
-            new RequiredItemsValidation(), new BlockStructureValidation(), new SignatureValidation(addressBookRegistry),
-        };
+            AddressBookRegistry addressBookRegistry, Block block, long blockNumber, boolean skipSignatures) {
+        List<BlockValidation> checks = new ArrayList<>();
+        checks.add(new RequiredItemsValidation());
+        checks.add(new BlockStructureValidation());
+        if (!skipSignatures) {
+            checks.add(new SignatureValidation(addressBookRegistry));
+        }
         for (BlockValidation v : checks) {
             try {
                 v.validate(block, blockNumber);

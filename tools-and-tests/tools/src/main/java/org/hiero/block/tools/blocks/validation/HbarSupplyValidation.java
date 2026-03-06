@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -72,8 +73,11 @@ public final class HbarSupplyValidation implements BlockValidation {
     @Override
     public void validate(final Block block, final long blockNumber) throws ValidationException {
         // Compute the net HBAR delta from this block's items without modifying the base state.
-        // We track absolute sets and relative deltas separately.
+        // Use an in-block overlay to correctly handle multiple updates to the same account
+        // within a single block (each delta is computed against the most recent balance, not
+        // always against the committed base state).
         long hbarDelta = 0;
+        final Map<Long, Long> inBlockBalances = new HashMap<>();
 
         for (final BlockItem item : block.items()) {
             if (item.hasStateChanges()) {
@@ -85,15 +89,21 @@ public final class HbarSupplyValidation implements BlockValidation {
                         if (key.hasAccountIdKey() && value.hasAccountValue()) {
                             final long accountNum = key.accountIdKeyOrThrow().accountNumOrThrow();
                             final long newBalance = value.accountValueOrThrow().tinybarBalance();
-                            final long oldBalance = accounts.getHbarBalance(accountNum);
+                            final long oldBalance = inBlockBalances.containsKey(accountNum)
+                                    ? inBlockBalances.get(accountNum)
+                                    : accounts.getHbarBalance(accountNum);
                             hbarDelta += (newBalance - oldBalance);
+                            inBlockBalances.put(accountNum, newBalance);
                         }
                     } else if (stateChange.hasMapDelete()) {
                         final MapChangeKey key = stateChange.mapDeleteOrThrow().keyOrThrow();
                         if (key.hasAccountIdKey()) {
                             final long accountNum = key.accountIdKeyOrThrow().accountNumOrThrow();
-                            final long oldBalance = accounts.getHbarBalance(accountNum);
+                            final long oldBalance = inBlockBalances.containsKey(accountNum)
+                                    ? inBlockBalances.get(accountNum)
+                                    : accounts.getHbarBalance(accountNum);
                             hbarDelta -= oldBalance;
+                            inBlockBalances.remove(accountNum);
                         }
                     }
                 }
