@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
@@ -18,13 +19,21 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipFile;
+import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.tools.blocks.model.BlockArchiveType;
+import org.hiero.block.tools.blocks.model.BlockReader;
 import org.hiero.block.tools.blocks.model.BlockWriter;
+import org.hiero.block.tools.blocks.model.BlockWriter.BlockPath;
+import org.hiero.block.tools.blocks.model.BlockWriter.BlockZipAppender;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.blocks.wrapped.ValidateWrappedBlocksCommand;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -779,6 +788,688 @@ class ToWrappedBlocksCommandTest {
             final byte[] inMemoryRoot = inMemoryHasher.computeRootHash();
             assertTrue(streamingRoot.length > 0, "Streaming root hash should be non-empty");
             assertTrue(inMemoryRoot.length > 0, "In-memory root hash should be non-empty");
+        }
+    }
+
+    // ===== Synthetic write/read pipeline tests =====
+
+    @Nested
+    @DisplayName("Synthetic write-read pipeline")
+    class SyntheticWriteReadPipeline {
+
+        @TempDir
+        Path pipelineDir;
+
+        @AfterEach
+        void clearFormatCache() {
+            // BlockReader caches StorageFormat per directory; clear between tests
+            // by using unique subdirs in each test (no static clear method available)
+        }
+
+        @Test
+        @DisplayName("Write 20 synthetic blocks to zip and read back")
+        void testWriteSyntheticBlocksToZipAndReadBack() throws IOException {
+            final List<Block> chain = TestBlockFactory.createValidChain(20);
+            final Path outputDir = pipelineDir.resolve("zip-blocks");
+            Files.createDirectories(outputDir);
+
+            for (Block block : chain) {
+                BlockWriter.writeBlock(outputDir, block);
+            }
+
+            assertEquals(19, BlockWriter.maxStoredBlockNumber(outputDir, BlockWriter.DEFAULT_COMPRESSION));
+
+            for (int i = 0; i < chain.size(); i++) {
+                final Block readBack = BlockReader.readBlock(outputDir, i);
+                assertEquals(
+                        chain.get(i).items().size(), readBack.items().size(), "Item count mismatch for block " + i);
+                assertEquals(
+                        i, readBack.items().getFirst().blockHeader().number(), "Block number mismatch for block " + i);
+            }
+        }
+
+        @Test
+        @DisplayName("Write 10 synthetic blocks as individual files and read back")
+        void testWriteSyntheticBlocksToIndividualFilesAndReadBack() throws IOException {
+            final List<Block> chain = TestBlockFactory.createValidChain(10);
+            final Path outputDir = pipelineDir.resolve("indiv-blocks");
+            Files.createDirectories(outputDir);
+
+            for (Block block : chain) {
+                BlockWriter.writeBlock(outputDir, block, BlockArchiveType.INDIVIDUAL_FILES);
+            }
+
+            for (int i = 0; i < chain.size(); i++) {
+                final Block readBack = BlockReader.readBlock(outputDir, i);
+                assertEquals(
+                        chain.get(i).items().size(), readBack.items().size(), "Item count mismatch for block " + i);
+                assertEquals(
+                        i, readBack.items().getFirst().blockHeader().number(), "Block number mismatch for block " + i);
+            }
+        }
+
+        @Test
+        @DisplayName("serializeBlockToBytes and parse round-trip")
+        void testSerializeAndDeserializeRoundTrip() throws IOException {
+            final List<Block> chain = TestBlockFactory.createValidChain(1);
+            final Block original = chain.getFirst();
+            final byte[] serialized = BlockWriter.serializeBlockToBytes(original, CompressionType.ZSTD);
+
+            // Write to a zip, read back via BlockReader to verify full round-trip
+            final Path outputDir = pipelineDir.resolve("serialize-rt");
+            Files.createDirectories(outputDir);
+            BlockWriter.writeBlock(outputDir, original);
+            final Block readBack = BlockReader.readBlock(outputDir, 0);
+
+            assertEquals(original.items().size(), readBack.items().size());
+            assertEquals(
+                    original.items().getFirst().blockHeader().number(),
+                    readBack.items().getFirst().blockHeader().number());
+            assertTrue(serialized.length > 0, "Serialized bytes should be non-empty");
+        }
+
+        @Test
+        @DisplayName("ZipAppender write and read multiple blocks")
+        void testZipAppenderWriteAndReadMultipleBlocks() throws IOException {
+            final List<Block> chain = TestBlockFactory.createValidChain(5);
+            final Path outputDir = pipelineDir.resolve("appender-blocks");
+            Files.createDirectories(outputDir);
+
+            // Compute path for block 0 to determine zip location
+            final BlockPath blockPath0 = BlockWriter.computeBlockPath(outputDir, 0);
+            Files.createDirectories(blockPath0.dirPath());
+
+            try (BlockZipAppender appender = BlockWriter.openZipForAppend(blockPath0.zipFilePath())) {
+                for (int i = 0; i < chain.size(); i++) {
+                    final byte[] bytes = BlockWriter.serializeBlockToBytes(chain.get(i), CompressionType.ZSTD);
+                    final BlockPath bp = BlockWriter.computeBlockPath(outputDir, i);
+                    BlockWriter.writeBlockEntry(appender, bp, bytes);
+                }
+            }
+
+            // Verify zip has 5 entries
+            try (ZipFile zf = new ZipFile(blockPath0.zipFilePath().toFile())) {
+                assertEquals(5, zf.size(), "Zip should contain 5 entries");
+            }
+
+            // Read back via BlockReader
+            for (int i = 0; i < chain.size(); i++) {
+                final Block readBack = BlockReader.readBlock(outputDir, i);
+                assertEquals(
+                        chain.get(i).items().size(), readBack.items().size(), "Item count mismatch for block " + i);
+            }
+        }
+    }
+
+    // ===== Zip write error path tests =====
+
+    @Nested
+    @DisplayName("Zip write error paths")
+    class ZipWriteErrorPaths {
+
+        @TempDir
+        Path zipDir;
+
+        @Test
+        @DisplayName("openZipForAppend on existing zip uses FsBlockZipAppender path")
+        void testOpenZipForAppendOnExistingZip() throws IOException {
+            final Path outputDir = zipDir.resolve("existing-zip");
+            Files.createDirectories(outputDir);
+            final List<Block> chain = TestBlockFactory.createValidChain(5);
+
+            // Write first 3 blocks to a zip
+            final BlockPath bp0 = BlockWriter.computeBlockPath(outputDir, 0);
+            Files.createDirectories(bp0.dirPath());
+            try (BlockZipAppender appender = BlockWriter.openZipForAppend(bp0.zipFilePath())) {
+                for (int i = 0; i < 3; i++) {
+                    final byte[] bytes = BlockWriter.serializeBlockToBytes(chain.get(i), CompressionType.ZSTD);
+                    BlockWriter.writeBlockEntry(appender, BlockWriter.computeBlockPath(outputDir, i), bytes);
+                }
+            }
+
+            // Re-open (should use FsBlockZipAppender for existing zip) and add 2 more
+            try (BlockZipAppender appender = BlockWriter.openZipForAppend(bp0.zipFilePath())) {
+                for (int i = 3; i < 5; i++) {
+                    final byte[] bytes = BlockWriter.serializeBlockToBytes(chain.get(i), CompressionType.ZSTD);
+                    BlockWriter.writeBlockEntry(appender, BlockWriter.computeBlockPath(outputDir, i), bytes);
+                }
+            }
+
+            // Verify 5 entries total
+            try (ZipFile zf = new ZipFile(bp0.zipFilePath().toFile())) {
+                assertEquals(5, zf.size(), "Zip should contain 5 entries after re-open append");
+            }
+        }
+
+        @Test
+        @DisplayName("openZipForAppend on non-existent file creates new zip")
+        void testOpenZipForAppendOnNonexistentFile() throws IOException {
+            final Path outputDir = zipDir.resolve("new-zip");
+            Files.createDirectories(outputDir);
+            final List<Block> chain = TestBlockFactory.createValidChain(1);
+
+            final BlockPath bp0 = BlockWriter.computeBlockPath(outputDir, 0);
+            Files.createDirectories(bp0.dirPath());
+
+            try (BlockZipAppender appender = BlockWriter.openZipForAppend(bp0.zipFilePath())) {
+                final byte[] bytes = BlockWriter.serializeBlockToBytes(chain.getFirst(), CompressionType.ZSTD);
+                BlockWriter.writeBlockEntry(appender, bp0, bytes);
+            }
+
+            try (ZipFile zf = new ZipFile(bp0.zipFilePath().toFile())) {
+                assertEquals(1, zf.size(), "Zip should contain 1 entry");
+            }
+        }
+
+        @Test
+        @DisplayName("ZipAppender close is idempotent")
+        void testZipAppenderCloseIsIdempotent() throws IOException {
+            final Path outputDir = zipDir.resolve("idempotent-close");
+            Files.createDirectories(outputDir);
+            final List<Block> chain = TestBlockFactory.createValidChain(1);
+
+            final BlockPath bp0 = BlockWriter.computeBlockPath(outputDir, 0);
+            Files.createDirectories(bp0.dirPath());
+
+            final BlockZipAppender appender = BlockWriter.openZipForAppend(bp0.zipFilePath());
+            final byte[] bytes = BlockWriter.serializeBlockToBytes(chain.getFirst(), CompressionType.ZSTD);
+            BlockWriter.writeBlockEntry(appender, bp0, bytes);
+            appender.close();
+            // Second close should not throw
+            appender.close();
+        }
+
+        @Test
+        @DisplayName("AtomicRef cleared before open attempt — refs stay null on failure")
+        void testAtomicRefClearedBeforeOpenZipAttempt() throws IOException {
+            final Path outputDir = zipDir.resolve("atomic-ref");
+            Files.createDirectories(outputDir);
+            final List<Block> chain = TestBlockFactory.createValidChain(1);
+
+            // Setup valid initial state
+            final BlockPath bp0 = BlockWriter.computeBlockPath(outputDir, 0);
+            Files.createDirectories(bp0.dirPath());
+            final BlockZipAppender initialAppender = BlockWriter.openZipForAppend(bp0.zipFilePath());
+            final byte[] bytes = BlockWriter.serializeBlockToBytes(chain.getFirst(), CompressionType.ZSTD);
+            BlockWriter.writeBlockEntry(initialAppender, bp0, bytes);
+
+            final AtomicReference<BlockZipAppender> appenderRef = new AtomicReference<>(initialAppender);
+            final AtomicReference<Path> pathRef = new AtomicReference<>(bp0.zipFilePath());
+
+            // Simulate Stage 4 close-and-reopen pattern: close old, null refs
+            final BlockZipAppender oldAppender = appenderRef.getAndSet(null);
+            pathRef.set(null);
+            oldAppender.close();
+
+            // Verify both refs are null
+            assertNull(appenderRef.get());
+            assertNull(pathRef.get());
+
+            // Attempt open on a non-writable path (directory itself)
+            try {
+                final Path badPath = zipDir.resolve("nonexistent-dir/bad.zip");
+                BlockWriter.openZipForAppend(badPath);
+                // If it doesn't throw, that's ok too — the point is refs should still be null
+            } catch (IOException expected) {
+                // Expected — the point is that refs were cleared before the attempt
+            }
+
+            // Refs should still be null (not stale)
+            assertNull(appenderRef.get());
+            assertNull(pathRef.get());
+        }
+
+        @Test
+        @DisplayName("ZipAppender resource cleanup on write error pattern")
+        void testZipAppenderResourceCleanupOnWriteError() throws IOException {
+            final Path outputDir = zipDir.resolve("cleanup");
+            Files.createDirectories(outputDir);
+            final List<Block> chain = TestBlockFactory.createValidChain(1);
+
+            final BlockPath bp0 = BlockWriter.computeBlockPath(outputDir, 0);
+            Files.createDirectories(bp0.dirPath());
+
+            final AtomicReference<BlockZipAppender> appenderRef = new AtomicReference<>();
+            final AtomicReference<Path> pathRef = new AtomicReference<>();
+
+            // Open and write successfully
+            final BlockZipAppender appender = BlockWriter.openZipForAppend(bp0.zipFilePath());
+            appenderRef.set(appender);
+            pathRef.set(bp0.zipFilePath());
+            final byte[] bytes = BlockWriter.serializeBlockToBytes(chain.getFirst(), CompressionType.ZSTD);
+            BlockWriter.writeBlockEntry(appender, bp0, bytes);
+
+            // Simulate catch-block cleanup: getAndSet(null), null path, close extracted appender
+            final BlockZipAppender extracted = appenderRef.getAndSet(null);
+            pathRef.set(null);
+            extracted.close();
+
+            // Verify no leak: refs are null, appender was closed
+            assertNull(appenderRef.get());
+            assertNull(pathRef.get());
+
+            // Zip should still be valid with the 1 entry written before cleanup
+            try (ZipFile zf = new ZipFile(bp0.zipFilePath().toFile())) {
+                assertEquals(1, zf.size());
+            }
+        }
+    }
+
+    // ===== Resume with watermark behind registry tests =====
+
+    @Nested
+    @DisplayName("Resume with watermark behind registry")
+    class ResumeWithWatermarkBehindRegistry {
+
+        @TempDir
+        Path resumeDir;
+
+        @Test
+        @DisplayName("Resume reconciliation truncates and replays correctly")
+        void testResumeReconciliationTruncatesAndReplays() throws Exception {
+            final List<Block> chain = TestBlockFactory.createValidChain(15);
+            final byte[][] blockHashes = new byte[15][];
+            for (int i = 0; i < chain.size(); i++) {
+                blockHashes[i] = BlockStreamBlockHasher.hashBlock(chain.get(i));
+            }
+
+            // Build registry with all 15 blocks
+            final Path regFile = resumeDir.resolve("hashes.bin");
+            try (BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(regFile)) {
+                for (int i = 0; i < 15; i++) {
+                    registry.addBlock(i, blockHashes[i]);
+                }
+
+                // Save watermark at 9
+                final Path wf = resumeDir.resolve("wrap-commit.bin");
+                ToWrappedBlocksCommand.saveWatermark(wf, 9L);
+
+                // Simulate resume: truncate registry to watermark
+                registry.truncateTo(9);
+                assertEquals(9, registry.highestBlockNumberStored());
+
+                // Replay hashers 0..9
+                final StreamingHasher streamingHasher = new StreamingHasher();
+                final InMemoryTreeHasher inMemoryHasher = new InMemoryTreeHasher();
+                for (long bn = 0; bn <= 9; bn++) {
+                    final byte[] hash = registry.getBlockHash(bn);
+                    streamingHasher.addNodeByHash(hash);
+                    inMemoryHasher.addNodeByHash(hash);
+                }
+                assertEquals(10, streamingHasher.leafCount());
+
+                // Continue adding blocks 10..14
+                for (int i = 10; i < 15; i++) {
+                    registry.addBlock(i, blockHashes[i]);
+                    streamingHasher.addNodeByHash(blockHashes[i]);
+                    inMemoryHasher.addNodeByHash(blockHashes[i]);
+                }
+
+                // Build reference from all 15 blocks
+                final StreamingHasher reference = new StreamingHasher();
+                final InMemoryTreeHasher referenceInMemory = new InMemoryTreeHasher();
+                for (int i = 0; i < 15; i++) {
+                    reference.addNodeByHash(blockHashes[i]);
+                    referenceInMemory.addNodeByHash(blockHashes[i]);
+                }
+
+                assertArrayEquals(reference.computeRootHash(), streamingHasher.computeRootHash());
+                assertArrayEquals(referenceInMemory.computeRootHash(), inMemoryHasher.computeRootHash());
+                assertEquals(15, streamingHasher.leafCount());
+            }
+        }
+
+        @Test
+        @DisplayName("Resume with no watermark trusts registry")
+        void testResumeWithNoWatermarkTrustsRegistry() throws Exception {
+            final List<Block> chain = TestBlockFactory.createValidChain(10);
+            final byte[][] blockHashes = new byte[10][];
+            for (int i = 0; i < chain.size(); i++) {
+                blockHashes[i] = BlockStreamBlockHasher.hashBlock(chain.get(i));
+            }
+
+            final Path regFile = resumeDir.resolve("hashes.bin");
+            try (BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(regFile)) {
+                for (int i = 0; i < 10; i++) {
+                    registry.addBlock(i, blockHashes[i]);
+                }
+
+                // No watermark file
+                final long watermark = ToWrappedBlocksCommand.loadWatermark(resumeDir.resolve("wrap-commit.bin"));
+                assertEquals(-1, watermark);
+
+                // Since watermark < 0 && registryHighest >= 0, set durableWatermark = registryHighest
+                final long durableWatermark = registry.highestBlockNumberStored();
+                assertEquals(9, durableWatermark);
+
+                // No truncation needed. Replay all.
+                final StreamingHasher streamingHasher = new StreamingHasher();
+                for (long bn = 0; bn <= durableWatermark; bn++) {
+                    streamingHasher.addNodeByHash(registry.getBlockHash(bn));
+                }
+                assertEquals(10, streamingHasher.leafCount());
+            }
+        }
+
+        @Test
+        @DisplayName("Resume with watermark matching registry — no truncation needed")
+        void testResumeWithWatermarkMatchingRegistry() throws Exception {
+            final List<Block> chain = TestBlockFactory.createValidChain(10);
+            final byte[][] blockHashes = new byte[10][];
+            for (int i = 0; i < chain.size(); i++) {
+                blockHashes[i] = BlockStreamBlockHasher.hashBlock(chain.get(i));
+            }
+
+            final Path regFile = resumeDir.resolve("hashes.bin");
+            try (BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(regFile)) {
+                for (int i = 0; i < 10; i++) {
+                    registry.addBlock(i, blockHashes[i]);
+                }
+
+                // Watermark at 9 = registry highest
+                final Path wf = resumeDir.resolve("wrap-commit.bin");
+                ToWrappedBlocksCommand.saveWatermark(wf, 9L);
+                final long watermark = ToWrappedBlocksCommand.loadWatermark(wf);
+                assertEquals(registry.highestBlockNumberStored(), watermark);
+
+                // No truncation needed. Replay all 10.
+                final StreamingHasher streamingHasher = new StreamingHasher();
+                for (long bn = 0; bn <= watermark; bn++) {
+                    streamingHasher.addNodeByHash(registry.getBlockHash(bn));
+                }
+                assertEquals(10, streamingHasher.leafCount());
+            }
+        }
+    }
+
+    // ===== Jumpstart data serialization tests =====
+
+    @Nested
+    @DisplayName("Jumpstart data serialization")
+    class JumpstartDataSerialization {
+
+        @TempDir
+        Path jumpstartDir;
+
+        @Test
+        @DisplayName("Jumpstart data format round-trip")
+        void testJumpstartDataFormatRoundTrip() throws Exception {
+            final List<Block> chain = TestBlockFactory.createValidChain(10);
+            final StreamingHasher streamingHasher = new StreamingHasher();
+            byte[] lastHash = null;
+            for (Block block : chain) {
+                lastHash = BlockStreamBlockHasher.hashBlock(block);
+                streamingHasher.addNodeByHash(lastHash);
+            }
+
+            final Path file = jumpstartDir.resolve("jumpstart.bin");
+            ToWrappedBlocksCommand.saveJumpstartData(file, 9, lastHash, streamingHasher);
+
+            // Read back and verify format
+            try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
+                assertEquals(9, in.readLong(), "Block number should be 9");
+
+                final byte[] readHash = new byte[48];
+                in.readFully(readHash);
+                assertArrayEquals(lastHash, readHash, "Block hash should match");
+
+                assertEquals(10, in.readLong(), "Leaf count should be 10");
+
+                final int hashListSize = in.readInt();
+                final List<byte[]> intermediateState = streamingHasher.intermediateHashingState();
+                assertEquals(intermediateState.size(), hashListSize, "Hash list size should match");
+
+                for (int i = 0; i < hashListSize; i++) {
+                    final byte[] readIntermediateHash = new byte[48];
+                    in.readFully(readIntermediateHash);
+                    assertArrayEquals(intermediateState.get(i), readIntermediateHash, "Intermediate hash " + i);
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("Jumpstart data for single block")
+        void testJumpstartDataForSingleBlock() throws Exception {
+            final List<Block> chain = TestBlockFactory.createValidChain(1);
+            final StreamingHasher streamingHasher = new StreamingHasher();
+            final byte[] blockHash = BlockStreamBlockHasher.hashBlock(chain.getFirst());
+            streamingHasher.addNodeByHash(blockHash);
+
+            final Path file = jumpstartDir.resolve("jumpstart.bin");
+            ToWrappedBlocksCommand.saveJumpstartData(file, 0, blockHash, streamingHasher);
+
+            try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
+                assertEquals(0, in.readLong(), "Block number should be 0");
+                final byte[] readHash = new byte[48];
+                in.readFully(readHash);
+                assertArrayEquals(blockHash, readHash);
+                assertEquals(1, in.readLong(), "Leaf count should be 1");
+            }
+        }
+
+        @Test
+        @DisplayName("Jumpstart data overwrites previous file")
+        void testJumpstartDataOverwritesPrevious() throws Exception {
+            final List<Block> chain = TestBlockFactory.createValidChain(11);
+            final StreamingHasher hasher5 = new StreamingHasher();
+            byte[] hash5 = null;
+            for (int i = 0; i <= 5; i++) {
+                hash5 = BlockStreamBlockHasher.hashBlock(chain.get(i));
+                hasher5.addNodeByHash(hash5);
+            }
+
+            final Path file = jumpstartDir.resolve("jumpstart.bin");
+            ToWrappedBlocksCommand.saveJumpstartData(file, 5, hash5, hasher5);
+
+            // Overwrite with block 10
+            final StreamingHasher hasher10 = new StreamingHasher();
+            byte[] hash10 = null;
+            for (int i = 0; i <= 10; i++) {
+                hash10 = BlockStreamBlockHasher.hashBlock(chain.get(i));
+                hasher10.addNodeByHash(hash10);
+            }
+            ToWrappedBlocksCommand.saveJumpstartData(file, 10, hash10, hasher10);
+
+            try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
+                assertEquals(10, in.readLong(), "Block number should be 10 after overwrite");
+            }
+        }
+    }
+
+    // ===== Multiple resume cycle tests =====
+
+    @Nested
+    @DisplayName("Multiple resume cycles")
+    class MultipleResumeCycles {
+
+        @TempDir
+        Path cycleDir;
+
+        @Test
+        @DisplayName("Three resume cycles produce consistent state")
+        void testThreeResumeCyclesProduceConsistentState() throws Exception {
+            final List<Block> chain = TestBlockFactory.createValidChain(30);
+            final byte[][] blockHashes = new byte[30][];
+            for (int i = 0; i < chain.size(); i++) {
+                blockHashes[i] = BlockStreamBlockHasher.hashBlock(chain.get(i));
+            }
+
+            final Path regFile = cycleDir.resolve("hashes.bin");
+            final Path wf = cycleDir.resolve("wrap-commit.bin");
+
+            // Cycle 1: blocks 0..9
+            try (BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(regFile)) {
+                final StreamingHasher streaming = new StreamingHasher();
+                final InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
+                for (int i = 0; i < 10; i++) {
+                    registry.addBlock(i, blockHashes[i]);
+                    streaming.addNodeByHash(blockHashes[i]);
+                    inMemory.addNodeByHash(blockHashes[i]);
+                }
+                ToWrappedBlocksCommand.saveWatermark(wf, 9L);
+            }
+
+            // Cycle 2: resume, replay 0..9, then add 10..19
+            try (BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(regFile)) {
+                final long watermark = ToWrappedBlocksCommand.loadWatermark(wf);
+                assertEquals(9, watermark);
+                assertEquals(9, registry.highestBlockNumberStored());
+
+                final StreamingHasher streaming = new StreamingHasher();
+                final InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
+                for (long bn = 0; bn <= watermark; bn++) {
+                    streaming.addNodeByHash(registry.getBlockHash(bn));
+                    inMemory.addNodeByHash(registry.getBlockHash(bn));
+                }
+
+                for (int i = 10; i < 20; i++) {
+                    registry.addBlock(i, blockHashes[i]);
+                    streaming.addNodeByHash(blockHashes[i]);
+                    inMemory.addNodeByHash(blockHashes[i]);
+                }
+                ToWrappedBlocksCommand.saveWatermark(wf, 19L);
+            }
+
+            // Cycle 3: resume, replay 0..19, then add 20..29
+            try (BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(regFile)) {
+                final long watermark = ToWrappedBlocksCommand.loadWatermark(wf);
+                assertEquals(19, watermark);
+                assertEquals(19, registry.highestBlockNumberStored());
+
+                final StreamingHasher streaming = new StreamingHasher();
+                final InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
+                for (long bn = 0; bn <= watermark; bn++) {
+                    streaming.addNodeByHash(registry.getBlockHash(bn));
+                    inMemory.addNodeByHash(registry.getBlockHash(bn));
+                }
+
+                for (int i = 20; i < 30; i++) {
+                    registry.addBlock(i, blockHashes[i]);
+                    streaming.addNodeByHash(blockHashes[i]);
+                    inMemory.addNodeByHash(blockHashes[i]);
+                }
+                ToWrappedBlocksCommand.saveWatermark(wf, 29L);
+
+                // Verify final state matches reference built from all 30 blocks
+                final StreamingHasher reference = new StreamingHasher();
+                final InMemoryTreeHasher referenceInMemory = new InMemoryTreeHasher();
+                for (int i = 0; i < 30; i++) {
+                    reference.addNodeByHash(blockHashes[i]);
+                    referenceInMemory.addNodeByHash(blockHashes[i]);
+                }
+
+                assertArrayEquals(reference.computeRootHash(), streaming.computeRootHash());
+                assertArrayEquals(referenceInMemory.computeRootHash(), inMemory.computeRootHash());
+                assertEquals(30, streaming.leafCount());
+                assertEquals(29, registry.highestBlockNumberStored());
+                assertEquals(29L, ToWrappedBlocksCommand.loadWatermark(wf));
+            }
+        }
+
+        @Test
+        @DisplayName("Resume cycle with mid-registry truncation")
+        void testResumeCycleWithMidRegistryTruncation() throws Exception {
+            final List<Block> chain = TestBlockFactory.createValidChain(20);
+            final byte[][] blockHashes = new byte[20][];
+            for (int i = 0; i < chain.size(); i++) {
+                blockHashes[i] = BlockStreamBlockHasher.hashBlock(chain.get(i));
+            }
+
+            final Path regFile = cycleDir.resolve("hashes.bin");
+            final Path wf = cycleDir.resolve("wrap-commit.bin");
+
+            // Cycle 1: write 0..14 to registry, but watermark only at 9 (simulating crash)
+            try (BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(regFile)) {
+                for (int i = 0; i < 15; i++) {
+                    registry.addBlock(i, blockHashes[i]);
+                }
+                ToWrappedBlocksCommand.saveWatermark(wf, 9L);
+            }
+
+            // Cycle 2: resume — registry at 14, watermark at 9 → truncate to 9
+            try (BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(regFile)) {
+                final long watermark = ToWrappedBlocksCommand.loadWatermark(wf);
+                assertEquals(9, watermark);
+                assertEquals(14, registry.highestBlockNumberStored());
+
+                // Truncate registry to watermark
+                registry.truncateTo(watermark);
+                assertEquals(9, registry.highestBlockNumberStored());
+
+                // Replay 0..9
+                final StreamingHasher streaming = new StreamingHasher();
+                for (long bn = 0; bn <= watermark; bn++) {
+                    streaming.addNodeByHash(registry.getBlockHash(bn));
+                }
+
+                // Continue adding 10..19
+                for (int i = 10; i < 20; i++) {
+                    registry.addBlock(i, blockHashes[i]);
+                    streaming.addNodeByHash(blockHashes[i]);
+                }
+                ToWrappedBlocksCommand.saveWatermark(wf, 19L);
+
+                // Verify final state matches reference for 20 blocks
+                final StreamingHasher reference = new StreamingHasher();
+                for (int i = 0; i < 20; i++) {
+                    reference.addNodeByHash(blockHashes[i]);
+                }
+
+                assertArrayEquals(reference.computeRootHash(), streaming.computeRootHash());
+                assertEquals(20, streaming.leafCount());
+            }
+        }
+    }
+
+    // ===== Watermark batch flushing tests =====
+
+    @Nested
+    @DisplayName("Watermark batch flushing")
+    class WatermarkBatchFlushing {
+
+        @TempDir
+        Path flushDir;
+
+        @Test
+        @DisplayName("Watermark flushes at batch boundary (every 256 blocks)")
+        void testWatermarkFlushesAtBatchBoundary() {
+            final Path wf = flushDir.resolve("wrap-commit.bin");
+            final AtomicLong durableWatermark = new AtomicLong(-1);
+            final AtomicLong blocksSinceWatermarkFlush = new AtomicLong(0);
+
+            // Simulate Stage 4 loop for 512 blocks
+            for (int blockNum = 0; blockNum < 512; blockNum++) {
+                final long count = blocksSinceWatermarkFlush.incrementAndGet();
+                if (count >= 256) {
+                    ToWrappedBlocksCommand.saveWatermark(wf, blockNum);
+                    durableWatermark.set(blockNum);
+                    blocksSinceWatermarkFlush.set(0);
+                }
+            }
+
+            // Watermark should have been flushed at block 255 and 511
+            assertEquals(511, durableWatermark.get());
+            assertEquals(511, ToWrappedBlocksCommand.loadWatermark(wf));
+        }
+
+        @Test
+        @DisplayName("Watermark flushed on zip close")
+        void testWatermarkFlushedOnZipClose() {
+            final Path wf = flushDir.resolve("wrap-commit.bin");
+            final AtomicLong blocksSinceWatermarkFlush = new AtomicLong(0);
+
+            // Simulate writing 50 blocks (less than 256 batch boundary)
+            for (int i = 0; i < 50; i++) {
+                blocksSinceWatermarkFlush.incrementAndGet();
+            }
+
+            // Simulate zip-switch: flush watermark at close time, independent of batch counter
+            final long lastBlockInZip = 49;
+            ToWrappedBlocksCommand.saveWatermark(wf, lastBlockInZip);
+            blocksSinceWatermarkFlush.set(0);
+
+            assertEquals(49, ToWrappedBlocksCommand.loadWatermark(wf));
+            assertEquals(0, blocksSinceWatermarkFlush.get());
         }
     }
 

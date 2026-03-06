@@ -399,6 +399,9 @@ public class ToWrappedBlocksCommand implements Runnable {
                             zipWritePool.shutdownNow();
                         }
 
+                        // Save watermark after zip pool has drained
+                        saveWatermark(watermarkFile, durableWatermark.get());
+
                         // Shut down other pools
                         parseAndVerifyPool.shutdownNow();
                         serializePool.shutdownNow();
@@ -588,9 +591,14 @@ public class ToWrappedBlocksCommand implements Runnable {
                                                             saveWatermark(watermarkFile, durableWatermark.get());
                                                             blocksSinceWatermarkFlush.set(0);
                                                         }
+                                                        // Clear ref before open so a failure leaves clean null state
+                                                        // rather than a stale/closed appender
+                                                        currentZipRef.set(null);
+                                                        currentZipPathRef.set(null);
+                                                        final BlockZipAppender newAppender =
+                                                                BlockWriter.openZipForAppend(blockPath.zipFilePath());
+                                                        currentZipRef.set(newAppender);
                                                         currentZipPathRef.set(blockPath.zipFilePath());
-                                                        currentZipRef.set(
-                                                                BlockWriter.openZipForAppend(blockPath.zipFilePath()));
                                                     }
                                                     BlockWriter.writeBlockEntry(currentZipRef.get(), blockPath, bytes);
                                                 } else {
@@ -606,6 +614,16 @@ public class ToWrappedBlocksCommand implements Runnable {
                                                     blocksSinceWatermarkFlush.set(0);
                                                 }
                                             } catch (IOException e) {
+                                                // Close the zip appender to avoid resource leak
+                                                final BlockZipAppender leakedZip = currentZipRef.getAndSet(null);
+                                                currentZipPathRef.set(null);
+                                                if (leakedZip != null) {
+                                                    try {
+                                                        leakedZip.close();
+                                                    } catch (IOException suppressed) {
+                                                        e.addSuppressed(suppressed);
+                                                    }
+                                                }
                                                 throw new UncheckedIOException(e);
                                             }
                                         },
@@ -654,6 +672,13 @@ public class ToWrappedBlocksCommand implements Runnable {
             PrettyPrint.clearProgress();
             System.out.println("Conversion complete. Blocks written: " + blocksProcessed.get());
 
+            // Remove shutdown hook before saving state to prevent concurrent writes
+            try {
+                Runtime.getRuntime().removeShutdownHook(shutdownHook);
+            } catch (IllegalStateException ignored) {
+                // JVM is already shutting down — hook is running or has run
+            }
+
             // Save hasher states atomically now that all writes are complete.
             saveStateCheckpoint(
                     streamingMerkleTreeFile, streamingHasher,
@@ -676,6 +701,13 @@ public class ToWrappedBlocksCommand implements Runnable {
             parseAndVerifyPool.shutdown();
             serializePool.shutdown();
             zipWritePool.shutdown();
+            try {
+                parseAndVerifyPool.awaitTermination(10, TimeUnit.SECONDS);
+                serializePool.awaitTermination(10, TimeUnit.SECONDS);
+                zipWritePool.awaitTermination(10, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -820,8 +852,7 @@ public class ToWrappedBlocksCommand implements Runnable {
      * @param blockHash the block hash (SHA-384, 48 bytes) - this is the previous block root hash
      * @param streamingHasher the streaming hasher containing the merkle tree state
      */
-    private static void saveJumpstartData(
-            Path file, long blockNumber, byte[] blockHash, StreamingHasher streamingHasher) {
+    static void saveJumpstartData(Path file, long blockNumber, byte[] blockHash, StreamingHasher streamingHasher) {
         try (DataOutputStream out = new DataOutputStream(
                 Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))) {
             // Block number and hash (previous block root hash for the next block)
