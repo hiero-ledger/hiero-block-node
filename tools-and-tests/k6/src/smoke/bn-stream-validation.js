@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { Client, Stream } from "k6/net/grpc";
+import { Client } from "k6/net/grpc";
 import { check, fail } from "k6";
 import { SharedArray } from "k6/data";
 import {
