@@ -5,6 +5,9 @@ import { check, sleep } from "k6";
 import { SharedArray } from "k6/data";
 import { ServerStatusRequest } from "../lib/grpc.js";
 import { vu } from "k6/execution";
+import { Rate } from "k6/metrics";
+
+const grpcErrors = new Rate("grpc_errors");
 
 // Configure k6 VUs scheduling and iterations & thresholds
 export const options = {
@@ -21,9 +24,10 @@ export const options = {
     },
     thresholds: {
         // todo make these good defaults, we need these to display tags in the result, but also to ping us if they go over
-        "grpc_req_duration{name:block_node_server_status_detail}": [
+        "grpc_req_duration{name: block_node_server_status_detail}": [
             "p(100)<300",
         ],
+        grpc_errors: ["rate<0.01"],
     },
 };
 
@@ -50,6 +54,9 @@ export default () => {
     let response = new ServerStatusRequest(client).invoke(params);
     // ignore StatusDeadlineExceeded as it appears there is an issue with K6 grpc
     if (response.status !== StatusDeadlineExceeded) {
+        // 2. Record the error rate
+        // Add 1 if it fails, 0 if it succeeds
+        grpcErrors.add(response.status !== StatusOK);
         check(response, {
             "status is OK": (r) => r && r.status === StatusOK,
         });

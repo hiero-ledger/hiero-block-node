@@ -72,9 +72,11 @@ run_server_status_test() {
     k6 run ./src/average-load/bn-server-status.js >> "${out_file}" 2>&1
     if [[ $? -ne 0 ]]; then
         echo "Server status test FAILED."
+        return 1
         # Optional: exit the script with a specific error code
     else
         echo "Server status test PASSED."
+        return 0
     fi
 }
 
@@ -84,9 +86,11 @@ run_server_status_detail_test() {
     k6 run ./src/average-load/bn-server-status-detail.js >> "${out_file}" 2>&1
     if [[ $? -ne 0 ]]; then
         echo "Server status detail test FAILED."
+        return 1
         # Optional: exit the script with a specific error code
     else
         echo "Server status detail test PASSED."
+        return 0
     fi
 }
 
@@ -96,9 +100,11 @@ run_query_validation_test() {
     k6 run ./src/smoke/bn-query-validation.js >> "${out_file}" 2>&1
     if [[ $? -ne 0 ]]; then
         echo "Query validation test test FAILED."
+        return 1
         # Optional: exit the script with a specific error code
     else
         echo "Query validation test test PASSED."
+        return 0
     fi
 }
 
@@ -108,9 +114,11 @@ run_stream_validation_test() {
     k6 run ./src/smoke/bn-stream-validation.js >> "${out_file}" 2>&1
     if [[ $? -ne 0 ]]; then
         echo "Stream validation test FAILED."
+        return 1
         # Optional: exit the script with a specific error code
     else
         echo "Stream validation test PASSED."
+        return 0
     fi
 }
 
@@ -118,10 +126,17 @@ run_shared_node_tests() {
     # These tests can run on a shared node setup as they only read data
     run_bn
     run_simulator 0 100
+
+    declare -i rc=0
     run_server_status_test
+    rc+=$?
     run_server_status_detail_test
+    rc+=$?
     run_query_validation_test
+    rc+=$?
     run_stream_validation_test
+    rc+=$?
+    return $rc
 }
 
 run_tests() {
@@ -134,8 +149,10 @@ run_tests() {
     setup_proto_defs
     echo "Running shared node tests..."
     run_shared_node_tests
-    echo "Shared node tests completed."
+    rc=$?
+    echo "Shared node tests completed. ret=$rc"
     echo "K6 tests completed. Output available at: ${k6_out_dir}"
+    return $((rc))
 }
 
 run_tests
