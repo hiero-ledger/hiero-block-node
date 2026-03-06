@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks;
 import static org.hiero.block.tools.blocks.AmendmentProvider.createAmendmentProvider;
 import static org.hiero.block.tools.blocks.HasherStateFiles.saveStateCheckpoint;
 import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_COMPRESSION;
+import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_POWERS_OF_TEN_PER_ZIP;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
@@ -301,7 +302,33 @@ public class ToWrappedBlocksCommand implements Runnable {
                 durableWatermark.set(registryHighest);
             }
 
-            final long effectiveHighest = blockRegistry.highestBlockNumberStored();
+            long effectiveHighest = blockRegistry.highestBlockNumberStored();
+
+            // Mid-zip resume detection: if the watermark is not the last block of its zip
+            // range, the partial zip may contain entries written by ZipFileSystem with data
+            // descriptors that ZipInputStream cannot read. Back up to the start of that zip
+            // range and delete the partial zip so it is rewritten entirely.
+            if (effectiveHighest >= 0 && archiveType == BlockArchiveType.UNCOMPRESSED_ZIP) {
+                final long zipRangeFirst =
+                        BlockWriter.zipRangeFirstBlock(effectiveHighest, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+                final long blocksPerZip = (long) Math.pow(10, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+                final long zipRangeLast = zipRangeFirst + blocksPerZip - 1;
+                if (effectiveHighest < zipRangeLast) {
+                    // We're mid-zip. Truncate to one before the zip range start.
+                    final long truncateTo = zipRangeFirst - 1;
+                    System.out.println("Mid-zip resume: block " + effectiveHighest + " is inside zip range "
+                            + zipRangeFirst + "-" + zipRangeLast + "; truncating to " + truncateTo
+                            + " and deleting partial zip.");
+                    final BlockPath partialZipPath =
+                            BlockWriter.computeBlockPath(outputBlocksDir, effectiveHighest, archiveType);
+                    Files.deleteIfExists(partialZipPath.zipFilePath());
+                    blockRegistry.truncateTo(truncateTo);
+                    durableWatermark.set(truncateTo);
+                    saveWatermark(watermarkFile, truncateTo);
+                    effectiveHighest = blockRegistry.highestBlockNumberStored();
+                }
+            }
+
             System.out.println(Ansi.AUTO.string("@|yellow Starting from block:|@ " + effectiveHighest));
 
             // Use a time just before the first block so block 0 passes the isAfter filter

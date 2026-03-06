@@ -26,6 +26,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.BlockSource;
@@ -221,7 +222,7 @@ public class ValidateBlocksCommand implements Runnable {
         }
 
         // Load the address book registry — required for signature validation
-        AddressBookRegistry addressBookRegistry = null;
+        AddressBookRegistry addressBookRegistry;
         if (addressBookFile != null && Files.exists(addressBookFile)) {
             addressBookRegistry = new AddressBookRegistry(addressBookFile);
             System.out.println(Ansi.AUTO.string("@|yellow Loaded address book from:|@ " + addressBookFile));
@@ -267,12 +268,11 @@ public class ValidateBlocksCommand implements Runnable {
         Path jumpstartPath = null;
         for (Path file : files) {
             if (Files.isDirectory(file)) {
-                Path dir = file;
-                if (Files.exists(dir.resolve("blockStreamBlockHashes.bin"))) {
-                    hashRegistryPath = dir.resolve("blockStreamBlockHashes.bin");
-                    streamingMerkleTreePath = dir.resolve("streamingMerkleTree.bin");
-                    completeMerkleTreePath = dir.resolve("completeMerkleTree.bin");
-                    jumpstartPath = dir.resolve("jumpstart.bin");
+                if (Files.exists(file.resolve("blockStreamBlockHashes.bin"))) {
+                    hashRegistryPath = file.resolve("blockStreamBlockHashes.bin");
+                    streamingMerkleTreePath = file.resolve("streamingMerkleTree.bin");
+                    completeMerkleTreePath = file.resolve("completeMerkleTree.bin");
+                    jumpstartPath = file.resolve("jumpstart.bin");
                 }
             }
         }
@@ -359,7 +359,7 @@ public class ValidateBlocksCommand implements Runnable {
                 }
                 return false;
             });
-            validations.removeIf(v -> genesisSkipped.contains(v));
+            validations.removeIf(genesisSkipped::contains);
             for (BlockValidation skipped : genesisSkipped) {
                 System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ " + skipped.name()
                         + " (requires genesis start, first block is " + firstBlockNumber + ")"));
@@ -387,10 +387,7 @@ public class ValidateBlocksCommand implements Runnable {
         }
 
         // Rebuild CompleteMerkleTreeValidation by replaying already-validated block hashes from registry
-        if (checkpoint != null
-                && registry != null
-                && completeMerkleTreeValidation != null
-                && checkpoint.lastValidatedBlockNumber() >= 0) {
+        if (checkpoint != null && registry != null && checkpoint.lastValidatedBlockNumber() >= 0) {
             long firstBlock = sources.getFirst().blockNumber();
             long replayTo = checkpoint.lastValidatedBlockNumber();
             System.out.println(Ansi.AUTO.string("@|yellow Replaying |@" + (replayTo - firstBlock + 1)
@@ -483,31 +480,8 @@ public class ValidateBlocksCommand implements Runnable {
                                     runEnd++;
                                 }
 
-                                try (ZipInputStream zis = new ZipInputStream(
-                                        new BufferedInputStream(Files.newInputStream(zipPath), ZIP_READ_BUFFER))) {
-                                    ZipEntry entry;
-                                    while ((entry = zis.getNextEntry()) != null) {
-                                        final String entryName = entry.getName();
-                                        if (!wanted.contains(entryName)) {
-                                            zis.closeEntry();
-                                            continue;
-                                        }
-                                        final boolean[] flags = BlockZipsUtilities.compressionFlags(entryName);
-                                        final boolean isZstd = flags[0];
-                                        final boolean isGz = flags[1];
-                                        final byte[] raw = zis.readAllBytes();
-                                        final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
-                                        final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
-                                        blockQueue.put(decompPool.submit(() -> {
-                                            Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
-                                            Object[] err =
-                                                    runParallelValidations(abRegistry, block, bNum, skipSignatures);
-                                            return err != null
-                                                    ? new PreValidatedBlock(
-                                                            block, bNum, (String) err[0], (Exception) err[1])
-                                                    : new PreValidatedBlock(block, bNum, null, null);
-                                        }));
-                                    }
+                                try {
+                                    readZipEntries(zipPath, wanted, abRegistry, skipSignatures, blockQueue, decompPool);
                                 } catch (IOException e) {
                                     corruptZipCount.incrementAndGet();
                                     System.out.println(Ansi.AUTO.string(
@@ -802,6 +776,96 @@ public class ValidateBlocksCommand implements Runnable {
 
         long elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000L;
         System.out.println(Ansi.AUTO.string("@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
+    }
+
+    /**
+     * Reads wanted entries from a zip file, submitting decompression+parse futures to the queue. Uses sequential
+     * {@link ZipInputStream} for speed, falling back to random-access {@link ZipFile} if ZipInputStream fails
+     * (e.g. STORED entries with data descriptors written by ZipFileSystem on resume).
+     */
+    private static void readZipEntries(
+            Path zipPath,
+            Set<String> wanted,
+            AddressBookRegistry abRegistry,
+            boolean skipSignatures,
+            BlockingQueue<Future<PreValidatedBlock>> blockQueue,
+            ExecutorService decompPool)
+            throws IOException, InterruptedException {
+        try {
+            readZipEntriesViaStream(zipPath, wanted, abRegistry, skipSignatures, blockQueue, decompPool);
+        } catch (IOException streamErr) {
+            // ZipInputStream rejects STORED entries with data descriptors (General Purpose Bit 3).
+            // Fall back to ZipFile which uses the Central Directory and handles any valid zip.
+            readZipEntriesViaRandomAccess(zipPath, wanted, abRegistry, skipSignatures, blockQueue, decompPool);
+        }
+    }
+
+    /** Reads zip entries sequentially via {@link ZipInputStream} (fast, but strict about data descriptors). */
+    private static void readZipEntriesViaStream(
+            Path zipPath,
+            Set<String> wanted,
+            AddressBookRegistry abRegistry,
+            boolean skipSignatures,
+            BlockingQueue<Future<PreValidatedBlock>> blockQueue,
+            ExecutorService decompPool)
+            throws IOException, InterruptedException {
+        try (ZipInputStream zis =
+                new ZipInputStream(new BufferedInputStream(Files.newInputStream(zipPath), ZIP_READ_BUFFER))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                final String entryName = entry.getName();
+                if (!wanted.contains(entryName)) {
+                    zis.closeEntry();
+                    continue;
+                }
+                final boolean[] flags = BlockZipsUtilities.compressionFlags(entryName);
+                final boolean isZstd = flags[0];
+                final boolean isGz = flags[1];
+                final byte[] raw = zis.readAllBytes();
+                final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
+                blockQueue.put(decompPool.submit(() -> {
+                    Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
+                    Object[] err = runParallelValidations(abRegistry, block, bNum, skipSignatures);
+                    return err != null
+                            ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
+                            : new PreValidatedBlock(block, bNum, null, null);
+                }));
+            }
+        }
+    }
+
+    /** Reads zip entries via random-access {@link ZipFile} (robust, handles any valid zip format). */
+    private static void readZipEntriesViaRandomAccess(
+            Path zipPath,
+            Set<String> wanted,
+            AddressBookRegistry abRegistry,
+            boolean skipSignatures,
+            BlockingQueue<Future<PreValidatedBlock>> blockQueue,
+            ExecutorService decompPool)
+            throws IOException, InterruptedException {
+        try (ZipFile zf = new ZipFile(zipPath.toFile())) {
+            for (String entryName : wanted) {
+                ZipEntry entry = zf.getEntry(entryName);
+                if (entry == null) continue;
+                final boolean[] flags = BlockZipsUtilities.compressionFlags(entryName);
+                final boolean isZstd = flags[0];
+                final boolean isGz = flags[1];
+                final byte[] raw;
+                try (var entryStream = zf.getInputStream(entry)) {
+                    raw = entryStream.readAllBytes();
+                }
+                final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
+                blockQueue.put(decompPool.submit(() -> {
+                    Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
+                    Object[] err = runParallelValidations(abRegistry, block, bNum, skipSignatures);
+                    return err != null
+                            ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
+                            : new PreValidatedBlock(block, bNum, null, null);
+                }));
+            }
+        }
     }
 
     /**
