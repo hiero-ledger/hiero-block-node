@@ -399,6 +399,17 @@ public class ToWrappedBlocksCommand implements Runnable {
                             zipWritePool.shutdownNow();
                         }
 
+                        // Close the open zip appender so CEN is written (makes zip valid)
+                        final BlockZipAppender openZip = currentZipRef.getAndSet(null);
+                        currentZipPathRef.set(null);
+                        if (openZip != null) {
+                            try {
+                                openZip.close();
+                            } catch (IOException e) {
+                                System.err.println("Shutdown: could not close zip appender: " + e.getMessage());
+                            }
+                        }
+
                         // Save watermark after zip pool has drained
                         saveWatermark(watermarkFile, durableWatermark.get());
 
@@ -596,8 +607,23 @@ public class ToWrappedBlocksCommand implements Runnable {
                                                         // rather than a stale/closed appender
                                                         currentZipRef.set(null);
                                                         currentZipPathRef.set(null);
-                                                        final BlockZipAppender newAppender =
-                                                                BlockWriter.openZipForAppend(blockPath.zipFilePath());
+                                                        BlockZipAppender newAppender;
+                                                        try {
+                                                            newAppender = BlockWriter.openZipForAppend(
+                                                                    blockPath.zipFilePath());
+                                                        } catch (IOException ex) {
+                                                            // Corrupt partial zip from a previous crash — safe to
+                                                            // delete
+                                                            // since watermark guarantees no committed blocks are in
+                                                            // this
+                                                            // zip range. Hashers are rebuilt from registry on resume.
+                                                            System.err.println(
+                                                                    "Warning: deleting corrupt zip and recreating: "
+                                                                            + blockPath.zipFilePath());
+                                                            Files.deleteIfExists(blockPath.zipFilePath());
+                                                            newAppender = BlockWriter.openZipForAppend(
+                                                                    blockPath.zipFilePath());
+                                                        }
                                                         currentZipRef.set(newAppender);
                                                         currentZipPathRef.set(blockPath.zipFilePath());
                                                     }
