@@ -31,9 +31,9 @@ import org.junit.jupiter.api.Test;
  *   <li>Previous Block Root Hash - Links to previous block, forming the blockchain</li>
  *   <li>All Block Hashes Tree Root - Streaming merkle tree of all previous block hashes</li>
  *   <li>State Root Hash - State merkle tree root at block start</li>
- *   <li>Consensus Headers - BlockHeader, EventHeader, RoundHeader items</li>
- *   <li>Input Items - SignedTransaction, RecordFile items</li>
- *   <li>Output Items - TransactionResult, TransactionOutput items</li>
+ *   <li>Consensus Headers - EventHeader, RoundHeader items</li>
+ *   <li>Input Items - SignedTransaction</li>
+ *   <li>Output Items - BlockHeader, RecordFileItem, TransactionResult, TransactionOutput items</li>
  *   <li>State Changes - StateChanges items</li>
  *   <li>Trace Data - TraceData items</li>
  *   <li>-16. Reserved - For future expansion</li>
@@ -213,9 +213,9 @@ class BlockStreamBlockHasherTest {
          *
          * <p>From design doc and BlockStreamBlockHasher switch statement:
          * <ul>
-         *   <li>consensusHeadersHasher: BLOCK_HEADER, EVENT_HEADER, ROUND_HEADER</li>
-         *   <li>inputItemsHasher: SIGNED_TRANSACTION, RECORD_FILE</li>
-         *   <li>outputItemsHasher: TRANSACTION_RESULT, TRANSACTION_OUTPUT</li>
+         *   <li>consensusHeadersHasher: EVENT_HEADER, ROUND_HEADER</li>
+         *   <li>inputItemsHasher: SIGNED_TRANSACTION</li>
+         *   <li>outputItemsHasher: BLOCK_HEADER, RECORD_FILE, TRANSACTION_RESULT, TRANSACTION_OUTPUT</li>
          *   <li>stateChangeItemsHasher: STATE_CHANGES, FILTERED_ITEM_HASH</li>
          *   <li>traceItemsHasher: TRACE_DATA</li>
          *   <li>Not hashed: BLOCK_FOOTER, BLOCK_PROOF</li>
@@ -229,16 +229,16 @@ class BlockStreamBlockHasherTest {
             // Actual verification is done by integration tests with real blocks
 
             // Consensus Headers subtree items
-            String[] consensusItems = {"BLOCK_HEADER", "EVENT_HEADER", "ROUND_HEADER"};
-            assertEquals(3, consensusItems.length, "Consensus headers has 3 item types");
+            String[] consensusItems = {"EVENT_HEADER", "ROUND_HEADER"};
+            assertEquals(2, consensusItems.length, "Consensus headers has 2 item types");
 
             // Input Items subtree items
-            String[] inputItems = {"SIGNED_TRANSACTION", "RECORD_FILE"};
-            assertEquals(2, inputItems.length, "Input items has 2 item types");
+            String[] inputItems = {"SIGNED_TRANSACTION"};
+            assertEquals(1, inputItems.length, "Input items has 1 item type");
 
             // Output Items subtree items
-            String[] outputItems = {"TRANSACTION_RESULT", "TRANSACTION_OUTPUT"};
-            assertEquals(2, outputItems.length, "Output items has 2 item types");
+            String[] outputItems = {"BLOCK_HEADER", "RECORD_FILE", "TRANSACTION_RESULT", "TRANSACTION_OUTPUT"};
+            assertEquals(4, outputItems.length, "Output items has 4 item types");
 
             // State Changes subtree items
             String[] stateItems = {"STATE_CHANGES", "FILTERED_ITEM_HASH"};

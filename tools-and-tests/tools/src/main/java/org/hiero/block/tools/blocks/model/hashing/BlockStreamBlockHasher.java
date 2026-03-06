@@ -45,31 +45,23 @@ import org.hiero.block.tools.utils.Sha384;
  *
  * <h2>Fixed Leaf Positions (from design doc)</h2>
  * <ol>
- *   <li><b>Previous Block Root Hash</b> - Links to previous block, forming the blockchain</li>
- *   <li><b>All Block Hashes Tree Root</b> - Streaming merkle tree of all previous block hashes</li>
- *   <li><b>State Root Hash</b> - State merkle tree root at block start</li>
- *   <li><b>Consensus Headers</b> - BlockHeader, EventHeader, RoundHeader items</li>
- *   <li><b>Input Items</b> - SignedTransaction, RecordFile items</li>
- *   <li><b>Output Items</b> - TransactionResult, TransactionOutput items</li>
+ *   <li><b>Previous Block Root Hash</b> - Links to previous block, forming the blockchain(in the BlockFooter)</li>
+ *   <li><b>All Block Hashes Tree Root</b> - Streaming merkle tree of all previous block hashes(in the BlockFooter)</li>
+ *   <li><b>State Root Hash</b> - State merkle tree root at block start(in the BlockFooter)</li>
+ *   <li><b>Consensus Headers</b> - EventHeader, RoundHeader</li>
+ *   <li><b>Input Items</b> - SignedTransaction</li>
+ *   <li><b>Output Items</b> - BlockHeader, RecordFileItem, TransactionResult, TransactionOutput items</li>
  *   <li><b>State Changes</b> - StateChanges items</li>
  *   <li><b>Trace Data</b> - TraceData items</li>
- *   <li>-16. <b>Reserved</b> - For future expansion</li>
+ *   <li> Subtrees 9 though 16. <b>Reserved</b> - For future expansion</li>
  * </ol>
- *
- * <h2>Subtree Item Types</h2>
- * <ul>
- *   <li>Consensus Headers: BLOCK_HEADER, EVENT_HEADER, ROUND_HEADER</li>
- *   <li>Input Items: SIGNED_TRANSACTION, RECORD_FILE</li>
- *   <li>Output Items: TRANSACTION_RESULT, TRANSACTION_OUTPUT</li>
- *   <li>State Changes: STATE_CHANGES</li>
- *   <li>Trace Data: TRACE_DATA</li>
- * </ul>
- *
- * <h2>Special Items (Not Hashed)</h2>
- * <ul>
- *   <li>BLOCK_FOOTER - Contains hashes already included elsewhere in the tree</li>
- *   <li>BLOCK_PROOF - Proves the hash, so cannot be part of it</li>
- * </ul>
+ * <p>FilteredSingleItem and RedactedItem are special items types. They can represent any item type, they contain a
+ * hash and an enum. The enum states which tree the hash belongs in.</p>
+ * <p>BlockFooter is not included in the block hash directly as it is a container for the first 3 hashes PrevBlock,
+ * AllBlocks and State of the block root merkle tree.</p>
+ * <p>BlockProof is also a special item and is not part of the block hash as it contains a cryptographic proof of the
+ * block hash. There can be one or more BlockProof items at the end of the block each proving the block contents in a
+ * different cryptographic way</p>
  *
  * @see StreamingHasher
  * @see HashingUtils
