@@ -66,7 +66,7 @@ public final class HistoricalBlockTreeValidation implements BlockValidation {
                 .filter(BlockItem::hasBlockFooter)
                 .findFirst()
                 .orElseThrow(() -> new ValidationException(
-                        "Block: " + blockNumber + "Block footer with historical block tree root not found"))
+                        "Block: " + blockNumber + " - Block footer with historical block tree root not found"))
                 .blockFooterOrThrow();
         final var treeRootBytes = footer.rootHashOfAllBlockHashesTree();
         final byte[] readHash = treeRootBytes != null ? treeRootBytes.toByteArray() : null;
