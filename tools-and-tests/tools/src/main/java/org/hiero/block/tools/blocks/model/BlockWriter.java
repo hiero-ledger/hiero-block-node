@@ -9,8 +9,6 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.text.DecimalFormat;
-import java.text.NumberFormat;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -188,8 +186,8 @@ public class BlockWriter {
             String blockFileName,
             CompressionType compressionType) {}
 
-    /** The format for block numbers in file names (19 digits, zero-padded) */
-    private static final NumberFormat BLOCK_NUMBER_FORMAT = new DecimalFormat("0000000000000000000");
+    /** The number of digits for zero-padded block numbers in file names */
+    private static final int BLOCK_NUMBER_DIGITS = 19;
     /** The base extension for block files (without compression extension) */
     private static final String BLOCK_FILE_EXTENSION = ".blk";
     /** The number of block number digits per directory level (3 = 1000 directories per level) */
@@ -337,7 +335,7 @@ public class BlockWriter {
         // write the compressed bytes to file
         Files.write(blockFilePath, blockBytes);
         // return a BlockPath record for consistency
-        final String blockNumStr = BLOCK_NUMBER_FORMAT.format(blockNumber);
+        final String blockNumStr = String.format("%0" + BLOCK_NUMBER_DIGITS + "d", blockNumber);
         final String blockFileName = blockNumStr + BLOCK_FILE_EXTENSION + compressionType.extension();
         return new BlockPath(blockFilePath.getParent(), blockFilePath, blockNumStr, blockFileName, compressionType);
     }
@@ -475,7 +473,7 @@ public class BlockWriter {
             case INDIVIDUAL_FILES -> {
                 final Path blockFilePath = BlockFile.nestedDirectoriesBlockFilePath(
                         baseDirectory, blockNumber, DEFAULT_COMPRESSION, DIGITS_PER_DIR);
-                final String blockNumStr = BLOCK_NUMBER_FORMAT.format(blockNumber);
+                final String blockNumStr = String.format("%0" + BLOCK_NUMBER_DIGITS + "d", blockNumber);
                 final String blockFileName = blockNumStr + BLOCK_FILE_EXTENSION + DEFAULT_COMPRESSION.extension();
                 yield new BlockPath(
                         blockFilePath.getParent(), blockFilePath, blockNumStr, blockFileName, DEFAULT_COMPRESSION);
@@ -576,7 +574,7 @@ public class BlockWriter {
             final CompressionType compressionType,
             final int powersOfTenPerZipFileContents) {
         // convert block number to string
-        final String blockNumberStr = BLOCK_NUMBER_FORMAT.format(blockNumber);
+        final String blockNumberStr = String.format("%0" + BLOCK_NUMBER_DIGITS + "d", blockNumber);
         // split string into digits for zip and for directories
         final int offsetToZip = blockNumberStr.length() - DIGITS_PER_ZIP_FILE_NAME - powersOfTenPerZipFileContents;
         final String directoryDigits = blockNumberStr.substring(0, offsetToZip);
