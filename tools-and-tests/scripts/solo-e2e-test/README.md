@@ -343,10 +343,10 @@ Run TCK-SDK regression tests against the deployed network. These tests validate 
 
 ### Configuration
 
-|    Variable     |                                                           Default                                                           |              Description              |
-|-----------------|-----------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
-| `TCK_SDK_DIR`   | `sdk-tck`                                                                                                                   | Directory for TCK/SDK repositories    |
-| `TCK_TEST_FILE` | (transfer-HBAR + contract-delete)                                                                                            | Test file(s) to run (space-separated) |
+|    Variable     |              Default              |              Description              |
+|-----------------|-----------------------------------|---------------------------------------|
+| `TCK_SDK_DIR`   | `sdk-tck`                         | Directory for TCK/SDK repositories    |
+| `TCK_TEST_FILE` | (transfer-HBAR + contract-delete) | Test file(s) to run (space-separated) |
 
 ### Usage
 
