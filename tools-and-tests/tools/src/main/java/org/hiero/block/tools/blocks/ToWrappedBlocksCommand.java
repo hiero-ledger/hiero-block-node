@@ -206,6 +206,9 @@ public class ToWrappedBlocksCommand implements Runnable {
     /** Set by the shutdown hook to request an orderly drain of the pipeline. */
     private volatile boolean shutdownRequested = false;
 
+    /** Guards Stage 2 hasher updates so the shutdown hook does not read partially updated state. */
+    private final Object chainStateLock = new Object();
+
     /**
      * Run the ToWrappedBlocksCommand to convert record file blocks in day files to wrapped block stream blocks.
      */
@@ -476,18 +479,20 @@ public class ToWrappedBlocksCommand implements Runnable {
                         } catch (Exception e) {
                             System.err.println("Shutdown: could not save address book: " + e.getMessage());
                         }
-                        saveStateCheckpoint(
-                                streamingMerkleTreeFile, streamingHasher,
-                                inMemoryMerkleTreeFile, inMemoryTreeHasher);
-                        System.err.println("Shutdown: saved merkle tree states to " + streamingMerkleTreeFile + " and "
-                                + inMemoryMerkleTreeFile);
-                        // Save jumpstart data if we processed any blocks
-                        if (jumpstartBlockHash.get() != null) {
-                            saveJumpstartData(
-                                    jumpstartFile,
-                                    jumpstartBlockNumber.get(),
-                                    jumpstartBlockHash.get(),
-                                    streamingHasher);
+                        synchronized (chainStateLock) {
+                            saveStateCheckpoint(
+                                    streamingMerkleTreeFile, streamingHasher,
+                                    inMemoryMerkleTreeFile, inMemoryTreeHasher);
+                            System.err.println("Shutdown: saved merkle tree states to " + streamingMerkleTreeFile
+                                    + " and " + inMemoryMerkleTreeFile);
+                            // Save jumpstart data if we processed any blocks
+                            if (jumpstartBlockHash.get() != null) {
+                                saveJumpstartData(
+                                        jumpstartFile,
+                                        jumpstartBlockNumber.get(),
+                                        jumpstartBlockHash.get(),
+                                        streamingHasher);
+                            }
                         }
                     },
                     "wrap-shutdown-hook");
@@ -617,13 +622,16 @@ public class ToWrappedBlocksCommand implements Runnable {
                                 streamingHasher.computeRootHash(),
                                 amendmentProvider);
 
-                        // Update chain state (not thread-safe – must stay on main thread)
+                        // Update chain state under lock so the shutdown hook cannot read
+                        // partially updated hashers while saving state.
                         final byte[] blockStreamBlockHash = hashBlock(wrapped);
-                        streamingHasher.addNodeByHash(blockStreamBlockHash);
-                        inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
-                        blockRegistry.addBlock(blockNum, blockStreamBlockHash);
-                        jumpstartBlockNumber.set(blockNum);
-                        jumpstartBlockHash.set(blockStreamBlockHash);
+                        synchronized (chainStateLock) {
+                            streamingHasher.addNodeByHash(blockStreamBlockHash);
+                            inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
+                            blockRegistry.addBlock(blockNum, blockStreamBlockHash);
+                            jumpstartBlockNumber.set(blockNum);
+                            jumpstartBlockHash.set(blockStreamBlockHash);
+                        }
 
                         // Pre-compute block path on the convert thread (pure arithmetic, fast).
                         // Creating the directory here avoids doing it on the zip-write thread.
