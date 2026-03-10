@@ -18,6 +18,7 @@ module org.hiero.block.node.verification {
     requires com.hedera.cryptography.wraps;
     requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
+    requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
     requires org.antlr.antlr4.runtime;
