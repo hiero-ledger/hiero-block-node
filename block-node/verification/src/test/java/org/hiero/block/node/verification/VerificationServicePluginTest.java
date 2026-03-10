@@ -175,6 +175,40 @@ class VerificationServicePluginTest
     }
 
     @Test
+    @DisplayName("backfill of sequential block should update allBlocksHasher")
+    void shouldUpdateHasherForSequentialBackfilledBlock() throws IOException, ParseException {
+        // Block 0 is the next expected block (hasher leafCount==0 == blockNumber==0).
+        // A successful backfill should append its hash to the hasher so continuity is maintained.
+        BlockUtils.SampleBlockInfo block0Info =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_0);
+        plugin.handleBackfilled(new BackfilledBlockNotification(block0Info.blockNumber(), block0Info.blockUnparsed()));
+
+        VerificationNotification notification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
+        assertTrue(notification.success(), "block 0 backfill should succeed");
+        assertEquals(1, plugin.allBlocksHasherHandler.getNumberOfBlocks(), "hasher should have 1 leaf after block 0");
+    }
+
+    @Test
+    @DisplayName("backfill of out-of-order historical block should not update allBlocksHasher")
+    void shouldNotUpdateHasherForOutOfOrderBackfilledBlock() throws IOException, ParseException {
+        // Block 21 arrives while hasher leafCount==0; it is not the next sequential block so
+        // appending it would break the hasher's contiguous chain from genesis.
+        BlockUtils.SampleBlockInfo block21Info =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
+        plugin.handleBackfilled(
+                new BackfilledBlockNotification(block21Info.blockNumber(), block21Info.blockUnparsed()));
+
+        VerificationNotification notification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
+        assertTrue(notification.success(), "block 21 backfill should succeed");
+        assertEquals(
+                0,
+                plugin.allBlocksHasherHandler.getNumberOfBlocks(),
+                "hasher must remain empty for out-of-order backfill");
+    }
+
+    @Test
     @DisplayName("should verify backfilled block")
     void shouldVerifyBackfilledBlock() throws IOException, ParseException {
         BlockUtils.SampleBlockInfo sampleBlockInfo =
