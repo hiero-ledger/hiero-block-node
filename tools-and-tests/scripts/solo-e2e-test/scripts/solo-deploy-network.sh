@@ -16,6 +16,8 @@
 #   --cn-version VERSION       Consensus Node version
 #   --mn-version VERSION       Mirror Node version
 #   --bn-version VERSION       Block Node version (used for Helm chart version)
+#   --relay-version VERSION    Relay version (default: Solo's built-in default)
+#   --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
 #   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
 #   --help                     Show this help message
 
@@ -75,6 +77,8 @@ Options:
   --cn-version VERSION       Consensus Node version
   --mn-version VERSION       Mirror Node version
   --bn-version VERSION       Block Node version (used for Helm chart version)
+  --relay-version VERSION    Relay version (default: Solo's built-in default)
+  --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
   --verbose, -v              Print detailed output including generated overlay file contents
   --help                     Show this help message
@@ -107,6 +111,8 @@ TOPOLOGIES_DIR="${SCRIPT_DIR}/topologies"
 CN_VERSION=""
 MN_VERSION=""
 BN_VERSION=""
+RELAY_VERSION=""
+TSS_ENABLED="true"
 ENABLE_METRICS="false"
 VERBOSE="false"
 
@@ -153,6 +159,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --bn-version)
       BN_VERSION="$2"
+      shift 2
+      ;;
+    --relay-version)
+      RELAY_VERSION="$2"
+      shift 2
+      ;;
+    --tss-enabled)
+      TSS_ENABLED="$2"
       shift 2
       ;;
     --enable-metrics)
@@ -379,6 +393,7 @@ function deploy_consensus_nodes {
   eval solo consensus network deploy \
     --deployment "${DEPLOYMENT}" \
     --pvcs true \
+    --tss "${TSS_ENABLED}" \
     --node-aliases "${NODE_ALIASES}" \
     ${cn_args} || fail "ERROR: Failed to deploy consensus network" 1
   end_task
@@ -444,11 +459,18 @@ function deploy_relay {
   log_line "Deploying Relay"
   log_line "---------------"
 
+  local relay_args=""
+  if [[ -n "${RELAY_VERSION}" && "${RELAY_VERSION}" != "latest" ]]; then
+    relay_args="--relay-release ${RELAY_VERSION}"
+  fi
+
   start_task "Deploying Relay Node"
+  # shellcheck disable=SC2086
   solo relay node add \
     --deployment "${DEPLOYMENT}" \
     --node-aliases "${NODE_ALIASES}" \
-    --cluster-ref "${CLUSTER_REF}" || fail "ERROR: Failed to deploy Relay" 1
+    --cluster-ref "${CLUSTER_REF}" \
+    ${relay_args} || fail "ERROR: Failed to deploy Relay" 1
   end_task
 }
 
@@ -519,11 +541,44 @@ function print_summary {
   echo "node_aliases=${NODE_ALIASES}"
 }
 
+readonly SOLO_MIN_VERSION="0.59.1"
+
+function check_prerequisites {
+  if ! command -v yq &> /dev/null; then
+    fail "ERROR: yq not found. Install from: https://github.com/mikefarah/yq" 1
+  fi
+  if ! command -v kubectl &> /dev/null; then
+    fail "ERROR: kubectl not found. Please install kubectl." 1
+  fi
+  if ! command -v solo &> /dev/null; then
+    fail "ERROR: solo CLI not found. Install with: npm i @hashgraph/solo -g" 1
+  fi
+
+  # Enforce minimum Solo version (required for TSS support)
+  local solo_version
+  solo_version=$(solo --version 2>&1 | grep 'Version' | sed 's/.*: *//' | tr -d '[:space:]')
+  if [[ -n "${solo_version}" ]]; then
+    # Simple semver comparison: split into major.minor.patch and compare numerically
+    IFS='.' read -r cur_major cur_minor cur_patch <<< "${solo_version}"
+    IFS='.' read -r min_major min_minor min_patch <<< "${SOLO_MIN_VERSION}"
+    local is_outdated="false"
+    if (( cur_major < min_major )); then is_outdated="true"
+    elif (( cur_major == min_major && cur_minor < min_minor )); then is_outdated="true"
+    elif (( cur_major == min_major && cur_minor == min_minor && cur_patch < min_patch )); then is_outdated="true"
+    fi
+    if [[ "${is_outdated}" == "true" ]]; then
+      fail "ERROR: Solo CLI version ${solo_version} is outdated. Minimum supported version is ${SOLO_MIN_VERSION} (required for TSS support). Upgrade with: npm i @hashgraph/solo@${SOLO_MIN_VERSION} -g" 1
+    fi
+  fi
+}
+
 # Main execution
 function main {
   log_line "Solo Network Deployment"
   log_line "======================="
   log_line ""
+
+  check_prerequisites
 
   # Load topology first
   load_topology "${TOPOLOGY}"

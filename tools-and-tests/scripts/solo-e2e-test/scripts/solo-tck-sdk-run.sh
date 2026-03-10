@@ -93,7 +93,9 @@ echo ""
 echo "Running TCK test: $TEST_FILE"
 cd "${TCK_DIR}"
 cp .env.custom_node .env
-npm run test:file "$TEST_FILE"
+# shellcheck disable=SC2086
+# Word splitting is intentional — TEST_FILE may contain multiple space-separated file paths
+npm run test:file $TEST_FILE
 
 echo ""
 echo "TCK-SDK test completed successfully"
