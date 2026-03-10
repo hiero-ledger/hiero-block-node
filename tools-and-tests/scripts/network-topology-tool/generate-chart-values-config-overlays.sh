@@ -377,11 +377,25 @@ function generate_bn_priority_mappings {
   done <<< "${bn_names}"
 }
 
+function validate_prerequisites {
+  if ! command -v yq >/dev/null 2>&1; then
+    fail "ERROR: yq is required but not found. Install from: https://github.com/mikefarah/yq" 1
+  fi
+
+  if ! yq -e '.block_nodes' "${TOPOLOGY_FILE}" >/dev/null 2>&1; then
+    fail "ERROR: Topology file is missing 'block_nodes' section or is not valid YAML: ${TOPOLOGY_FILE}" 1
+  fi
+}
+
 function main {
   log_line "Generating Helm overlays from: %s" "${TOPOLOGY_FILE}"
   log_line "  Namespace: %s" "${NAMESPACE}"
   log_line "  Output dir: %s" "${OUTPUT_DIR}"
   log_line ""
+
+  validate_prerequisites
+
+  local generated_count=0
 
   # Process block nodes - generate overlays for those with peers
   local bn_names
@@ -391,7 +405,12 @@ function main {
     while IFS= read -r bn_name; do
       [[ -z "${bn_name}" ]] && continue
       generate_bn_overlay "${bn_name}" "${OUTPUT_DIR}/bn-${bn_name}-values.yaml"
+      if [[ -f "${OUTPUT_DIR}/bn-${bn_name}-values.yaml" ]]; then
+        generated_count=$((generated_count + 1))
+      fi
     done <<< "${bn_names}"
+  else
+    fail "ERROR: No block nodes found in topology file: ${TOPOLOGY_FILE}" 1
   fi
 
   # Process mirror nodes
@@ -402,14 +421,31 @@ function main {
     while IFS= read -r mn_name; do
       [[ -z "${mn_name}" ]] && continue
       generate_mn_overlay "${mn_name}" "${OUTPUT_DIR}/mn-${mn_name}-values.yaml"
+      if [[ -f "${OUTPUT_DIR}/mn-${mn_name}-values.yaml" ]]; then
+        generated_count=$((generated_count + 1))
+      fi
     done <<< "${mn_names}"
   fi
 
   # Generate BN priority mappings for Solo --priority-mapping
   generate_bn_priority_mappings "${OUTPUT_DIR}"
 
+  # Count priority mapping files
+  local mapping_count
+  mapping_count=$(find "${OUTPUT_DIR}" -maxdepth 1 -name "bn-*-priority-mapping.txt" -type f 2>/dev/null | wc -l | tr -d ' ')
+  generated_count=$((generated_count + mapping_count))
+
   log_line ""
-  log_line "Overlay generation complete."
+  if [[ "${generated_count}" -eq 0 ]]; then
+    log_line "WARNING: No overlay files were generated."
+    log_line "  Topology: %s" "${TOPOLOGY_FILE}"
+    log_line "  Block nodes found: %s" "$(yq '.block_nodes | keys | length' "${TOPOLOGY_FILE}" 2>/dev/null || echo "0")"
+    log_line "  Mirror nodes found: %s" "$(yq '.mirror_nodes | keys | length' "${TOPOLOGY_FILE}" 2>/dev/null || echo "0")"
+    log_line "  Consensus nodes found: %s" "$(yq '.consensus_nodes | keys | length' "${TOPOLOGY_FILE}" 2>/dev/null || echo "0")"
+    fail "ERROR: Expected at least 1 overlay file but generated 0. Check topology file structure." 1
+  fi
+
+  log_line "Overlay generation complete. Generated %s file(s)." "${generated_count}"
 }
 
 main

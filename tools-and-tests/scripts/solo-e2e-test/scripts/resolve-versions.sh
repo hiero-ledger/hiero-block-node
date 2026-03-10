@@ -128,11 +128,14 @@ function compare_semver {
 }
 
 # Enforces a minimum version floor for a component.
-# Fails with an error if the resolved version is below the minimum.
+# If the resolved version is below the minimum, logs a warning and returns the minimum version.
+# If the resolved version meets the minimum, returns the resolved version unchanged.
 # Arguments:
 #   $1 - Resolved version string
 #   $2 - Minimum version string (without 'v' prefix)
-#   $3 - Component name for error messages
+#   $3 - Component name for log messages
+# Returns (via stdout):
+#   The effective version to use (either resolved or minimum floor)
 function enforce_minimum_version {
   local resolved="${1}"
   local minimum="${2}"
@@ -140,6 +143,7 @@ function enforce_minimum_version {
 
   # Skip enforcement for SNAPSHOT versions (from 'main' keyword)
   if [[ "${resolved}" == *-SNAPSHOT ]]; then
+    echo "${resolved}"
     return 0
   fi
 
@@ -147,7 +151,10 @@ function enforce_minimum_version {
   cmp=$(compare_semver "${resolved}" "${minimum}")
 
   if [[ "${cmp}" == "-1" ]]; then
-    fail "ERROR: ${component} version ${resolved} is outdated. Minimum supported version is ${minimum} (required for TSS/hinTS support)." 1
+    log_line "WARNING: ${component} resolved to ${resolved}, below minimum ${minimum} (required for TSS/hinTS support). Using ${minimum} instead."
+    echo "${minimum}"
+  else
+    echo "${resolved}"
   fi
 }
 
@@ -321,10 +328,10 @@ function main {
   mn_resolved=$(resolve_version "${mn_input}" "${MN_REPO}" "Mirror Node")
   bn_resolved=$(resolve_version "${bn_input}" "${BN_REPO}" "Block Node")
 
-  # Enforce minimum version floors (TSS/hinTS compatibility)
-  enforce_minimum_version "${cn_resolved}" "${CN_MIN_VERSION}" "Consensus Node"
-  enforce_minimum_version "${mn_resolved}" "${MN_MIN_VERSION}" "Mirror Node"
-  enforce_minimum_version "${bn_resolved}" "${BN_MIN_VERSION}" "Block Node"
+  # Enforce minimum version floors (TSS/hinTS compatibility) — upgrades to floor if latest is lower
+  cn_resolved=$(enforce_minimum_version "${cn_resolved}" "${CN_MIN_VERSION}" "Consensus Node")
+  mn_resolved=$(enforce_minimum_version "${mn_resolved}" "${MN_MIN_VERSION}" "Mirror Node")
+  bn_resolved=$(enforce_minimum_version "${bn_resolved}" "${BN_MIN_VERSION}" "Block Node")
 
   relay_resolved=$(resolve_version "${relay_input}" "${RELAY_REPO}" "Relay")
   tck_resolved=$(resolve_version "${tck_input}" "${TCK_REPO}" "TCK-SDK")

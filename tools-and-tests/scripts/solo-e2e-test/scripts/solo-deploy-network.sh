@@ -294,13 +294,57 @@ function deploy_block_nodes {
   [[ ! -x "${generator_script}" ]] && fail "ERROR: Generator script not found: ${generator_script}" 1
   [[ ! -f "${topology_file}" ]] && fail "ERROR: Topology file not found: ${topology_file}" 1
 
+  # Clean output directory to avoid stale overlays from previous topology runs
+  rm -f "${overlay_dir}"/bn-*.yaml "${overlay_dir}"/mn-*.yaml \
+        "${overlay_dir}"/bn-*-priority-mapping.txt 2>/dev/null
+
   start_task "Generating Helm overlays from topology"
-  "${generator_script}" "${topology_file}" \
+  local generator_output
+  generator_output=$("${generator_script}" "${topology_file}" \
     --namespace "${NAMESPACE}" \
-    --output-dir "${overlay_dir}" || fail "ERROR: Failed to generate Helm overlays" 1
+    --output-dir "${overlay_dir}" 2>&1)
+  local generator_exit_code=$?
+
+  if [[ ${generator_exit_code} -ne 0 ]]; then
+    end_task "FAILED"
+    log_line ""
+    log_line "Overlay generator failed (exit code ${generator_exit_code}):"
+    log_line "${generator_output}"
+    log_line ""
+    log_line "Diagnostics:"
+    log_line "  Generator script: %s" "${generator_script}"
+    log_line "  Topology file:    %s" "${topology_file}"
+    log_line "  Output directory:  %s" "${overlay_dir}"
+    log_line "  yq available:     %s" "$(command -v yq >/dev/null 2>&1 && echo "yes ($(yq --version 2>&1))" || echo "NO - yq is required")"
+    log_line ""
+    log_line "Try running the generator manually:"
+    log_line "  %s %s --namespace %s --output-dir %s" "${generator_script}" "${topology_file}" "${NAMESPACE}" "${overlay_dir}"
+    fail "ERROR: Failed to generate Helm overlays" 1
+  fi
   end_task
 
-  # Print all generated overlay files for troubleshooting (verbose mode only)
+  # Count and validate generated overlay files
+  local overlay_count
+  overlay_count=$(find "${overlay_dir}" -maxdepth 1 \( -name "*.yaml" -o -name "*.json" -o -name "*.txt" \) -type f 2>/dev/null | wc -l | tr -d ' ')
+
+  if [[ "${overlay_count}" -eq 0 ]]; then
+    log_line ""
+    log_line "ERROR: Overlay generator succeeded but produced 0 files."
+    log_line ""
+    log_line "Generator output:"
+    log_line "${generator_output}"
+    log_line ""
+    log_line "Diagnostics:"
+    log_line "  Generator script: %s" "${generator_script}"
+    log_line "  Topology file:    %s" "${topology_file}"
+    log_line "  Output directory:  %s" "$(cd "${overlay_dir}" 2>/dev/null && pwd || echo "${overlay_dir} (does not exist)")"
+    log_line "  yq version:       %s" "$(yq --version 2>&1 || echo 'NOT FOUND')"
+    log_line "  Topology content:"
+    cat "${topology_file}" 2>/dev/null | sed 's/^/    /'
+    fail "ERROR: No overlay files generated. Check topology file structure and yq installation." 1
+  fi
+
+  # Print overlay details
   if [[ "${VERBOSE}" == "true" ]]; then
     log_line ""
     log_line "Generated overlay files:"
@@ -313,8 +357,6 @@ function deploy_block_nodes {
       fi
     done
   else
-    local overlay_count
-    overlay_count=$(find "${overlay_dir}" -maxdepth 1 \( -name "*.yaml" -o -name "*.json" -o -name "*.txt" \) -type f 2>/dev/null | wc -l | tr -d ' ')
     log_line "  Generated ${overlay_count} overlay files (use --verbose to see contents)"
   fi
 
