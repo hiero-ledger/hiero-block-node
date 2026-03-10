@@ -142,7 +142,7 @@ blocks validate-wrapped [--network=<network>] [--[no-]validate-balances] [--bala
 
 |                      Option                      |                                           Description                                            |
 |--------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| `--network <name>`                           | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
+| `--network <name>`                               | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
 | `--validate-balances` / `--no-validate-balances` | Enable or disable balance checkpoint validation. Default: enabled.                               |
 | `--balance-checkpoints <file>`                   | Path to pre-fetched balance checkpoints file (`balance_checkpoints.zstd`).                       |
 | `--custom-balances-dir <dir>`                    | Directory containing custom balance files (`accountBalances_{blockNumber}.pb.gz`).               |

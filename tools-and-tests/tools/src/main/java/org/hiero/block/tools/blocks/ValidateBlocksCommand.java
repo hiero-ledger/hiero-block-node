@@ -842,11 +842,11 @@ public class ValidateBlocksCommand implements Runnable {
         for (String filename : bundledFiles) {
             try (InputStream stream = getClass().getResourceAsStream("/metadata/" + filename)) {
                 if (stream != null) {
-                    final String blockStr = filename.replace("accountBalances_", "").replace(".pb.gz", "");
+                    final String blockStr =
+                            filename.replace("accountBalances_", "").replace(".pb.gz", "");
                     final long blockNumber = Long.parseLong(blockStr);
                     validator.loadFromGzippedStream(stream, blockNumber);
-                    System.out.println(
-                            Ansi.AUTO.string("@|yellow Loaded bundled checkpoint:|@ block " + blockNumber));
+                    System.out.println(Ansi.AUTO.string("@|yellow Loaded bundled checkpoint:|@ block " + blockNumber));
                 }
             }
         }
