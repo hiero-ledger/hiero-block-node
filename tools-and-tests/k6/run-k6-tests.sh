@@ -110,9 +110,9 @@ run_test() {
     local test_name=$1
     local log_file=$2
     local test_script=$3
-    echo "Running ${test_name} test..."
-    local out_file=${k6_out_dir}/${log_file}.log
-    k6 run ${test_script} >> "${out_file}" 2>&1
+    echo "Running ${test_name} ..."
+    local out_file=${k6_out_dir}/"${log_file}".log
+    k6 run "${test_script}" >> "${out_file}" 2>&1
     if [[ $? -ne 0 ]]; then
         echo "${test_name} FAILED."
         return 1
