@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.util.List;
+import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -62,7 +63,13 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     /** The previous block hash, used for verification of the current block. */
     private Bytes previousBlockHash;
     /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
-    private AllBlocksHasherHandler allBlocksHasherHandler;
+    AllBlocksHasherHandler allBlocksHasherHandler;
+    /**
+     * The earliest block number this node is configured to manage. When greater than zero the node
+     * is not expected to have a continuous chain from genesis, so allBlocksHasher values must not
+     * override the block footer's authoritative hashes for blocks where continuity is absent.
+     */
+    private long earliestManagedBlock;
     /** Trusted ledger ID for TSS verification, initialized from file or block 0. */
     public static Bytes activeLedgerId;
     /** Full TSS publication body used for persistence and state restoration. */
@@ -111,6 +118,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // setting config and context
         this.context = context;
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
+        earliestManagedBlock =
+                context.configuration().getConfigData(NodeConfig.class).earliestManagedBlock();
         // Bootstrap TSS parameters from persisted file if available. The file contains a
         // serialized LedgerIdPublicationTransactionBody with ledger ID, address book, and WRAPS VK.
         final var tssParametersFile = verificationConfig.tssParametersFilePath();
@@ -139,7 +148,15 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
 
     private void initAllBlocksHasherIfEnabled() {
         allBlocksHasherHandler = new AllBlocksHasherHandler(verificationConfig, context);
-        if (allBlocksHasherHandler.isAvailable() && allBlocksHasherHandler.lastBlockHash() != null) {
+        // When earliestManagedBlock > 0 the node is not managing from genesis, so the hasher's
+        // genesis-state value (ZERO_BLOCK_HASH, leafCount==0) must not seed previousBlockHash —
+        // it is only valid as the previous hash for block 0, not for any mid-chain first block.
+        // When earliestManagedBlock == 0 the node starts from genesis and ZERO_BLOCK_HASH is the
+        // correct previousBlockHash for block 0, so we always trust the hasher in that case.
+        final boolean hasherHasData = allBlocksHasherHandler.getNumberOfBlocks() > 0;
+        if (allBlocksHasherHandler.isAvailable()
+                && allBlocksHasherHandler.lastBlockHash() != null
+                && (earliestManagedBlock == 0 || hasherHasData)) {
             previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
             final String message = "All previous blocks hasher initialized with {0} hashes, last block hash: {1}";
             LOGGER.log(TRACE, message, allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash);
@@ -263,10 +280,17 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
 
     private Bytes getRootOfAllPreviousBlocks() {
         if (allBlocksHasherHandler != null && allBlocksHasherHandler.isAvailable()) {
+            // When earliestManagedBlock > 0 the node may not have a continuous chain from genesis.
+            // Only use the hasher's computed root when its leaf count matches currentBlockNumber
+            // exactly (i.e. it holds hashes for blocks 0 through currentBlockNumber-1). Any other
+            // count means continuity is absent, so defer to the block footer's authoritative value.
+            // When earliestManagedBlock == 0 full genesis continuity is expected; always use hasher.
+            if (earliestManagedBlock > 0 && allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber) {
+                return null;
+            }
             return Bytes.wrap(allBlocksHasherHandler.computeRootHash());
-        } else {
-            return null;
         }
+        return null;
     }
 
     private void persistTssParameters() {
@@ -358,8 +382,19 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 if (backfillNotification != null) {
                     // Log the backfill verification result
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
-                    if (backfillNotification.success() && notification.blockNumber() == 0) {
-                        persistTssParameters();
+                    if (backfillNotification.success()) {
+                        if (notification.blockNumber() == 0) {
+                            persistTssParameters();
+                        }
+                        // Update the allBlocksHasher only when this backfilled block is the next
+                        // sequential one (leafCount == blockNumber). Historical backfill can arrive
+                        // out of order, so we must not append blocks that would break the hasher's
+                        // contiguous chain from genesis.
+                        if (backfillNotification.blockHash() != null
+                                && allBlocksHasherHandler.getNumberOfBlocks() == notification.blockNumber()) {
+                            allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
+                                    backfillNotification.blockHash().toByteArray());
+                        }
                     }
                     // send the verification notification for the backfilled block
                     context.blockMessaging().sendBlockVerification(backfillNotification);
