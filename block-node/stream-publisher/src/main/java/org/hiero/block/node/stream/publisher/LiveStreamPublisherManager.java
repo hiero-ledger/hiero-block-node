@@ -16,10 +16,10 @@ import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.NavigableSet;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
@@ -192,10 +192,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     private static final String INVALID_STATE_ENDING_MID_BLOCK_MESSAGE = """
-    Invalid state detected for handler %d when ending mid-block %d:
-    Current Streaming Block Number: %d
-    Latest Streaming Block Number: %d
-    Next Unstreamed Block Number: %d
+    Invalid state detected for handler {0} when ending mid-block {1}:
+    Current Streaming Block Number: {2}
+    Latest Streaming Block Number: {3}
+    Next Unstreamed Block Number: {4}
     """;
 
     @Override
@@ -209,9 +209,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             blocksToResend.add(blockNumber);
         } else if (queueByBlockMap.containsKey(blockNumber)) {
             // this should never happen
-            final String message = INVALID_STATE_ENDING_MID_BLOCK_MESSAGE.formatted(
-                    handlerId, blockNumber, currentStreaming, latestStreaming, nextUnstreamed);
-            LOGGER.log(WARNING, message);
+            LOGGER.log(
+                    WARNING,
+                    INVALID_STATE_ENDING_MID_BLOCK_MESSAGE,
+                    handlerId,
+                    blockNumber,
+                    currentStreaming,
+                    latestStreaming,
+                    nextUnstreamed);
             // @todo(2200) is there an additional action to take here?
         }
     }
@@ -256,6 +261,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (shouldHandle) {
             // Iterate over all handlers and attempt to send the
             // bad block proof message.
+            // @todo(2339) improve the loop below, find the handler that should send the bad block proof code
+            //    and then let it handle the failed verification.
             for (final PublisherHandler handler : handlers.values()) {
                 if (handler.handleFailedVerification(blockNumber)) {
                     // There will always be only one handler that will send the
@@ -284,14 +291,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// are sent.
     ///
     /// Note
-    /// <blockquote>It is OK to block here, but not overly long. What we
+    /// > It is OK to block here, but not overly long. What we
     /// need is a fork/join process that forks for each handler and sends acks
     /// for all in thread(s) then joins at the end. Fortunately the Streams API
     /// offers a convenient parallelStream() method that does exactly that. We
     /// further declare the set explicitly unordered to further limit
     /// unnecessary ties between handlers. The overall time blocked should not
     /// significantly exceed the time to send a single acknowledgement.
-    /// </blockquote>
     @Override
     public void handlePersisted(@NonNull final PersistedNotification notification) {
         if (notification != null) {
@@ -309,8 +315,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             } else {
                 queueByBlockMap.clear();
                 final long blockNumber = notification.blockNumber();
-                // @todo(1514): We have an extremely rare race condition here
-                //    similar to the one in handleVerification.
+                // @todo(2198): We have an extremely rare race condition here
                 nextUnstreamedBlockNumber.set(blockNumber);
                 currentStreamingBlockNumber.set(blockNumber);
                 handlers.values().parallelStream().unordered().forEach(PublisherHandler::handleFailedPersistence);
@@ -405,8 +410,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private void cancelExistingFuture() {
         final ScheduledFuture<Boolean> localFuture = publisherUnavailabilityTimeoutFuture;
         if (localFuture != null) {
-            if (localFuture.isDone() && !localFuture.isCancelled()) {
-                // If the future is done, we can gracefully handle it
+            // Remove the main reference to this future.
+            publisherUnavailabilityTimeoutFuture = null;
+            // Cancel first, if possible
+            if (!localFuture.isCancelled() && !localFuture.isDone()) {
+                // If not canceled, we can cancel it.
+                localFuture.cancel(true);
+            }
+            // If done and not cancelled, get the result so we can log
+            // any exceptions
+            else if (localFuture.isDone() && !localFuture.isCancelled()) {
                 try {
                     localFuture.get();
                 } catch (final InterruptedException e) {
@@ -416,12 +429,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     LOGGER.log(INFO, "Publisher unavailability timeout task completed exceptionally", e);
                 }
             }
-            if (!localFuture.isCancelled()) {
-                // If not canceled, we can cancel it.
-                localFuture.cancel(true);
-            }
-            // Drop the future after handling it
-            publisherUnavailabilityTimeoutFuture = null;
         }
     }
 
@@ -429,12 +436,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// This method could also return {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if no
     /// more blocks are awaiting resend.
     private long nextBlockToResend() {
-        final Iterator<Long> iterator = blocksToResend.iterator();
-        if (iterator.hasNext()) {
-            return iterator.next();
-        } else {
-            return UNKNOWN_BLOCK_NUMBER;
+        if (!blocksToResend.isEmpty()) {
+            try {
+                // The blocksToResend set is a SortedSet, so first item will be the lowest one.
+                return blocksToResend.first();
+            } catch (final NoSuchElementException e) {
+                // do nothing; we have no more blocks to resend.
+            }
         }
+        return UNKNOWN_BLOCK_NUMBER;
     }
 
     /// todo(1420) add documentation
@@ -555,10 +565,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// messaging facility, but it is not guaranteed.
     ///
     /// Note
-    /// <blockquote>This method ignored interrupted exceptions as a specific
+    /// > This method ignored interrupted exceptions as a specific
     /// optimization to avoid unnecessarily ending a thread or causing failures
     /// when interrupt is used as a signal rather than signaling the `Condition`
-    /// variable.</blockquote>
+    /// variable.
     @SuppressWarnings("AwaitNotInLoop")
     private void waitForDataReady() {
         dataReadyLock.lock();

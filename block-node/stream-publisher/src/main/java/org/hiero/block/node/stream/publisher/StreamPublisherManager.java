@@ -89,5 +89,8 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
         END_ERROR // Something has gone wrong, stop this publisher and tell them to start a new connection.
     }
 
+    /// A record that holds a [BlockAction] that needs to be done for a specified block.
+    /// @param action to be taken
+    /// @param blockNumber of the block to take the action upon
     record ActionForBlock(BlockAction action, long blockNumber) {}
 }
