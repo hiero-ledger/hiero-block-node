@@ -340,7 +340,7 @@ function deploy_block_nodes {
     log_line "  Output directory:  %s" "$(cd "${overlay_dir}" 2>/dev/null && pwd || echo "${overlay_dir} (does not exist)")"
     log_line "  yq version:       %s" "$(yq --version 2>&1 || echo 'NOT FOUND')"
     log_line "  Topology content:"
-    cat "${topology_file}" 2>/dev/null | sed 's/^/    /'
+    sed 's/^/    /' "${topology_file}" 2>/dev/null
     fail "ERROR: No overlay files generated. Check topology file structure and yq installation." 1
   fi
 
