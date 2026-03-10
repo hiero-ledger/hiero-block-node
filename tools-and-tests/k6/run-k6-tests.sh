@@ -67,59 +67,19 @@ cleanup() {
 # todo add more tests here and also make sure to reset BN
 
 run_server_status_test() {
-    echo "Running server status test..."
-    local out_file=${k6_out_dir}/server_status_test.log
-    k6 run ./src/average-load/bn-server-status.js >> "${out_file}" 2>&1
-    if [[ $? -ne 0 ]]; then
-        echo "Server status test FAILED."
-        return 1
-        # Optional: exit the script with a specific error code
-    else
-        echo "Server status test PASSED."
-        return 0
-    fi
+    run_test "Server Status Test" "server_status_test" "./src/average-load/bn-server-status.js"
 }
 
 run_server_status_detail_test() {
-    echo "Running server status detail test..."
-    local out_file=${k6_out_dir}/server_status_detail_test.log
-    k6 run ./src/average-load/bn-server-status-detail.js >> "${out_file}" 2>&1
-    if [[ $? -ne 0 ]]; then
-        echo "Server status detail test FAILED."
-        return 1
-        # Optional: exit the script with a specific error code
-    else
-        echo "Server status detail test PASSED."
-        return 0
-    fi
+    run_test "Server Status Detail Test" "server_status_detail_test" "./src/average-load/bn-server-status-detail.js"
 }
 
 run_query_validation_test() {
-    echo "Running query validation test..."
-    local out_file=${k6_out_dir}/query_validation_test.log
-    k6 run ./src/smoke/bn-query-validation.js >> "${out_file}" 2>&1
-    if [[ $? -ne 0 ]]; then
-        echo "Query validation test test FAILED."
-        return 1
-        # Optional: exit the script with a specific error code
-    else
-        echo "Query validation test test PASSED."
-        return 0
-    fi
+    run_test "Query Validation Test" "query_validation_test" "./src/smoke/bn-query-validation.js"
 }
 
 run_stream_validation_test() {
-    echo "Running stream validation test..."
-    local out_file=${k6_out_dir}/stream_validation_test.log
-    k6 run ./src/smoke/bn-stream-validation.js >> "${out_file}" 2>&1
-    if [[ $? -ne 0 ]]; then
-        echo "Stream validation test FAILED."
-        return 1
-        # Optional: exit the script with a specific error code
-    else
-        echo "Stream validation test PASSED."
-        return 0
-    fi
+    run_test "Stream Validation Test" "stream_validation_test" "./src/smoke/bn-stream-validation.js"
 }
 
 run_shared_node_tests() {
@@ -137,6 +97,30 @@ run_shared_node_tests() {
     run_stream_validation_test
     rc+=$?
     return $rc
+}
+
+#
+# A generic test runner that accepts parameters for the test to run
+#
+# $1 - test name
+# $2 - log filename without path or extension
+# $3 - test script fully qualified filename
+#
+run_test() {
+    local test_name=$1
+    local log_file=$2
+    local test_script=$3
+    echo "Running ${test_name} test..."
+    local out_file=${k6_out_dir}/${log_file}.log
+    k6 run ${test_script} >> "${out_file}" 2>&1
+    if [[ $? -ne 0 ]]; then
+        echo "${test_name} FAILED."
+        return 1
+        # Optional: exit the script with a specific error code
+    else
+        echo "${test_name} PASSED."
+        return 0
+    fi
 }
 
 run_tests() {
