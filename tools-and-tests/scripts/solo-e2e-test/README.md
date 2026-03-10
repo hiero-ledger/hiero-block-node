@@ -233,7 +233,7 @@ cp .env.example .env
 | `ENABLE_LOCAL_METRICS`   | `false`                  | Enable Prometheus+Grafana stack locally                              |
 | `TEST_FILE`              | `none`                   | Test definition file for `task test:run`                             |
 | `TCK_SDK_DIR`            | `sdk-tck`                | Directory for TCK-SDK repositories                                   |
-| `TCK_TEST_FILE`          | (transfer + contract)    | TCK test file(s) to run (space-separated, verifies CN + mirror node) |
+| `TCK_TEST_FILE`          | (transfer + contract)    | TCK test file(s) to run (space-separated, verifies CN + Mirror Node) |
 
 ### Version Keywords
 
@@ -346,7 +346,7 @@ Run TCK-SDK regression tests against the deployed network. These tests validate 
 |    Variable     |                                                           Default                                                           |              Description              |
 |-----------------|-----------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
 | `TCK_SDK_DIR`   | `sdk-tck`                                                                                                                   | Directory for TCK/SDK repositories    |
-| `TCK_TEST_FILE` | `src/tests/crypto-service/test-transfer-hbar-transaction.ts src/tests/contract-service/test-contract-delete-transaction.ts` | Test file(s) to run (space-separated) |
+| `TCK_TEST_FILE` | (transfer-HBAR + contract-delete)                                                                                            | Test file(s) to run (space-separated) |
 
 ### Usage
 
