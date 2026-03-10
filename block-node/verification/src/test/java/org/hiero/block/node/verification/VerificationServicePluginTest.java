@@ -213,6 +213,46 @@ class VerificationServicePluginTest
         assertFalse(blockNotification.success(), "The verification should be unsuccessful");
     }
 
+    @Test
+    @DisplayName("fresh BN with empty allBlocksHasher should use footer values for first non-genesis block")
+    void shouldUseFooterValuesWhenHasherIsEmptyForNonGenesisBlock() throws IOException, ParseException {
+        // Scenario: BN starts fresh (no stored blocks, allBlocksHasherEnabled=true) with
+        // earliestManagedBlock > 0, so the first block received is not block 0.
+        //
+        // allBlocksHasherHandler initialises at genesis state: leafCount=0, lastBlockHash=ZERO_BLOCK_HASH.
+        // initAllBlocksHasherIfEnabled() sees isAvailable()=true and lastBlockHash()!=null, so it sets
+        // plugin.previousBlockHash = ZERO_BLOCK_HASH. getRootOfAllPreviousBlocks() also returns
+        // ZERO_BLOCK_HASH (leafCount==0). Both non-null values are passed to the session, overriding the
+        // block footer's authoritative previousBlockRootHash and rootHashOfAllBlockHashesTree.
+        //
+        // For block 1 the correct values in the footer are the hash of block 0 and the Merkle root of
+        // [hash(block0)], neither of which is ZERO_BLOCK_HASH. Using ZERO_BLOCK_HASH produces a wrong
+        // block root hash, so signature verification fails.
+        //
+        // After the fix: when earliestManagedBlock > 0 and the hasher has no chain continuity
+        // (leafCount != currentBlockNumber), both values fall back to footer and verification succeeds.
+        blockMessaging = new TestBlockMessagingFacility();
+        Map<String, String> config = new HashMap<>(defaultConfig);
+        config.put("block.node.earliestManagedBlock", "1");
+        start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
+
+        BlockUtils.SampleBlockInfo block1Info =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_1);
+
+        blockMessaging.sendBlockItems(
+                new BlockItems(block1Info.blockUnparsed().blockItems(), block1Info.blockNumber(), true, true));
+
+        VerificationNotification notification =
+                blockMessaging.getSentVerificationNotifications().getFirst();
+        assertNotNull(notification);
+        assertEquals(block1Info.blockNumber(), notification.blockNumber());
+        assertTrue(
+                notification.success(),
+                "Block 1 on a fresh BN with earliestManagedBlock=1 should verify using block footer "
+                        + "values; ZERO_BLOCK_HASH from an empty allBlocksHasher must not override "
+                        + "footer values when the hasher has no chain continuity with this block");
+    }
+
     // ==== TSS Parameters Bootstrap Tests =============================================================================
 
     @Test
