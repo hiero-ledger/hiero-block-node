@@ -20,6 +20,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.TestBlockFactory;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
@@ -40,12 +41,21 @@ class SignatureValidationTest {
     private static final BlockItem FOOTER_ITEM =
             BlockItem.newBuilder().blockFooter(BlockFooter.DEFAULT).build();
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     void noBlockProof_throwsValidationException() {
         // Block with no proof item at all
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM));
         SignatureValidation validation = new SignatureValidation(null);
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("No BlockProof found"));
     }
 
@@ -61,7 +71,8 @@ class SignatureValidationTest {
                 .build();
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, proofItem));
         SignatureValidation validation = new SignatureValidation(null);
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 42));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 42));
         assertTrue(ex.getMessage().contains("Empty TSS block signature"));
     }
 
@@ -77,7 +88,7 @@ class SignatureValidationTest {
                 .build();
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, proofItem));
         SignatureValidation validation = new SignatureValidation(null);
-        assertDoesNotThrow(() -> validation.validate(block, 42));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(block), 42));
     }
 
     @Test
@@ -87,7 +98,8 @@ class SignatureValidationTest {
                 BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, proofItem));
         SignatureValidation validation = new SignatureValidation(null);
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("Unknown proof type"));
     }
 
@@ -102,7 +114,8 @@ class SignatureValidationTest {
                 .build();
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, proofItem));
         SignatureValidation validation = new SignatureValidation(null);
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("No signatures"));
     }
 
@@ -144,8 +157,8 @@ class SignatureValidationTest {
         AddressBookRegistry registry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
         SignatureValidation validation = new SignatureValidation(registry);
         // Only 1 unique node signed — below threshold of 2
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> validation.validate(blockWithDuplicateSigs, 0));
+        ValidationException ex = assertThrows(
+                ValidationException.class, () -> validation.validate(toUnparsed(blockWithDuplicateSigs), 0));
         assertTrue(ex.getMessage().contains("Insufficient valid signatures"));
     }
 
@@ -185,6 +198,6 @@ class SignatureValidationTest {
         AddressBookRegistry registry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
         SignatureValidation validation = new SignatureValidation(registry);
         // 2 valid nodes >= threshold of 2 → should pass
-        assertDoesNotThrow(() -> validation.validate(blockWithUnknownSigner, 0));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(blockWithUnknownSigner), 0));
     }
 }

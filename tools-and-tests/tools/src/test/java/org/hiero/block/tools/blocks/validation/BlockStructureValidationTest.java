@@ -15,6 +15,7 @@ import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
 
@@ -44,77 +45,92 @@ class BlockStructureValidationTest {
 
     private final BlockStructureValidation validation = new BlockStructureValidation();
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     void validBlock_passes() {
-        assertDoesNotThrow(() -> validation.validate(VALID_BLOCK, 0));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(VALID_BLOCK), 0));
     }
 
     @Test
     void withStateChanges_passes() {
         Block block = new Block(List.of(
                 HEADER_ITEM, STATE_CHANGES_ITEM, STATE_CHANGES_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        assertDoesNotThrow(() -> validation.validate(block, 0));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(block), 0));
     }
 
     @Test
     void multipleProofs_passes() {
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM, PROOF_ITEM));
-        assertDoesNotThrow(() -> validation.validate(block, 0));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(block), 0));
     }
 
     @Test
     void withStateChangesAndMultipleProofs_passes() {
         Block block = new Block(List.of(
                 HEADER_ITEM, STATE_CHANGES_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM, PROOF_ITEM, PROOF_ITEM));
-        assertDoesNotThrow(() -> validation.validate(block, 0));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(block), 0));
     }
 
     @Test
     void duplicateHeader_fails() {
         Block block = new Block(List.of(HEADER_ITEM, HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("Multiple BlockHeaders"));
     }
 
     @Test
     void duplicateRecordFile_fails() {
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("Multiple RecordFile"));
     }
 
     @Test
     void duplicateFooter_fails() {
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("Multiple BlockFooter"));
     }
 
     @Test
     void stateChangesAfterRecordFile_fails() {
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, STATE_CHANGES_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("Expected BlockFooter"));
     }
 
     @Test
     void headerNotFirst_fails() {
         Block block = new Block(List.of(RECORD_FILE_ITEM, HEADER_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("First item must be a BlockHeader"));
     }
 
     @Test
     void unexpectedItemAfterProofs_fails() {
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM, RECORD_FILE_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("Unexpected"));
     }
 
     @Test
     void missingProof_fails() {
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("Expected BlockProof"));
     }
 }

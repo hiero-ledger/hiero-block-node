@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
 import java.util.List;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
 /**
@@ -38,8 +38,8 @@ public final class BlockStructureValidation implements BlockValidation {
     }
 
     @Override
-    public void validate(final Block block, final long blockNumber) throws ValidationException {
-        final List<BlockItem> items = block.items();
+    public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
+        final List<BlockItemUnparsed> items = block.blockItems();
         final int size = items.size();
         int index = 0;
 
@@ -106,11 +106,11 @@ public final class BlockStructureValidation implements BlockValidation {
      * @param index the index of the item to describe
      * @return a short string identifying the item type
      */
-    private static String describeItem(final List<BlockItem> items, final int index) {
+    private static String describeItem(final List<BlockItemUnparsed> items, final int index) {
         if (index >= items.size()) {
             return "end of block";
         }
-        final BlockItem item = items.get(index);
+        final BlockItemUnparsed item = items.get(index);
         if (item.hasBlockHeader()) return "BlockHeader";
         if (item.hasRecordFile()) return "RecordFile";
         if (item.hasBlockFooter()) return "BlockFooter";

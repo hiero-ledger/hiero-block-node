@@ -5,14 +5,16 @@ import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.utils.PrettyPrint.simpleHash;
 
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.pbj.runtime.ParseException;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.jspecify.annotations.Nullable;
 
@@ -47,15 +49,25 @@ public final class BlockChainValidation implements BlockValidation {
     }
 
     @Override
-    public void validate(final Block block, final long blockNumber) throws ValidationException {
-        final byte[] readHash = block.items().stream()
-                .filter(BlockItem::hasBlockFooter)
-                .findFirst()
-                .orElseThrow(() -> new ValidationException(
-                        "Block: " + blockNumber + " - Block footer with previousBlockRootHash not found"))
-                .blockFooterOrThrow()
-                .previousBlockRootHash()
-                .toByteArray();
+    public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
+        // Find the footer and selectively parse it
+        BlockFooter footer = null;
+        try {
+            for (final BlockItemUnparsed item : block.blockItems()) {
+                if (item.hasBlockFooter()) {
+                    footer = BlockFooter.PROTOBUF.parse(item.blockFooterOrThrow());
+                    break;
+                }
+            }
+        } catch (ParseException e) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Failed to parse BlockFooter: " + e.getMessage());
+        }
+        if (footer == null) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Block footer with previousBlockRootHash not found");
+        }
+        final byte[] readHash = footer.previousBlockRootHash().toByteArray();
         if (previousBlockHash != null) {
             if (!Arrays.equals(previousBlockHash, readHash)) {
                 throw new ValidationException("Block: " + blockNumber
@@ -74,7 +86,7 @@ public final class BlockChainValidation implements BlockValidation {
     }
 
     @Override
-    public void commitState(final Block block, final long blockNumber) {
+    public void commitState(final BlockUnparsed block, final long blockNumber) {
         previousBlockHash = stagedBlockHash;
         stagedBlockHash = null;
     }

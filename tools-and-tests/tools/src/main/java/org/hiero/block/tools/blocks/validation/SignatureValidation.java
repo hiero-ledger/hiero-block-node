@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.SigFileUtils;
 import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
@@ -57,14 +58,18 @@ public final class SignatureValidation implements BlockValidation {
     }
 
     @Override
-    public void validate(final Block block, final long blockNumber) throws ValidationException {
-        // Find the block proof
+    public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
+        // Find and selectively parse the block proof
         BlockProof blockProof = null;
-        for (final BlockItem item : block.items()) {
-            if (item.hasBlockProof()) {
-                blockProof = item.blockProof();
-                break;
+        try {
+            for (final BlockItemUnparsed item : block.blockItems()) {
+                if (item.hasBlockProof()) {
+                    blockProof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow());
+                    break;
+                }
             }
+        } catch (ParseException e) {
+            throw new ValidationException("Block: " + blockNumber + " - Failed to parse BlockProof: " + e.getMessage());
         }
         if (blockProof == null) {
             throw new ValidationException("Block: " + blockNumber + " - No BlockProof found for signature validation");
@@ -89,12 +94,12 @@ public final class SignatureValidation implements BlockValidation {
      * RSA signatures from consensus nodes against the address book.
      *
      * @param blockNumber the block number
-     * @param block the full block
+     * @param block the full block (unparsed)
      * @param blockProof the block proof containing the SignedRecordFileProof
      * @throws ValidationException if signature validation fails
      */
-    private void validateSignedRecordFileProof(final long blockNumber, final Block block, final BlockProof blockProof)
-            throws ValidationException {
+    private void validateSignedRecordFileProof(
+            final long blockNumber, final BlockUnparsed block, final BlockProof blockProof) throws ValidationException {
         final var signedRecordFileProof = blockProof.signedRecordFileProofOrThrow();
         final var signatures = signedRecordFileProof.recordFileSignatures();
 
@@ -102,12 +107,21 @@ public final class SignatureValidation implements BlockValidation {
             throw new ValidationException("Block: " + blockNumber + " - No signatures in SignedRecordFileProof");
         }
 
-        // Extract RecordFileItem and BlockHeader from the block
+        // Selectively parse RecordFileItem and BlockHeader from the block
         RecordFileItem recordFileItem = null;
         BlockHeader blockHeader = null;
-        for (final BlockItem item : block.items()) {
-            if (item.hasRecordFile()) recordFileItem = item.recordFileOrThrow();
-            if (item.hasBlockHeader()) blockHeader = item.blockHeaderOrThrow();
+        try {
+            for (final BlockItemUnparsed item : block.blockItems()) {
+                if (item.hasRecordFile()) {
+                    recordFileItem = RecordFileItem.PROTOBUF.parse(item.recordFileOrThrow());
+                }
+                if (item.hasBlockHeader()) {
+                    blockHeader = BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow());
+                }
+            }
+        } catch (ParseException e) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Failed to parse RecordFileItem/BlockHeader: " + e.getMessage());
         }
         if (recordFileItem == null || blockHeader == null) {
             throw new ValidationException(

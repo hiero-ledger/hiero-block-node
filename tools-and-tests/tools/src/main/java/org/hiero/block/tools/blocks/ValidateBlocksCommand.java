@@ -4,7 +4,7 @@ package org.hiero.block.tools.blocks;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.BufferedInputStream;
@@ -29,6 +29,7 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.BlockSource;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.PreValidatedBlock;
@@ -518,7 +519,8 @@ public class ValidateBlocksCommand implements Runnable {
                                 final long bNum = first.blockNumber();
                                 blockQueue.put(decompPool.submit(() -> {
                                     byte[] raw = Files.readAllBytes(path);
-                                    Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
+                                    BlockUnparsed block =
+                                            BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
                                     Object[] err = runParallelValidations(abRegistry, block, bNum, skipSignatures);
                                     return err != null
                                             ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
@@ -610,7 +612,7 @@ public class ValidateBlocksCommand implements Runnable {
                         break;
                     }
 
-                    Block block = preValidated.block();
+                    BlockUnparsed block = preValidated.block();
 
                     // Phase 1: validate sequential (stateful) validations only
                     for (BlockValidation v : sequentialValidations) {
@@ -675,8 +677,9 @@ public class ValidateBlocksCommand implements Runnable {
                                 blocksValidated, sources.size(), elapsedMillis);
 
                         // Compute speed multiplier (consensus-time / wall-clock)
-                        Timestamp blockTs =
-                                block.items().getFirst().blockHeaderOrThrow().blockTimestampOrThrow();
+                        BlockHeader parsedHeader = BlockHeader.PROTOBUF.parse(
+                                block.blockItems().getFirst().blockHeaderOrThrow());
+                        Timestamp blockTs = parsedHeader.blockTimestampOrThrow();
                         long blockEpochMillis = blockTs.seconds() * 1000L + blockTs.nanos() / 1_000_000L;
                         long currentNanos = System.nanoTime();
                         if (speedCalcBlockTimeMillis == 0) {
@@ -905,7 +908,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
-                    Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
+                    BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
                     Object[] err = runParallelValidations(abRegistry, block, bNum, skipSignatures);
                     return err != null
                             ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
@@ -938,7 +941,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
-                    Block block = BlockZipsUtilities.decompressAndParse(raw, isZstd, isGz);
+                    BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
                     Object[] err = runParallelValidations(abRegistry, block, bNum, skipSignatures);
                     return err != null
                             ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
@@ -953,13 +956,13 @@ public class ValidateBlocksCommand implements Runnable {
      * instances per call to make thread safety obvious (construction is cheap).
      *
      * @param addressBookRegistry the address book registry for signature validation
-     * @param block the parsed block to validate
+     * @param block the shallow-parsed block to validate
      * @param blockNumber the block number
      * @param skipSignatures whether to skip signature validation
      * @return a two-element array {@code [validationName, exception]} on failure, or null if all passed
      */
     private static Object[] runParallelValidations(
-            AddressBookRegistry addressBookRegistry, Block block, long blockNumber, boolean skipSignatures) {
+            AddressBookRegistry addressBookRegistry, BlockUnparsed block, long blockNumber, boolean skipSignatures) {
         List<BlockValidation> checks = new ArrayList<>();
         checks.add(new RequiredItemsValidation());
         checks.add(new BlockStructureValidation());

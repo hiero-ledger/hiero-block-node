@@ -24,6 +24,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
@@ -58,6 +59,14 @@ class BlockValidationJimfsTest {
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
     private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private FileSystem fs;
     private Path root;
 
@@ -80,11 +89,11 @@ class BlockValidationJimfsTest {
     @Test
     void completeMerkleTree_saveAndLoad_onJimfs() throws Exception {
         BlockChainValidation chain = new BlockChainValidation();
-        chain.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         CompleteMerkleTreeValidation validation = new CompleteMerkleTreeValidation(fs.getPath("/dummy"), chain);
-        validation.commitState(VALID_BLOCK, 0);
+        validation.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Save to jimfs
         validation.save(root);
@@ -122,10 +131,10 @@ class BlockValidationJimfsTest {
         HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chain);
 
         // Must validate chain first so tree validation can capture the staged hash
-        chain.validate(VALID_BLOCK, 0);
-        treeValidation.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
-        treeValidation.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        treeValidation.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
+        treeValidation.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Save the streaming hasher state to a file on jimfs
         StreamingHasher hasher = treeValidation.getStreamingHasher();
@@ -156,10 +165,10 @@ class BlockValidationJimfsTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chain);
 
-        chain.validate(VALID_BLOCK, 0);
-        treeValidation.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
-        treeValidation.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        treeValidation.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
+        treeValidation.commitState(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chain.getPreviousBlockHash();
 
         StreamingHasher hasher = treeValidation.getStreamingHasher();
@@ -177,10 +186,10 @@ class BlockValidationJimfsTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chain);
 
-        chain.validate(VALID_BLOCK, 0);
-        treeValidation.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
-        treeValidation.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        treeValidation.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
+        treeValidation.commitState(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chain.getPreviousBlockHash();
 
         StreamingHasher hasher = treeValidation.getStreamingHasher();

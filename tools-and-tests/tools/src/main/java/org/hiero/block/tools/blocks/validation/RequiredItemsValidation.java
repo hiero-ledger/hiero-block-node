@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
 import java.util.List;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
 /**
@@ -31,8 +31,8 @@ public final class RequiredItemsValidation implements BlockValidation {
     }
 
     @Override
-    public void validate(final Block block, final long blockNumber) throws ValidationException {
-        final List<BlockItem> items = block.items();
+    public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
+        final List<BlockItemUnparsed> items = block.blockItems();
         if (items.isEmpty()) {
             throw new ValidationException("Block: " + blockNumber + " - Block has no items");
         }
@@ -40,7 +40,7 @@ public final class RequiredItemsValidation implements BlockValidation {
         boolean hasRecordFile = false;
         boolean hasFooter = false;
         boolean hasProof = false;
-        for (final BlockItem item : items) {
+        for (final BlockItemUnparsed item : items) {
             if (item.hasBlockHeader()) hasHeader = true;
             if (item.hasRecordFile()) hasRecordFile = true;
             if (item.hasBlockFooter()) hasFooter = true;

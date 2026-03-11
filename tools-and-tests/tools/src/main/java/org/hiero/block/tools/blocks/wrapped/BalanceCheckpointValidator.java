@@ -139,6 +139,34 @@ public class BalanceCheckpointValidator {
 
     /**
      * Check if the current block has passed any balance checkpoints that need validation.
+     * The account state is accessed lazily — balance maps are only created when a checkpoint
+     * is actually reached, avoiding massive HashMap allocations on every block.
+     *
+     * @param blockNumber the current block number
+     * @param accounts the running accounts state (maps are extracted only at checkpoint blocks)
+     * @throws ValidationException if balance validation fails
+     */
+    public void checkBlock(long blockNumber, RunningAccountsState accounts) throws ValidationException {
+        if (sortedCheckpointBlocks == null || sortedCheckpointBlocks.isEmpty()) {
+            return;
+        }
+
+        // Check if we've passed any checkpoints
+        while (nextCheckpointIndex < sortedCheckpointBlocks.size()) {
+            long checkpointBlock = sortedCheckpointBlocks.get(nextCheckpointIndex);
+            if (blockNumber >= checkpointBlock) {
+                // Only now create the expensive HashMap copies
+                validateCheckpoint(checkpointBlock, accounts.getHbarBalances(), accounts.getTokenBalances());
+                validatedCheckpoints.add(checkpointBlock);
+                nextCheckpointIndex++;
+            } else {
+                break;
+            }
+        }
+    }
+
+    /**
+     * Check if the current block has passed any balance checkpoints that need validation.
      * This overload validates HBAR balances only.
      *
      * @param blockNumber the current block number
@@ -155,7 +183,7 @@ public class BalanceCheckpointValidator {
      *
      * @param blockNumber the current block number
      * @param computedHbarBalances the current computed HBAR balance map
-     * @param computedTokenBalances the current computed token balance map (accountNum -> tokenNum -> balance), or null
+     * @param computedTokenBalances the current computed token balance map, or null
      * @throws ValidationException if balance validation fails
      */
     public void checkBlock(
@@ -164,8 +192,6 @@ public class BalanceCheckpointValidator {
         if (sortedCheckpointBlocks == null || sortedCheckpointBlocks.isEmpty()) {
             return;
         }
-
-        // Check if we've passed any checkpoints
         while (nextCheckpointIndex < sortedCheckpointBlocks.size()) {
             long checkpointBlock = sortedCheckpointBlocks.get(nextCheckpointIndex);
             if (blockNumber >= checkpointBlock) {

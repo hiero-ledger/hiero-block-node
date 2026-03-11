@@ -25,6 +25,7 @@ import com.hedera.hapi.streams.RecordStreamFile;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -52,6 +53,14 @@ class HbarSupplyValidationTest {
     private static final BlockItem PROOF_ITEM =
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     void emptyBlock_zeroSupply_throwsValidationException() {
         // With zero initial state and no transfers, total HBAR = 0, which != 50B.
@@ -60,7 +69,7 @@ class HbarSupplyValidationTest {
         // Build a block with only a header + footer + proof (no RecordFile or StateChanges)
         Block blockNoRecordFile = new Block(List.of(HEADER_ITEM, FOOTER_ITEM, PROOF_ITEM));
         ValidationException ex =
-                assertThrows(ValidationException.class, () -> validation.validate(blockNoRecordFile, 0));
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(blockNoRecordFile), 0));
         assertTrue(ex.getMessage().contains("HBAR supply mismatch"));
     }
 
@@ -96,8 +105,8 @@ class HbarSupplyValidationTest {
         // Genesis block: account 2 = 50B
         HbarSupplyValidation validation = new HbarSupplyValidation();
         Block genesis = buildGenesisBlock(2, HbarSupplyValidation.FIFTY_BILLION_HBAR_IN_TINYBAR);
-        validation.validate(genesis, 0);
-        validation.commitState(genesis, 0);
+        validation.validate(toUnparsed(genesis), 0);
+        validation.commitState(toUnparsed(genesis), 0);
         // Second block: two mapUpdate entries for account 2, first to 49B, then to 48B
         // Net delta: 48B - 50B = -2B, so total = 50B - 2B = 48B != 50B → should fail
         long fortyNineB = HbarSupplyValidation.FIFTY_BILLION_HBAR_IN_TINYBAR - 1_000_000_000_000_000_000L;
@@ -106,7 +115,8 @@ class HbarSupplyValidationTest {
         BlockItem update2 = buildMapUpdateItem(2, fortyEightB, 3L);
         Block block1 =
                 new Block(List.of(buildHeaderItem(1), update1, update2, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block1, 1));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block1), 1));
         assertTrue(ex.getMessage().contains("HBAR supply mismatch"));
     }
 
@@ -117,8 +127,8 @@ class HbarSupplyValidationTest {
         long tenB = 1_000_000_000_000_000_000L;
         HbarSupplyValidation validation = new HbarSupplyValidation();
         Block genesis = buildGenesisBlockTwoAccounts(2, fortyB, 3, tenB);
-        validation.validate(genesis, 0);
-        validation.commitState(genesis, 0);
+        validation.validate(toUnparsed(genesis), 0);
+        validation.commitState(toUnparsed(genesis), 0);
         // Second block: mapUpdate account 3 to 5B, then mapDelete account 3
         // With overlay: update gives delta = 5B - 10B = -5B, overlay now has acct3=5B
         // Delete gives delta = -5B (from overlay), total delta = -10B
@@ -128,7 +138,8 @@ class HbarSupplyValidationTest {
         BlockItem delete = buildMapDeleteItem(3, 3L);
         Block block1 =
                 new Block(List.of(buildHeaderItem(1), update, delete, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block1, 1));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block1), 1));
         assertTrue(ex.getMessage().contains("HBAR supply mismatch"));
     }
 
@@ -137,8 +148,8 @@ class HbarSupplyValidationTest {
         // Validate and commit genesis
         HbarSupplyValidation validation = new HbarSupplyValidation();
         Block genesis = buildGenesisBlock(2, HbarSupplyValidation.FIFTY_BILLION_HBAR_IN_TINYBAR);
-        validation.validate(genesis, 0);
-        validation.commitState(genesis, 0);
+        validation.validate(toUnparsed(genesis), 0);
+        validation.commitState(toUnparsed(genesis), 0);
         // Save state
         validation.save(tempDir);
         // Create new instance and load
@@ -149,7 +160,7 @@ class HbarSupplyValidationTest {
         // state change would try to set account 2 = 50B again, which is same as committed
         // → delta = 0, total still 50B → should pass
         Block block1 = new Block(List.of(buildHeaderItem(1), RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        assertDoesNotThrow(() -> restored.validate(block1, 1));
+        assertDoesNotThrow(() -> restored.validate(toUnparsed(block1), 1));
     }
 
     // ── Helper methods for building test blocks ──

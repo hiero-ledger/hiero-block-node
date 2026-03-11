@@ -18,6 +18,7 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.TestBlockFactory;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,15 @@ class BlockChainValidationTest {
             .build();
     private static final BlockItem PROOF_ITEM =
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
-    private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
+    private static final BlockUnparsed VALID_BLOCK = toUnparsed(new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM)));
+
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     @Test
     void firstBlock_withEmptyTreeHash_passes() {
@@ -66,7 +75,8 @@ class BlockChainValidationTest {
                         .build())
                 .build();
         Block badBlock = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, wrongFooter, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(badBlock, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(badBlock), 0));
         assertTrue(ex.getMessage().contains("First block should have empty-tree previous hash"));
     }
 
@@ -88,7 +98,8 @@ class BlockChainValidationTest {
         validation.commitState(VALID_BLOCK, 0);
         // The footer in VALID_BLOCK has EMPTY_TREE_HASH as previousBlockRootHash,
         // but the committed hash from block 0 won't be EMPTY_TREE_HASH
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(VALID_BLOCK, 1));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(VALID_BLOCK, 1));
         assertTrue(ex.getMessage().contains("previous block hash mismatch"));
     }
 
@@ -103,22 +114,23 @@ class BlockChainValidationTest {
         // Validate + commit block 0 using TestBlockFactory chain
         List<Block> chain = TestBlockFactory.createValidChain(2);
         BlockChainValidation validation = new BlockChainValidation();
-        validation.validate(chain.getFirst(), 0);
-        validation.commitState(chain.getFirst(), 0);
+        validation.validate(toUnparsed(chain.getFirst()), 0);
+        validation.commitState(toUnparsed(chain.getFirst()), 0);
         // Save state
         validation.save(tempDir);
         // Load into new instance
         BlockChainValidation restored = new BlockChainValidation();
         restored.load(tempDir);
         // Validate block 1 — should pass because the restored hash matches
-        assertDoesNotThrow(() -> restored.validate(chain.get(1), 1));
+        assertDoesNotThrow(() -> restored.validate(toUnparsed(chain.get(1)), 1));
     }
 
     @Test
     void missingFooter_throwsValidationException() {
         BlockChainValidation validation = new BlockChainValidation();
         Block noFooter = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(noFooter, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(noFooter), 0));
         assertTrue(ex.getMessage().contains("Block footer"));
     }
 }

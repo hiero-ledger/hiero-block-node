@@ -19,6 +19,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 
 /**
@@ -52,13 +53,13 @@ public final class BlockZipsUtilities {
     /**
      * Block that has been decompressed, parsed, and pre-validated (stateless checks run in parallel).
      *
-     * @param block the parsed block
+     * @param block the shallow-parsed block
      * @param blockNumber the block number
      * @param preValidationName the name of the validation that failed, or null if all passed
      * @param preValidationError the first validation failure from the parallel stage, or null if all passed
      */
     public record PreValidatedBlock(
-            Block block, long blockNumber, String preValidationName, Exception preValidationError) {}
+            BlockUnparsed block, long blockNumber, String preValidationName, Exception preValidationError) {}
 
     /**
      * Extract a block number from a filename matching block file patterns.
@@ -199,6 +200,33 @@ public final class BlockZipsUtilities {
             blockBytes = raw;
         }
         return Block.PROTOBUF.parse(BufferedData.wrap(blockBytes), true, false, 1000, 100 * 1024 * 1024); // 100MB
+    }
+    /**
+     * Decompresses raw bytes and parses them as a {@link BlockUnparsed} protobuf. BlockUnparsed is shallow parsed so
+     * block items are parsed enough to know their type and bytes but if you need more you will have to do a second
+     * parse on the block item. This is handy when you only need to parse a small subset of block items.
+     *
+     * @param raw compressed or uncompressed block bytes
+     * @param isZstd true if the bytes are zstd-compressed
+     * @param isGz true if the bytes are gzip-compressed
+     * @return the parsed Block
+     * @throws Exception if decompression or parsing fails
+     */
+    public static BlockUnparsed decompressAndPartialParse(byte[] raw, boolean isZstd, boolean isGz) throws Exception {
+        final byte[] blockBytes;
+        if (isZstd) {
+            try (InputStream is = new ZstdInputStream(new ByteArrayInputStream(raw))) {
+                blockBytes = is.readAllBytes();
+            }
+        } else if (isGz) {
+            try (InputStream is = new GZIPInputStream(new ByteArrayInputStream(raw))) {
+                blockBytes = is.readAllBytes();
+            }
+        } else {
+            blockBytes = raw;
+        }
+        return BlockUnparsed.PROTOBUF.parse(
+                BufferedData.wrap(blockBytes), true, false, 1000, 100 * 1024 * 1024); // 100MB
     }
 
     /**

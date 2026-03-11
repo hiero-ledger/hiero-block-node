@@ -16,6 +16,7 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
@@ -43,13 +44,21 @@ class CompleteMerkleTreeValidationTest {
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
     private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     void commitState_populatesHasher_and_finalize_passes(@TempDir Path tempDir) throws Exception {
         BlockChainValidation chain = new BlockChainValidation();
 
         // Process block 0
-        chain.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chain.getPreviousBlockHash();
 
         // Build the expected InMemoryTreeHasher and save to file
@@ -62,9 +71,9 @@ class CompleteMerkleTreeValidationTest {
         CompleteMerkleTreeValidation validation = new CompleteMerkleTreeValidation(stateFile, chain);
         // Re-validate so chain has stagedBlockHash available for getPreviousBlockHash
         chain.setPreviousBlockHash(null);
-        chain.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
-        validation.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
+        validation.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // finalize should pass because internal hasher matches file
         assertDoesNotThrow(() -> validation.finalize(1, 0));
@@ -73,8 +82,8 @@ class CompleteMerkleTreeValidationTest {
     @Test
     void mismatchedLeafCount_fails(@TempDir Path tempDir) throws Exception {
         BlockChainValidation chain = new BlockChainValidation();
-        chain.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Save a hasher with 1 leaf
         InMemoryTreeHasher hasher = new InMemoryTreeHasher();
@@ -94,8 +103,8 @@ class CompleteMerkleTreeValidationTest {
     @Test
     void mismatchedRootHash_fails(@TempDir Path tempDir) throws Exception {
         BlockChainValidation chain = new BlockChainValidation();
-        chain.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Save a hasher with a different hash
         InMemoryTreeHasher differentHasher = new InMemoryTreeHasher();
@@ -106,9 +115,9 @@ class CompleteMerkleTreeValidationTest {
         // Validation's internal hasher gets the real block hash via commitState
         CompleteMerkleTreeValidation validation = new CompleteMerkleTreeValidation(stateFile, chain);
         chain.setPreviousBlockHash(null);
-        chain.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
-        validation.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
+        validation.commitState(toUnparsed(VALID_BLOCK), 0);
 
         ValidationException ex = assertThrows(ValidationException.class, () -> validation.finalize(1, 0));
         assertTrue(ex.getMessage().contains("root hash mismatch"));
@@ -134,12 +143,12 @@ class CompleteMerkleTreeValidationTest {
     @Test
     void saveAndLoad_preservesState(@TempDir Path tempDir) throws Exception {
         BlockChainValidation chain = new BlockChainValidation();
-        chain.validate(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Create and populate a validation
         CompleteMerkleTreeValidation validation = new CompleteMerkleTreeValidation(Path.of("dummy"), chain);
-        validation.commitState(VALID_BLOCK, 0);
+        validation.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Save state
         validation.save(tempDir);

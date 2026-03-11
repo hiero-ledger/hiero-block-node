@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import com.hedera.hapi.block.stream.Block;
 import java.io.IOException;
 import java.nio.file.Path;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
 /**
@@ -71,7 +71,7 @@ public interface BlockValidation {
      * @param blockNumber the block number
      * @throws ValidationException if the block fails this validation
      */
-    void validate(Block block, long blockNumber) throws ValidationException;
+    void validate(BlockUnparsed block, long blockNumber) throws ValidationException;
 
     /**
      * Commit any staged state changes after ALL validations pass for a block. Called only
@@ -80,7 +80,7 @@ public interface BlockValidation {
      * @param block the block that passed validation
      * @param blockNumber the block number
      */
-    default void commitState(Block block, long blockNumber) {}
+    default void commitState(BlockUnparsed block, long blockNumber) {}
 
     /**
      * Save persistent state for crash recovery / resume.

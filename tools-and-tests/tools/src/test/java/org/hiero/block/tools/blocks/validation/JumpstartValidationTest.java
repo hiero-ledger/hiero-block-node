@@ -18,6 +18,7 @@ import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,14 @@ class JumpstartValidationTest {
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
     private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * Writes a jumpstart.bin file matching the given streaming hasher state.
      */
@@ -67,11 +76,11 @@ class JumpstartValidationTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
 
-        chain.validate(VALID_BLOCK, 0);
-        tree.validate(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.validate(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chain.getStagedBlockHash();
-        tree.commitState(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        tree.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         Path jumpstartFile = tempDir.resolve("jumpstart.bin");
         writeJumpstartFile(jumpstartFile, 0, blockHash, tree.getStreamingHasher());
@@ -85,11 +94,11 @@ class JumpstartValidationTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
 
-        chain.validate(VALID_BLOCK, 0);
-        tree.validate(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.validate(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chain.getStagedBlockHash();
-        tree.commitState(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        tree.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         Path jumpstartFile = tempDir.resolve("jumpstart.bin");
         // Write block number 99 instead of 0
@@ -105,11 +114,11 @@ class JumpstartValidationTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
 
-        chain.validate(VALID_BLOCK, 0);
-        tree.validate(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.validate(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chain.getStagedBlockHash();
-        tree.commitState(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        tree.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Write a jumpstart file with wrong leaf count
         Path jumpstartFile = tempDir.resolve("jumpstart.bin");
@@ -134,11 +143,11 @@ class JumpstartValidationTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
 
-        chain.validate(VALID_BLOCK, 0);
-        tree.validate(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.validate(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chain.getStagedBlockHash();
-        tree.commitState(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        tree.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Write a jumpstart file with different intermediate hashes (creating wrong root)
         Path jumpstartFile = tempDir.resolve("jumpstart.bin");

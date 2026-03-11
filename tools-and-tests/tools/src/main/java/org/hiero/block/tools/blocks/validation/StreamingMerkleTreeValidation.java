@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import com.hedera.hapi.block.stream.Block;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
@@ -51,7 +51,7 @@ public final class StreamingMerkleTreeValidation implements BlockValidation {
     }
 
     @Override
-    public void validate(final Block block, final long blockNumber) throws ValidationException {
+    public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
         // No per-block validation — state file is checked in finalize()
     }
 

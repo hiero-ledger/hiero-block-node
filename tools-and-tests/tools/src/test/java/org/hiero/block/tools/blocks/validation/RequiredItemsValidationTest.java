@@ -13,6 +13,7 @@ import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
 
@@ -37,43 +38,56 @@ class RequiredItemsValidationTest {
 
     private final RequiredItemsValidation validation = new RequiredItemsValidation();
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     void validBlock_passes() {
-        assertDoesNotThrow(() -> validation.validate(VALID_BLOCK, 0));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(VALID_BLOCK), 0));
     }
 
     @Test
     void emptyBlock_fails() {
         Block emptyBlock = new Block(List.of());
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(emptyBlock, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(emptyBlock), 0));
         assertTrue(ex.getMessage().contains("no items"));
     }
 
     @Test
     void missingHeader_fails() {
         Block block = new Block(List.of(RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("BlockHeader"));
     }
 
     @Test
     void missingRecordFile_fails() {
         Block block = new Block(List.of(HEADER_ITEM, FOOTER_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("RecordFile"));
     }
 
     @Test
     void missingFooter_fails() {
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, PROOF_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("BlockFooter"));
     }
 
     @Test
     void missingProof_fails() {
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM));
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(block, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 0));
         assertTrue(ex.getMessage().contains("BlockProof"));
     }
 

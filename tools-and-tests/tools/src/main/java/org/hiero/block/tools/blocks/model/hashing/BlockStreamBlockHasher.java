@@ -6,13 +6,14 @@ import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashIntern
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
 
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
-import com.hedera.hapi.block.stream.FilteredSingleItem;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.pbj.runtime.hashing.WritableMessageDigest;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.MessageDigest;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.utils.Sha384;
 
 /**
@@ -69,32 +70,64 @@ import org.hiero.block.tools.utils.Sha384;
 public class BlockStreamBlockHasher {
 
     /**
-     * Computes the root hash of a block. Using the `rootHashOfAllBlockHashesTree` from the block footer.
+     * Computes the root hash of a fully-parsed {@link Block} by re-serializing to bytes
+     * and delegating to {@link #hashBlock(BlockUnparsed)}.
      *
-     * <p>The computation follows the Block Merkle Tree Design:
-     * <ol>
-     *   <li>Extract block header and footer for required hashes</li>
-     *   <li>Build streaming merkle trees for each item category</li>
-     *   <li>Combine into the fixed 16-leaf root structure</li>
-     * </ol>
+     * <p>This overload exists for callers that already have a fully-parsed Block (e.g. the
+     * wrap command). For validation hot paths, prefer the {@link BlockUnparsed} overload.
      *
-     * @param block the block to hash (must contain BlockHeader and BlockFooter)
+     * @param block the fully-parsed block to hash
+     * @return the 48-byte SHA-384 block root hash
+     */
+    public static byte[] hashBlock(Block block) {
+        try {
+            Bytes bytes = Block.PROTOBUF.toBytes(block);
+            BlockUnparsed unparsed = BlockUnparsed.PROTOBUF.parse(bytes);
+            return hashBlock(unparsed);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to hash block", e);
+        }
+    }
+
+    /**
+     * Computes the root hash of a block using {@link BlockUnparsed} with zero-copy hashing.
+     *
+     * <p>Uses {@link WritableMessageDigest} to feed protobuf-encoded block items directly into
+     * the SHA-384 digest, avoiding intermediate byte[] allocations for each item.
+     *
+     * <p>Only the BlockHeader and BlockFooter are selectively parsed (for timestamps and
+     * fixed-position hashes); all other items are hashed directly from their raw bytes.
+     *
+     * @param block the unparsed block to hash (must contain BlockHeader and BlockFooter)
      * @return the 48-byte SHA-384 block root hash
      * @throws IllegalArgumentException if the block is missing the required header or footer
      */
-    public static byte[] hashBlock(Block block) {
+    public static byte[] hashBlock(BlockUnparsed block) {
+        try {
+            return hashBlockInternal(block);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to hash block", e);
+        }
+    }
+
+    private static byte[] hashBlockInternal(BlockUnparsed block) throws Exception {
         // create SHA-384 digest instance for all hashing
         final MessageDigest digest = Sha384.sha384Digest();
-        // extract block header and footer
-        final BlockHeader blockHeader = block.items().getFirst().blockHeader();
-        if (blockHeader == null) {
+        final WritableMessageDigest wmd = new WritableMessageDigest(digest);
+        // selectively parse block header from the first item's raw bytes
+        final BlockItemUnparsed firstItem = block.blockItems().getFirst();
+        if (!firstItem.hasBlockHeader()) {
             throw new IllegalArgumentException("Block is missing BlockHeader");
         }
-        final BlockFooter blockFooter = block.items().stream()
-                .filter(BlockItem::hasBlockFooter)
-                .findFirst()
-                .orElseThrow()
-                .blockFooter();
+        final BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(firstItem.blockHeaderOrThrow());
+        // find and selectively parse block footer
+        BlockFooter blockFooter = null;
+        for (final BlockItemUnparsed item : block.blockItems()) {
+            if (item.hasBlockFooter()) {
+                blockFooter = BlockFooter.PROTOBUF.parse(item.blockFooterOrThrow());
+                break;
+            }
+        }
         if (blockFooter == null) {
             throw new IllegalArgumentException("Block is missing BlockFooter");
         }
@@ -112,23 +145,47 @@ public class BlockStreamBlockHasher {
         final StreamingHasher outputItemsHasher = new StreamingHasher();
         final StreamingHasher stateChangeItemsHasher = new StreamingHasher();
         final StreamingHasher traceItemsHasher = new StreamingHasher();
-        for (BlockItem blockItem : block.items()) {
-            // protobuf serialization of item for hashing
-            final Bytes blockItemBytes = BlockItem.PROTOBUF.toBytes(blockItem);
-            // add the item to the appropriate merkle tree
+        for (final BlockItemUnparsed blockItem : block.blockItems()) {
             switch (blockItem.item().kind()) {
-                case EVENT_HEADER, ROUND_HEADER -> consensusHeadersHasher.addLeaf(blockItemBytes);
-                case SIGNED_TRANSACTION -> inputItemsHasher.addLeaf(blockItemBytes);
-                case BLOCK_HEADER, RECORD_FILE, TRANSACTION_RESULT, TRANSACTION_OUTPUT ->
-                    outputItemsHasher.addLeaf(blockItemBytes);
-                case STATE_CHANGES -> stateChangeItemsHasher.addLeaf(blockItemBytes);
-                case FILTERED_SINGLE_ITEM -> {
-                    FilteredSingleItem filteredItem = blockItem.filteredSingleItemOrThrow();
-                    Bytes hash = filteredItem.itemHash();
-                    // TODO work out which tree filtered item belongs to
-                    stateChangeItemsHasher.addLeaf(hash.toByteArray());
+                case EVENT_HEADER, ROUND_HEADER -> {
+                    // Write leaf prefix + serialized item directly into digest (zero-copy)
+                    digest.update(HashingUtils.LEAF_PREFIX);
+                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    consensusHeadersHasher.addNodeByHash(digest.digest());
                 }
-                case TRACE_DATA -> traceItemsHasher.addLeaf(blockItemBytes);
+                case SIGNED_TRANSACTION -> {
+                    digest.update(HashingUtils.LEAF_PREFIX);
+                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    inputItemsHasher.addNodeByHash(digest.digest());
+                }
+                case BLOCK_HEADER, RECORD_FILE, TRANSACTION_RESULT, TRANSACTION_OUTPUT -> {
+                    digest.update(HashingUtils.LEAF_PREFIX);
+                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    outputItemsHasher.addNodeByHash(digest.digest());
+                }
+                case STATE_CHANGES -> {
+                    digest.update(HashingUtils.LEAF_PREFIX);
+                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    stateChangeItemsHasher.addNodeByHash(digest.digest());
+                }
+                case FILTERED_SINGLE_ITEM -> {
+                    // Filtered items contain a pre-computed hash; parse to extract it
+                    final var filteredItem = com.hedera.hapi.block.stream.FilteredSingleItem.PROTOBUF.parse(
+                            blockItem.filteredSingleItemOrThrow());
+                    Bytes hash = filteredItem.itemHash();
+                    switch (filteredItem.tree()) {
+                        case CONSENSUS_HEADER_ITEMS -> consensusHeadersHasher.addNodeByHash(hash.toByteArray());
+                        case INPUT_ITEMS_TREE -> inputItemsHasher.addNodeByHash(hash.toByteArray());
+                        case OUTPUT_ITEMS_TREE -> outputItemsHasher.addNodeByHash(hash.toByteArray());
+                        case STATE_CHANGE_ITEMS_TREE -> stateChangeItemsHasher.addNodeByHash(hash.toByteArray());
+                        case TRACE_DATA_ITEMS_TREE -> traceItemsHasher.addNodeByHash(hash.toByteArray());
+                    }
+                }
+                case TRACE_DATA -> {
+                    digest.update(HashingUtils.LEAF_PREFIX);
+                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    traceItemsHasher.addNodeByHash(digest.digest());
+                }
                 case BLOCK_FOOTER -> {} // not part of any tree as it contains hashes that are elsewhere in the block
                 // tree
                 case BLOCK_PROOF -> {} // ignore, not hashed as it proves the hash so can't be part of it

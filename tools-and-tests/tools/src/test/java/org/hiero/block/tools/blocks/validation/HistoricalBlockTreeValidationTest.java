@@ -15,6 +15,7 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.TestBlockFactory;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,14 @@ class HistoricalBlockTreeValidationTest {
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
     private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     void firstBlock_matchesEmptyTree() {
         BlockChainValidation chain = new BlockChainValidation();
@@ -49,8 +58,8 @@ class HistoricalBlockTreeValidationTest {
         // First block: the streaming hasher has no leaves, so root = EMPTY_TREE_HASH
         // The FOOTER_ITEM has EMPTY_TREE_HASH as rootHashOfAllBlockHashesTree
         assertDoesNotThrow(() -> {
-            chain.validate(VALID_BLOCK, 0);
-            validation.validate(VALID_BLOCK, 0);
+            chain.validate(toUnparsed(VALID_BLOCK), 0);
+            validation.validate(toUnparsed(VALID_BLOCK), 0);
         });
     }
 
@@ -59,14 +68,15 @@ class HistoricalBlockTreeValidationTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation validation = new HistoricalBlockTreeValidation(chain);
         // Process first block
-        chain.validate(VALID_BLOCK, 0);
-        validation.validate(VALID_BLOCK, 0);
-        validation.commitState(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        validation.validate(toUnparsed(VALID_BLOCK), 0);
+        validation.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
         // After committing block 0, the streaming hasher has block 0's hash,
         // so root != EMPTY_TREE_HASH. VALID_BLOCK's footer still has EMPTY_TREE_HASH,
         // so tree validation should fail.
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(VALID_BLOCK, 1));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(VALID_BLOCK), 1));
         assertTrue(ex.getMessage().contains("Historical block tree root hash mismatch"));
     }
 
@@ -84,10 +94,10 @@ class HistoricalBlockTreeValidationTest {
         // Process block 0 through chain + tree
         BlockChainValidation chainValidation = new BlockChainValidation();
         HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chainValidation);
-        chainValidation.validate(chain.getFirst(), 0);
-        treeValidation.validate(chain.getFirst(), 0);
-        treeValidation.commitState(chain.getFirst(), 0);
-        chainValidation.commitState(chain.getFirst(), 0);
+        chainValidation.validate(toUnparsed(chain.getFirst()), 0);
+        treeValidation.validate(toUnparsed(chain.getFirst()), 0);
+        treeValidation.commitState(toUnparsed(chain.getFirst()), 0);
+        chainValidation.commitState(toUnparsed(chain.getFirst()), 0);
         // Save tree state
         treeValidation.save(tempDir);
         chainValidation.save(tempDir);
@@ -97,7 +107,7 @@ class HistoricalBlockTreeValidationTest {
         HistoricalBlockTreeValidation restoredTree = new HistoricalBlockTreeValidation(restoredChain);
         restoredTree.load(tempDir);
         // Validate block 1 — should pass because the streaming hasher was correctly restored
-        restoredChain.validate(chain.get(1), 1);
-        assertDoesNotThrow(() -> restoredTree.validate(chain.get(1), 1));
+        restoredChain.validate(toUnparsed(chain.get(1)), 1);
+        assertDoesNotThrow(() -> restoredTree.validate(toUnparsed(chain.get(1)), 1));
     }
 }

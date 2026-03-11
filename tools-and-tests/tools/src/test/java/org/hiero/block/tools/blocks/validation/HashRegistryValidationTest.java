@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
@@ -46,11 +47,19 @@ class HashRegistryValidationTest {
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
     private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     void hashMatch_passes(@TempDir Path tempDir) throws Exception {
         // First compute the block hash using BlockChainValidation
         BlockChainValidation chainValidation = new BlockChainValidation();
-        chainValidation.validate(VALID_BLOCK, 0);
+        chainValidation.validate(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chainValidation.getStagedBlockHash();
 
         // Write that hash to a registry file
@@ -61,14 +70,14 @@ class HashRegistryValidationTest {
 
         BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
         HashRegistryValidation validation = new HashRegistryValidation(registry, chainValidation);
-        assertDoesNotThrow(() -> validation.validate(VALID_BLOCK, 0));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(VALID_BLOCK), 0));
         validation.close();
     }
 
     @Test
     void hashMismatch_fails(@TempDir Path tempDir) throws Exception {
         BlockChainValidation chainValidation = new BlockChainValidation();
-        chainValidation.validate(VALID_BLOCK, 0);
+        chainValidation.validate(toUnparsed(VALID_BLOCK), 0);
 
         // Write a different (wrong) hash to the registry
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
@@ -80,7 +89,8 @@ class HashRegistryValidationTest {
 
         BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(registryPath);
         HashRegistryValidation validation = new HashRegistryValidation(registry, chainValidation);
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(VALID_BLOCK, 0));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(VALID_BLOCK), 0));
         assertTrue(ex.getMessage().contains("Hash mismatch"));
         validation.close();
     }
@@ -88,7 +98,7 @@ class HashRegistryValidationTest {
     @Test
     void finalize_matchingHighestBlock_passes(@TempDir Path tempDir) throws Exception {
         BlockChainValidation chainValidation = new BlockChainValidation();
-        chainValidation.validate(VALID_BLOCK, 0);
+        chainValidation.validate(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chainValidation.getStagedBlockHash();
 
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");
@@ -105,7 +115,7 @@ class HashRegistryValidationTest {
     @Test
     void finalize_mismatchedHighestBlock_fails(@TempDir Path tempDir) throws Exception {
         BlockChainValidation chainValidation = new BlockChainValidation();
-        chainValidation.validate(VALID_BLOCK, 0);
+        chainValidation.validate(toUnparsed(VALID_BLOCK), 0);
         byte[] blockHash = chainValidation.getStagedBlockHash();
 
         Path registryPath = tempDir.resolve("blockStreamBlockHashes.bin");

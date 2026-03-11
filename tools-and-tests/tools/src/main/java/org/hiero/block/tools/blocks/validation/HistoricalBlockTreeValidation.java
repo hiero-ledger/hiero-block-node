@@ -3,11 +3,13 @@ package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.tools.utils.PrettyPrint.simpleHash;
 
-import com.hedera.hapi.block.stream.Block;
-import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockFooter;
+import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
@@ -60,14 +62,25 @@ public final class HistoricalBlockTreeValidation implements BlockValidation {
     }
 
     @Override
-    public void validate(final Block block, final long blockNumber) throws ValidationException {
+    public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
         final byte[] expectedHash = streamingHasher.computeRootHash();
-        final var footer = block.items().stream()
-                .filter(BlockItem::hasBlockFooter)
-                .findFirst()
-                .orElseThrow(() -> new ValidationException(
-                        "Block: " + blockNumber + " - Block footer with historical block tree root not found"))
-                .blockFooterOrThrow();
+        // Find and selectively parse the footer
+        BlockFooter footer = null;
+        try {
+            for (final BlockItemUnparsed item : block.blockItems()) {
+                if (item.hasBlockFooter()) {
+                    footer = BlockFooter.PROTOBUF.parse(item.blockFooterOrThrow());
+                    break;
+                }
+            }
+        } catch (ParseException e) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Failed to parse BlockFooter: " + e.getMessage());
+        }
+        if (footer == null) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Block footer with historical block tree root not found");
+        }
         final var treeRootBytes = footer.rootHashOfAllBlockHashesTree();
         final byte[] readHash = treeRootBytes != null ? treeRootBytes.toByteArray() : null;
         if (!Arrays.equals(expectedHash, readHash)) {
@@ -80,7 +93,7 @@ public final class HistoricalBlockTreeValidation implements BlockValidation {
     }
 
     @Override
-    public void commitState(final Block block, final long blockNumber) {
+    public void commitState(final BlockUnparsed block, final long blockNumber) {
         streamingHasher.addNodeByHash(capturedBlockHash);
         capturedBlockHash = null;
     }

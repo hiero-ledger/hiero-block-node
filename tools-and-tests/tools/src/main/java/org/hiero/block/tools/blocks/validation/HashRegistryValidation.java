@@ -3,8 +3,8 @@ package org.hiero.block.tools.blocks.validation;
 
 import static org.hiero.block.tools.utils.PrettyPrint.simpleHash;
 
-import com.hedera.hapi.block.stream.Block;
 import java.util.Arrays;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
@@ -52,7 +52,7 @@ public final class HashRegistryValidation implements BlockValidation {
     }
 
     @Override
-    public void validate(final Block block, final long blockNumber) throws ValidationException {
+    public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
         final byte[] computedHash = chainValidation.getStagedBlockHash();
         final byte[] storedHash = registry.getBlockHash(blockNumber);
         if (!Arrays.equals(computedHash, storedHash)) {

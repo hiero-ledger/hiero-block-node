@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import com.hedera.hapi.block.stream.Block;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.wrapped.BalanceCheckpointValidator;
 import org.hiero.block.tools.blocks.wrapped.RunningAccountsState;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
@@ -52,9 +52,10 @@ public final class BalanceCheckpointValidation implements BlockValidation {
     }
 
     @Override
-    public void validate(final Block block, final long blockNumber) throws ValidationException {
-        // Check committed state (before this block) against checkpoints
-        checkpointValidator.checkBlock(blockNumber, accounts.getHbarBalances(), accounts.getTokenBalances());
+    public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
+        // Check committed state (before this block) against checkpoints.
+        // The maps are only created lazily inside checkBlock() when a checkpoint is reached.
+        checkpointValidator.checkBlock(blockNumber, accounts);
     }
 
     @Override

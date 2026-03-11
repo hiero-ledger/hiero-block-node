@@ -15,6 +15,7 @@ import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.wrapped.BalanceCheckpointValidator;
 import org.hiero.block.tools.blocks.wrapped.RunningAccountsState;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,14 @@ class BalanceCheckpointValidationTest {
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
     private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     void nameAndDescription_returnExpected() {
         RunningAccountsState accounts = new RunningAccountsState();
@@ -54,7 +63,7 @@ class BalanceCheckpointValidationTest {
         RunningAccountsState accounts = new RunningAccountsState();
         BalanceCheckpointValidator cpValidator = new BalanceCheckpointValidator();
         BalanceCheckpointValidation validation = new BalanceCheckpointValidation(accounts, cpValidator);
-        assertDoesNotThrow(() -> validation.validate(VALID_BLOCK, 0));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(VALID_BLOCK), 0));
     }
 
     @Test

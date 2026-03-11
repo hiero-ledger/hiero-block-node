@@ -16,6 +16,7 @@ import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.nio.file.Path;
 import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.junit.jupiter.api.Test;
@@ -43,16 +44,24 @@ class StreamingMerkleTreeValidationTest {
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
     private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
 
+    private static BlockUnparsed toUnparsed(Block block) {
+        try {
+            return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     void matchingStreamingHasher_passes(@TempDir Path tempDir) throws Exception {
         // Build a fresh streaming hasher and save it to a file
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
 
-        chain.validate(VALID_BLOCK, 0);
-        tree.validate(VALID_BLOCK, 0);
-        tree.commitState(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Save the streaming hasher state to a file
         Path stateFile = tempDir.resolve("streamingMerkleTree.bin");
@@ -68,10 +77,10 @@ class StreamingMerkleTreeValidationTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
 
-        chain.validate(VALID_BLOCK, 0);
-        tree.validate(VALID_BLOCK, 0);
-        tree.commitState(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Save the current state (1 leaf)
         Path stateFile = tempDir.resolve("streamingMerkleTree.bin");
@@ -88,10 +97,10 @@ class StreamingMerkleTreeValidationTest {
         BlockChainValidation chain = new BlockChainValidation();
         HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
 
-        chain.validate(VALID_BLOCK, 0);
-        tree.validate(VALID_BLOCK, 0);
-        tree.commitState(VALID_BLOCK, 0);
-        chain.commitState(VALID_BLOCK, 0);
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         // Save a different streaming hasher (with a different leaf) to the file
         StreamingHasher differentHasher = new StreamingHasher();
