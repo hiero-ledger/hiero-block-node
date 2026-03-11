@@ -11,9 +11,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.validation.TransferListExtractor.AccountTransfer;
@@ -105,7 +104,7 @@ public final class HbarSupplyValidation implements BlockValidation {
         // within a single block (each delta is computed against the most recent balance, not
         // always against the committed base state).
         long hbarDelta = 0;
-        final Map<Long, Long> inBlockBalances = new HashMap<>();
+        final LongLongHashMap inBlockBalances = new LongLongHashMap();
 
         for (final StateChanges stateChanges : parsedStateChanges) {
             for (final StateChange stateChange : stateChanges.stateChanges()) {
