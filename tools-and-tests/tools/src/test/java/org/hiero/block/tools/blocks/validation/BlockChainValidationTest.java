@@ -44,7 +44,8 @@ class BlockChainValidationTest {
             .build();
     private static final BlockItem PROOF_ITEM =
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
-    private static final BlockUnparsed VALID_BLOCK = toUnparsed(new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM)));
+    private static final BlockUnparsed VALID_BLOCK =
+            toUnparsed(new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM)));
 
     private static BlockUnparsed toUnparsed(Block block) {
         try {
@@ -98,8 +99,7 @@ class BlockChainValidationTest {
         validation.commitState(VALID_BLOCK, 0);
         // The footer in VALID_BLOCK has EMPTY_TREE_HASH as previousBlockRootHash,
         // but the committed hash from block 0 won't be EMPTY_TREE_HASH
-        ValidationException ex =
-                assertThrows(ValidationException.class, () -> validation.validate(VALID_BLOCK, 1));
+        ValidationException ex = assertThrows(ValidationException.class, () -> validation.validate(VALID_BLOCK, 1));
         assertTrue(ex.getMessage().contains("previous block hash mismatch"));
     }
 

@@ -1,17 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
-import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.MapChangeKey;
 import com.hedera.hapi.block.stream.output.MapChangeValue;
 import com.hedera.hapi.block.stream.output.MapUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.block.stream.output.StateChanges;
-import com.hedera.hapi.node.base.AccountAmount;
-import com.hedera.hapi.node.base.NftTransfer;
-import com.hedera.hapi.node.base.Timestamp;
-import com.hedera.hapi.node.base.TokenTransferList;
-import com.hedera.hapi.streams.RecordStreamItem;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -20,9 +14,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.tools.blocks.validation.TransferListExtractor.AccountTransfer;
+import org.hiero.block.tools.blocks.validation.TransferListExtractor.ExtractedTransfers;
+import org.hiero.block.tools.blocks.validation.TransferListExtractor.NftTransferInfo;
+import org.hiero.block.tools.blocks.validation.TransferListExtractor.TokenTransferData;
+import org.hiero.block.tools.blocks.validation.TransferListExtractor.TransferData;
 import org.hiero.block.tools.blocks.wrapped.RunningAccountsState;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
@@ -38,10 +36,16 @@ import org.hiero.block.tools.records.model.parsed.ValidationException;
  *
  * <p>The validate/commit protocol works as follows:
  * <ul>
- *   <li>{@link #validate} computes the HBAR balance delta from this block's items without
- *       modifying the base state, then checks that {@code base_total + delta == 50B}.
- *   <li>{@link #commitState} applies the block's mutations to the base {@link RunningAccountsState}.
+ *   <li>{@link #validate} parses StateChanges and extracts transfer lists once, computes the
+ *       HBAR balance delta, and caches the results for reuse in {@link #commitState}.
+ *   <li>{@link #commitState} applies the cached mutations to the base {@link RunningAccountsState}
+ *       without re-parsing the block.
  * </ul>
+ *
+ * <p>RecordFile items are parsed using {@link TransferListExtractor} which navigates the
+ * protobuf wire format directly, skipping the Transaction field and unused TransactionRecord
+ * fields entirely. This avoids the vast majority of object allocation that a full parse would
+ * incur.
  *
  * <p>This validation requires starting from block 0 because the full account state history
  * is needed.
@@ -54,8 +58,11 @@ public final class HbarSupplyValidation implements BlockValidation {
     /** The running account state. */
     private final RunningAccountsState accounts = new RunningAccountsState();
 
-    /** The block staged for commit (set during validate, applied during commitState). */
-    private BlockUnparsed stagedBlock;
+    /** Parsed StateChanges cached between validate() and commitState() to avoid double-parsing. */
+    private List<StateChanges> stagedStateChanges;
+
+    /** Extracted transfer data cached between validate() and commitState() to avoid double-parsing. */
+    private List<List<TransferData>> stagedMergedTransfers;
 
     @Override
     public String name() {
@@ -74,64 +81,67 @@ public final class HbarSupplyValidation implements BlockValidation {
 
     @Override
     public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
-        // Compute the net HBAR delta from this block's items without modifying the base state.
+        // Parse StateChanges and extract transfer lists once, cache for commitState().
+        final List<StateChanges> parsedStateChanges = new ArrayList<>();
+        final List<List<TransferData>> mergedTransfersList = new ArrayList<>();
+
+        try {
+            for (final BlockItemUnparsed item : block.blockItems()) {
+                if (item.hasStateChanges()) {
+                    parsedStateChanges.add(StateChanges.PROTOBUF.parse(item.stateChangesOrThrow()));
+                } else if (item.hasRecordFile()) {
+                    final ExtractedTransfers extracted = TransferListExtractor.extract(item.recordFileOrThrow());
+                    mergedTransfersList.add(
+                            TransferListExtractor.mergeTransferData(extracted.items(), extracted.amendments()));
+                }
+            }
+        } catch (ParseException e) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Failed to parse block items: " + e.getMessage());
+        }
+
+        // Compute the net HBAR delta without modifying the base state.
         // Use an in-block overlay to correctly handle multiple updates to the same account
         // within a single block (each delta is computed against the most recent balance, not
         // always against the committed base state).
         long hbarDelta = 0;
         final Map<Long, Long> inBlockBalances = new HashMap<>();
 
-        try {
-            for (final BlockItemUnparsed item : block.blockItems()) {
-                if (item.hasStateChanges()) {
-                    final StateChanges stateChanges = StateChanges.PROTOBUF.parse(item.stateChangesOrThrow());
-                    for (final StateChange stateChange : stateChanges.stateChanges()) {
-                        if (stateChange.hasMapUpdate()) {
-                            final MapUpdateChange mapUpdate = stateChange.mapUpdateOrThrow();
-                            final MapChangeKey key = mapUpdate.keyOrThrow();
-                            final MapChangeValue value = mapUpdate.valueOrThrow();
-                            if (key.hasAccountIdKey() && value.hasAccountValue()) {
-                                final long accountNum =
-                                        key.accountIdKeyOrThrow().accountNumOrThrow();
-                                final long newBalance =
-                                        value.accountValueOrThrow().tinybarBalance();
-                                final long oldBalance = inBlockBalances.containsKey(accountNum)
-                                        ? inBlockBalances.get(accountNum)
-                                        : accounts.getHbarBalance(accountNum);
-                                hbarDelta += (newBalance - oldBalance);
-                                inBlockBalances.put(accountNum, newBalance);
-                            }
-                        } else if (stateChange.hasMapDelete()) {
-                            final MapChangeKey key =
-                                    stateChange.mapDeleteOrThrow().keyOrThrow();
-                            if (key.hasAccountIdKey()) {
-                                final long accountNum =
-                                        key.accountIdKeyOrThrow().accountNumOrThrow();
-                                final long oldBalance = inBlockBalances.containsKey(accountNum)
-                                        ? inBlockBalances.get(accountNum)
-                                        : accounts.getHbarBalance(accountNum);
-                                hbarDelta -= oldBalance;
-                                inBlockBalances.remove(accountNum);
-                            }
-                        }
+        for (final StateChanges stateChanges : parsedStateChanges) {
+            for (final StateChange stateChange : stateChanges.stateChanges()) {
+                if (stateChange.hasMapUpdate()) {
+                    final MapUpdateChange mapUpdate = stateChange.mapUpdateOrThrow();
+                    final MapChangeKey key = mapUpdate.keyOrThrow();
+                    final MapChangeValue value = mapUpdate.valueOrThrow();
+                    if (key.hasAccountIdKey() && value.hasAccountValue()) {
+                        final long accountNum = key.accountIdKeyOrThrow().accountNumOrThrow();
+                        final long newBalance = value.accountValueOrThrow().tinybarBalance();
+                        final long oldBalance = inBlockBalances.containsKey(accountNum)
+                                ? inBlockBalances.get(accountNum)
+                                : accounts.getHbarBalance(accountNum);
+                        hbarDelta += (newBalance - oldBalance);
+                        inBlockBalances.put(accountNum, newBalance);
                     }
-                } else if (item.hasRecordFile()) {
-                    final RecordFileItem recordFile = RecordFileItem.PROTOBUF.parse(item.recordFileOrThrow());
-                    final List<RecordStreamItem> mergedItems = mergeRecordStreamItems(
-                            recordFile.recordFileContentsOrThrow().recordStreamItems(), recordFile.amendments());
-                    for (final RecordStreamItem recordStreamItem : mergedItems) {
-                        for (final AccountAmount accountAmount : recordStreamItem
-                                .recordOrThrow()
-                                .transferListOrThrow()
-                                .accountAmounts()) {
-                            hbarDelta += accountAmount.amount();
-                        }
+                } else if (stateChange.hasMapDelete()) {
+                    final MapChangeKey key = stateChange.mapDeleteOrThrow().keyOrThrow();
+                    if (key.hasAccountIdKey()) {
+                        final long accountNum = key.accountIdKeyOrThrow().accountNumOrThrow();
+                        final long oldBalance = inBlockBalances.containsKey(accountNum)
+                                ? inBlockBalances.get(accountNum)
+                                : accounts.getHbarBalance(accountNum);
+                        hbarDelta -= oldBalance;
+                        inBlockBalances.remove(accountNum);
                     }
                 }
             }
-        } catch (ParseException e) {
-            throw new ValidationException(
-                    "Block: " + blockNumber + " - Failed to parse block items: " + e.getMessage());
+        }
+
+        for (final List<TransferData> mergedItems : mergedTransfersList) {
+            for (final TransferData td : mergedItems) {
+                for (final AccountTransfer at : td.hbarTransfers()) {
+                    hbarDelta += at.amount();
+                }
+            }
         }
 
         // Verify total HBAR supply using base total + delta
@@ -143,15 +153,17 @@ public final class HbarSupplyValidation implements BlockValidation {
                     + difference + ")");
         }
 
-        // Stage the block for commit
-        stagedBlock = block;
+        // Stage the parsed items for commitState()
+        stagedStateChanges = parsedStateChanges;
+        stagedMergedTransfers = mergedTransfersList;
     }
 
     @Override
     public void commitState(final BlockUnparsed block, final long blockNumber) {
-        // Apply all mutations to the base state
-        applyBlockToAccounts(stagedBlock, accounts);
-        stagedBlock = null;
+        // Apply cached parsed items to the base state (no re-parsing needed)
+        applyToAccounts(stagedStateChanges, stagedMergedTransfers, accounts);
+        stagedStateChanges = null;
+        stagedMergedTransfers = null;
     }
 
     /**
@@ -165,70 +177,54 @@ public final class HbarSupplyValidation implements BlockValidation {
     }
 
     /**
-     * Applies all balance mutations from a block to the given accounts state.
-     * Selectively parses only StateChanges and RecordFile items from the unparsed block.
+     * Applies all balance mutations from pre-parsed StateChanges and extracted transfer data
+     * to the given accounts state.
      *
-     * @param block the block whose state changes and transfers to apply
+     * @param stateChangesList the parsed StateChanges items
+     * @param mergedTransfersList the pre-merged transfer data per RecordFileItem
      * @param accounts the running account state to mutate
      */
-    public static void applyBlockToAccounts(final BlockUnparsed block, final RunningAccountsState accounts) {
-        try {
-            for (final BlockItemUnparsed item : block.blockItems()) {
-                if (item.hasStateChanges()) {
-                    final StateChanges stateChanges = StateChanges.PROTOBUF.parse(item.stateChangesOrThrow());
-                    for (final StateChange stateChange : stateChanges.stateChanges()) {
-                        if (stateChange.hasMapUpdate()) {
-                            final MapUpdateChange mapUpdate = stateChange.mapUpdateOrThrow();
-                            final MapChangeKey key = mapUpdate.keyOrThrow();
-                            final MapChangeValue value = mapUpdate.valueOrThrow();
-                            if (key.hasAccountIdKey() && value.hasAccountValue()) {
-                                accounts.setHbarBalance(
-                                        key.accountIdKeyOrThrow().accountNumOrThrow(),
-                                        value.accountValueOrThrow().tinybarBalance());
-                            }
-                        } else if (stateChange.hasMapDelete()) {
-                            final MapChangeKey key =
-                                    stateChange.mapDeleteOrThrow().keyOrThrow();
-                            if (key.hasAccountIdKey()) {
-                                accounts.deleteAccount(key.accountIdKeyOrThrow().accountNumOrThrow());
-                            }
-                        }
+    private static void applyToAccounts(
+            final List<StateChanges> stateChangesList,
+            final List<List<TransferData>> mergedTransfersList,
+            final RunningAccountsState accounts) {
+        for (final StateChanges stateChanges : stateChangesList) {
+            for (final StateChange stateChange : stateChanges.stateChanges()) {
+                if (stateChange.hasMapUpdate()) {
+                    final MapUpdateChange mapUpdate = stateChange.mapUpdateOrThrow();
+                    final MapChangeKey key = mapUpdate.keyOrThrow();
+                    final MapChangeValue value = mapUpdate.valueOrThrow();
+                    if (key.hasAccountIdKey() && value.hasAccountValue()) {
+                        accounts.setHbarBalance(
+                                key.accountIdKeyOrThrow().accountNumOrThrow(),
+                                value.accountValueOrThrow().tinybarBalance());
                     }
-                } else if (item.hasRecordFile()) {
-                    final RecordFileItem recordFile = RecordFileItem.PROTOBUF.parse(item.recordFileOrThrow());
-                    final List<RecordStreamItem> mergedItems = mergeRecordStreamItems(
-                            recordFile.recordFileContentsOrThrow().recordStreamItems(), recordFile.amendments());
-                    for (final RecordStreamItem recordStreamItem : mergedItems) {
-                        // HBAR transfers
-                        for (final AccountAmount accountAmount : recordStreamItem
-                                .recordOrThrow()
-                                .transferListOrThrow()
-                                .accountAmounts()) {
-                            accounts.applyHbarChange(
-                                    accountAmount.accountIDOrThrow().accountNumOrThrow(), accountAmount.amount());
-                        }
-                        // Token transfers
-                        for (final TokenTransferList tokenTransferList :
-                                recordStreamItem.recordOrThrow().tokenTransferLists()) {
-                            final long tokenNum =
-                                    tokenTransferList.tokenOrThrow().tokenNum();
-                            for (final AccountAmount transfer : tokenTransferList.transfers()) {
-                                accounts.applyFungibleTokenChange(
-                                        transfer.accountIDOrThrow().accountNumOrThrow(), tokenNum, transfer.amount());
-                            }
-                            for (final NftTransfer nftTransfer : tokenTransferList.nftTransfers()) {
-                                accounts.applyNftTransfer(
-                                        nftTransfer.senderAccountIDOrThrow().accountNumOrThrow(),
-                                        nftTransfer.receiverAccountIDOrThrow().accountNumOrThrow(),
-                                        tokenNum,
-                                        nftTransfer.serialNumber());
-                            }
-                        }
+                } else if (stateChange.hasMapDelete()) {
+                    final MapChangeKey key = stateChange.mapDeleteOrThrow().keyOrThrow();
+                    if (key.hasAccountIdKey()) {
+                        accounts.deleteAccount(key.accountIdKeyOrThrow().accountNumOrThrow());
                     }
                 }
             }
-        } catch (ParseException e) {
-            throw new RuntimeException("Failed to parse block items in applyBlockToAccounts", e);
+        }
+
+        for (final List<TransferData> mergedItems : mergedTransfersList) {
+            for (final TransferData td : mergedItems) {
+                // HBAR transfers
+                for (final AccountTransfer at : td.hbarTransfers()) {
+                    accounts.applyHbarChange(at.accountNum(), at.amount());
+                }
+                // Token transfers
+                for (final TokenTransferData ttd : td.tokenTransfers()) {
+                    for (final AccountTransfer ft : ttd.transfers()) {
+                        accounts.applyFungibleTokenChange(ft.accountNum(), ttd.tokenNum(), ft.amount());
+                    }
+                    for (final NftTransferInfo nft : ttd.nftTransfers()) {
+                        accounts.applyNftTransfer(
+                                nft.senderAccountNum(), nft.receiverAccountNum(), ttd.tokenNum(), nft.serialNumber());
+                    }
+                }
+            }
         }
     }
 
@@ -244,31 +240,5 @@ public final class HbarSupplyValidation implements BlockValidation {
         Path file = directory.resolve(SAVE_FILE_NAME);
         if (!Files.exists(file)) return;
         accounts.load(file);
-    }
-
-    /**
-     * Merges original record stream items with amendments, sorted by consensus timestamp.
-     *
-     * @param original the original record stream items from the record file
-     * @param amendments the amendment items to merge in (may replace or add)
-     * @return a new list containing merged items sorted by consensus timestamp
-     */
-    static List<RecordStreamItem> mergeRecordStreamItems(
-            final List<RecordStreamItem> original, final List<RecordStreamItem> amendments) {
-        if (amendments.isEmpty()) {
-            return original;
-        }
-        final Map<Long, RecordStreamItem> itemsByTimestamp = new TreeMap<>();
-        for (final RecordStreamItem item : original) {
-            final Timestamp ts = item.recordOrThrow().consensusTimestampOrThrow();
-            final long key = ts.seconds() * 1_000_000_000L + ts.nanos();
-            itemsByTimestamp.put(key, item);
-        }
-        for (final RecordStreamItem amendment : amendments) {
-            final Timestamp ts = amendment.recordOrThrow().consensusTimestampOrThrow();
-            final long key = ts.seconds() * 1_000_000_000L + ts.nanos();
-            itemsByTimestamp.put(key, amendment);
-        }
-        return new ArrayList<>(itemsByTimestamp.values());
     }
 }

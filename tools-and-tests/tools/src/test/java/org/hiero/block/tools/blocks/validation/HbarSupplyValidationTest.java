@@ -92,10 +92,10 @@ class HbarSupplyValidationTest {
     }
 
     @Test
-    void mergeRecordStreamItems_emptyAmendments_returnsOriginal() {
-        // Test that mergeRecordStreamItems returns original list when amendments are empty
+    void mergeTransferData_emptyAmendments_returnsOriginal() {
+        // Test that mergeTransferData returns original list when amendments are empty
         assertDoesNotThrow(() -> {
-            List<?> result = HbarSupplyValidation.mergeRecordStreamItems(List.of(), List.of());
+            List<?> result = TransferListExtractor.mergeTransferData(List.of(), List.of());
             assertTrue(result.isEmpty());
         });
     }

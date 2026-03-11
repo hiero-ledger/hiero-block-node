@@ -521,7 +521,7 @@ public class ValidateBlocksCommand implements Runnable {
                                     byte[] raw = Files.readAllBytes(path);
                                     BlockUnparsed block =
                                             BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                                    Object[] err = runParallelValidations(abRegistry, block, bNum, skipSignatures);
+                                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
                                     return err != null
                                             ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
                                             : new PreValidatedBlock(block, bNum, null, null);
@@ -541,7 +541,7 @@ public class ValidateBlocksCommand implements Runnable {
                                 }
 
                                 try {
-                                    readZipEntries(zipPath, wanted, abRegistry, skipSignatures, blockQueue, decompPool);
+                                    readZipEntries(zipPath, wanted, parallelValidations, blockQueue, decompPool);
                                 } catch (IOException e) {
                                     corruptZipCount.incrementAndGet();
                                     System.out.println(Ansi.AUTO.string(
@@ -869,17 +869,16 @@ public class ValidateBlocksCommand implements Runnable {
     private static void readZipEntries(
             Path zipPath,
             Set<String> wanted,
-            AddressBookRegistry abRegistry,
-            boolean skipSignatures,
+            List<BlockValidation> parallelValidations,
             BlockingQueue<Future<PreValidatedBlock>> blockQueue,
             ExecutorService decompPool)
             throws IOException, InterruptedException {
         try {
-            readZipEntriesViaStream(zipPath, wanted, abRegistry, skipSignatures, blockQueue, decompPool);
+            readZipEntriesViaStream(zipPath, wanted, parallelValidations, blockQueue, decompPool);
         } catch (IOException streamErr) {
             // ZipInputStream rejects STORED entries with data descriptors (General Purpose Bit 3).
             // Fall back to ZipFile which uses the Central Directory and handles any valid zip.
-            readZipEntriesViaRandomAccess(zipPath, wanted, abRegistry, skipSignatures, blockQueue, decompPool);
+            readZipEntriesViaRandomAccess(zipPath, wanted, parallelValidations, blockQueue, decompPool);
         }
     }
 
@@ -887,8 +886,7 @@ public class ValidateBlocksCommand implements Runnable {
     private static void readZipEntriesViaStream(
             Path zipPath,
             Set<String> wanted,
-            AddressBookRegistry abRegistry,
-            boolean skipSignatures,
+            List<BlockValidation> parallelValidations,
             BlockingQueue<Future<PreValidatedBlock>> blockQueue,
             ExecutorService decompPool)
             throws IOException, InterruptedException {
@@ -909,7 +907,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
                     BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    Object[] err = runParallelValidations(abRegistry, block, bNum, skipSignatures);
+                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
                     return err != null
                             ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
                             : new PreValidatedBlock(block, bNum, null, null);
@@ -922,8 +920,7 @@ public class ValidateBlocksCommand implements Runnable {
     private static void readZipEntriesViaRandomAccess(
             Path zipPath,
             Set<String> wanted,
-            AddressBookRegistry abRegistry,
-            boolean skipSignatures,
+            List<BlockValidation> parallelValidations,
             BlockingQueue<Future<PreValidatedBlock>> blockQueue,
             ExecutorService decompPool)
             throws IOException, InterruptedException {
@@ -942,7 +939,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
                     BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    Object[] err = runParallelValidations(abRegistry, block, bNum, skipSignatures);
+                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
                     return err != null
                             ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
                             : new PreValidatedBlock(block, bNum, null, null);
@@ -952,23 +949,15 @@ public class ValidateBlocksCommand implements Runnable {
     }
 
     /**
-     * Runs stateless validations that can safely execute in parallel on worker threads. Creates fresh validation
-     * instances per call to make thread safety obvious (construction is cheap).
+     * Runs stateless validations that can safely execute in parallel on worker threads.
      *
-     * @param addressBookRegistry the address book registry for signature validation
+     * @param checks the pre-built list of stateless validations to run
      * @param block the shallow-parsed block to validate
      * @param blockNumber the block number
-     * @param skipSignatures whether to skip signature validation
      * @return a two-element array {@code [validationName, exception]} on failure, or null if all passed
      */
     private static Object[] runParallelValidations(
-            AddressBookRegistry addressBookRegistry, BlockUnparsed block, long blockNumber, boolean skipSignatures) {
-        List<BlockValidation> checks = new ArrayList<>();
-        checks.add(new RequiredItemsValidation());
-        checks.add(new BlockStructureValidation());
-        if (!skipSignatures) {
-            checks.add(new SignatureValidation(addressBookRegistry));
-        }
+            List<BlockValidation> checks, BlockUnparsed block, long blockNumber) {
         for (BlockValidation v : checks) {
             try {
                 v.validate(block, blockNumber);
