@@ -721,7 +721,7 @@ public class ValidateBlocksCommand implements Runnable {
             decompPool.shutdownNow();
 
             // ── Finalize all validations (end-of-stream checks) ─────────────
-            if (failedValidationName == null) {
+            if (failedValidationName == null && failureMessage == null) {
                 for (BlockValidation v : validations) {
                     try {
                         v.finalize(blocksValidated, lastValidatedRef[0]);
@@ -735,7 +735,7 @@ public class ValidateBlocksCommand implements Runnable {
             }
 
             // Fail if blocks were skipped due to corrupt zips
-            if (failedValidationName == null && skippedBlockCount > 0) {
+            if (failedValidationName == null && failureMessage == null && skippedBlockCount > 0) {
                 failedValidationName = "Skipped Blocks";
                 failureMessage =
                         skippedBlockCount + " blocks were skipped (corrupt zip files) and could not be" + " validated";
