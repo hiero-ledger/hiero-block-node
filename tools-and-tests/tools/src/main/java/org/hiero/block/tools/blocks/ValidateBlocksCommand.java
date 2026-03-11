@@ -301,21 +301,26 @@ public class ValidateBlocksCommand implements Runnable {
                     streamingMerkleTreePath = file.resolve("streamingMerkleTree.bin");
                     completeMerkleTreePath = file.resolve("completeMerkleTree.bin");
                     jumpstartPath = file.resolve("jumpstart.bin");
+                    break;
                 }
             }
         }
         final boolean hasStateFiles = (hashRegistryPath != null);
 
-        System.out.println(
-                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
-        System.out.println(Ansi.AUTO.string("@|bold,cyan   BLOCK STREAM VALIDATION|@"));
-        System.out.println(
-                Ansi.AUTO.string("@|bold,cyan ════════════════════════════════════════════════════════════|@"));
-        System.out.println();
-        System.out.println(Ansi.AUTO.string("@|yellow Total blocks to validate:|@ " + sources.size()));
-        System.out.println(Ansi.AUTO.string("@|yellow Block range:|@ "
-                + sources.getFirst().blockNumber() + " - " + sources.getLast().blockNumber()));
-        System.out.println(Ansi.AUTO.string("@|yellow Threads:|@ " + threads + "  prefetch: " + prefetch));
+        System.out.print(Ansi.AUTO.string("""
+              @|bold,cyan ════════════════════════════════════════════════════════════|@
+              @|bold,cyan   BLOCK STREAM VALIDATION|@
+              @|bold,cyan ════════════════════════════════════════════════════════════|@
+
+              @|yellow Total blocks to validate:|@ %d
+              @|yellow Block range:|@ %d - %d
+              @|yellow Threads:|@ %d  prefetch: %d
+              """.formatted(
+                        sources.size(),
+                        sources.getFirst().blockNumber(),
+                        sources.getLast().blockNumber(),
+                        threads,
+                        prefetch)));
         if (hasStateFiles) {
             System.out.println(Ansi.AUTO.string("@|yellow State files found:|@ blockStreamBlockHashes.bin, "
                     + "streamingMerkleTree.bin, completeMerkleTree.bin, jumpstart.bin"));
@@ -652,11 +657,13 @@ public class ValidateBlocksCommand implements Runnable {
                     }
 
                     if (verbose) {
+                        final String blockHash = (chainValidation.getPreviousBlockHash() != null)
+                                ? Bytes.wrap(chainValidation.getPreviousBlockHash())
+                                        .toHex()
+                                : "null";
                         System.out.println("Block " + blockNum + ": "
                                 + Ansi.AUTO.string("@|green VALID|@") + " (hash: "
-                                + Bytes.wrap(chainValidation.getPreviousBlockHash())
-                                        .toHex()
-                                        .substring(0, 8)
+                                + blockHash
                                 + ")");
                     }
 
@@ -669,34 +676,28 @@ public class ValidateBlocksCommand implements Runnable {
 
                         // Compute speed multiplier (consensus-time / wall-clock)
                         Timestamp blockTs =
-                                block.items().getFirst().blockHeader().blockTimestampOrElse(null);
-                        if (blockTs != null) {
-                            long blockEpochMillis = blockTs.seconds() * 1000L + blockTs.nanos() / 1_000_000L;
-                            long currentNanos = System.nanoTime();
-                            if (speedCalcBlockTimeMillis == 0) {
+                                block.items().getFirst().blockHeaderOrThrow().blockTimestampOrThrow();
+                        long blockEpochMillis = blockTs.seconds() * 1000L + blockTs.nanos() / 1_000_000L;
+                        long currentNanos = System.nanoTime();
+                        if (speedCalcBlockTimeMillis == 0) {
+                            speedCalcBlockTimeMillis = blockEpochMillis;
+                            speedCalcRealTimeNanos = currentNanos;
+                            speedString = "";
+                        } else {
+                            long realElapsedNanos = currentNanos - speedCalcRealTimeNanos;
+                            // Reset tracking window every 10 seconds of real time
+                            if (realElapsedNanos >= 10_000_000_000L) {
+                                long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
+                                long realTimeMs = realElapsedNanos / 1_000_000L;
+                                double multiplier = (double) dataTimeMs / (double) realTimeMs;
+                                speedString = String.format(" speed %.1fx", multiplier);
                                 speedCalcBlockTimeMillis = blockEpochMillis;
                                 speedCalcRealTimeNanos = currentNanos;
-                                speedString = "";
-                            } else {
-                                long realElapsedNanos = currentNanos - speedCalcRealTimeNanos;
-                                // Reset tracking window every 10 seconds of real time
-                                if (realElapsedNanos >= 10_000_000_000L) {
-                                    long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
-                                    long realTimeMs = realElapsedNanos / 1_000_000L;
-                                    if (realTimeMs > 0) {
-                                        double multiplier = (double) dataTimeMs / (double) realTimeMs;
-                                        speedString = String.format(" speed %.1fx", multiplier);
-                                    }
-                                    speedCalcBlockTimeMillis = blockEpochMillis;
-                                    speedCalcRealTimeNanos = currentNanos;
-                                } else if (realElapsedNanos >= 1_000_000_000L) {
-                                    long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
-                                    long realTimeMs = realElapsedNanos / 1_000_000L;
-                                    if (realTimeMs > 0) {
-                                        double multiplier = (double) dataTimeMs / (double) realTimeMs;
-                                        speedString = String.format(" speed %.1fx", multiplier);
-                                    }
-                                }
+                            } else if (realElapsedNanos >= 1_000_000_000L) {
+                                long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
+                                long realTimeMs = realElapsedNanos / 1_000_000L;
+                                double multiplier = (double) dataTimeMs / (double) realTimeMs;
+                                speedString = String.format(" speed %.1fx", multiplier);
                             }
                         }
 
@@ -707,11 +708,16 @@ public class ValidateBlocksCommand implements Runnable {
                     }
 
                 } catch (Exception e) {
-                    failureMessage = e.getMessage();
+                    failedValidationName = "Block Processing";
+                    // Unwrap ExecutionException to surface the actual cause
+                    Throwable cause = (e instanceof java.util.concurrent.ExecutionException && e.getCause() != null)
+                            ? e.getCause()
+                            : e;
+                    failureMessage = cause.getMessage() != null ? cause.getMessage() : cause.toString();
                     failedBlockNumber = blockNum;
-                    if (verbose) {
-                        e.printStackTrace();
-                    }
+                    // Always print for unexpected errors (not just in verbose mode)
+                    System.err.println("Unexpected error at block " + blockNum + ": " + failureMessage);
+                    cause.printStackTrace();
                     break;
                 }
             }

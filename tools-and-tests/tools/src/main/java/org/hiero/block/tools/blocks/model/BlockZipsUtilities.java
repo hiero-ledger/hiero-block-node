@@ -3,7 +3,7 @@ package org.hiero.block.tools.blocks.model;
 
 import com.github.luben.zstd.ZstdInputStream;
 import com.hedera.hapi.block.stream.Block;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -48,14 +48,6 @@ public final class BlockZipsUtilities {
             return zipEntryName != null;
         }
     }
-
-    /**
-     * A decoded block together with its block number (from the filename).
-     *
-     * @param block the parsed block
-     * @param blockNumber the block number
-     */
-    public record ParsedBlock(Block block, long blockNumber) {}
 
     /**
      * Block that has been decompressed, parsed, and pre-validated (stateless checks run in parallel).
@@ -206,7 +198,7 @@ public final class BlockZipsUtilities {
         } else {
             blockBytes = raw;
         }
-        return Block.PROTOBUF.parse(Bytes.wrap(blockBytes));
+        return Block.PROTOBUF.parse(BufferedData.wrap(blockBytes), true, false, 1000, 100 * 1024 * 1024); // 100MB
     }
 
     /**
