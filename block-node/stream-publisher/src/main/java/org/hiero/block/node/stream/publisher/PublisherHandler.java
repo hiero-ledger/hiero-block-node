@@ -298,6 +298,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     return;
                 }
                 blockNumber = header.number();
+                currentStreamingBlockNumber.set(blockNumber);
                 // this means that we are starting a new block, so we can
                 // update the current streaming block number
                 final String traceMessage =
@@ -565,9 +566,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final long blockNumber, final boolean requestContainsHeader, final BlockItemSetUnparsed itemSetUnparsed) {
         if (requestContainsHeader) {
             final ConcurrentLinkedDeque<BlockItemSetUnparsed> newBlockQueue = new ConcurrentLinkedDeque<>();
-            publisherManager.registerQueueForBlock(newBlockQueue, blockNumber);
             currentBlockQueue.set(newBlockQueue);
-            currentStreamingBlockNumber.set(blockNumber);
+            publisherManager.registerQueueForBlock(handlerId, newBlockQueue, blockNumber);
         }
         currentBlockQueue.get().offer(itemSetUnparsed);
         metrics.liveBlockItemsReceived.add(itemSetUnparsed.blockItems().size()); // @todo(1415) add label
@@ -679,7 +679,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         if (blockInProgress != UNKNOWN_BLOCK_NUMBER && currentBlockQueue.get() != null) {
             // This should generally not happen, we expect an end stream request
             // from a publisher after it has completely streamed a full block.
-            LOGGER.log(INFO, "Handler %d is ending mid-block %d".formatted(handlerId, blockInProgress));
             publisherManager.handlerIsEnding(blockInProgress, handlerId);
         }
         metrics.endStreamsReceived.increment();

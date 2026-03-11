@@ -85,7 +85,8 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
-    public void registerQueueForBlock(final Deque<BlockItemSetUnparsed> queue, final long blockNumber) {
+    public void registerQueueForBlock(
+            final long handlerId, final Deque<BlockItemSetUnparsed> queue, final long blockNumber) {
         queueByBlockMap.put(blockNumber, queue);
     }
 

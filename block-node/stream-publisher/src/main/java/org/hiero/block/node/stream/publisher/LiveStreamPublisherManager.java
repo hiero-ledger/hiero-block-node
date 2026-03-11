@@ -4,7 +4,6 @@ package org.hiero.block.node.stream.publisher;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
-import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
@@ -167,11 +166,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     @Override
-    public void registerQueueForBlock(final Deque<BlockItemSetUnparsed> queue, final long blockNumber) {
+    public void registerQueueForBlock(
+            final long handlerId, final Deque<BlockItemSetUnparsed> queue, final long blockNumber) {
         final Deque<BlockItemSetUnparsed> previousValue = queueByBlockMap.put(blockNumber, queue);
         if (previousValue != null) {
-            // @todo(2200) Stub: If we have a previous value, should something be done? Like clearing proof and
-            //   end of block gathered?
+            // This is not expected to happen
+            final String message = "Handler {0} registered a queue for block {1}, but it was already registered";
+            LOGGER.log(INFO, message, handlerId, blockNumber);
         }
     }
 
@@ -191,33 +192,17 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
-    private static final String INVALID_STATE_ENDING_MID_BLOCK_MESSAGE = """
-    Invalid state detected for handler {0} when ending mid-block {1}:
-    Current Streaming Block Number: {2}
-    Latest Streaming Block Number: {3}
-    Next Unstreamed Block Number: {4}
-    """;
-
     @Override
     public void handlerIsEnding(final long blockNumber, final long handlerId) {
-        final long currentStreaming = currentStreamingBlockNumber.get();
-        final long latestStreaming = lastStreamedBlockNumber.get();
-        final long nextUnstreamed = nextUnstreamedBlockNumber.get();
-        if (blockNumber < nextUnstreamed && queueByBlockMap.containsKey(blockNumber)) {
-            queueByBlockMap.remove(blockNumber);
-            // The block did not finish and this handler is ending, schedule the block to be resent
-            blocksToResend.add(blockNumber);
-        } else if (queueByBlockMap.containsKey(blockNumber)) {
-            // this should never happen
-            LOGGER.log(
-                    WARNING,
-                    INVALID_STATE_ENDING_MID_BLOCK_MESSAGE,
-                    handlerId,
-                    blockNumber,
-                    currentStreaming,
-                    latestStreaming,
-                    nextUnstreamed);
-            // @todo(2200) is there an additional action to take here?
+        // @todo(2344) we can further improve this
+        LOGGER.log(INFO, "Handler {0} is ending mid-block {1}", handlerId, blockNumber);
+        final Deque<BlockItemSetUnparsed> deque = queueByBlockMap.remove(blockNumber);
+        if (deque != null) {
+            if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
+                final String message = "Block {0} will be resent due to handler {1} ending mid block";
+                LOGGER.log(DEBUG, message, blockNumber, handlerId);
+                blocksToResend.add(blockNumber);
+            }
         }
     }
 
@@ -636,6 +621,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // End this thread after some number of batches, so we don't have
             // a thread that becomes overly "old" and experiences "senescence".
             while (!forwardingLimitReached) {
+                // @todo(2347) we can improve the loop because we have new way of doing resends, we can also
+                //   improve on the way we determine the current block number below, but also the way we decide
+                //   which items and how to hold them for a bit, to await for the end of block message so we can
+                //   send them to messaging as the end of the block.
                 final long currentBlockNumber = determineCurrentBlockNumber();
                 final Deque<BlockItemSetUnparsed> queueToForward =
                         publisherManager.queueByBlockMap.get(currentBlockNumber);

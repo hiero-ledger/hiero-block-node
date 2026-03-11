@@ -39,7 +39,7 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
 
     /// This method registers a queue for a block by number, to which items will be transferred to the manager from
     /// a publisher.
-    void registerQueueForBlock(final Deque<BlockItemSetUnparsed> queue, final long blockNumber);
+    void registerQueueForBlock(final long handlerId, final Deque<BlockItemSetUnparsed> queue, final long blockNumber);
 
     /// Close a block for a handler.
     void closeBlock(final long handlerId);
