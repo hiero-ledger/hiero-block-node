@@ -8,6 +8,7 @@ import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +22,7 @@ import org.hiero.block.tools.blocks.validation.TransferListExtractor.ExtractedTr
 import org.hiero.block.tools.blocks.validation.TransferListExtractor.NftTransferInfo;
 import org.hiero.block.tools.blocks.validation.TransferListExtractor.TokenTransferData;
 import org.hiero.block.tools.blocks.validation.TransferListExtractor.TransferData;
+import org.hiero.block.tools.blocks.validation.TransferListExtractor.TransferVisitor;
 import org.hiero.block.tools.blocks.wrapped.RunningAccountsState;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
@@ -64,8 +66,11 @@ public final class HbarSupplyValidation implements BlockValidation {
     /** Parsed StateChanges cached between validate() and commitState() to avoid double-parsing. */
     private List<StateChanges> stagedStateChanges;
 
-    /** Extracted transfer data cached between validate() and commitState() to avoid double-parsing. */
+    /** Extracted transfer data cached between validate() and commitState() — only populated when amendments present. */
     private List<List<TransferData>> stagedMergedTransfers;
+
+    /** Raw RecordFile bytes cached for commitState() re-extraction via visitor (zero-allocation path). */
+    private List<Bytes> stagedRecordFileBytes;
 
     /** Reusable in-block balance overlay map, cleared between blocks to avoid per-block allocation. */
     private final LongLongHashMap inBlockBalances = new LongLongHashMap();
@@ -87,9 +92,30 @@ public final class HbarSupplyValidation implements BlockValidation {
 
     @Override
     public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
-        // Parse StateChanges and extract transfer lists once, cache for commitState().
+        // Parse StateChanges and extract transfer data, cache for commitState().
         final List<StateChanges> parsedStateChanges = new ArrayList<>();
-        final List<List<TransferData>> mergedTransfersList = new ArrayList<>();
+        // Zero-allocation visitor path: accumulate hbarDelta directly, cache raw bytes for commitState().
+        // Falls back to list-based path only when amendments are present (rare).
+        final long[] hbarDeltaHolder = {0};
+        final List<Bytes> recordFileBytesList = new ArrayList<>();
+        List<List<TransferData>> mergedTransfersList = null; // only allocated if amendments present
+
+        final TransferVisitor deltaVisitor = new TransferVisitor() {
+            @Override
+            public void onHbarTransfer(long accountNum, long amount) {
+                hbarDeltaHolder[0] += amount;
+            }
+
+            @Override
+            public void onFungibleTokenTransfer(long accountNum, long tokenNum, long amount) {
+                // Not needed for HBAR supply check
+            }
+
+            @Override
+            public void onNftTransfer(long senderNum, long receiverNum, long tokenNum, long serial) {
+                // Not needed for HBAR supply check
+            }
+        };
 
         try {
             for (final BlockItemUnparsed item : block.blockItems()) {
@@ -101,9 +127,23 @@ public final class HbarSupplyValidation implements BlockValidation {
                             Codec.DEFAULT_MAX_DEPTH,
                             MAX_PARSE_SIZE));
                 } else if (item.hasRecordFile()) {
-                    final ExtractedTransfers extracted = TransferListExtractor.extract(item.recordFileOrThrow());
-                    mergedTransfersList.add(
-                            TransferListExtractor.mergeTransferData(extracted.items(), extracted.amendments()));
+                    final Bytes recordFileBytes = item.recordFileOrThrow();
+                    recordFileBytesList.add(recordFileBytes);
+                    // Try zero-allocation visitor path first
+                    if (!TransferListExtractor.extractInto(recordFileBytes, deltaVisitor)) {
+                        // Amendments present — fall back to list-based extraction
+                        if (mergedTransfersList == null) mergedTransfersList = new ArrayList<>();
+                        final ExtractedTransfers extracted = TransferListExtractor.extract(recordFileBytes);
+                        final List<TransferData> merged =
+                                TransferListExtractor.mergeTransferData(extracted.items(), extracted.amendments());
+                        mergedTransfersList.add(merged);
+                        // Accumulate hbar delta from the list-based path
+                        for (final TransferData td : merged) {
+                            for (final AccountTransfer at : td.hbarTransfers()) {
+                                hbarDeltaHolder[0] += at.amount();
+                            }
+                        }
+                    }
                 }
             }
         } catch (ParseException e) {
@@ -111,11 +151,8 @@ public final class HbarSupplyValidation implements BlockValidation {
                     "Block: " + blockNumber + " - Failed to parse block items: " + e.getMessage());
         }
 
-        // Compute the net HBAR delta without modifying the base state.
-        // Use an in-block overlay to correctly handle multiple updates to the same account
-        // within a single block (each delta is computed against the most recent balance, not
-        // always against the committed base state).
-        long hbarDelta = 0;
+        // Compute the net HBAR delta from StateChanges without modifying the base state.
+        long hbarDelta = hbarDeltaHolder[0];
         inBlockBalances.clear();
 
         for (final StateChanges stateChanges : parsedStateChanges) {
@@ -147,14 +184,6 @@ public final class HbarSupplyValidation implements BlockValidation {
             }
         }
 
-        for (final List<TransferData> mergedItems : mergedTransfersList) {
-            for (final TransferData td : mergedItems) {
-                for (final AccountTransfer at : td.hbarTransfers()) {
-                    hbarDelta += at.amount();
-                }
-            }
-        }
-
         // Verify total HBAR supply using base total + delta
         final long totalBalance = accounts.totalHbarBalance() + hbarDelta;
         if (totalBalance != FIFTY_BILLION_HBAR_IN_TINYBAR) {
@@ -164,17 +193,52 @@ public final class HbarSupplyValidation implements BlockValidation {
                     + difference + ")");
         }
 
-        // Stage the parsed items for commitState()
+        // Stage for commitState()
         stagedStateChanges = parsedStateChanges;
+        stagedRecordFileBytes = recordFileBytesList;
         stagedMergedTransfers = mergedTransfersList;
     }
 
     @Override
     public void commitState(final BlockUnparsed block, final long blockNumber) {
-        // Apply cached parsed items to the base state (no re-parsing needed)
-        applyToAccounts(stagedStateChanges, stagedMergedTransfers, accounts);
+        // Apply StateChanges to the base state
+        applyStateChangesToAccounts(stagedStateChanges, accounts);
+
+        // Apply transfer data via visitor re-extraction (zero-allocation for no-amendment case)
+        final TransferVisitor commitVisitor = new TransferVisitor() {
+            @Override
+            public void onHbarTransfer(long accountNum, long amount) {
+                accounts.applyHbarChange(accountNum, amount);
+            }
+
+            @Override
+            public void onFungibleTokenTransfer(long accountNum, long tokenNum, long amount) {
+                accounts.applyFungibleTokenChange(accountNum, tokenNum, amount);
+            }
+
+            @Override
+            public void onNftTransfer(long senderNum, long receiverNum, long tokenNum, long serial) {
+                accounts.applyNftTransfer(senderNum, receiverNum, tokenNum, serial);
+            }
+        };
+
+        try {
+            for (final Bytes recordFileBytes : stagedRecordFileBytes) {
+                // Returns false if amendments present — those are handled via stagedMergedTransfers below
+                TransferListExtractor.extractInto(recordFileBytes, commitVisitor);
+            }
+        } catch (ParseException e) {
+            throw new RuntimeException("Failed to re-extract transfers in commitState", e);
+        }
+
+        // Apply any amendment-path transfers that were staged
+        if (stagedMergedTransfers != null) {
+            applyMergedTransfersToAccounts(stagedMergedTransfers, accounts);
+        }
+
         stagedStateChanges = null;
         stagedMergedTransfers = null;
+        stagedRecordFileBytes = null;
     }
 
     /**
@@ -188,17 +252,10 @@ public final class HbarSupplyValidation implements BlockValidation {
     }
 
     /**
-     * Applies all balance mutations from pre-parsed StateChanges and extracted transfer data
-     * to the given accounts state.
-     *
-     * @param stateChangesList the parsed StateChanges items
-     * @param mergedTransfersList the pre-merged transfer data per RecordFileItem
-     * @param accounts the running account state to mutate
+     * Applies StateChanges to the running account state.
      */
-    private static void applyToAccounts(
-            final List<StateChanges> stateChangesList,
-            final List<List<TransferData>> mergedTransfersList,
-            final RunningAccountsState accounts) {
+    private static void applyStateChangesToAccounts(
+            final List<StateChanges> stateChangesList, final RunningAccountsState accounts) {
         for (final StateChanges stateChanges : stateChangesList) {
             for (final StateChange stateChange : stateChanges.stateChanges()) {
                 if (stateChange.hasMapUpdate()) {
@@ -218,14 +275,18 @@ public final class HbarSupplyValidation implements BlockValidation {
                 }
             }
         }
+    }
 
+    /**
+     * Applies pre-merged transfer data (amendment fallback path) to the running account state.
+     */
+    private static void applyMergedTransfersToAccounts(
+            final List<List<TransferData>> mergedTransfersList, final RunningAccountsState accounts) {
         for (final List<TransferData> mergedItems : mergedTransfersList) {
             for (final TransferData td : mergedItems) {
-                // HBAR transfers
                 for (final AccountTransfer at : td.hbarTransfers()) {
                     accounts.applyHbarChange(at.accountNum(), at.amount());
                 }
-                // Token transfers
                 for (final TokenTransferData ttd : td.tokenTransfers()) {
                     for (final AccountTransfer ft : ttd.transfers()) {
                         accounts.applyFungibleTokenChange(ft.accountNum(), ttd.tokenNum(), ft.amount());

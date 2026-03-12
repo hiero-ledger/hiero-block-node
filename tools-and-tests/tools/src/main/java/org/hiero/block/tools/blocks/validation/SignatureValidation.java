@@ -147,7 +147,8 @@ public final class SignatureValidation implements BlockValidation {
         final int totalNodes = addressBook.nodeAddress().size();
         final int threshold = (totalNodes / 3) + 1;
 
-        // Verify each signature, tracking unique nodes to avoid counting duplicates
+        // Verify each signature, tracking unique nodes to avoid counting duplicates.
+        // Early-exit once threshold is met — no need to verify remaining signatures.
         final Set<Long> validatedNodes = new HashSet<>();
         for (final var sig : signatures) {
             final long accountNum = AddressBookRegistry.accountIdForNode(sig.nodeId());
@@ -156,6 +157,7 @@ public final class SignatureValidation implements BlockValidation {
                 if (SigFileUtils.verifyRsaSha384(
                         pubKeyHex, signedHash, sig.signaturesBytes().toByteArray())) {
                     validatedNodes.add(accountNum);
+                    if (validatedNodes.size() >= threshold) break;
                 }
             } catch (Exception e) {
                 // Unknown node — skip but count as failed

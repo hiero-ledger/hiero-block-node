@@ -144,8 +144,8 @@ class SignatureDataExtractorTest {
         assertArrayEquals(oldHash, newHash, "V5 signed hash should match full parse path");
         assertEquals(seconds, sigData.creationTimeSeconds());
         assertEquals(nanos, sigData.creationTimeNanos());
-        assertArrayEquals(startHash, sigData.startRunningHash());
-        assertArrayEquals(endHash, sigData.endRunningHash());
+        assertArrayEquals(startHash, sigData.startRunningHash().toByteArray());
+        assertArrayEquals(endHash, sigData.endRunningHash().toByteArray());
         assertEquals(3, sigData.items().size());
     }
 
@@ -178,7 +178,7 @@ class SignatureDataExtractorTest {
         final byte[] oldHash = computeSignedHashViaFullParse(seconds, nanos, 2, hapi, previousHash, rsf);
 
         assertArrayEquals(oldHash, newHash, "V2 signed hash should match full parse path");
-        assertArrayEquals(previousHash, sigData.startRunningHash());
+        assertArrayEquals(previousHash, sigData.startRunningHash().toByteArray());
         assertEquals(1, sigData.items().size());
     }
 

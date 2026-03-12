@@ -37,8 +37,7 @@ public final class BlockZipsUtilities {
     private static final Pattern ZIP_NAME_PATTERN = Pattern.compile("^(\\d+)s\\.zip$");
 
     /** Default blocks per zip file (10^4 = 10,000). */
-    public static final int DEFAULT_BLOCKS_PER_ZIP =
-            (int) Math.pow(10, BlockWriter.DEFAULT_POWERS_OF_TEN_PER_ZIP);
+    public static final int DEFAULT_BLOCKS_PER_ZIP = (int) Math.pow(10, BlockWriter.DEFAULT_POWERS_OF_TEN_PER_ZIP);
 
     /** Private constructor to prevent instantiation. */
     private BlockZipsUtilities() {}
@@ -197,8 +196,7 @@ public final class BlockZipsUtilities {
                 if (corruptZipCounter != null) {
                     corruptZipCounter.incrementAndGet();
                 }
-                System.err.println(
-                        "Warning: skipping corrupt zip: " + zipPath.getFileName() + " — " + e.getMessage());
+                System.err.println("Warning: skipping corrupt zip: " + zipPath.getFileName() + " — " + e.getMessage());
             }
         }
     }
@@ -279,7 +277,8 @@ public final class BlockZipsUtilities {
                 try {
                     findBlocksInZipViaZipFile(s.filePath(), expanded);
                 } catch (IOException e) {
-                    System.err.println("Warning: cannot expand zip: " + s.filePath().getFileName() + " — " + e);
+                    System.err.println(
+                            "Warning: cannot expand zip: " + s.filePath().getFileName() + " — " + e);
                 }
             } else {
                 expanded.add(s);

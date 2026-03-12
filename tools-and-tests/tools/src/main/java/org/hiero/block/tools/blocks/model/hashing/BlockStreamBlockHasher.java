@@ -115,10 +115,12 @@ public class BlockStreamBlockHasher {
         }
     }
 
+    /** Reusable varint encoding buffer (max 5 bytes for a 32-bit varint). */
+    private static final ThreadLocal<byte[]> VARINT_BUF = ThreadLocal.withInitial(() -> new byte[5]);
+
     private static byte[] hashBlockInternal(BlockUnparsed block) throws Exception {
         // create SHA-384 digest instance for all hashing
         final MessageDigest digest = Sha384.sha384Digest();
-        final WritableMessageDigest wmd = new WritableMessageDigest(digest);
         // selectively parse block header from the first item's raw bytes
         final BlockItemUnparsed firstItem = block.blockItems().getFirst();
         if (!firstItem.hasBlockHeader()) {
@@ -153,24 +155,24 @@ public class BlockStreamBlockHasher {
         for (final BlockItemUnparsed blockItem : block.blockItems()) {
             switch (blockItem.item().kind()) {
                 case EVENT_HEADER, ROUND_HEADER -> {
-                    // Write leaf prefix + serialized item directly into digest (zero-copy)
+                    // Feed leaf prefix + protobuf-encoded item directly into digest (zero-copy)
                     digest.update(HashingUtils.LEAF_PREFIX);
-                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    hashBlockItemDirect(digest, blockItem);
                     consensusHeadersHasher.addNodeByHash(digest.digest());
                 }
                 case SIGNED_TRANSACTION -> {
                     digest.update(HashingUtils.LEAF_PREFIX);
-                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    hashBlockItemDirect(digest, blockItem);
                     inputItemsHasher.addNodeByHash(digest.digest());
                 }
                 case BLOCK_HEADER, RECORD_FILE, TRANSACTION_RESULT, TRANSACTION_OUTPUT -> {
                     digest.update(HashingUtils.LEAF_PREFIX);
-                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    hashBlockItemDirect(digest, blockItem);
                     outputItemsHasher.addNodeByHash(digest.digest());
                 }
                 case STATE_CHANGES -> {
                     digest.update(HashingUtils.LEAF_PREFIX);
-                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    hashBlockItemDirect(digest, blockItem);
                     stateChangeItemsHasher.addNodeByHash(digest.digest());
                 }
                 case FILTERED_SINGLE_ITEM -> {
@@ -188,7 +190,7 @@ public class BlockStreamBlockHasher {
                 }
                 case TRACE_DATA -> {
                     digest.update(HashingUtils.LEAF_PREFIX);
-                    BlockItemUnparsed.PROTOBUF.write(blockItem, wmd);
+                    hashBlockItemDirect(digest, blockItem);
                     traceItemsHasher.addNodeByHash(digest.digest());
                 }
                 case BLOCK_FOOTER -> {} // not part of any tree as it contains hashes that are elsewhere in the block
@@ -228,5 +230,60 @@ public class BlockStreamBlockHasher {
             )
         );
         // spotless:on
+    }
+
+    /**
+     * Feeds a BlockItemUnparsed directly into the digest by manually writing the protobuf
+     * tag + length + payload, bypassing the PBJ codec's write() method and its associated
+     * object allocations.
+     *
+     * <p>This produces the exact same bytes as {@code BlockItemUnparsed.PROTOBUF.write(item, wmd)}
+     * because each BlockItemUnparsed has exactly one oneof field containing raw Bytes.
+     */
+    private static void hashBlockItemDirect(final MessageDigest digest, final BlockItemUnparsed item) {
+        final Bytes payload = item.item().as();
+        final int fieldNumber = fieldNumberForKind(item.item().kind());
+        // Write tag: (fieldNumber << 3) | 2 (wire type LEN)
+        writeVarIntToDigest(digest, (fieldNumber << 3) | 2);
+        // Write length
+        writeVarIntToDigest(digest, (int) payload.length());
+        // Write payload bytes directly (zero-copy)
+        payload.writeTo(digest);
+    }
+
+    /**
+     * Maps a BlockItemUnparsed OneOfType to its protobuf field number.
+     */
+    private static int fieldNumberForKind(final BlockItemUnparsed.ItemOneOfType kind) {
+        return switch (kind) {
+            case BLOCK_HEADER -> 1;
+            case EVENT_HEADER -> 2;
+            case ROUND_HEADER -> 3;
+            case SIGNED_TRANSACTION -> 4;
+            case TRANSACTION_RESULT -> 5;
+            case TRANSACTION_OUTPUT -> 6;
+            case STATE_CHANGES -> 7;
+            case FILTERED_SINGLE_ITEM -> 8;
+            case BLOCK_PROOF -> 9;
+            case RECORD_FILE -> 10;
+            case TRACE_DATA -> 11;
+            case BLOCK_FOOTER -> 12;
+            case REDACTED_ITEM -> 19;
+            case UNSET -> throw new IllegalArgumentException("UNSET block item kind");
+        };
+    }
+
+    /**
+     * Writes a varint-encoded integer directly to a MessageDigest using a thread-local buffer.
+     */
+    private static void writeVarIntToDigest(final MessageDigest digest, int value) {
+        final byte[] buf = VARINT_BUF.get();
+        int pos = 0;
+        while ((value & ~0x7F) != 0) {
+            buf[pos++] = (byte) ((value & 0x7F) | 0x80);
+            value >>>= 7;
+        }
+        buf[pos++] = (byte) value;
+        digest.update(buf, 0, pos);
     }
 }

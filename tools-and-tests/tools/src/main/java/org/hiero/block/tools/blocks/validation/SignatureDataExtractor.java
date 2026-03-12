@@ -66,13 +66,13 @@ final class SignatureDataExtractor {
     record SignatureData(
             long creationTimeSeconds,
             int creationTimeNanos,
-            byte[] rawRecordStreamFileBytes,
-            byte[] startRunningHash,
-            byte[] endRunningHash,
+            Bytes rawRecordStreamFileBytes,
+            Bytes startRunningHash,
+            Bytes endRunningHash,
             List<RawRecordStreamItem> items) {}
 
     /** Raw transaction and record bytes from a single RecordStreamItem. */
-    record RawRecordStreamItem(byte[] transactionBytes, byte[] recordBytes) {}
+    record RawRecordStreamItem(Bytes transactionBytes, Bytes recordBytes) {}
 
     /**
      * Extracts signature data from raw RecordFileItem protobuf bytes.
@@ -89,9 +89,9 @@ final class SignatureDataExtractor {
     static SignatureData extract(final Bytes recordFileItemBytes, final int recordFormatVersion) throws ParseException {
         long seconds = 0;
         int nanos = 0;
-        byte[] rawRecordStreamFileBytes = null;
-        byte[] startRunningHash = null;
-        byte[] endRunningHash = null;
+        Bytes rawRecordStreamFileBytes = null;
+        Bytes startRunningHash = null;
+        Bytes endRunningHash = null;
         final List<RawRecordStreamItem> items = new ArrayList<>();
 
         final ReadableSequentialData input = recordFileItemBytes.toReadableSequentialData();
@@ -115,12 +115,12 @@ final class SignatureDataExtractor {
                     }
                     case RFI_RECORD_FILE_CONTENTS -> {
                         final int len = input.readVarInt(false);
-                        rawRecordStreamFileBytes = new byte[len];
-                        input.readBytes(rawRecordStreamFileBytes);
+                        final byte[] rawBytes = new byte[len];
+                        input.readBytes(rawBytes);
+                        rawRecordStreamFileBytes = Bytes.wrap(rawBytes);
                         if (recordFormatVersion != 6) {
                             // Navigate into RecordStreamFile for V2/V5 to extract hashes and items
-                            final ReadableSequentialData rsfInput =
-                                    Bytes.wrap(rawRecordStreamFileBytes).toReadableSequentialData();
+                            final ReadableSequentialData rsfInput = rawRecordStreamFileBytes.toReadableSequentialData();
                             while (rsfInput.hasRemaining()) {
                                 final int rsfTag = readTag(rsfInput);
                                 if (rsfTag == -1) break;
@@ -128,7 +128,7 @@ final class SignatureDataExtractor {
                                     case RSF_START_RUNNING_HASH -> {
                                         final int hLen = rsfInput.readVarInt(false);
                                         final ReadableSequentialData hSub = rsfInput.view(hLen);
-                                        startRunningHash = extractHashFromHashObject(hSub);
+                                        startRunningHash = extractBytesFromHashObject(hSub);
                                     }
                                     case RSF_RECORD_STREAM_ITEMS -> {
                                         final int iLen = rsfInput.readVarInt(false);
@@ -138,7 +138,7 @@ final class SignatureDataExtractor {
                                     case RSF_END_RUNNING_HASH -> {
                                         final int hLen = rsfInput.readVarInt(false);
                                         final ReadableSequentialData hSub = rsfInput.view(hLen);
-                                        endRunningHash = extractHashFromHashObject(hSub);
+                                        endRunningHash = extractBytesFromHashObject(hSub);
                                     }
                                     default -> skipTaggedField(rsfInput, rsfTag);
                                 }
@@ -171,10 +171,10 @@ final class SignatureDataExtractor {
             throws IOException {
         return switch (version) {
             case 6 -> {
-                // V6: SHA-384(int(6) + rawRecordStreamFileBytes)
+                // V6: SHA-384(int(6) + rawRecordStreamFileBytes) — zero-copy via writeTo(digest)
                 final MessageDigest digest = sha384Digest();
                 digest.update(new byte[] {0, 0, 0, 6});
-                digest.update(data.rawRecordStreamFileBytes());
+                data.rawRecordStreamFileBytes().writeTo(digest);
                 yield digest.digest();
             }
             case 5 -> {
@@ -186,17 +186,17 @@ final class SignatureDataExtractor {
                     out.writeInt(hapi.minor());
                     out.writeInt(hapi.patch());
                     out.writeInt(V5_RECORD_STREAM_OBJECT_CLASS_VERSION);
-                    writeV5HashObject(out, data.startRunningHash());
+                    writeV5HashObject(out, data.startRunningHash().toByteArray());
                     for (final RawRecordStreamItem item : data.items()) {
                         out.writeLong(V5_RECORD_STREAM_OBJECT_CLASS_ID);
                         out.writeInt(V5_RECORD_STREAM_OBJECT_CLASS_VERSION);
                         // V5 order: record first, then transaction
-                        out.writeInt(item.recordBytes().length);
-                        out.writeBytes(item.recordBytes());
-                        out.writeInt(item.transactionBytes().length);
-                        out.writeBytes(item.transactionBytes());
+                        out.writeInt((int) item.recordBytes().length());
+                        item.recordBytes().writeTo(out);
+                        out.writeInt((int) item.transactionBytes().length());
+                        item.transactionBytes().writeTo(out);
                     }
-                    writeV5HashObject(out, data.endRunningHash());
+                    writeV5HashObject(out, data.endRunningHash().toByteArray());
                     yield hashSha384(bout.toByteArray());
                 }
             }
@@ -207,14 +207,14 @@ final class SignatureDataExtractor {
                     out.writeInt(2);
                     out.writeInt(hapi.major());
                     out.writeByte(V2_PREVIOUS_FILE_HASH_MAKER);
-                    out.writeBytes(data.startRunningHash()); // previousBlockHash
+                    data.startRunningHash().writeTo(out); // previousBlockHash
                     for (final RawRecordStreamItem item : data.items()) {
                         out.writeByte(V2_RECORD_MAKER);
                         // V2 order: transaction first, then record
-                        out.writeInt(item.transactionBytes().length);
-                        out.writeBytes(item.transactionBytes());
-                        out.writeInt(item.recordBytes().length);
-                        out.writeBytes(item.recordBytes());
+                        out.writeInt((int) item.transactionBytes().length());
+                        item.transactionBytes().writeTo(out);
+                        out.writeInt((int) item.recordBytes().length());
+                        item.recordBytes().writeTo(out);
                     }
                     yield computeV2BlockHash(bout.toByteArray());
                 }
@@ -225,8 +225,8 @@ final class SignatureDataExtractor {
 
     // ---- Helper methods ----
 
-    /** Extracts the hash bytes from a HashObject protobuf message. */
-    private static byte[] extractHashFromHashObject(final ReadableSequentialData input) throws Exception {
+    /** Extracts the hash Bytes from a HashObject protobuf message. */
+    private static Bytes extractBytesFromHashObject(final ReadableSequentialData input) throws Exception {
         while (input.hasRemaining()) {
             final int tag = readTag(input);
             if (tag == -1) break;
@@ -234,31 +234,33 @@ final class SignatureDataExtractor {
                 final int len = input.readVarInt(false);
                 final byte[] hash = new byte[len];
                 input.readBytes(hash);
-                return hash;
+                return Bytes.wrap(hash);
             } else {
                 skipTaggedField(input, tag);
             }
         }
-        return new byte[0];
+        return Bytes.EMPTY;
     }
 
     /** Extracts raw transaction and record bytes from a RecordStreamItem. */
     private static RawRecordStreamItem extractRawRecordStreamItem(final ReadableSequentialData input) throws Exception {
-        byte[] transactionBytes = new byte[0];
-        byte[] recordBytes = new byte[0];
+        Bytes transactionBytes = Bytes.EMPTY;
+        Bytes recordBytes = Bytes.EMPTY;
         while (input.hasRemaining()) {
             final int tag = readTag(input);
             if (tag == -1) break;
             switch (tag) {
                 case RSI_TRANSACTION -> {
                     final int len = input.readVarInt(false);
-                    transactionBytes = new byte[len];
-                    input.readBytes(transactionBytes);
+                    final byte[] txnBytes = new byte[len];
+                    input.readBytes(txnBytes);
+                    transactionBytes = Bytes.wrap(txnBytes);
                 }
                 case RSI_RECORD -> {
                     final int len = input.readVarInt(false);
-                    recordBytes = new byte[len];
-                    input.readBytes(recordBytes);
+                    final byte[] recBytes = new byte[len];
+                    input.readBytes(recBytes);
+                    recordBytes = Bytes.wrap(recBytes);
                 }
                 default -> skipTaggedField(input, tag);
             }

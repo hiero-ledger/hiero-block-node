@@ -35,6 +35,20 @@ final class TransferListExtractor {
 
     private TransferListExtractor() {} // utility class
 
+    // ---- Visitor interface for zero-allocation extraction ----
+
+    /** Callback interface for visiting transfer data without creating intermediate objects. */
+    interface TransferVisitor {
+        /** Called for each HBAR transfer in the transfer list. */
+        void onHbarTransfer(long accountNum, long amount);
+
+        /** Called for each fungible token transfer. */
+        void onFungibleTokenTransfer(long accountNum, long tokenNum, long amount);
+
+        /** Called for each NFT transfer. */
+        void onNftTransfer(long senderNum, long receiverNum, long tokenNum, long serial);
+    }
+
     // ---- Protobuf wire tags (field_number << 3 | wire_type) ----
 
     // RecordFileItem fields
@@ -134,6 +148,53 @@ final class TransferListExtractor {
             throw new ParseException(e);
         }
         return new ExtractedTransfers(items, amendments);
+    }
+
+    /**
+     * Extracts transfer lists from raw RecordFileItem protobuf bytes using a visitor
+     * callback, avoiding all intermediate object allocation. Only usable when there
+     * are no amendments (the common case). Returns {@code true} if extraction succeeded
+     * via the visitor path, or {@code false} if amendments were present and the caller
+     * should fall back to the list-based {@link #extract} method.
+     *
+     * @param recordFileItemBytes the raw bytes of a RecordFileItem
+     * @param visitor the visitor to receive transfer callbacks
+     * @return true if visitor path was used (no amendments), false if amendments present
+     * @throws ParseException if the protobuf structure is malformed
+     */
+    static boolean extractInto(final Bytes recordFileItemBytes, final TransferVisitor visitor) throws ParseException {
+        final ReadableSequentialData input = recordFileItemBytes.toReadableSequentialData();
+        try {
+            // First pass: capture the record contents view and check for amendments.
+            // We must NOT call the visitor until we confirm no amendments, because field 2
+            // (record contents) appears before field 4 (amendments) in wire order, and if
+            // amendments exist the caller needs to fall back to the list-based merge path.
+            ReadableSequentialData recordContents = null;
+            while (input.hasRemaining()) {
+                final int tag = readTag(input);
+                if (tag == -1) break;
+                switch (tag) {
+                    case RFI_RECORD_FILE_CONTENTS -> {
+                        final int len = input.readVarInt(false);
+                        recordContents = input.view(len);
+                    }
+                    case RFI_AMENDMENTS -> {
+                        // Amendments present — no visitor calls made, caller falls back
+                        return false;
+                    }
+                    default -> skipTaggedField(input, tag);
+                }
+            }
+            // No amendments — safe to visit the record contents
+            if (recordContents != null) {
+                visitRecordStreamFile(recordContents, visitor);
+            }
+        } catch (ParseException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ParseException(e);
+        }
+        return true;
     }
 
     /**
@@ -361,6 +422,166 @@ final class TransferListExtractor {
             }
         }
         return new NftTransferInfo(senderAccountNum, receiverAccountNum, serialNumber);
+    }
+
+    // ---- Visitor-based parsers (zero allocation) ----
+
+    private static void visitRecordStreamFile(final ReadableSequentialData input, final TransferVisitor visitor)
+            throws Exception {
+        while (input.hasRemaining()) {
+            final int tag = readTag(input);
+            if (tag == -1) break;
+            switch (tag) {
+                case RSF_RECORD_STREAM_ITEMS -> {
+                    final int len = input.readVarInt(false);
+                    final ReadableSequentialData sub = input.view(len);
+                    visitRecordStreamItemTransfers(sub, visitor);
+                }
+                default -> skipTaggedField(input, tag);
+            }
+        }
+    }
+
+    private static void visitRecordStreamItemTransfers(
+            final ReadableSequentialData input, final TransferVisitor visitor) throws Exception {
+        while (input.hasRemaining()) {
+            final int tag = readTag(input);
+            if (tag == -1) break;
+            switch (tag) {
+                case RSI_TRANSACTION -> {
+                    final int len = input.readVarInt(false);
+                    input.skip(len);
+                }
+                case RSI_RECORD -> {
+                    final int len = input.readVarInt(false);
+                    final ReadableSequentialData sub = input.view(len);
+                    visitTransactionRecordTransfers(sub, visitor);
+                }
+                default -> skipTaggedField(input, tag);
+            }
+        }
+    }
+
+    private static void visitTransactionRecordTransfers(
+            final ReadableSequentialData input, final TransferVisitor visitor) throws Exception {
+        while (input.hasRemaining()) {
+            final int tag = readTag(input);
+            if (tag == -1) break;
+            switch (tag) {
+                case TR_TRANSFER_LIST -> {
+                    final int len = input.readVarInt(false);
+                    final ReadableSequentialData sub = input.view(len);
+                    visitTransferList(sub, visitor);
+                }
+                case TR_TOKEN_TRANSFER_LISTS -> {
+                    final int len = input.readVarInt(false);
+                    final ReadableSequentialData sub = input.view(len);
+                    visitTokenTransferList(sub, visitor);
+                }
+                default -> skipTaggedField(input, tag);
+            }
+        }
+    }
+
+    private static void visitTransferList(final ReadableSequentialData input, final TransferVisitor visitor)
+            throws Exception {
+        while (input.hasRemaining()) {
+            final int tag = readTag(input);
+            if (tag == -1) break;
+            switch (tag) {
+                case TL_ACCOUNT_AMOUNTS -> {
+                    final int len = input.readVarInt(false);
+                    final ReadableSequentialData sub = input.view(len);
+                    long accountNum = 0;
+                    long amount = 0;
+                    while (sub.hasRemaining()) {
+                        final int aaTag = readTag(sub);
+                        if (aaTag == -1) break;
+                        switch (aaTag) {
+                            case AA_ACCOUNT_ID -> {
+                                final int idLen = sub.readVarInt(false);
+                                final ReadableSequentialData idSub = sub.view(idLen);
+                                accountNum = parseAccountIdNum(idSub);
+                            }
+                            case AA_AMOUNT -> amount = sub.readVarLong(true);
+                            default -> skipTaggedField(sub, aaTag);
+                        }
+                    }
+                    visitor.onHbarTransfer(accountNum, amount);
+                }
+                default -> skipTaggedField(input, tag);
+            }
+        }
+    }
+
+    private static void visitTokenTransferList(final ReadableSequentialData input, final TransferVisitor visitor)
+            throws Exception {
+        long tokenNum = 0;
+        // First pass: find the token ID (may appear after transfers in the wire format,
+        // but in practice token_id is field 1 and comes first)
+        // We need tokenNum before visiting transfers, so we do a two-pass approach:
+        // read token ID first, then re-read for transfers. However, since ReadableSequentialData
+        // is forward-only, we collect data in a single pass using deferred visitor calls.
+        // Actually, protobuf field ordering is typically ascending, so tokenId (field 1)
+        // comes before transfers (field 2) and nftTransfers (field 3). We rely on this.
+        while (input.hasRemaining()) {
+            final int tag = readTag(input);
+            if (tag == -1) break;
+            switch (tag) {
+                case TTL_TOKEN -> {
+                    final int len = input.readVarInt(false);
+                    final ReadableSequentialData sub = input.view(len);
+                    tokenNum = parseTokenIdNum(sub);
+                }
+                case TTL_TRANSFERS -> {
+                    final int len = input.readVarInt(false);
+                    final ReadableSequentialData sub = input.view(len);
+                    long accountNum = 0;
+                    long amount = 0;
+                    while (sub.hasRemaining()) {
+                        final int aaTag = readTag(sub);
+                        if (aaTag == -1) break;
+                        switch (aaTag) {
+                            case AA_ACCOUNT_ID -> {
+                                final int idLen = sub.readVarInt(false);
+                                final ReadableSequentialData idSub = sub.view(idLen);
+                                accountNum = parseAccountIdNum(idSub);
+                            }
+                            case AA_AMOUNT -> amount = sub.readVarLong(true);
+                            default -> skipTaggedField(sub, aaTag);
+                        }
+                    }
+                    visitor.onFungibleTokenTransfer(accountNum, tokenNum, amount);
+                }
+                case TTL_NFT_TRANSFERS -> {
+                    final int len = input.readVarInt(false);
+                    final ReadableSequentialData sub = input.view(len);
+                    long senderAccountNum = 0;
+                    long receiverAccountNum = 0;
+                    long serialNumber = 0;
+                    while (sub.hasRemaining()) {
+                        final int nftTag = readTag(sub);
+                        if (nftTag == -1) break;
+                        switch (nftTag) {
+                            case NFT_SENDER -> {
+                                final int sLen = sub.readVarInt(false);
+                                final ReadableSequentialData sSub = sub.view(sLen);
+                                senderAccountNum = parseAccountIdNum(sSub);
+                            }
+                            case NFT_RECEIVER -> {
+                                final int rLen = sub.readVarInt(false);
+                                final ReadableSequentialData rSub = sub.view(rLen);
+                                receiverAccountNum = parseAccountIdNum(rSub);
+                            }
+                            case NFT_SERIAL -> serialNumber = sub.readVarLong(false);
+                            default -> skipTaggedField(sub, nftTag);
+                        }
+                    }
+                    visitor.onNftTransfer(senderAccountNum, receiverAccountNum, tokenNum, serialNumber);
+                }
+                default -> skipTaggedField(input, tag);
+            }
+        }
     }
 
     // ---- Protobuf wire format utilities ----

@@ -333,12 +333,7 @@ public class ValidateBlocksCommand implements Runnable {
               @|yellow Block range:|@ %d - %d
               @|yellow Threads:|@ %d  prefetch: %d
               """.formatted(
-                        estimatedTotalBlocks,
-                        sources.size(),
-                        firstDisplayBlock,
-                        lastDisplayBlock,
-                        threads,
-                        prefetch)));
+                        estimatedTotalBlocks, sources.size(), firstDisplayBlock, lastDisplayBlock, threads, prefetch)));
         if (hasStateFiles) {
             System.out.println(Ansi.AUTO.string("@|yellow State files found:|@ blockStreamBlockHashes.bin, "
                     + "streamingMerkleTree.bin, completeMerkleTree.bin, jumpstart.bin"));
@@ -494,21 +489,32 @@ public class ValidateBlocksCommand implements Runnable {
         final long[] lastValidatedRef = {lastValidatedBlockNum};
         final long[] blocksValidatedRef = {blocksValidated};
 
+        // Lock to prevent the shutdown hook from saving a checkpoint while commitState() is
+        // in progress. Without this, the hook can observe partially-committed validation state
+        // (e.g. RunningAccountsState with some mutations from block N+1 applied) while
+        // lastValidatedRef still points to block N, causing a supply mismatch on resume.
+        final Object commitLock = new Object();
+
         // Shutdown hook: save checkpoint if interrupted mid-run (e.g. Ctrl-C).
         final Thread shutdownHook = new Thread(
                 () -> {
-                    if (!completed[0] && lastValidatedRef[0] >= 0 && chainValidation.getPreviousBlockHash() != null) {
-                        System.err.println("Shutdown: saving validation checkpoint at block " + lastValidatedRef[0]);
-                        try {
-                            Files.createDirectories(checkpointDir);
-                        } catch (IOException ignored) {
+                    synchronized (commitLock) {
+                        if (!completed[0]
+                                && lastValidatedRef[0] >= 0
+                                && chainValidation.getPreviousBlockHash() != null) {
+                            System.err.println(
+                                    "Shutdown: saving validation checkpoint at block " + lastValidatedRef[0]);
+                            try {
+                                Files.createDirectories(checkpointDir);
+                            } catch (IOException ignored) {
+                            }
+                            saveCheckpoint(
+                                    checkpointDir,
+                                    lastValidatedRef[0],
+                                    blocksValidatedRef[0],
+                                    chainValidation,
+                                    validations);
                         }
-                        saveCheckpoint(
-                                checkpointDir,
-                                lastValidatedRef[0],
-                                blocksValidatedRef[0],
-                                chainValidation,
-                                validations);
                     }
                 },
                 "validate-shutdown-hook");
@@ -539,16 +545,11 @@ public class ValidateBlocksCommand implements Runnable {
                                 // Whole-zip source: stream all entries, discover blocks on the fly
                                 try {
                                     readAllZipEntries(
-                                            first.filePath(),
-                                        resumeFrom,
-                                            parallelValidations,
-                                            blockQueue,
-                                            decompPool);
+                                            first.filePath(), resumeFrom, parallelValidations, blockQueue, decompPool);
                                 } catch (IOException e) {
                                     corruptZipCount.incrementAndGet();
-                                    System.out.println(Ansi.AUTO.string(
-                                            "@|yellow Warning:|@ error streaming zip: "
-                                                    + first.filePath().getFileName() + " — " + e.getMessage()));
+                                    System.out.println(Ansi.AUTO.string("@|yellow Warning:|@ error streaming zip: "
+                                            + first.filePath().getFileName() + " — " + e.getMessage()));
                                 }
                                 i++;
                             } else if (!first.isZipEntry()) {
@@ -680,14 +681,17 @@ public class ValidateBlocksCommand implements Runnable {
                     }
                     if (failedValidationName != null) break;
 
-                    // Phase 2: commit all validations
-                    for (BlockValidation v : validations) {
-                        v.commitState(block, blockNum);
-                    }
+                    // Phase 2: commit all validations (under lock to prevent shutdown hook
+                    // from saving a partially-committed state)
+                    synchronized (commitLock) {
+                        for (BlockValidation v : validations) {
+                            v.commitState(block, blockNum);
+                        }
 
-                    lastValidatedRef[0] = blockNum;
-                    blocksValidated++;
-                    blocksValidatedRef[0] = blocksValidated;
+                        lastValidatedRef[0] = blockNum;
+                        blocksValidated++;
+                        blocksValidatedRef[0] = blocksValidated;
+                    }
 
                     // Periodic checkpoint save
                     long nowMs = System.currentTimeMillis();
@@ -761,8 +765,7 @@ public class ValidateBlocksCommand implements Runnable {
                     failureMessage = cause.getMessage() != null ? cause.getMessage() : cause.toString();
                     failedBlockNumber = lastValidatedRef[0] + 1;
                     // Always print for unexpected errors (not just in verbose mode)
-                    System.err.println(
-                            "Unexpected error near block " + failedBlockNumber + ": " + failureMessage);
+                    System.err.println("Unexpected error near block " + failedBlockNumber + ": " + failureMessage);
                     cause.printStackTrace();
                     break;
                 }
@@ -808,8 +811,9 @@ public class ValidateBlocksCommand implements Runnable {
 
         // Determine overall result
         boolean validationFailed = (failedValidationName != null || failureMessage != null);
-        boolean allBlocksValidated = (blocksValidated >= estimatedTotalBlocks - BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP
-                || blocksValidated == estimatedTotalBlocks);
+        boolean allBlocksValidated =
+                (blocksValidated >= estimatedTotalBlocks - BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP
+                        || blocksValidated == estimatedTotalBlocks);
 
         // On full success: remove checkpoint (validation is complete).
         // On partial/error: save a final checkpoint for next resume.
