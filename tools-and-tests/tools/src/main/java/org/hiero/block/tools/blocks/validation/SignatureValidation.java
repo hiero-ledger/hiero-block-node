@@ -2,13 +2,11 @@
 package org.hiero.block.tools.blocks.validation;
 
 import com.hedera.hapi.block.stream.BlockProof;
-import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.NodeAddressBook;
-import com.hedera.hapi.node.base.Timestamp;
-import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
@@ -16,7 +14,6 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.SigFileUtils;
-import org.hiero.block.tools.records.model.parsed.ParsedRecordFile;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
 /**
@@ -30,9 +27,6 @@ import org.hiero.block.tools.records.model.parsed.ValidationException;
  * <p>This is a stateless validation — no cross-block state is maintained.
  */
 public final class SignatureValidation implements BlockValidation {
-
-    /** Maximum parse size for protobuf messages (100 MB) to handle large RecordFileItems. */
-    private static final int MAX_PARSE_SIZE = 100 * 1024 * 1024;
 
     /** The address book registry providing public keys for signature verification. */
     private final AddressBookRegistry addressBookRegistry;
@@ -111,18 +105,13 @@ public final class SignatureValidation implements BlockValidation {
             throw new ValidationException("Block: " + blockNumber + " - No signatures in SignedRecordFileProof");
         }
 
-        // Selectively parse RecordFileItem and BlockHeader from the block
-        RecordFileItem recordFileItem = null;
+        // Selectively extract signature data and parse BlockHeader from the block
+        Bytes recordFileBytes = null;
         BlockHeader blockHeader = null;
         try {
             for (final BlockItemUnparsed item : block.blockItems()) {
                 if (item.hasRecordFile()) {
-                    recordFileItem = RecordFileItem.PROTOBUF.parse(
-                            item.recordFileOrThrow().toReadableSequentialData(),
-                            false,
-                            false,
-                            Codec.DEFAULT_MAX_DEPTH,
-                            MAX_PARSE_SIZE);
+                    recordFileBytes = item.recordFileOrThrow();
                 }
                 if (item.hasBlockHeader()) {
                     blockHeader = BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow());
@@ -130,28 +119,28 @@ public final class SignatureValidation implements BlockValidation {
             }
         } catch (ParseException e) {
             throw new ValidationException(
-                    "Block: " + blockNumber + " - Failed to parse RecordFileItem/BlockHeader: " + e.getMessage());
+                    "Block: " + blockNumber + " - Failed to parse BlockHeader: " + e.getMessage());
         }
-        if (recordFileItem == null || blockHeader == null) {
+        if (recordFileBytes == null || blockHeader == null) {
             throw new ValidationException(
                     "Block: " + blockNumber + " - Missing RecordFileItem or BlockHeader for signature verification");
         }
 
-        // Reconstruct the signed hash via ParsedRecordFile
-        final Timestamp creationTime = recordFileItem.creationTime();
-        final Instant blockTime = Instant.ofEpochSecond(creationTime.seconds(), creationTime.nanos());
-        final byte[] startHash = recordFileItem
-                .recordFileContentsOrThrow()
-                .startObjectRunningHash()
-                .hash()
-                .toByteArray();
-        final ParsedRecordFile parsedRecordFile = ParsedRecordFile.parse(
-                blockTime,
-                signedRecordFileProof.version(),
-                blockHeader.hapiProtoVersion(),
-                startHash,
-                recordFileItem.recordFileContentsOrThrow());
-        final byte[] signedHash = parsedRecordFile.signedHash();
+        // Extract signature data via wire-format navigation (no Transaction/TransactionRecord parsing)
+        final int version = signedRecordFileProof.version();
+        final SignatureDataExtractor.SignatureData sigData;
+        final byte[] signedHash;
+        try {
+            sigData = SignatureDataExtractor.extract(recordFileBytes, version);
+            signedHash = SignatureDataExtractor.computeSignedHash(version, blockHeader.hapiProtoVersion(), sigData);
+        } catch (ParseException e) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Failed to extract signature data: " + e.getMessage());
+        } catch (IOException e) {
+            throw new ValidationException(
+                    "Block: " + blockNumber + " - Failed to compute signed hash: " + e.getMessage());
+        }
+        final Instant blockTime = Instant.ofEpochSecond(sigData.creationTimeSeconds(), sigData.creationTimeNanos());
 
         // Get the address book for this block's timestamp
         final NodeAddressBook addressBook = addressBookRegistry.getAddressBookForBlock(blockTime);
