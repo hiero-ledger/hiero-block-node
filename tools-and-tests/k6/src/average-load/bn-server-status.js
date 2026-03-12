@@ -8,9 +8,7 @@ import { vu } from "k6/execution";
 import { Rate, Counter } from "k6/metrics";
 
 const grpcErrors = new Rate("grpc_errors");
-const statusDeadlineExceeded = new Counter(
-    "grpc_status_deadline_exceeded"
-);
+const statusDeadlineExceeded = new Counter("grpc_status_deadline_exceeded");
 
 // Configure k6 VUs scheduling and iterations & thresholds
 export const options = {
