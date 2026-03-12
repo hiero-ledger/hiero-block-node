@@ -6,6 +6,7 @@ import com.hedera.hapi.block.stream.RecordFileItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.time.Instant;
@@ -29,6 +30,9 @@ import org.hiero.block.tools.records.model.parsed.ValidationException;
  * <p>This is a stateless validation — no cross-block state is maintained.
  */
 public final class SignatureValidation implements BlockValidation {
+
+    /** Maximum parse size for protobuf messages (100 MB) to handle large RecordFileItems. */
+    private static final int MAX_PARSE_SIZE = 100 * 1024 * 1024;
 
     /** The address book registry providing public keys for signature verification. */
     private final AddressBookRegistry addressBookRegistry;
@@ -113,7 +117,12 @@ public final class SignatureValidation implements BlockValidation {
         try {
             for (final BlockItemUnparsed item : block.blockItems()) {
                 if (item.hasRecordFile()) {
-                    recordFileItem = RecordFileItem.PROTOBUF.parse(item.recordFileOrThrow());
+                    recordFileItem = RecordFileItem.PROTOBUF.parse(
+                            item.recordFileOrThrow().toReadableSequentialData(),
+                            false,
+                            false,
+                            Codec.DEFAULT_MAX_DEPTH,
+                            MAX_PARSE_SIZE);
                 }
                 if (item.hasBlockHeader()) {
                     blockHeader = BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow());

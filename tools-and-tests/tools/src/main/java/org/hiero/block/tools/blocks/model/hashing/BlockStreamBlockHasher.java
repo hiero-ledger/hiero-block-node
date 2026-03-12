@@ -9,6 +9,7 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.hashing.WritableMessageDigest;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.security.MessageDigest;
@@ -69,6 +70,9 @@ import org.hiero.block.tools.utils.Sha384;
  */
 public class BlockStreamBlockHasher {
 
+    /** Maximum parse size for protobuf messages (100 MB) to handle large blocks. */
+    private static final int MAX_PARSE_SIZE = 100 * 1024 * 1024;
+
     /**
      * Computes the root hash of a fully-parsed {@link Block} by re-serializing to bytes
      * and delegating to {@link #hashBlock(BlockUnparsed)}.
@@ -82,7 +86,8 @@ public class BlockStreamBlockHasher {
     public static byte[] hashBlock(Block block) {
         try {
             Bytes bytes = Block.PROTOBUF.toBytes(block);
-            BlockUnparsed unparsed = BlockUnparsed.PROTOBUF.parse(bytes);
+            BlockUnparsed unparsed = BlockUnparsed.PROTOBUF.parse(
+                    bytes.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_PARSE_SIZE);
             return hashBlock(unparsed);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to hash block", e);

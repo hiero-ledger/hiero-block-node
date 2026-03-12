@@ -6,6 +6,7 @@ import com.hedera.hapi.block.stream.output.MapChangeValue;
 import com.hedera.hapi.block.stream.output.MapUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.block.stream.output.StateChanges;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -54,6 +55,9 @@ public final class HbarSupplyValidation implements BlockValidation {
     /** Total HBAR supply expressed in tinybar (50 billion HBAR * 100 million tinybar per HBAR). */
     public static final long FIFTY_BILLION_HBAR_IN_TINYBAR = 5_000_000_000_000_000_000L;
 
+    /** Maximum parse size for protobuf messages (100 MB) to handle large StateChanges items. */
+    private static final int MAX_PARSE_SIZE = 100 * 1024 * 1024;
+
     /** The running account state. */
     private final RunningAccountsState accounts = new RunningAccountsState();
 
@@ -87,7 +91,12 @@ public final class HbarSupplyValidation implements BlockValidation {
         try {
             for (final BlockItemUnparsed item : block.blockItems()) {
                 if (item.hasStateChanges()) {
-                    parsedStateChanges.add(StateChanges.PROTOBUF.parse(item.stateChangesOrThrow()));
+                    parsedStateChanges.add(StateChanges.PROTOBUF.parse(
+                            item.stateChangesOrThrow().toReadableSequentialData(),
+                            false,
+                            false,
+                            Codec.DEFAULT_MAX_DEPTH,
+                            MAX_PARSE_SIZE));
                 } else if (item.hasRecordFile()) {
                     final ExtractedTransfers extracted = TransferListExtractor.extract(item.recordFileOrThrow());
                     mergedTransfersList.add(
