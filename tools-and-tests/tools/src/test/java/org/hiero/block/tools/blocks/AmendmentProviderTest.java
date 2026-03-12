@@ -125,10 +125,10 @@ class AmendmentProviderTest {
     class CreateAmendmentProviderTests {
 
         @Test
-        @DisplayName("Testnet creates NoOpAmendmentProvider with 'testnet' network name")
-        void testTestnetCreatesNoOpProvider() {
+        @DisplayName("Testnet creates TestnetAmendmentProvider with 'testnet' network name")
+        void testTestnetCreatesTestnetProvider() {
             AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("testnet");
-            assertInstanceOf(NoOpAmendmentProvider.class, provider);
+            assertInstanceOf(TestnetAmendmentProvider.class, provider);
             assertEquals("testnet", provider.getNetworkName());
         }
 
@@ -159,7 +159,7 @@ class AmendmentProviderTest {
         @DisplayName("Factory method is case-insensitive")
         void testCaseInsensitive() {
             AmendmentProvider upper = AmendmentProvider.createAmendmentProvider("TESTNET");
-            assertInstanceOf(NoOpAmendmentProvider.class, upper);
+            assertInstanceOf(TestnetAmendmentProvider.class, upper);
             assertEquals("testnet", upper.getNetworkName());
 
             AmendmentProvider mixed = AmendmentProvider.createAmendmentProvider("Mainnet");
