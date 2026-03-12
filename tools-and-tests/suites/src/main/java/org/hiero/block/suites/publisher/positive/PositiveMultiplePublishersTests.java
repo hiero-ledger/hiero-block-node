@@ -9,6 +9,7 @@ import static org.hiero.block.suites.utils.BlockSimulatorUtils.createBlockSimula
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -597,8 +598,11 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
         blockStreamPublishServiceStub.publishBlockStream(responseObserver);
         Thread.sleep(3000);
 
-        assertTrue(response[0].hasResendBlock());
-        assertEquals(0, response[0].getResendBlock().getBlockNumber());
+        // We expect no responses in failed verification, when the connected publisher has not supplied the block
+        // that failed.
+        assertNull(response[0]);
+        // We expect the bad block proof message and an end of stream when the connected publisher has supplied the
+        // block that failed.
         assertTrue(streamStatus.lastKnownPublisherClientStatuses().stream()
                 .anyMatch(s -> s.toLowerCase().contains("bad_block_proof")));
     }

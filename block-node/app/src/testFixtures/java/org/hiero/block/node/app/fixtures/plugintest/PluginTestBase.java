@@ -8,6 +8,7 @@ import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
 import java.util.List;
 import java.util.Map;
@@ -74,7 +75,21 @@ public abstract class PluginTestBase<
      * @param historicalBlockFacility the historical block facility to be used
      */
     public void start(@NonNull final P plugin, @NonNull final HistoricalBlockFacility historicalBlockFacility) {
-        start(plugin, historicalBlockFacility, null);
+        start(plugin, historicalBlockFacility, null, null);
+    }
+
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final Map<String, String> configOverrides) {
+        start(plugin, historicalBlockFacility, null, configOverrides);
+    }
+
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final List<BlockNodePlugin> additionalPlugins) {
+        start(plugin, historicalBlockFacility, additionalPlugins, null);
     }
 
     /**
@@ -82,12 +97,14 @@ public abstract class PluginTestBase<
      *
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
-     * @param configOverrides a map of configuration overrides to be applied to loaded configuration
+     * @param additionalPlugins additional test plugins to be initialized and started
+     * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
      */
     public void start(
             @NonNull final P plugin,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
-            final Map<String, String> configOverrides) {
+            @Nullable final List<BlockNodePlugin> additionalPlugins,
+            @Nullable final Map<String, String> configOverrides) {
         this.plugin = plugin;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
@@ -144,6 +161,12 @@ public abstract class PluginTestBase<
                     blockNotificationHandler,
                     false,
                     historicalBlockFacility.getClass().getSimpleName());
+        }
+        if (additionalPlugins != null) {
+            for (final BlockNodePlugin additionalPlugin : additionalPlugins) {
+                additionalPlugin.init(blockNodeContext, mockServiceBuilder);
+                additionalPlugin.start();
+            }
         }
         // init plugin
         plugin.init(blockNodeContext, mockServiceBuilder);

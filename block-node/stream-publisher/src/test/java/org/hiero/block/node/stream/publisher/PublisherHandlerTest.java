@@ -12,14 +12,13 @@ import com.swirlds.metrics.api.Counter.Config;
 import com.swirlds.metrics.impl.DefaultCounter;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Flow.Subscription;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.LinkedTransferQueue;
-import java.util.concurrent.TransferQueue;
 import java.util.function.Function;
+import java.util.stream.Stream;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
@@ -36,6 +35,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
+import org.hiero.block.node.stream.publisher.StreamPublisherManager.ActionForBlock;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
 import org.hiero.block.node.stream.publisher.fixtures.TestStreamPublisherManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,11 +43,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
-/**
- * Tests for {@link PublisherHandler}.
- */
+/// Tests for [PublisherHandler].
 @DisplayName("PublisherHandler Tests")
 class PublisherHandlerTest {
     /**
@@ -77,7 +77,6 @@ class PublisherHandlerTest {
             validReplyPipeline = new TestResponsePipeline();
             validMetricsHodler = createMetrics();
             validPublisherManager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
-            validTranserQueue = new LinkedBlockingQueue<>();
         }
 
         /**
@@ -88,8 +87,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with valid parameters")
         void testValidParameters() {
             assertThatNoException().isThrownBy(() -> {
-                new PublisherHandler(
-                        validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, validTranserQueue);
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager);
             });
         }
 
@@ -101,7 +99,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null reply pipeline")
         void testNullReplyPipeline() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, null, validMetricsHodler, validPublisherManager, validTranserQueue);
+                new PublisherHandler(validNextId, null, validMetricsHodler, validPublisherManager);
             });
         }
 
@@ -113,7 +111,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null metrics holder")
         void testNullMetricsHolder() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, null, validPublisherManager, validTranserQueue);
+                new PublisherHandler(validNextId, validReplyPipeline, null, validPublisherManager);
             });
         }
 
@@ -125,40 +123,24 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null publisher manager")
         void testNullPublisherManager() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, null, validTranserQueue);
-            });
-        }
-
-        /**
-         * This test aims to assert that the constructor of {@link PublisherHandler} throws a
-         * {@link NullPointerException} when the transfer queue is null.
-         */
-        @Test
-        @DisplayName("Test constructor with null transfer queue")
-        void testNullTransferQueue() {
-            assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, null);
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, null);
             });
         }
     }
 
-    /**
-     * Functionality tests for {@link PublisherHandler}.
-     */
+    /// Functionality tests for [PublisherHandler].
     @Nested
     @DisplayName("Functionality Tests")
     class FunctionalityTest {
-        /** Handler ID used for the tests. */
+        /// Handler ID used for the tests.
         private long handlerId;
-        /** Test response pipeline used for asserting the handler's responses. */
+        /// Test response pipeline used for asserting the handler's responses.
         private TestResponsePipeline<PublishStreamResponse> repliesPipeline;
-        /** Metrics holder used for asserting the handler's metrics. */
+        /// Metrics holder used for asserting the handler's metrics.
         private MetricsHolder metrics;
-        /** Test publisher manager used within the handler to test. */
+        /// Test publisher manager used within the handler to test.
         private TestStreamPublisherManager manager;
-        /** Transfer queue used for asserting the items offered by the handler. */
-        private TransferQueue<BlockItemSetUnparsed> transferQueue;
-        /** The handler under test. */
+        /// The handler under test.
         private PublisherHandler toTest;
 
         // ASSERTION EXTRACTORS
@@ -177,37 +159,58 @@ class PublisherHandlerTest {
         private final Function<PublishStreamResponse, Long> acknowledgementBlockNumberExtractor =
                 response -> Objects.requireNonNull(response.acknowledgement()).blockNumber();
 
-        /**
-         * Environment setup executed before each test in this nested class.
-         */
+        /// Environment setup executed before each test in this nested class.
         @BeforeEach
         void setup() {
             handlerId = 1L;
             repliesPipeline = new TestResponsePipeline();
             metrics = createMetrics();
             manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
-            transferQueue = new LinkedTransferQueue<>();
-            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, transferQueue);
+            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager);
             manager.addHandler(toTest);
         }
 
-        /**
-         * Tests for {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}.
-         */
+        /// Tests for [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
         @Nested
         @DisplayName("onNext() Tests")
         class OnNextTest {
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
-             * path scenario. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#ACCEPT} for the streamed block number, the items
-             * will be offered to the transfer queue.
-             */
+            /// This test aims to assert that the {@link PublisherHandler} correctly handles a received request
+            /// {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
+            /// path scenario. Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the {@link StreamPublisherManager} returns
+            /// {@link BlockAction#ACCEPT} for the streamed block number, the items
+            /// will be offered to the transfer queue.
+            @Test
+            @DisplayName("Test onNext() with valid full block request queue created for block when action is ACCEPT")
+            void testOnNextACCEPT() {
+                // Setup request to send, in this case a single complete valid block
+                // as items, starting with header and ending with proof
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemSetUnparsed blockItemSet = block.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(blockItemSet)
+                        .build();
+                // Train the manager to return ACCEPT for the block number
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                // Assert queue not yet created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
+                // Call
+                toTest.onNext(request);
+                // Assert queue created
+                assertThat(manager.getQueueForBlock(block.number())).isNotNull();
+            }
+
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
+            /// path scenario. Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#ACCEPT] for the streamed block number, the items
+            /// will be offered to the transfer queue.
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block items streamed - happy path ACCEPT")
@@ -220,24 +223,22 @@ class PublisherHandlerTest {
                         .blockItems(blockItemSet)
                         .build();
                 // Train the manager to return ACCEPT for the block number
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call
                 toTest.onNext(request);
                 // Assert items offered to the transfer queue
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(manager.getQueueForBlock(block.number())).hasSize(1).containsExactly(blockItemSet);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
-             * path scenario. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#ACCEPT} for the streamed block number no replies
-             * to the pipeline are made.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
+            /// path scenario. Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#ACCEPT] for the streamed block number no replies
+            /// to the pipeline are made.
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block no replies to pipeline - happy path ACCEPT")
@@ -249,7 +250,7 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return ACCEPT for the block number
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call
                 toTest.onNext(request);
                 // Assert no replies sent to the pipeline
@@ -260,17 +261,15 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
-             * path scenario. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#ACCEPT} for the streamed block number the metrics
-             * will be properly updated.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
+            /// path scenario. Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#ACCEPT] for the streamed block number the metrics
+            /// will be properly updated.
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block metrics updated - happy path ACCEPT")
@@ -282,7 +281,7 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return ACCEPT for the block number
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
@@ -297,19 +296,17 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
-             * path scenario. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#ACCEPT} for the streamed block number no replies
-             * to the pipeline are made. After a {@link PersistedNotification} for
-             * the streamed block is published to the manager, the handler will
-             * send an acknowledgement response.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
+            /// path scenario. Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#ACCEPT] for the streamed block number no replies
+            /// to the pipeline are made. After a [PersistedNotification] for
+            /// the streamed block is published to the manager, the handler will
+            /// send an acknowledgement response.
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block sends acknowledgement after persisted - happy path ACCEPT")
@@ -317,12 +314,11 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long expectedStreamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return ACCEPT for the block number
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call
                 toTest.onNext(request);
                 // Assert no replies sent to the pipeline
@@ -332,15 +328,14 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
                 // Publish the persisted notification for the streamed block
-                manager.handlePersisted(
-                        new PersistedNotification(expectedStreamedBlockNumber, true, 0, BlockSource.PUBLISHER));
+                manager.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
                 // Assert the acknowledgement response is sent to the pipeline
                 // Assert that an acknowledgement was sent for the valid request
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                        .returns(expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
+                        .returns(block.number(), acknowledgementBlockNumberExtractor);
                 // Assert no other responses sent to the pipeline
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -348,18 +343,16 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
-             * path scenario. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * any action for the streamed block number and when the
-             * streamed items end with a valid block proof, the handler will send
-             * a signal to the manager to close the block.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
+            /// path scenario. Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// any action for the streamed block number and when the
+            /// streamed items end with a valid block proof, the handler will send
+            /// a signal to the manager to close the block.
             @ParameterizedTest
             @EnumSource(value = BlockAction.class)
             @DisplayName(
@@ -372,25 +365,25 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return the current action for the block number
-                manager.setBlockAction(action);
+                manager.setBlockActionForBlock(action);
                 // Call
                 toTest.onNext(request);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
                 endThisBlock(toTest, block.number());
                 // Assert that the manager's closeBlock method was called
                 assertThat(manager.closeBlockCallsForHandler(handlerId)).isOne();
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * any action for the streamed block number and when the
-             * streamed items end with a valid block proof, the handler will send
-             * a signal to the manager to close the block.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// any action for the streamed block number and when the
+            /// streamed items end with a valid block proof, the handler will send
+            /// a signal to the manager to close the block.
             @ParameterizedTest
             @EnumSource(value = BlockAction.class)
             @DisplayName(
@@ -398,7 +391,7 @@ class PublisherHandlerTest {
             void testOnNextCloseBlockBrokenProofACCEPT(final BlockAction action) {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with a broken proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenProof(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -407,32 +400,30 @@ class PublisherHandlerTest {
                         .blockItems(blockItemSet)
                         .build();
                 // Train the manager to return the current action for the block number
-                manager.setBlockAction(action);
+                manager.setBlockActionForBlock(action);
                 // Call
                 toTest.onNext(request);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, streamedBlockNumber);
                 endThisBlock(toTest, streamedBlockNumber);
                 // Assert that the manager's closeBlock method was called
                 assertThat(manager.closeBlockCallsForHandler(handlerId)).isEqualTo(1);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles received requests
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
-             * path scenario. Here we stream a single complete valid block as items.
-             * We stream two requests. The first request's first item is the block
-             * header for the streamed block. The second request's last item is the
-             * block proof for the streamed block. We expect that when the
-             * {@link StreamPublisherManager} returns {@link BlockAction#ACCEPT} for
-             * the streamed block number, the items will be offered to the transfer
-             * queue.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles received requests
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
+            /// path scenario. Here we stream a single complete valid block as items.
+            /// We stream two requests. The first request's first item is the block
+            /// header for the streamed block. The second request's last item is the
+            /// block proof for the streamed block. We expect that when the
+            /// [StreamPublisherManager] returns [BlockAction#ACCEPT] for
+            /// the streamed block number, the items will be offered to the transfer
+            /// queue.
             @Test
             @DisplayName(
                     "Test onNext() with valid two requests with a complete single block items streamed - happy path ACCEPT")
             void testOnNextConsecutiveRequestsHappyPathACCEPT() {
                 // Create the block to stream, a single complete valid block
-                final int streamedBlockNumber = 0;
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 final int mid = blockItems.length / 2;
@@ -444,11 +435,12 @@ class PublisherHandlerTest {
                         .blockItems(blockItemSet1)
                         .build();
                 // Train the manager to return ACCEPT for the block number
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // First call
                 toTest.onNext(request1);
                 // Assert items offered to the transfer queue
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet1);
+                final Deque<BlockItemSetUnparsed> block0Queue = manager.getQueueForBlock(block.number());
+                assertThat(block0Queue).hasSize(1).containsExactly(blockItemSet1);
                 // Build the second request with the second half of the block items
                 final BlockItemSetUnparsed blockItemSet2 = BlockItemSetUnparsed.newBuilder()
                         .blockItems(Arrays.copyOfRange(blockItems, mid, blockItems.length))
@@ -458,29 +450,27 @@ class PublisherHandlerTest {
                         .build();
                 // Second call
                 toTest.onNext(request2);
-                endThisBlock(toTest, streamedBlockNumber);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
                 // Assert items offered to the transfer queue
-                assertThat(transferQueue).hasSize(2).containsExactly(blockItemSet1, blockItemSet2);
+                assertThat(block0Queue).hasSize(2).containsExactly(blockItemSet1, blockItemSet2);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles received requests
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} happy
-             * path scenario. Here we stream a single complete valid block as items.
-             * We stream two requests. The first request's first item is the block
-             * header for the streamed block. The second request's last item is the
-             * block proof for the streamed block. We expect that when the
-             * {@link StreamPublisherManager} returns {@link BlockAction#ACCEPT} for
-             * the streamed block number the metrics will be properly updated.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles received requests
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
+            /// path scenario. Here we stream a single complete valid block as items.
+            /// We stream two requests. The first request's first item is the block
+            /// header for the streamed block. The second request's last item is the
+            /// block proof for the streamed block. We expect that when the
+            /// [StreamPublisherManager] returns [BlockAction#ACCEPT] for
+            /// the streamed block number the metrics will be properly updated.
             @Test
             @DisplayName(
                     "Test onNext() with valid two requests with a complete single block metrics updated - happy path ACCEPT")
             void testOnNextConsecutiveRequestsMetricsHappyPathACCEPT() {
                 // Create the block to stream, a single complete valid block
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 final int mid = blockItems.length / 2;
                 // Build the first request with the first half of the block items
@@ -491,7 +481,7 @@ class PublisherHandlerTest {
                         .blockItems(blockItemSet1)
                         .build();
                 // Train the manager to return ACCEPT for the block number
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // First call
                 toTest.onNext(request1);
                 // Assert metrics updated
@@ -505,7 +495,8 @@ class PublisherHandlerTest {
                         .build();
                 // Second call
                 toTest.onNext(request2);
-                endThisBlock(toTest, streamedBlockNumber);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
                 // Assert metrics updated
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
                 // Assert other metrics unchanged
@@ -518,71 +509,70 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#SKIP} for the streamed block number no items will
-             * be offered to the transfer queue.
-             */
+            /// This test aims to assert that the {@link PublisherHandler} correctly handles a received request
+            /// {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}.
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the {@link StreamPublisherManager} returns
+            /// {@link BlockAction#SKIP} for the streamed block number no queue will be
+            /// created for the streamed block.
             @Test
             @DisplayName(
-                    "Test onNext() with valid request with a complete single block no items offered to transfer queue - SKIP")
+                    "Test onNext() with valid request with a complete single block no queue created when action is SKIP")
             void testOnNextSKIP() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SKIP for the block number
-                manager.setBlockAction(BlockAction.SKIP);
+                manager.setBlockActionForBlock(BlockAction.SKIP);
+                // Assert queue not yet created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
                 // Call
                 toTest.onNext(request);
-                endThisBlock(toTest, streamedBlockNumber);
-                // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
+                // Assert no queue created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#SKIP} for the streamed block number the handler
-             * will reply with a
-             * {@link org.hiero.block.api.PublishStreamResponse.SkipBlock}.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#SKIP] for the streamed block number the handler
+            /// will reply with a
+            /// [org.hiero.block.api.PublishStreamResponse.SkipBlock].
             @Test
             @DisplayName("Test onNext() with valid request with a complete single block response SkipBlock - SKIP")
             void testOnNextResponseSKIP() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SKIP for the block number
-                manager.setBlockAction(BlockAction.SKIP);
+                manager.setBlockActionForBlock(BlockAction.SKIP);
                 // Call
                 toTest.onNext(request);
                 // End the block, this should not cause failure.
                 // Here we simulate network latency such that the block completes and ends
                 // before skip gets back to publisher.
-                endThisBlock(toTest, streamedBlockNumber);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
                 // Assert single response is SkipBlock with block number same as streamed
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
-                        .returns(streamedBlockNumber, skipBlockNumberExtractor);
+                        .returns(block.number(), skipBlockNumberExtractor);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -590,16 +580,15 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#SKIP} for the streamed block number the metrics
-             * will be properly updated.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#SKIP] for the streamed block number the metrics
+            /// will be properly updated.
             @Test
             @DisplayName("Test onNext() with valid request with a complete single block metrics updated - SKIP")
             void testOnNextMetricsSKIP() {
@@ -610,7 +599,7 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SKIP for the block number
-                manager.setBlockAction(BlockAction.SKIP);
+                manager.setBlockActionForBlock(BlockAction.SKIP);
                 // Call
                 toTest.onNext(request);
                 // No end block, should get SKIP _before_ ending the block
@@ -626,19 +615,18 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#RESEND} for the streamed block number no items
-             * will be offered to the transfer queue.
-             */
+            /// This test aims to assert that the {@link PublisherHandler} correctly handles a received request
+            /// {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}.
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the {@link StreamPublisherManager} returns
+            /// {@link BlockAction#RESEND} for the streamed block number no queue will be
+            /// created for the streamed block.
+            /// The Resend message is never expected to be received as an action for header/block.
             @Test
             @DisplayName(
-                    "Test onNext() with valid request with a complete single block no items offered to transfer queue - RESEND")
+                    "Test onNext() with valid request with a complete single block no queue created when action is RESEND")
             void testOnNextRESEND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
@@ -647,68 +635,71 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return RESEND for the block number
-                manager.setBlockAction(BlockAction.RESEND);
+                manager.setBlockActionForBlock(BlockAction.RESEND);
+                // Assert queue not yet created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
                 // Call
                 toTest.onNext(request);
-                // No end block, should get resend _before_ ending the block
-                // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                // Assert no queue created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#RESEND} for the streamed block number the handler
-             * will reply with a
-             * {@link org.hiero.block.api.PublishStreamResponse.ResendBlock}.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#RESEND] for the streamed block number the handler
+            /// will reply with a
+            /// [org.hiero.block.api.PublishStreamResponse.EndOfStream]
+            /// with [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#ERROR]
+            /// and the latest persisted block number.
+            /// The Resend message is never expected to be received as an action for header/block.
             @Test
             @DisplayName("Test onNext() with valid request with a complete single block response ResendBlock - RESEND")
             void testOnNextResponseRESEND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return RESEND for the block number
-                manager.setBlockAction(BlockAction.RESEND);
+                manager.setBlockActionForBlock(BlockAction.RESEND);
                 // Train the manager to return the expected latest block number
                 final long latestBlockNumber = 10L; // Example latest block number
-                final long expectedResponseBlockNumber = latestBlockNumber + 1L;
                 manager.setLatestBlockNumber(latestBlockNumber);
                 // Call
                 toTest.onNext(request);
                 // Test that we can still end the block when a resend is expected
-                endThisBlock(toTest, streamedBlockNumber);
-                // Assert single response is ResendBlock with block number same as streamed
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
+                // Assert sent responses
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
-                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
-                        .returns(expectedResponseBlockNumber, resendBlockNumberExtractor);
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.ERROR, endStreamResponseCodeExtractor)
+                        .returns(latestBlockNumber, endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#RESEND} for the streamed block number the metrics
-             * will be properly updated.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#RESEND] for the streamed block number the metrics
+            /// will be properly updated. We expect that the connection will be closed with an error.
+            /// The Resend message is never expected to be received as an action for header/block.
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block metrics updated ResendBlock - RESEND")
@@ -720,37 +711,36 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return RESEND for the block number
-                manager.setBlockAction(BlockAction.RESEND);
+                manager.setBlockActionForBlock(BlockAction.RESEND);
                 // Train the manager to return the expected latest block number
                 final long latestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(latestBlockNumber);
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(1);
+                assertThat(metrics.streamErrors().get()).isEqualTo(1);
+                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
                 // Assert other metrics unchanged
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
                 assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
+                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
                 assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#END_DUPLICATE} for the streamed block number no
-             * items will be offered to the transfer queue.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#END_DUPLICATE] for the streamed block number no
+            /// items will be offered to the transfer queue.
             @Test
             @DisplayName(
-                    "Test onNext() with valid request with a complete single block no items offered to transfer queue - EndOfStream, Code DUPLICATE_BLOCK")
+                    "Test onNext() with valid request with a complete single block no queue created when action is END_DUPLICATE")
             void testOnNextDUPLICATE() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
@@ -759,25 +749,26 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_DUPLICATE for the block number
-                manager.setBlockAction(BlockAction.END_DUPLICATE);
+                manager.setBlockActionForBlock(BlockAction.END_DUPLICATE);
+                // Assert queue not yet created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
                 // Call
                 toTest.onNext(request);
-                // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                // Assert no queue created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#END_DUPLICATE} for the streamed block number the
-             * handler will reply with a
-             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
-             * with {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#DUPLICATE_BLOCK}.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#END_DUPLICATE] for the streamed block number the
+            /// handler will reply with a
+            /// [org.hiero.block.api.PublishStreamResponse.EndOfStream]
+            /// with [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#DUPLICATE_BLOCK].
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block response EndOfStream, Code DUPLICATE_BLOCK - EndOfStream, Code DUPLICATE_BLOCK")
@@ -785,19 +776,19 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_DUPLICATE for the block number
-                manager.setBlockAction(BlockAction.END_DUPLICATE);
+                manager.setBlockActionForBlock(BlockAction.END_DUPLICATE);
                 // Train the manager to return the expected latest block number
                 final long expectedLatestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
                 // ensure that we can still end blocks when duplicate is expected
-                endThisBlock(toTest, streamedBlockNumber);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
                 // Assert single response is DUPLICATE_BLOCK with block number latest known and onComplete is called
                 // (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
@@ -813,16 +804,15 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#END_DUPLICATE} for the streamed block number the
-             * metrics will be properly updated.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#END_DUPLICATE] for the streamed block number the
+            /// metrics will be properly updated.
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block metrics updated EndOfStream, Code DUPLICATE_BLOCK - EndOfStream, Code DUPLICATE_BLOCK")
@@ -834,7 +824,7 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_DUPLICATE for the block number
-                manager.setBlockAction(BlockAction.END_DUPLICATE);
+                manager.setBlockActionForBlock(BlockAction.END_DUPLICATE);
                 // Train the manager to return the expected latest block number
                 final long expectedLatestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
@@ -852,19 +842,17 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#SEND_BEHIND} for the streamed block number no items
-             * will be offered to the transfer queue, and the handler will reply
-             */
+            /// This test aims to assert that the {@link PublisherHandler} correctly handles a received request
+            /// {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}.
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the {@link StreamPublisherManager} returns
+            /// {@link BlockAction#SEND_BEHIND} for the streamed block number no queue
+            /// will be created for the streamed block.
             @Test
             @DisplayName(
-                    "Test onNext() with valid request with a complete single block no items offered to transfer queue")
+                    "Test onNext() with valid request with a complete single block no queue created when action is SEND_BEHIND")
             void testOnNextBEHIND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
@@ -873,43 +861,44 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SEND_BEHIND for the block number
-                manager.setBlockAction(BlockAction.SEND_BEHIND);
+                manager.setBlockActionForBlock(BlockAction.SEND_BEHIND);
+                // Assert queue not yet created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
                 // Call
                 toTest.onNext(request);
-                // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                // Assert no queue created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#SEND_BEHIND} for the streamed block number the
-             * handler will reply with a
-             * {@link org.hiero.block.api.PublishStreamResponse.BehindPublisher}.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#SEND_BEHIND] for the streamed block number the
+            /// handler will reply with a
+            /// [org.hiero.block.api.PublishStreamResponse.BehindPublisher].
             @Test
             @DisplayName("Test onNext() with valid request with a complete single block response BehindPublisher")
             void testOnNextResponseBEHIND() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return SEND_BEHIND for the block number
-                manager.setBlockAction(BlockAction.SEND_BEHIND);
+                manager.setBlockActionForBlock(BlockAction.SEND_BEHIND);
                 // Train the manager to return the expected latest block number
                 final long expectedLatestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
                 // test that we can still end a block when behind is expected
-                endThisBlock(toTest, streamedBlockNumber);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
                 // Assert single response is BEHIND with block number same as latest known
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -918,16 +907,15 @@ class PublisherHandlerTest {
                         .returns(expectedLatestBlockNumber, nodeBehindBlockNumberExtractor);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#SEND_BEHIND} for the streamed block number the
-             * metrics will be properly updated.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#SEND_BEHIND] for the streamed block number the
+            /// metrics will be properly updated.
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block metrics updated returns BehindPublisher")
@@ -939,7 +927,7 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_BEHIND for the block number
-                manager.setBlockAction(BlockAction.SEND_BEHIND);
+                manager.setBlockActionForBlock(BlockAction.SEND_BEHIND);
                 // Train the manager to return the expected latest block number
                 final long latestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(latestBlockNumber);
@@ -958,19 +946,17 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#END_ERROR} for the streamed block number no items
-             * will be offered to the transfer queue.
-             */
+            /// This test aims to assert that the {@link PublisherHandler} correctly handles a received request
+            /// {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}.
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the {@link StreamPublisherManager} returns
+            /// {@link BlockAction#END_ERROR} for the streamed block number no queue is created
+            /// for the streamed block.
             @Test
             @DisplayName(
-                    "Test onNext() with valid request with a complete single block no items offered to transfer queue - EndOfStream, Code ERROR")
+                    "Test onNext() with valid request with a complete single block no queue created when action is END_ERROR")
             void testOnNextERROR() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
@@ -979,25 +965,26 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_ERROR for the block number
-                manager.setBlockAction(BlockAction.END_ERROR);
+                manager.setBlockActionForBlock(BlockAction.END_ERROR);
+                // Assert queue not yet created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
                 // Call
                 toTest.onNext(request);
-                // Assert no items propagated to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                // Assert no queue created
+                assertThat(manager.getQueueForBlock(block.number())).isNull();
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#END_ERROR} for the streamed block number the
-             * handler will reply with a
-             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
-             * with {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#ERROR}.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#END_ERROR] for the streamed block number the
+            /// handler will reply with a
+            /// [org.hiero.block.api.PublishStreamResponse.EndOfStream]
+            /// with [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#ERROR].
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block response EndOfStream, Code ERROR - EndOfStream, Code ERROR")
@@ -1005,19 +992,19 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long streamedBlockNumber = block.number();
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_ERROR for the block number
-                manager.setBlockAction(BlockAction.END_ERROR);
+                manager.setBlockActionForBlock(BlockAction.END_ERROR);
                 // Train the manager to return the expected latest block number
                 final long expectedLatestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
                 // test that we can still end a block when error is encountered
-                endThisBlock(toTest, streamedBlockNumber);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
                 // Assert single response is ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1032,16 +1019,15 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}. Here we stream a single complete valid block as items.
-             * The request's first item is the block header for the streamed block,
-             * and the last item is the block proof for the streamed block.
-             * We expect that when the {@link StreamPublisherManager} returns
-             * {@link BlockAction#END_ERROR} for the streamed block number the
-             * metrics will be properly updated.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#END_ERROR] for the streamed block number the
+            /// metrics will be properly updated.
             @Test
             @DisplayName(
                     "Test onNext() with valid request with a complete single block metrics updated EndOfStream, Code ERROR - EndOfStream, Code ERROR")
@@ -1053,7 +1039,7 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to return END_ERROR for the block number
-                manager.setBlockAction(BlockAction.END_ERROR);
+                manager.setBlockActionForBlock(BlockAction.END_ERROR);
                 // Train the manager to return the expected latest block number
                 final long expectedLatestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
@@ -1071,16 +1057,14 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header is expected, but it is not present. Here, the handler
-             * is in a state where it expects a block header to be the first item
-             * in next request, but the request does not contain a block header as
-             * first item. We expect that the handler will simply return w/o
-             * propagating any items to the transfer queue.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header is expected, but it is not present. Here, the handler
+            /// is in a state where it expects a block header to be the first item
+            /// in next request, but the request does not contain a block header as
+            /// first item. We expect that the handler will simply return w/o
+            /// creating any queues.
             @Test
             @DisplayName("Test onNext() with invalid request - no header, but expected - no items are propagated")
             void testOnNextReturnOnInvalidRequest() {
@@ -1099,19 +1083,17 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueByBlockMap()).isEmpty();
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header is expected, but it is not present. Here, the handler
-             * is in a state where it expects a block header to be the first item
-             * in next request, but the request does not contain a block header as
-             * first item. We expect that the handler will simply return w/o
-             * making any responses to the reply pipeline.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header is expected, but it is not present. Here, the handler
+            /// is in a state where it expects a block header to be the first item
+            /// in next request, but the request does not contain a block header as
+            /// first item. We expect that the handler will simply return w/o
+            /// making any responses to the reply pipeline.
             @Test
             @DisplayName("Test onNext() with invalid request - no header, but expected - no responses sent")
             void testOnNextReturnOnInvalidRequestNoResponse() {
@@ -1137,16 +1119,14 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header is expected, but it is not present. Here, the handler
-             * is in a state where it expects a block header to be the first item
-             * in next request, but the request does not contain a block header as
-             * first item. We expect that the handler will simply return w/o
-             * updating any metrics.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header is expected, but it is not present. Here, the handler
+            /// is in a state where it expects a block header to be the first item
+            /// in next request, but the request does not contain a block header as
+            /// first item. We expect that the handler will simply return w/o
+            /// updating any metrics.
             @Test
             @DisplayName("Test onNext() with invalid request - no header, but expected - no metrics updated")
             void testOnNextReturnOnInvalidRequestMetrics() {
@@ -1175,18 +1155,16 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header is expected, but it is not present. Here, the handler
-             * is in a state where it expects a block header to be the first item
-             * in next request, but the request does not contain a block header as
-             * first item. We expect that the handler will simply return w/o
-             * propagating any items to the transfer queue. Subsequent requests,
-             * if valid, will be processed normally and items will be propagated
-             * to the transfer queue.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header is expected, but it is not present. Here, the handler
+            /// is in a state where it expects a block header to be the first item
+            /// in next request, but the request does not contain a block header as
+            /// first item. We expect that the handler will simply return w/o
+            /// creating a queue for a block. Subsequent requests,
+            /// if valid, will be processed normally and items will be propagated
+            /// to the transfer queue.
             @Test
             @DisplayName(
                     "Test onNext() with invalid request - no header, but expected - subsequent valid request items propagated")
@@ -1194,7 +1172,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long expectedStreamedBlockNumber = block.number();
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
@@ -1207,7 +1184,7 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueByBlockMap()).isEmpty();
                 // Now send a valid request, which contains a block header
                 final BlockItemSetUnparsed validBlockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
@@ -1215,26 +1192,25 @@ class PublisherHandlerTest {
                         .blockItems(validBlockItemSet)
                         .build();
                 // Train the manager to expect return ACCEPT
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call with valid request
                 toTest.onNext(validRequest);
-                endThisBlock(toTest, expectedStreamedBlockNumber);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
                 // Assert items were propagated to the transfer queue
-                assertThat(transferQueue).hasSize(1).containsExactly(validBlockItemSet);
+                assertThat(manager.getQueueForBlock(block.number())).hasSize(1).containsExactly(validBlockItemSet);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header is expected, but it is not present. Here, the handler
-             * is in a state where it expects a block header to be the first item
-             * in next request, but the request does not contain a block header as
-             * first item. We expect that the handler will simply return w/o
-             * propagating any items to the transfer queue. Subsequent requests,
-             * if valid, will be processed normally and acknowledgements will be
-             * sent.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header is expected, but it is not present. Here, the handler
+            /// is in a state where it expects a block header to be the first item
+            /// in next request, but the request does not contain a block header as
+            /// first item. We expect that the handler will simply return w/o
+            /// propagating any items to the transfer queue. Subsequent requests,
+            /// if valid, will be processed normally and acknowledgements will be
+            /// sent.
             @Test
             @DisplayName(
                     "Test onNext() with invalid request - no header, but expected - subsequent valid request sends acknowledgement")
@@ -1242,7 +1218,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long expectedStreamedBlockNumber = block.number();
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
@@ -1263,18 +1238,17 @@ class PublisherHandlerTest {
                         .blockItems(validBlockItemSet)
                         .build();
                 // Train the manager to expect return ACCEPT
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call with valid request
                 toTest.onNext(validRequest);
                 // Send a PersistedNotification for the streamed block number
-                manager.handlePersisted(
-                        new PersistedNotification(expectedStreamedBlockNumber, true, 0, BlockSource.PUBLISHER));
+                manager.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
                 // Assert that an acknowledgement was sent for the valid request
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                        .returns(expectedStreamedBlockNumber, acknowledgementBlockNumberExtractor);
+                        .returns(block.number(), acknowledgementBlockNumberExtractor);
                 // Assert no replies sent to the pipeline
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1282,17 +1256,15 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header is expected, but it is not present. Here, the handler
-             * is in a state where it expects a block header to be the first item
-             * in next request, but the request does not contain a block header as
-             * first item. We expect that the handler will simply return w/o
-             * propagating any items to the transfer queue. Subsequent requests,
-             * if valid, will be processed normally and metrics will be updated.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header is expected, but it is not present. Here, the handler
+            /// is in a state where it expects a block header to be the first item
+            /// in next request, but the request does not contain a block header as
+            /// first item. We expect that the handler will simply return w/o
+            /// propagating any items to the transfer queue. Subsequent requests,
+            /// if valid, will be processed normally and metrics will be updated.
             @Test
             @DisplayName(
                     "Test onNext() with invalid request - no header, but expected - subsequent valid request updates metrics")
@@ -1300,7 +1272,6 @@ class PublisherHandlerTest {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final long expectedStreamedBlockNumber = block.number();
                 final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
                 // Remove the first item, which is the block header
                 final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 1, blockItems.length);
@@ -1328,12 +1299,11 @@ class PublisherHandlerTest {
                         .blockItems(validBlockItemSet)
                         .build();
                 // Train the manager to expect return ACCEPT
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call with valid request
                 toTest.onNext(validRequest);
                 // Send a PersistedNotification for the streamed block number
-                manager.handlePersisted(
-                        new PersistedNotification(expectedStreamedBlockNumber, true, 0, BlockSource.PUBLISHER));
+                manager.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
                 // Assert live items received updated and acknowledgement sent updated
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
                 assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(1);
@@ -1346,16 +1316,14 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * premature header is received, i.e. the request contains a block
-             * header, but the current block is not yet streamed in full. A header
-             * indicates that the current requests initiates the streaming of a new
-             * block. When a header is sent prematurely, the handler is expected to
-             * not propagate any items to the transfer queue.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// premature header is received, i.e. the request contains a block
+            /// header, but the current block is not yet streamed in full. A header
+            /// indicates that the current requests initiates the streaming of a new
+            /// block. When a header is sent prematurely, the handler is expected to
+            /// not propagate any items to the transfer queue.
             @Test
             @DisplayName(
                     "Test onNext() with premature header received, no items propagated - EndOfStream, Code INVALID_REQUEST")
@@ -1373,30 +1341,29 @@ class PublisherHandlerTest {
                         .blockItems(blockItemSet)
                         .build();
                 // Train the manager to expect return ACCEPT
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call, we expect that everything is well when we've first sent this valid request
                 toTest.onNext(request);
+                final Deque<BlockItemSetUnparsed> block0Queue = manager.getQueueForBlock(block.number());
                 // Assert items were propagated (first request was valid and passed)
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(block0Queue).hasSize(1).containsExactly(blockItemSet);
                 // Call again, now we expect that the handler will not propagate any items
                 // because the request would be invalid, we are sending a header, but the
                 // current block is not yet streamed in full as we sent only half of the items.
                 toTest.onNext(request);
                 // Assert that queue is unchanged (1st request was valid)
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(block0Queue).hasSize(1).containsExactly(blockItemSet);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * premature header is received, i.e. the request contains a block
-             * header, but the current block is not yet streamed in full. A header
-             * indicates that the current requests initiates the streaming of a new
-             * block. When a header is sent prematurely, the handler is expected to
-             * respond with an {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
-             * with {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#INVALID_REQUEST}.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// premature header is received, i.e. the request contains a block
+            /// header, but the current block is not yet streamed in full. A header
+            /// indicates that the current requests initiates the streaming of a new
+            /// block. When a header is sent prematurely, the handler is expected to
+            /// respond with an [org.hiero.block.api.PublishStreamResponse.EndOfStream]
+            /// with [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#INVALID_REQUEST].
             @Test
             @DisplayName("Test onNext() with premature header received, response EndOfStream, Code INVALID_REQUEST")
             void testOnNextPrematureHeaderResponse() {
@@ -1413,11 +1380,11 @@ class PublisherHandlerTest {
                         .blockItems(blockItemSet)
                         .build();
                 // Train the manager to expect return ACCEPT
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call, we expect that everything is well when we've first sent this valid request
                 toTest.onNext(request);
                 // Assert items were propagated (first request was valid and passed)
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(manager.getQueueForBlock(block.number())).hasSize(1).containsExactly(blockItemSet);
                 // Call again, now we expect that the handler will not propagate any items
                 // because the request would be invalid, we are sending a header, but the
                 // current block is not yet streamed in full as we sent only half of the items.
@@ -1436,16 +1403,14 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * premature header is received, i.e. the request contains a block
-             * header, but the current block is not yet streamed in full. A header
-             * indicates that the current requests initiates the streaming of a new
-             * block. When a header is sent prematurely, the handler is expected to
-             * update metrics accordingly.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// premature header is received, i.e. the request contains a block
+            /// header, but the current block is not yet streamed in full. A header
+            /// indicates that the current requests initiates the streaming of a new
+            /// block. When a header is sent prematurely, the handler is expected to
+            /// update metrics accordingly.
             @Test
             @DisplayName(
                     "Test onNext() with premature header received, metrics updated - EndOfStream, Code INVALID_REQUEST")
@@ -1463,11 +1428,11 @@ class PublisherHandlerTest {
                         .blockItems(blockItemSet)
                         .build();
                 // Train the manager to expect return ACCEPT
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call, we expect that everything is well when we've first sent this valid request
                 toTest.onNext(request);
                 // Assert items were propagated (first request was valid and passed)
-                assertThat(transferQueue).hasSize(1).containsExactly(blockItemSet);
+                assertThat(manager.getQueueForBlock(block.number())).hasSize(1).containsExactly(blockItemSet);
                 // Assert metrics updated for the successful request
                 assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItemsToSend.length);
                 // Call again, now we expect that the handler will not propagate any items
@@ -1486,19 +1451,17 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header is broken, cannot be parsed. We expect that the handler
-             * will not propagate any items to the transfer queue.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header is broken, cannot be parsed. We expect that the handler
+            /// will not create any queues.
             @Test
             @DisplayName("Test onNext() with invalid request - broken header - no items propagated")
             void testOnNextBrokenHeader() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a broken header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenHeader(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1509,25 +1472,23 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueByBlockMap()).isEmpty();
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header is broken, cannot be parsed. We expect that the handler
-             * will simply reply with a
-             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
-             * with {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#INVALID_REQUEST}.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header is broken, cannot be parsed. We expect that the handler
+            /// will simply reply with a
+            /// [org.hiero.block.api.PublishStreamResponse.EndOfStream]
+            /// with [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#INVALID_REQUEST].
             @Test
             @DisplayName(
                     "Test onNext() with invalid request - broken header - respond with EndOfStream, Code INVALID_REQUEST")
             void testOnNextBrokenHeaderResponse() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a broken header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenHeader(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1551,19 +1512,17 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header is broken, cannot be parsed. We expect that the handler
-             * will update metrics.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header is broken, cannot be parsed. We expect that the handler
+            /// will update metrics.
             @Test
             @DisplayName("Test onNext() with invalid request - broken header - metrics updated")
             void testOnNextBrokenHeaderMetrics() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a broken header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenHeader(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1585,19 +1544,17 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header null. We expect that the handler will not propagate any
-             * items to the transfer queue.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header null. We expect that the handler will not create any
+            /// queues.
             @Test
             @DisplayName("Test onNext() with invalid request - null header - no items propagated")
             void testOnNextNullHeader() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a null header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithNullHeaderBytes(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1608,24 +1565,22 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert no items offered to the transfer queue
-                assertThat(transferQueue).isEmpty();
+                assertThat(manager.getQueueByBlockMap()).isEmpty();
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header null. We expect that the handler
-             * will simply reply with a
-             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
-             * with {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#ERROR}.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header null. We expect that the handler
+            /// will simply reply with a
+            /// [org.hiero.block.api.PublishStreamResponse.EndOfStream]
+            /// with [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#ERROR].
             @Test
             @DisplayName("Test onNext() with invalid request - null header - respond with EndOfStream, Code ERROR")
             void testOnNextNullHeaderResponse() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a null header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithNullHeaderBytes(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1649,18 +1604,16 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly
-             * handles a received invalid request
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)} when
-             * block header null. We expect that the handler will update metrics.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received invalid request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// block header null. We expect that the handler will update metrics.
             @Test
             @DisplayName("Test onNext() with invalid request - null header - metrics updated")
             void testOnNextNullHeaderMetrics() {
                 // Setup request to send, in this case a single complete block
                 // as items, starting with a null header and ending with proof
-                final int streamedBlockNumber = 0;
+                final long streamedBlockNumber = 0L;
                 final BlockUnparsed block = TestBlockBuilder.generateBlockWithNullHeaderBytes(streamedBlockNumber);
                 final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
                         .blockItems(block.blockItems())
@@ -1682,13 +1635,11 @@ class PublisherHandlerTest {
                 assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to verify that the
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
-             * correctly handles a request with null block items. We expect that
-             * {@link PublishStreamResponse.EndOfStream}
-             * response is returned with code {@link Code#INVALID_REQUEST}.
-             */
+            /// This test aims to verify that the
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)]
+            /// correctly handles a request with null block items. We expect that
+            /// [PublishStreamResponse.EndOfStream]
+            /// response is returned with code [Code#INVALID_REQUEST].
             @Test
             @DisplayName("Test onNext() with null block items")
             void testOnNextNullItems() {
@@ -1715,13 +1666,11 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to verify that the
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
-             * correctly handles a request with empty block items. We expect
-             * that {@link PublishStreamResponse.EndOfStream}
-             * response is returned with code {@link Code#INVALID_REQUEST}.
-             */
+            /// This test aims to verify that the
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)]
+            /// correctly handles a request with empty block items. We expect
+            /// that [PublishStreamResponse.EndOfStream]
+            /// response is returned with code [Code#INVALID_REQUEST].
             @Test
             @DisplayName("Test onNext() with empty block items")
             void testOnNextEmptyItems() {
@@ -1748,13 +1697,11 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to verify that the
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
-             * correctly handles a request with unset oneOf We expect
-             * that {@link PublishStreamResponse.EndOfStream}
-             * response is returned with code {@link Code#INVALID_REQUEST}.
-             */
+            /// This test aims to verify that the
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)]
+            /// correctly handles a request with unset oneOf We expect
+            /// that [PublishStreamResponse.EndOfStream]
+            /// response is returned with code [Code#INVALID_REQUEST].
             @Test
             @DisplayName("Test onNext() with unset oneOf")
             void testOnNextUnsetOneOf() {
@@ -1778,13 +1725,11 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to verify that the
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
-             * correctly handles a request with EndStream shutdown. We expect
-             * that {@link PublishStreamResponse.EndOfStream}
-             * response is returned with any code to shut down the handler.
-             */
+            /// This test aims to verify that the
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)]
+            /// correctly handles a request with EndStream shutdown. We expect
+            /// that [PublishStreamResponse.EndOfStream]
+            /// response is returned with any code to shut down the handler.
             @ParameterizedTest()
             @EnumSource(EndStream.Code.class)
             @DisplayName("Test onNext() with EndStream shutdown - Code {code}")
@@ -1809,14 +1754,12 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to verify that the
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
-             * correctly handles a request with EndStream shutdown. We expect
-             * that {@link PublishStreamResponse.EndOfStream}
-             * response is returned with any code to shut down the handler even
-             * if the request is invalid.
-             */
+            /// This test aims to verify that the
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)]
+            /// correctly handles a request with EndStream shutdown. We expect
+            /// that [PublishStreamResponse.EndOfStream]
+            /// response is returned with any code to shut down the handler even
+            /// if the request is invalid.
             @ParameterizedTest()
             @EnumSource(EndStream.Code.class)
             @DisplayName("Test onNext() with EndStream shutdown - Code {code}")
@@ -1842,14 +1785,12 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to verify that the
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
-             * correctly handles a request with EndStream shutdown with code
-             * {@link EndStream.Code#TOO_FAR_BEHIND}. We expect that the handler
-             * will send a notification with the latest block known to the network
-             * if the node is truly behind.
-             */
+            /// This test aims to verify that the
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)]
+            /// correctly handles a request with EndStream shutdown with code
+            /// [EndStream.Code#TOO_FAR_BEHIND]. We expect that the handler
+            /// will send a notification with the latest block known to the network
+            /// if the node is truly behind.
             @Test
             @DisplayName("Test onNext() with EndStream TOO_FAR_BEHIND sends newest block known to network notification")
             void testOnNextEndStreamTooFarBehind() {
@@ -1874,14 +1815,12 @@ class PublisherHandlerTest {
                 assertThat(sentNotifications).hasSize(1);
             }
 
-            /**
-             * This test aims to verify that the
-             * {@link PublisherHandler#onNext(PublishStreamRequestUnparsed)}
-             * correctly handles a request with EndStream shutdown with code
-             * {@link EndStream.Code#TOO_FAR_BEHIND}. We expect that the handler
-             * will not send a notification with the latest block known to the
-             * network if the node is not truly behind.
-             */
+            /// This test aims to verify that the
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)]
+            /// correctly handles a request with EndStream shutdown with code
+            /// [EndStream.Code#TOO_FAR_BEHIND]. We expect that the handler
+            /// will not send a notification with the latest block known to the
+            /// network if the node is not truly behind.
             @Test
             @DisplayName(
                     "Test onNext() with EndStream TOO_FAR_BEHIND does not send newest block known to network notification")
@@ -1908,19 +1847,16 @@ class PublisherHandlerTest {
             }
         }
 
-        /**
-         * Tests for the {@link PublisherHandler#onError(Throwable)} method.
-         */
+        /// Tests for the [PublisherHandler#onError(Throwable)] method.
         @Nested
         @DisplayName("onError() Tests")
         class OnErrorTests {
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly handles a received error response
-             * when the {@link PublisherHandler#onError(Throwable)} gets called. Here we expect that the handler will
-             * respond to the publisher with an {@link org.hiero.block.api.PublishStreamResponse.EndOfStream} with
-             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#ERROR} and will proceed to orderly
-             * shutdown.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly handles a received error response
+            /// when the [PublisherHandler#onError(Throwable)] gets called. Here we expect that the handler
+            /// will respond to the publisher with an
+            /// [org.hiero.block.api.PublishStreamResponse.EndOfStream]
+            /// with [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#ERROR] and will proceed to
+            /// orderly shutdown.
             @Test
             @DisplayName("Test onError() with error response - EndOfStream, Code ERROR")
             void testOnErrorResponse() {
@@ -1943,11 +1879,9 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the {@link PublisherHandler} correctly handles a received error response
-             * when the {@link PublisherHandler#onError(Throwable)} gets called. Here we expect that metrics will be
-             * updated accordingly to reflect the received error.
-             */
+            /// This test aims to assert that the [PublisherHandler] correctly handles a received error response
+            /// when the [PublisherHandler#onError(Throwable)] gets called. Here we expect that metrics will
+            /// be updated accordingly to reflect the received error.
             @Test
             @DisplayName("Test onError() metrics updated - EndOfStream, Code ERROR")
             void testOnErrorMetrics() {
@@ -1969,20 +1903,15 @@ class PublisherHandlerTest {
             }
         }
 
-        /**
-         * Requirement: When {@link PublisherHandler#onComplete()} is invoked, it must signal the completion of the reply
-         * pipeline exactly once and perform no other side effects.
-         *
-         * Verification strategy: Begin from a clean state, invoke {@link PublisherHandler#onComplete()}, then assert
-         * exactly one completion event and that onNext/onError/onSubscription/client-end-stream counters remain unchanged.
-         *
-         */
+        /// Requirement: When [PublisherHandler#onComplete()] is invoked, it must signal the completion of the reply
+        /// pipeline exactly once and perform no other side effects.
+        /// Verification strategy: Begin from a clean state, invoke [PublisherHandler#onComplete()], then assert
+        /// exactly one completion event and that onNext/onError/onSubscription/client-end-stream counters
+        /// remain unchanged.
         @Nested
         @DisplayName("onComplete() Tests")
         class OnCompleteTests {
-            /**
-             * Verifies that onComplete() completes the reply pipeline without any extra interactions.
-             */
+            /// Verifies that onComplete() completes the reply pipeline without any extra interactions.
             @Test
             @DisplayName("Test onComplete() completes pipeline without extra interactions")
             void testOnCompleteRemovesHandlerAndCompletesPipeline() {
@@ -2000,19 +1929,15 @@ class PublisherHandlerTest {
             }
         }
 
-        /**
-         * Requirement: {@link PublisherHandler#onSubscribe(Subscription)} must be a no-op:
-         * it should not throw, and it must produce no protocol responses or reply-pipeline side effects.
-         *
-         * Verification strategy: Start from a clean reply pipeline, pass a minimal no-op Subscription
-         * to {@code onSubscribe(...)}, assert no exception is thrown, and then assert zero interactions across
-         * onNext/onError/onSubscription/onComplete and client-end-stream counters.
-         *
-         */
+        /// Requirement: [PublisherHandler#onSubscribe(Subscription)] must be a no-op:
+        /// it should not throw, and it must produce no protocol responses or reply-pipeline side effects.
+        /// Verification strategy: Start from a clean reply pipeline, pass a minimal no-op Subscription
+        /// to `onSubscribe(...)`, assert no exception is thrown, and then assert zero interactions across
+        /// onNext/onError/onSubscription/onComplete and client-end-stream counters.
         @Nested
         @DisplayName("onSubscribe() Tests")
         class OnSubscribeTests {
-            /** Verifies that onSubscribe() throws no exceptions and leaves the reply pipeline untouched. */
+            /// Verifies that onSubscribe() throws no exceptions and leaves the reply pipeline untouched.
             @Test
             @DisplayName("onSubscribe() performs no side effects")
             void testOnSubscribeDoesNothing() {
@@ -2048,23 +1973,17 @@ class PublisherHandlerTest {
             }
         }
 
-        /**
-         * Requirement: Client end-of-stream must complete the reply pipeline and emit
-         * no protocol responses.
-         *
-         * How this test proves it: Pre-assert the pipeline has had no prior
-         * interactions, call {@link PublisherHandler#clientEndStreamReceived()}, then
-         * assert exactly one completion and that onNext/onError/onSubscription and
-         * client-end-stream counters remain unchanged.
-         *
-         */
+        /// Requirement: Client end-of-stream must complete the reply pipeline and emit
+        /// no protocol responses.
+        /// How this test proves it: Pre-assert the pipeline has had no prior
+        /// interactions, call [PublisherHandler#clientEndStreamReceived()], then
+        /// assert exactly one completion and that onNext/onError/onSubscription and
+        /// client-end-stream counters remain unchanged.
         @Nested
         @DisplayName("clientEndStreamReceived() Tests")
         class ClientEndStreamReceivedTests {
 
-            /**
-             * Verifies that calling clientEndStreamReceived() completes the pipeline and sends no other responses.
-             */
+            /// Verifies that calling clientEndStreamReceived() completes the pipeline and sends no other responses.
             @Test
             @DisplayName("clientEndStreamReceived() completes pipeline without extra interactions")
             void testClientEndStreamReceivedCompletesPipeline() {
@@ -2089,21 +2008,18 @@ class PublisherHandlerTest {
             }
         }
 
-        /**
-         * Requirement: When an acknowledgement is sent for a given block number, the handler must emit exactly one
-         * {@link PublishStreamResponse} response containing the same block number
-         * and increment the {@code blockAcknowledgementsSent} metric by one.
-         *
-         * Verification strategy: Begin from a clean state, invoke {@link PublisherHandler#sendAcknowledgement(long)}, then
-         * assert that a single ACK response with the expected block number was produced and metrics updated accordingly.
-         *
-         */
+        /// Requirement: When an acknowledgement is sent for a given block number, the handler must emit exactly one
+        /// [PublishStreamResponse] response containing the same block number
+        /// and increment the `blockAcknowledgementsSent` metric by one.
+        /// Verification strategy: Begin from a clean state, invoke
+        /// [PublisherHandler#sendAcknowledgement(long)], then
+        /// assert that a single ACK response with the expected block number was produced and metrics updated
+        /// accordingly.
         @Nested
         @DisplayName("sendAcknowledgement() Tests")
         class SendAcknowledgementTests {
-            /**
-             * Verifies that sendAcknowledgement() emits a single ACK for the given block number and increments metrics.
-             */
+            /// Verifies that sendAcknowledgement() emits a single ACK for the given block number and increments
+            /// metrics.
             @Test
             @DisplayName("sends ACK response and updates metrics for given block number")
             void testSendAcknowledgementSendsAckAndUpdatesMetrics() {
@@ -2141,10 +2057,8 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
             }
 
-            /**
-             * Verifies that two sequential sendAcknowledgement calls emit two ACKs in order and
-             * increment the acknowledgements metric by 2.
-             */
+            /// Verifies that two sequential sendAcknowledgement calls emit two ACKs in order and
+            /// increment the acknowledgements metric by 2.
             @Test
             @DisplayName("multiple calls produce multiple ACKs in order and increment metrics per call")
             void testSendAcknowledgementMultipleCalls() {
@@ -2176,36 +2090,24 @@ class PublisherHandlerTest {
             }
         }
 
-        /**
-         * Tests for the {@link PublisherHandler#handleFailedVerification(long)}method.
-         */
+        /// Tests for the [PublisherHandler#handleFailedVerification(long)]method.
         @Nested
         @DisplayName("handleFailedVerification() Tests")
         class HandleVerificationTests {
-            /**
-             * This test aims to assert that the
-             * {@link PublisherHandler#handleFailedVerification(long)} will
-             * correctly handle a failed verification by sending a
-             * {@link org.hiero.block.api.PublishStreamResponse.ResendBlock}
-             * response with the next block number to be resent, when the
-             * publisher has not sent the block that failed verification.
-             */
+            /// This test aims to assert that the
+            /// [PublisherHandler#handleFailedVerification(long)] will
+            /// correctly handle a failed verification by sending no response,
+            /// when the publisher has not sent the block that failed verification.
             @Test
             @DisplayName(
-                    "handleFailedVerification() - ResendBlock response when handler did not send the block that failed verification")
-            void testHandleVerificationResend() {
-                // Train the manager to return the expected latest block number
-                final long latestBlockNumber = 10L; // Example latest block number
-                final long expectedResponseBlockNumber = latestBlockNumber + 1L;
-                manager.setLatestBlockNumber(latestBlockNumber);
+                    "handleFailedVerification() - no response when handler did not send the block that failed verification")
+            void testHandleVerificationNoResponse() {
+                final long expectedResponseBlockNumber = 0;
                 // Call
-                toTest.handleFailedVerification(0);
-                // Assert single response is ResentBlock with block number same as streamed
-                assertThat(repliesPipeline.getOnNextCalls())
-                        .hasSize(1)
-                        .first()
-                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
-                        .returns(expectedResponseBlockNumber, resendBlockNumberExtractor);
+                toTest.handleFailedVerification(expectedResponseBlockNumber);
+                // Assert no response is sent and shared metrics is not updated
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -2213,15 +2115,13 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link PublisherHandler#handleFailedVerification(long)} will
-             * correctly handle a failed verification by sending a
-             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream}
-             * response with code
-             * {@link org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#BAD_BLOCK_PROOF}
-             * when the publisher has sent the block that failed verification.
-             */
+            /// This test aims to assert that the
+            /// [PublisherHandler#handleFailedVerification(long)] will
+            /// correctly handle a failed verification by sending a
+            /// [org.hiero.block.api.PublishStreamResponse.EndOfStream]
+            /// response with code
+            /// [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#BAD_BLOCK_PROOF]
+            /// when the publisher has sent the block that failed verification.
             @Test
             @DisplayName(
                     "handleFailedVerification() - EndOfStream response with Code BAD_BLOCK_PROOF when handler sent the block that failed verification")
@@ -2237,9 +2137,10 @@ class PublisherHandlerTest {
                         .blockItems(block.asItemSetUnparsed())
                         .build();
                 // Train the manager to expect return ACCEPT
-                manager.setBlockAction(BlockAction.ACCEPT);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Call onNext with the request, this will update the internal state of the handler
                 toTest.onNext(request);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
                 endThisBlock(toTest, expectedBlockNumber);
                 // Train the manager to return the expected latest block number
                 final long latestBlockNumber = expectedBlockNumber - 1L;
@@ -2261,16 +2162,98 @@ class PublisherHandlerTest {
             }
         }
 
-        // @todo(1263)
-        //    tests to add:
-        //    add tests for EndStream requests when they become available
-        //    ...
+        /// Tests for receiving the [org.hiero.block.api.PublishStreamRequest.RequestOneOfType#END_OF_BLOCK] requests.
+        @Nested
+        @DisplayName("EndOfBlock Tests")
+        class EndOfBlockTests {
+            /// This test aims to assert that when an action for block with [BlockAction#ACCEPT] and the correct
+            /// block number is received by the manager, the handler will send no responses and will still
+            // be active.
+            @Test
+            @DisplayName(
+                    "endOfBlock - No response when the manager sends ActionForBlock with ACCEPT and correct block number")
+            void testAccept() {
+                final long endingBlock = 0L;
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.ACCEPT, endingBlock));
+                endThisBlock(toTest, endingBlock);
+                // Assert no responses
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /// This test aims to assert that when an action for block with [BlockAction#RESEND] and a correct
+            /// block number is received by the manager, the handler will send the RESEND response and still
+            // be active.
+            @Test
+            @DisplayName(
+                    "endOfBlock - RESEND response when the manager sends ActionForBlock with RESEND and correct block number")
+            void testResend() {
+                final long resendingBlock = 0L;
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.RESEND, resendingBlock));
+                // End another block, but could be the same as the one we want to resend
+                endThisBlock(toTest, resendingBlock + 1L);
+                // Assert RESEND has been sent
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                        .returns(resendingBlock, resendBlockNumberExtractor);
+                // Assert no other responses
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /// This test aims to assert that when an unexpected [ActionForBlock] is received by the manager
+            /// when handling an
+            /// [org.hiero.block.api.PublishStreamRequest.RequestOneOfType#END_OF_BLOCK] request,
+            /// the handler will proceed to end with an
+            /// [ResponseOneOfType#END_STREAM] with code [Code#ERROR] and the connection will be closed.
+            @ParameterizedTest
+            @MethodSource("unexpectedBlockActions")
+            @DisplayName(
+                    "endOfBlock - EndOfStream response with Code ERROR when manager supplies an unexpected ActionForBlock")
+            void testUnexpectedActionForBlockReceived(final ActionForBlock action) {
+                manager.setBlockActionForEndOfBlock(action);
+                endThisBlock(toTest, 0L);
+                // Assert single response is EndOfStream with Code ERROR and onComplete is called (shutdown)
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.ERROR, endStreamResponseCodeExtractor)
+                        .returns(-1L, endStreamBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                // Assert no other responses sent
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            private static Stream<Arguments> unexpectedBlockActions() {
+                return Stream.of(
+                        // expected action, but invalid number
+                        Arguments.of(new ActionForBlock(BlockAction.ACCEPT, -1L)),
+                        // expected action, but invalid number
+                        Arguments.of(new ActionForBlock(BlockAction.RESEND, -1L)),
+                        // not expected action with a valid number
+                        Arguments.of(new ActionForBlock(BlockAction.SKIP, 0L)),
+                        // not expected action with a valid number
+                        Arguments.of(new ActionForBlock(BlockAction.SEND_BEHIND, 0L)),
+                        // not expected action with a valid number
+                        Arguments.of(new ActionForBlock(BlockAction.END_DUPLICATE, 0L)),
+                        // not expected action with a valid number
+                        Arguments.of(new ActionForBlock(BlockAction.END_ERROR, 0L)));
+            }
+        }
     }
 
-    /**
-     * Creates a new {@link MetricsHolder} with default counters for testing.
-     * These counters could be queried to verify the metrics' states.
-     */
+    /// Creates a new [MetricsHolder] with default counters for testing.
+    /// These counters could be queried to verify the metrics' states.
     private MetricsHolder createMetrics() {
         return new MetricsHolder(
                 new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_items_received")),

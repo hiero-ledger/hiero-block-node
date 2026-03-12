@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
-import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.metrics.api.Metrics;
@@ -51,6 +50,7 @@ import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.stream.publisher.LiveStreamPublisherManager.MetricsHolder;
+import org.hiero.block.node.stream.publisher.StreamPublisherManager.ActionForBlock;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -61,22 +61,16 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/**
- * Tests for the {@link LiveStreamPublisherManager}.
- */
+/// Tests for the [LiveStreamPublisherManager].
 @DisplayName("LiveStreamPublisherManager Tests")
 class LiveStreamPublisherManagerTest {
-    /**
-     * Constructor tests for the {@link LiveStreamPublisherManager}.
-     */
+    /// Constructor tests for the [LiveStreamPublisherManager].
     @Nested
     @DisplayName("Constructor Tests")
     class ConstructorTests {
-        /**
-         * This test aims to assert that the constructor of
-         * {@link LiveStreamPublisherManager} does not throw any exceptions
-         * when provided with valid arguments.
-         */
+        /// This test aims to assert that the constructor of
+        /// [LiveStreamPublisherManager] does not throw any exceptions
+        /// when provided with valid arguments.
         @Test
         @DisplayName("Constructor does not throw any exceptions with valid arguments")
         void testValidArguments() {
@@ -84,12 +78,10 @@ class LiveStreamPublisherManagerTest {
                     .isThrownBy(() -> new LiveStreamPublisherManager(generateContext(), generateManagerMetrics()));
         }
 
-        /**
-         * This test aims to assert that the constructor of
-         * {@link LiveStreamPublisherManager} throws a
-         * {@link NullPointerException} when provided with a
-         * {@code null} context.
-         */
+        /// This test aims to assert that the constructor of
+        /// [LiveStreamPublisherManager] throws a
+        /// [NullPointerException] when provided with a
+        /// `null` context.
         @Test
         @DisplayName("Constructor throws NPE when provided with null context")
         void testNullContext() {
@@ -97,12 +89,10 @@ class LiveStreamPublisherManagerTest {
                     .isThrownBy(() -> new LiveStreamPublisherManager(null, generateManagerMetrics()));
         }
 
-        /**
-         * This test aims to assert that the constructor of
-         * {@link LiveStreamPublisherManager} throws a
-         * {@link NullPointerException} when provided with a
-         * {@code null} metrics.
-         */
+        /// This test aims to assert that the constructor of
+        /// [LiveStreamPublisherManager] throws a
+        /// [NullPointerException] when provided with a
+        /// `null` metrics.
         @Test
         @DisplayName("Constructor throws NPE when provided with null metrics")
         void testNullMetrics() {
@@ -110,40 +100,38 @@ class LiveStreamPublisherManagerTest {
         }
     }
 
-    /**
-     * Functionality tests for the {@link LiveStreamPublisherManager}.
-     */
+    /// Functionality tests for the [LiveStreamPublisherManager].
     @Nested
     @DisplayName("Functionality Tests")
     class FunctionalityTests {
-        /** The test historical block facility to use when testing */
+        /// The test historical block facility to use when testing
         private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
-        /** The thread pool manager to use when testing */
+        /// The thread pool manager to use when testing
         private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
-        /** The messaging facility to use when testing */
+        /// The messaging facility to use when testing
         private TestBlockMessagingFacility messagingFacility;
 
         // PUBLISHER 1
-        /** The response pipeline to use when testing */
+        /// The response pipeline to use when testing
         private TestResponsePipeline<PublishStreamResponse> responsePipeline;
-        /** The publisher handler to use when testing */
+        /// The publisher handler to use when testing
         private PublisherHandler publisherHandler;
-        /** The ID of the publisher handler, used to identify it in the manager */
+        /// The ID of the publisher handler, used to identify it in the manager
         private long publisherHandlerId;
 
         // PUBLISHER 2
-        /** The second response pipeline to use when testing */
+        /// The second response pipeline to use when testing
         private TestResponsePipeline<PublishStreamResponse> responsePipeline2;
-        /** The second publisher handler to use when testing */
+        /// The second publisher handler to use when testing
         private PublisherHandler publisherHandler2;
-        /** The ID of the second publisher handler, used to identify it in the manager */
+        /// The ID of the second publisher handler, used to identify it in the manager
         private long publisherHandlerId2;
 
         private MetricsHolder managerMetrics;
         private PublisherHandler.MetricsHolder sharedHandlerMetrics;
 
         // INSTANCE UNDER TEST
-        /** The instance under test */
+        /// The instance under test
         private LiveStreamPublisherManager toTest;
 
         // EXTRACTORS
@@ -160,9 +148,7 @@ class LiveStreamPublisherManagerTest {
         private final Function<PublishStreamResponse, Long> resendBlockNumberExtractor =
                 response -> Objects.requireNonNull(response.resendBlock()).blockNumber();
 
-        /**
-         * Environment setup called before each test.
-         */
+        /// Environment setup called before each test.
         @BeforeEach
         void setup() {
             // Initialize the historical block facility and the context.
@@ -197,18 +183,14 @@ class LiveStreamPublisherManagerTest {
             publisherHandlerId2 = 1L; // This should be set by the addHandler method, second call will use id 1L.
         }
 
-        /**
-         * Tests for {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}.
-         */
+        /// Tests for [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)].
         @Nested
         @DisplayName("getActionForBlock() Tests")
         class GetActionForBlockTests {
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#ACCEPT} when the provided block
-             * number is the next expected one and previous action is {@code null}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#ACCEPT] when the provided block
+            /// number is the next expected one and previous action is `null`.
             @Test
             @DisplayName(
                     "getActionForBlock() returns ACCEPT when the provided block number is the next expected one and previous action is NULL")
@@ -220,13 +202,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actual).isEqualTo(BlockAction.ACCEPT);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#END_DUPLICATE} when the provided block
-             * number is lower or equal to the latest known block number and
-             * previous action is {@code null}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#END_DUPLICATE] when the provided block
+            /// number is lower or equal to the latest known block number and
+            /// previous action is `null`.
             @ParameterizedTest
             @ValueSource(
                     longs = {
@@ -246,19 +226,17 @@ class LiveStreamPublisherManagerTest {
                 // Then, we can send a persisted notification which will update the latest persisted block number, this
                 // is critical to pass this test. No matter if the latest persisted is set during plugin startup or
                 // via a notification, the result has to be the same.
-                toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.UNKNOWN));
+                toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
                 final BlockAction actual = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
                 // Assert
                 assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#SKIP} when the provided block
-             * number is lower or equal to the latest known block number and
-             * previous action is {@code null}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#SKIP] when the provided block
+            /// number is lower or equal to the latest known block number and
+            /// previous action is `null`.
             @Test
             @DisplayName(
                     "getActionForBlock() returns SKIP when the provided block number is both higher than the latest known block number and lower than next expected block number, and previous action is NULL")
@@ -278,12 +256,10 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actual).isEqualTo(BlockAction.SKIP);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#SEND_BEHIND} when the provided block
-             * number is higher than the next expected one and previous action is {@code null}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#SEND_BEHIND] when the provided block
+            /// number is higher than the next expected one and previous action is `null`.
             @Test
             @DisplayName(
                     "getActionForBlock() returns END_BEHIND when the provided block number is higher than the next expected one and previous action is NULL")
@@ -295,12 +271,10 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actual).isEqualTo(BlockAction.SEND_BEHIND);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#ACCEPT} when the provided block
-             * number is the next expected one and previous action is {@link BlockAction#ACCEPT}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#ACCEPT] when the provided block
+            /// number is the next expected one and previous action is [BlockAction#ACCEPT].
             @Test
             @DisplayName(
                     "getActionForBlock() returns ACCEPT when the provided block number is the next expected one and previous action is ACCEPT")
@@ -316,13 +290,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(secondCall).isEqualTo(BlockAction.ACCEPT);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#END_DUPLICATE} when the provided block
-             * number is lower or equal to the latest known block number and
-             * previous action is {@link BlockAction#ACCEPT}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#END_DUPLICATE] when the provided block
+            /// number is lower or equal to the latest known block number and
+            /// previous action is [BlockAction#ACCEPT].
             @Test
             @DisplayName(
                     "getActionForBlock() returns END_DUPLICATE when the provided block number is lower or equal to the latest known block number and previous action is ACCEPT")
@@ -334,14 +306,12 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#SKIP} when the provided block
-             * number is both higher than the latest known block number and
-             * lower than the current streaming block number, and previous
-             * action is {@link BlockAction#ACCEPT}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#SKIP] when the provided block
+            /// number is both higher than the latest known block number and
+            /// lower than the current streaming block number, and previous
+            /// action is [BlockAction#ACCEPT].
             @Test
             @DisplayName(
                     "getActionForBlock() returns SKIP when the provided block number is both higher than the latest known block number and lower than the current streaming block number, and previous action is ACCEPT")
@@ -373,13 +343,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actual).isEqualTo(BlockAction.SKIP);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#END_ERROR} when the provided
-             * block number equal to the next expected block number and previous
-             * action is {@link BlockAction#ACCEPT}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#END_ERROR] when the provided
+            /// block number equal to the next expected block number and previous
+            /// action is [BlockAction#ACCEPT].
             @Test
             @DisplayName(
                     "getActionForBlock() returns END_ERROR when the provided block number equal to the next expected block number and previous action is ACCEPT")
@@ -391,13 +359,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actual).isEqualTo(BlockAction.END_ERROR);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#SEND_BEHIND} when the provided
-             * block number higher than the next expected block number and
-             * previous action is {@link BlockAction#ACCEPT}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#SEND_BEHIND] when the provided
+            /// block number higher than the next expected block number and
+            /// previous action is [BlockAction#ACCEPT].
             @Test
             @DisplayName(
                     "getActionForBlock() returns END_BEHIND when the provided block number higher than the next expected block number and previous action is ACCEPT")
@@ -409,12 +375,10 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actual).isEqualTo(BlockAction.SEND_BEHIND);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)}
-             * method returns {@link BlockAction#END_ERROR} when the provided
-             * previous action is neither {@code null} nor {@link BlockAction#ACCEPT}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#END_ERROR] when the provided
+            /// previous action is neither `null` nor [BlockAction#ACCEPT].
             @ParameterizedTest
             @EnumSource(
                     value = BlockAction.class,
@@ -429,17 +393,13 @@ class LiveStreamPublisherManagerTest {
             }
         }
 
-        /**
-         * Test for {@link LiveStreamPublisherManager#getLatestBlockNumber()}.
-         */
+        /// Test for [LiveStreamPublisherManager#getLatestBlockNumber()].
         @Nested
         @DisplayName("getLatestBlockNumber() Tests")
         class GetLatestBlockNumberTests {
-            /**
-             * This test aims to asser that the
-             * {@link LiveStreamPublisherManager#getLatestBlockNumber()} will return
-             * {@code -1L} when no blocks have been persisted yet.
-             */
+            /// This test aims to asser that the
+            /// [LiveStreamPublisherManager#getLatestBlockNumber()] will return
+            /// `-1L` when no blocks have been persisted yet.
             @Test
             @DisplayName("getLatestBlockNumber() returns -1 when no blocks have been persisted yet")
             void testLatestBlockWhenNonePersisted() {
@@ -449,11 +409,9 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actual).isEqualTo(-1L);
             }
 
-            /**
-             * This test aims to asser that the
-             * {@link LiveStreamPublisherManager#getLatestBlockNumber()} will return
-             * the latest block number that has been persisted.
-             */
+            /// This test aims to asser that the
+            /// [LiveStreamPublisherManager#getLatestBlockNumber()] will return
+            /// the latest block number that has been persisted.
             @Test
             @DisplayName("getLatestBlockNumber() returns latest persisted block number")
             void testLatestBlockNumber() {
@@ -470,12 +428,10 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actual).isEqualTo(block.number());
             }
 
-            /**
-             * This test aims to asser that the
-             * {@link LiveStreamPublisherManager#getLatestBlockNumber()} will return
-             * the latest block number that has been persisted during object
-             * construction.
-             */
+            /// This test aims to asser that the
+            /// [LiveStreamPublisherManager#getLatestBlockNumber()] will return
+            /// the latest block number that has been persisted during object
+            /// construction.
             @Test
             @DisplayName("getLatestBlockNumber() returns latest persisted block number during construction")
             void testLatestBlockNumberDuringConstruction() {
@@ -495,29 +451,23 @@ class LiveStreamPublisherManagerTest {
             }
         }
 
-        /**
-         * Tests for {@link LiveStreamPublisherManager#closeBlock(long)}.
-         *
-         * Validate that the publisher manager correctly closes blocks.<br/>
-         * This inner class verifies that blocks are closed, metrics are correctly updated
-         * operation order is respected.
-         * <p>
-         * Specific items include
-         * <ol>
-         *   <li>Metrics are updated after batches are forwarded</li>
-         *   <li>All pending batches are forwarded to messaging</li>
-         *   <li>The forwarder task is correctly started or restarted, if necessary</li>
-         *   <li>Metrics are not updated in the middle of sending data to messaging</li>
-         * </ol>
-         */
+        /// Tests for [LiveStreamPublisherManager#closeBlock(long)].
+        ///
+        /// Validate that the publisher manager correctly closes blocks.
+        /// This inner class verifies that blocks are closed, metrics are correctly updated
+        /// operation order is respected.
+        ///
+        /// Specific items include:
+        /// - Metrics are updated after batches are forwarded
+        /// - All pending batches are forwarded to messaging
+        /// - The forwarder task is correctly started or restarted, if necessary
+        /// - Metrics are not updated in the middle of sending data to messaging
         @Nested
         @DisplayName("closeBlock() Tests")
         @Timeout(value = 10, unit = TimeUnit.SECONDS)
         class CloseBlockTests {
 
-            /**
-             * Helper to wait for the forwarder to finish, up to {@code timeoutMs}.
-             */
+            /// Helper to wait for the forwarder to finish, up to `timeoutMs`.
             private void awaitBatchesIncrement(final long before, final long timeoutMs) throws InterruptedException {
                 // Compute a deadline (wall-clock millis) after which we give up waiting.
                 final long deadline = System.currentTimeMillis() + timeoutMs;
@@ -532,9 +482,7 @@ class LiveStreamPublisherManagerTest {
                 // needed.
             }
 
-            /**
-             * Verifies that completed blocks update immediate and post-forwarder metrics and forward payloads.
-             */
+            /// Verifies that completed blocks update immediate and post-forwarder metrics and forward payloads.
             @Test
             @DisplayName("completed block updates metrics immediately and forwards after drain")
             void testCompletedBlockUpdatesMetricsAndForwards() throws InterruptedException {
@@ -554,9 +502,6 @@ class LiveStreamPublisherManagerTest {
                                 .blockItems(block.blockItems())
                                 .build())
                         .build();
-
-                final BlockAction startAction = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
-                assertThat(startAction).isEqualTo(BlockAction.ACCEPT);
                 // Enqueue the request into the handler (this may also schedule the forwarder in production code).
                 publisherHandler.onNext(req);
                 // Mark the block as eligible to be closed (end-of-items for this block).
@@ -591,9 +536,7 @@ class LiveStreamPublisherManagerTest {
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(blockNumber - 1);
             }
 
-            /**
-             * Verifies metric gating — batches only increment after the forwarder completes.
-             */
+            /// Verifies metric gating — batches only increment after the forwarder completes.
             @Test
             @DisplayName("batches increment only after forwarder completes (gating)")
             void testBatchesIncrementOnlyAfterForwarderCompletes() throws InterruptedException {
@@ -631,9 +574,7 @@ class LiveStreamPublisherManagerTest {
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }
 
-            /**
-             * Verifies the forwarder restarts after completion — two runs yield four batches total.
-             */
+            /// Verifies the forwarder restarts after completion — two runs yield four batches total.
             @Test
             @DisplayName("restarts forwarder after completion (two runs → four batches)")
             void testRestartForwarderAfterCompletion() throws InterruptedException {
@@ -695,9 +636,7 @@ class LiveStreamPublisherManagerTest {
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1);
             }
 
-            /**
-             * Verifies idempotency — repeated closes while forwarder is active don’t double-count.
-             */
+            /// Verifies idempotency — repeated closes while forwarder is active don’t double-count.
             @Test
             @DisplayName("no batch/count updates while forwarder active (idempotent closes)")
             void testNoMetricUpdatesWhileForwarderActive() throws InterruptedException {
@@ -738,18 +677,14 @@ class LiveStreamPublisherManagerTest {
             }
         }
 
-        /**
-         * Tests for {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}.
-         */
+        /// Tests for [LiveStreamPublisherManager#handleVerification(VerificationNotification)].
         @Nested
         @DisplayName("handleVerification() Tests")
         class HandleVerificationTests {
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
-             * does nothing when the notification states that the block has passed verification.
-             * We expect that no responses are sent.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// does nothing when the notification states that the block has passed verification.
+            /// We expect that no responses are sent.
             @Test
             @DisplayName("handleVerification() does nothing when block has passed verification, no responses sent")
             void testHandleVerificationPassed() {
@@ -780,20 +715,23 @@ class LiveStreamPublisherManagerTest {
                 toTest.handleVerification(notification);
                 // Assert that no responses have been sent.
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnNextCalls()).isEmpty();
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
-             * does nothing when the failed block's number is equal the
-             * latest know block in the manager.
-             * We expect that no responses are sent.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// does nothing when the failed block's number is equal the
+            /// latest know block in the manager.
+            /// We expect that no responses are sent.
             @Test
             @DisplayName(
                     "handleVerification() does nothing when block number of failed block is equal to the latest known")
@@ -845,13 +783,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
-             * does nothing when the failed block's number is lower than the
-             * latest know block in the manager.
-             * We expect that no responses are sent.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// does nothing when the failed block's number is lower than the
+            /// latest know block in the manager.
+            /// We expect that no responses are sent.
             @Test
             @DisplayName(
                     "handleVerification() does nothing when block number of failed block is lower than the latest known")
@@ -903,13 +839,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
-             * does nothing when the failed block's number is equal the
-             * next unstreamed block in the manager.
-             * We expect that no responses are sent.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// does nothing when the failed block's number is equal the
+            /// next unstreamed block in the manager.
+            /// We expect that no responses are sent.
             @Test
             @DisplayName(
                     "handleVerification() does nothing when block number of failed block is equal to the next unstreamed")
@@ -929,13 +863,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
-             * does nothing when the failed block's number is higher than the
-             * next unstreamed block in the manager.
-             * We expect that no responses are sent.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// does nothing when the failed block's number is higher than the
+            /// next unstreamed block in the manager.
+            /// We expect that no responses are sent.
             @Test
             @DisplayName(
                     "handleVerification() does nothing when block number of failed block is higher than the next unstreamed")
@@ -955,13 +887,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
-             * will produce a {@link PublishStreamResponse.EndOfStream} response with
-             * {@link Code#BAD_BLOCK_PROOF} to the response pipeline of the handler
-             * that supplied the block with invalid proof.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// will produce a [PublishStreamResponse.EndOfStream] response with
+            /// [Code#BAD_BLOCK_PROOF] to the response pipeline of the handler
+            /// that supplied the block with invalid proof.
             @Test
             @DisplayName(
                     "handleVerification() BAD_BLOCK_PROOF response is sent by the handler that supplied a block with invalid proof when verification fails")
@@ -1008,17 +938,68 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
-             * will produce a {@link PublishStreamResponse.ResendBlock} response to the response
-             * pipelines of all handlers that did not supplied the block with
-             * invalid proof that failed verification.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// will not handle the notification of a failed block if the [BlockSource] is not
+            /// [BlockSource#PUBLISHER]. No responses are expected to be sent and no metrics are
+            /// expected to be updated.
+            @ParameterizedTest
+            @EnumSource(
+                    value = BlockSource.class,
+                    names = {"PUBLISHER"},
+                    mode = EnumSource.Mode.EXCLUDE)
+            @DisplayName(
+                    "handleVerification() no handling when the BlockSource is not PUBLISHER, no responses of any kind sent")
+            void testHandleVerificationNoPublisherSource(final BlockSource blockSource) {
+                // We need to send a request via the publisher handler first,
+                // This will properly update the internal state of the manager
+                // so we can assert correctly. We aim to increment the next
+                // unstreamed block number to 1L so we have a gap between
+                // latest persisted (which should be -1L) and next unstreamed.
+                // This is an expected condition during normal operation.
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
+                // Now we build the request
+                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(itemSet)
+                        .build();
+                // We send the request to the publisher handler.
+                // This will update the next unstreamed block number to 1L as
+                // soon as we start streaming, i.e. a handler has queried the
+                // manager for a block action for block 0L and at that point it
+                // was the next expected block.
+                publisherHandler.onNext(request);
+                endThisBlock(publisherHandler, block.number());
+                // Now, the publisher has sent the targeted block with broken proof.
+                // We can now build a verification notification with failed verification.
+                final VerificationNotification notification =
+                        new VerificationNotification(false, block.number(), null, null, blockSource);
+                // Call
+                toTest.handleVerification(notification);
+                // Assert that no shared metrics are updated
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(0);
+                // Assert that no responses of any kind have been sent
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// will produce no response to the response
+            /// pipelines of all handlers that did not supply the block with
+            /// invalid proof that failed verification.
             @Test
             @DisplayName(
-                    "handleVerification() RESEND response is sent by all handlers that did not supply the block with invalid proof that failed verification")
-            void testHandleVerificationResend() {
+                    "handleVerification() no response is sent by all handlers that did not supply the block with invalid proof that failed verification")
+            void testHandleVerificationNoResponse() {
                 // We need to send a request via the publisher handler first,
                 // This will properly update the internal state of the manager
                 // so we can assert correctly. We aim to increment the next
@@ -1043,16 +1024,9 @@ class LiveStreamPublisherManagerTest {
                         new VerificationNotification(false, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
-                // Assert that the response pipeline has received a RESEND response, because the
-                // publisher we used has not sent the block with invalid proof.
-                assertThat(responsePipeline.getOnNextCalls())
-                        .hasSize(1)
-                        .first()
-                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
-                        // below block number in the response is the latest known +1, i.e. 0L because none are stored
-                        // which is -1L + 1L = 0L
-                        .returns(0L, resendBlockNumberExtractor);
-                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(1);
+                // Assert that the response pipeline has received no responses and the shared metrics is not updated.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(0);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1074,13 +1048,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handleVerification(VerificationNotification)}
-             * will does not stop the normal operation of the publisher manager
-             * and subsequent items received by handlers will be processed
-             * accordingly.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handleVerification(VerificationNotification)]
+            /// will does not stop the normal operation of the publisher manager
+            /// and subsequent items received by handlers will be processed
+            /// accordingly.
             @Test
             @DisplayName(
                     "handleVerification() continues normal operation of the publisher manager after a failed verification")
@@ -1112,16 +1084,10 @@ class LiveStreamPublisherManagerTest {
                         new VerificationNotification(false, testBlock.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
-                // Assert that the response pipeline has received a RESEND response, because the
-                // publisher we check for here used has not sent the block with invalid proof.
-                assertThat(responsePipeline.getOnNextCalls())
-                        .hasSize(1)
-                        .first()
-                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
-                        // below block number in the response is latest known +1, i.e. 0L because none are stored
-                        // which is -1L + 1L = 0L
-                        .returns(0L, resendBlockNumberExtractor);
-                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(1);
+                // Assert that the response pipeline of the first publisher has received no responses.
+                // Also no metrics for resends is updated
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(sharedHandlerMetrics.blockResendsSent().get()).isEqualTo(0);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1143,8 +1109,6 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
                 assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
-                // Now, we clear the first handler's pipeline
-                responsePipeline.clear();
                 // Before we send the request (we can reuse from above), we assert that the messaging
                 // facility has no items received.
                 assertThat(messagingFacility.getSentBlockItems()).isNotNull().isEmpty();
@@ -1174,19 +1138,15 @@ class LiveStreamPublisherManagerTest {
             }
         }
 
-        /**
-         * Tests for {@link LiveStreamPublisherManager#handlePersisted(PersistedNotification)}.
-         */
+        /// Tests for [LiveStreamPublisherManager#handlePersisted(PersistedNotification)].
         @Nested
         @DisplayName("handlePersisted() Tests")
         class HandlePersistedTests {
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handlePersisted(PersistedNotification)}
-             * will send acknowledgement to registered publisher handlers
-             * with the latest block number, i.e.
-             * {@link PersistedNotification#blockNumber()}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
+            /// will send acknowledgement to registered publisher handlers
+            /// with the latest block number, i.e.
+            /// [PersistedNotification#blockNumber()].
             @Test
             @DisplayName("handlePersisted() sends acknowledgement with latest block number to all registered handlers")
             void testHandlePersistedValidNotification() {
@@ -1213,12 +1173,10 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handlePersisted(PersistedNotification)}
-             * will set the latest known block number to the
-             * {@link PersistedNotification#blockNumber()}.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
+            /// will set the latest known block number to the
+            /// [PersistedNotification#blockNumber()].
             @Test
             @DisplayName("handlePersisted() sets latest known block number to notification's endBlockNumber")
             void testHandlePersistedSetsLatestKnownBlockNumber() {
@@ -1235,13 +1193,11 @@ class LiveStreamPublisherManagerTest {
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestBlockNumber);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handlePersisted(PersistedNotification)}
-             * will not send acknowledgement to registered publisher handlers
-             * when the persistence has failed, i.e.
-             * {@link PersistedNotification#succeeded()} is false.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
+            /// will not send acknowledgement to registered publisher handlers
+            /// when the persistence has failed, i.e.
+            /// [PersistedNotification#succeeded()] is false.
             @Test
             @DisplayName(
                     "handlePersisted() PERSISTENCE_FAILED is sent to all registered handlers when persistence failed")
@@ -1273,12 +1229,10 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handlePersisted(PersistedNotification)}
-             * will not send acknowledgement to registered publisher handlers
-             * when the notification is null.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
+            /// will not send acknowledgement to registered publisher handlers
+            /// when the notification is null.
             @Test
             @DisplayName("handlePersisted() does nothing when notification is null")
             void testHandlePersistedNotificationNull() {
@@ -1301,18 +1255,14 @@ class LiveStreamPublisherManagerTest {
             }
         }
 
-        /**
-         * Tests for {@link LiveStreamPublisherManager#handlerIsEnding(long, long)}.
-         */
+        /// Tests for [LiveStreamPublisherManager#handlerIsEnding(long, long)].
         @Nested
         @DisplayName("handleIsEnding() Tests")
         class HandlerIsEndingTests {
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handlerIsEnding(long, long)}
-             * will correctly handle an end stream request when the handler
-             * has completed it's current streaming block.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlerIsEnding(long, long)]
+            /// will correctly handle an end stream request when the handler
+            /// has completed it's current streaming block.
             @ParameterizedTest()
             @EnumSource(EndStream.Code.class)
             @DisplayName("Test handleIsEnding() with complete block")
@@ -1367,16 +1317,14 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
-            /**
-             * This test aims to assert that the
-             * {@link LiveStreamPublisherManager#handlerIsEnding(long, long)}
-             * will correctly handle an end stream request when the handler
-             * has not completed it's current streaming block. This test runs
-             * the message forwarder task only in the end. If the message
-             * forwarder task is run at the beginning, we could be seeing
-             * different end results (i.e. more items streamed), but that is
-             * expected and should be another test.
-             */
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlerIsEnding(long, long)]
+            /// will correctly handle an end stream request when the handler
+            /// has not completed it's current streaming block. This test runs
+            /// the message forwarder task only in the end. If the message
+            /// forwarder task is run at the beginning, we could be seeing
+            /// different end results (i.e. more items streamed), but that is
+            /// expected and should be another test.
             @ParameterizedTest()
             @EnumSource(EndStream.Code.class)
             @DisplayName("Test handleIsEnding() with incomplete block")
@@ -1451,31 +1399,22 @@ class LiveStreamPublisherManagerTest {
             }
         }
 
-        /**
-         * Tests for usage of {@link PublisherStatusUpdateNotification}.
-         */
+        /// Tests for usage of [PublisherStatusUpdateNotification].
         @Nested
         @Timeout(value = 10, unit = TimeUnit.SECONDS)
         @DisplayName("PublisherStatusUpdateNotification Tests")
         class PublisherStatusUpdateNotificationTests {
-            /**
-             * The block node context used for testing.
-             */
+            /// The block node context used for testing.
             private BlockNodeContext context;
-            /**
-             * The publisher config with overrides to be used for testing.
-             */
+            /// The publisher config with overrides to be used for testing.
             private PublisherConfig testPublisherConfig;
-            /**
-             * The thread pool manager used for testing.
-             */
+            /// The thread pool manager used for testing.
             private TestThreadPoolManager<BlockingExecutor, ScheduledExecutorService> threadPoolManager;
 
-            /**
-             * Local setup for each test in this class. Here we override the original setup that is present and reused
-             * from {@link FunctionalityTests}. This is needed because we want a clean slate so we can assert. The
-             * original setup pre-registers handlers which would interfere with the assertions made here.
-             */
+            /// Local setup for each test in this class. Here we override the original setup that is present and reused
+            /// from [FunctionalityTests]. This is needed because we want a clean slate so we can assert.
+            /// The original setup pre-registers handlers which would interfere with the assertions made
+            /// here.
             @BeforeEach
             void localSetup() {
                 // Create a new manager with no pre-registered handlers.
@@ -1492,11 +1431,9 @@ class LiveStreamPublisherManagerTest {
                 managerMetrics = generateManagerMetrics();
             }
 
-            /**
-             * This test aims to assert that the {@link LiveStreamPublisherManager} will send a
-             * {@link PublisherStatusUpdateNotification} with type {@link UpdateType#PUBLISHER_UNAVAILABILITY_TIMEOUT}
-             * when no publishers are active for the configured timeout period.
-             */
+            /// This test aims to assert that the [LiveStreamPublisherManager] will send a
+            /// [PublisherStatusUpdateNotification] with type [UpdateType#PUBLISHER_UNAVAILABILITY_TIMEOUT]
+            /// when no publishers are active for the configured timeout period.
             @Test
             @DisplayName("LiveStreamPublisherManager sends a timeout notification when no publishers are active")
             void testPublisherUnavailabilityTimeoutNotification() throws InterruptedException {
@@ -1523,11 +1460,9 @@ class LiveStreamPublisherManagerTest {
                         .returns(0, PublisherStatusUpdateNotification::activePublishers);
             }
 
-            /**
-             * This test aims to assert that the {@link LiveStreamPublisherManager} will not send a
-             * {@link PublisherStatusUpdateNotification} with type {@link UpdateType#PUBLISHER_UNAVAILABILITY_TIMEOUT}
-             * when at least one publisher is active before the timeout period elapses.
-             */
+            /// This test aims to assert that the [LiveStreamPublisherManager] will not send a
+            /// [PublisherStatusUpdateNotification] with type [UpdateType#PUBLISHER_UNAVAILABILITY_TIMEOUT]
+            /// when at least one publisher is active before the timeout period elapses.
             @Test
             @DisplayName("LiveStreamPublisherManager does not send a timeout notification when a publisher is active")
             void testNoPublisherUnavailabilityTimeoutNotificationWhenPublisherIsActive() throws InterruptedException {
@@ -1557,10 +1492,8 @@ class LiveStreamPublisherManagerTest {
                         .returns(1, PublisherStatusUpdateNotification::activePublishers);
             }
 
-            /**
-             * This test aims to assert that the {@link LiveStreamPublisherManager} will reset the
-             * publisher unavailability timeout when no publishers remain active.
-             */
+            /// This test aims to assert that the [LiveStreamPublisherManager] will reset the
+            /// publisher unavailability timeout when no publishers remain active.
             @Test
             @DisplayName("LiveStreamPublisherManager restarts timeout future when no publishers remain active")
             void testPublisherUnavailabilityTimeoutResetOnNewPublisher() throws InterruptedException {
@@ -1609,10 +1542,8 @@ class LiveStreamPublisherManagerTest {
                         .returns(0, PublisherStatusUpdateNotification::activePublishers);
             }
 
-            /**
-             * This test aims to assert that the {@link LiveStreamPublisherManager} will send only one publisher
-             * unavailability timeout state change update and will not reset if state does not change.
-             */
+            /// This test aims to assert that the [LiveStreamPublisherManager] will send only one publisher
+            /// unavailability timeout state change update and will not reset if state does not change.
             @Test
             @DisplayName("LiveStreamPublisherManager continues to restart timeout future when no publishers are active")
             void testPublisherUnavailabilityTimeoutContinuesWhenNoPublishersAreActive() throws InterruptedException {
@@ -1639,19 +1570,15 @@ class LiveStreamPublisherManagerTest {
             }
         }
 
-        /**
-         * Tests for {@link LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)}.
-         */
+        /// Tests for [LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)].
         @Nested
         @DisplayName("addHandler() Tests")
         class AddHandlerTests {
-            /**
-             * Local setup for each test in this class.
-             * Here we override the original setup that is present and reused
-             * from {@link FunctionalityTests}. This is needed because we want
-             * a clean slate so we can assert. The original setup pre-registers
-             * handlers which would interfere with the assertions made here.
-             */
+            /// Local setup for each test in this class.
+            /// Here we override the original setup that is present and reused
+            /// from [FunctionalityTests]. This is needed because we want
+            /// a clean slate so we can assert. The original setup pre-registers
+            /// handlers which would interfere with the assertions made here.
             @BeforeEach
             void localSetup() {
                 // Create a new manager with no pre-registered handlers.
@@ -1663,12 +1590,10 @@ class LiveStreamPublisherManagerTest {
                 toTest = new LiveStreamPublisherManager(context, managerMetrics);
             }
 
-            /**
-             * This test aims to assert that registering a new handler
-             * via {@link LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)}
-             * will fire a {@link PublisherStatusUpdateNotification}
-             * indicating that a new publisher has connected.
-             */
+            /// This test aims to assert that registering a new handler
+            /// via [LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)]
+            /// will fire a [PublisherStatusUpdateNotification]
+            /// indicating that a new publisher has connected.
             @Test
             @DisplayName("addHandler() fires a publisher status update notification")
             void testAddHandlerFiresStatusUpdateNotification() {
@@ -1689,11 +1614,9 @@ class LiveStreamPublisherManagerTest {
                         .returns(1, PublisherStatusUpdateNotification::activePublishers);
             }
 
-            /**
-             * This test aims to assert that registering a new handler
-             * via {@link LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)}
-             * will update the current active publishers count metric.
-             */
+            /// This test aims to assert that registering a new handler
+            /// via [LiveStreamPublisherManager#addHandler(Pipeline, PublisherHandler.MetricsHolder)]
+            /// will update the current active publishers count metric.
             @Test
             @DisplayName("addHandler() updates the current active publishers count metric")
             void testAddHandlerUpdatesActivePublishersMetric() {
@@ -1706,18 +1629,14 @@ class LiveStreamPublisherManagerTest {
             }
         }
 
-        /**
-         * Tests for {@link LiveStreamPublisherManager#removeHandler(long)}.
-         */
+        /// Tests for [LiveStreamPublisherManager#removeHandler(long)].
         @Nested
         @DisplayName("removeHandler() Tests")
         class RemoveHandlerTests {
-            /**
-             * This test aims to assert that removing a handler
-             * via {@link LiveStreamPublisherManager#removeHandler(long)}
-             * will fire a {@link PublisherStatusUpdateNotification}
-             * indicating that a publisher has disconnected.
-             */
+            /// This test aims to assert that removing a handler
+            /// via [LiveStreamPublisherManager#removeHandler(long)]
+            /// will fire a [PublisherStatusUpdateNotification]
+            /// indicating that a publisher has disconnected.
             @Test
             @DisplayName("removeHandler() fires a publisher status update notification")
             void testRemoveHandlerFiresStatusUpdateNotification() {
@@ -1747,11 +1666,9 @@ class LiveStreamPublisherManagerTest {
                         .returns(0, PublisherStatusUpdateNotification::activePublishers);
             }
 
-            /**
-             * This test aims to assert that removing a handler
-             * via {@link LiveStreamPublisherManager#removeHandler(long)}
-             * will update the current active publishers count metric.
-             */
+            /// This test aims to assert that removing a handler
+            /// via [LiveStreamPublisherManager#removeHandler(long)]
+            /// will update the current active publishers count metric.
             @Test
             @DisplayName("removeHandler() updates the current active publishers count metric")
             void testRemoveHandlerUpdatesActivePublishersMetric() {
@@ -1767,21 +1684,59 @@ class LiveStreamPublisherManagerTest {
                 assertThat(managerMetrics.currentPublisherCount().get()).isZero();
             }
         }
+
+        /// Tests for the [LiveStreamPublisherManager#endOfBlock(long)] method.
+        @Nested
+        @DisplayName("endOfBlock() Tests")
+        class EndOfBlockTests {
+            /// This test aims to assert that when the [LiveStreamPublisherManager#endOfBlock(long)] action is called,
+            /// we expect it to return an [ActionForBlock] with the [BlockAction#ACCEPT] action, for the
+            /// same block number, as used to calling the method, given the block nubmer is valid.
+            @Test
+            @DisplayName("endOfBlock() - ACCEPT received for a valid block number that is ending")
+            void testEndOfBlockACCEPT() {
+                final long endingBlock = 0L;
+                // Call
+                final ActionForBlock actionForBlock = toTest.endOfBlock(endingBlock);
+                assertThat(actionForBlock)
+                        .returns(BlockAction.ACCEPT, ActionForBlock::action)
+                        .returns(endingBlock, ActionForBlock::blockNumber);
+            }
+
+            /// This test aims to assert that when the [LiveStreamPublisherManager#endOfBlock(long)] action is called,
+            /// we expect it to return an [ActionForBlock] with the [BlockAction#RESEND] action, for
+            /// the next block expected to be resent, given that there is such.
+            @Test
+            @DisplayName("endOfBlock() - RESEND received for the next block that is expected to be resent")
+            void testEndOfBlockRESEND() {
+                // Create and stream a block
+                final TestBlock blockThatFailsVerification = TestBlockBuilder.generateBlockWithNumber(0);
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(blockThatFailsVerification.asItemSetUnparsed())
+                        .build();
+                // We send the request to the publisher handler. This will increment the next unstreamed block number.
+                publisherHandler.onNext(request);
+                // Handling a failed verification notification will schedule the block that failed to be resent
+                toTest.handleVerification(new VerificationNotification(
+                        false, blockThatFailsVerification.number(), null, null, BlockSource.PUBLISHER));
+                // Call, end any block number, could be the same as the failed block's, or some other block number
+                final ActionForBlock actionForBlock = toTest.endOfBlock(blockThatFailsVerification.number() + 1L);
+                assertThat(actionForBlock)
+                        .returns(BlockAction.RESEND, ActionForBlock::action)
+                        .returns(blockThatFailsVerification.number(), ActionForBlock::blockNumber);
+            }
+        }
     }
 
-    /**
-     * This method generates a {@link BlockNodeContext} instance with default
-     * facilities that can be used in tests.
-     */
+    /// This method generates a [BlockNodeContext] instance with default
+    /// facilities that can be used in tests.
     private BlockNodeContext generateContext() {
         final HistoricalBlockFacility historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
         return generateContext(historicalBlockFacility);
     }
 
-    /**
-     * This method generates a {@link BlockNodeContext} instance with default
-     * facilities that can be used in tests.
-     */
+    /// This method generates a [BlockNodeContext] instance with default
+    /// facilities that can be used in tests.
     private BlockNodeContext generateContext(final HistoricalBlockFacility historicalBlockFacility) {
         final ThreadPoolManager threadPoolManager = new TestThreadPoolManager<>(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
@@ -1841,18 +1796,14 @@ class LiveStreamPublisherManagerTest {
         return builder.build();
     }
 
-    /**
-     * This method generates a {@link MetricsHolder} instance with default
-     * metrics that can be used in tests.
-     */
+    /// This method generates a [MetricsHolder] instance with default
+    /// metrics that can be used in tests.
     private MetricsHolder generateManagerMetrics() {
         return MetricsHolder.createMetrics(TestUtils.createMetrics());
     }
 
-    /**
-     * Creates a new {@link PublisherHandler.MetricsHolder} with default counters for testing.
-     * These counters could be queried to verify the metrics' states.
-     */
+    /// Creates a new [PublisherHandler.MetricsHolder] with default counters for testing.
+    /// These counters could be queried to verify the metrics' states.
     private PublisherHandler.MetricsHolder generateHandlerMetrics() {
         return PublisherHandler.MetricsHolder.createMetrics(TestUtils.createMetrics());
     }
