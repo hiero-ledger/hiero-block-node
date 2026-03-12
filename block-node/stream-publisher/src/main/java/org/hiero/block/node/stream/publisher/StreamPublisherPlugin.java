@@ -4,9 +4,6 @@ package org.hiero.block.node.stream.publisher;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.LongGauge;
-import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
@@ -18,6 +15,9 @@ import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.LongGauge;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// A plugin for the block node.
 ///
@@ -52,7 +52,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     /// The metrics used by the publisher Manager.
     private LiveStreamPublisherManager.MetricsHolder managerMetrics;
     /// The number of live block items messaged to the messaging service.
-    private Counter liveBlockItemsMessaged;
+    private LongCounter liveBlockItemsMessaged;
     /// The number of producers publishing block items.
     private LongGauge numberOfProducers;
 
@@ -105,7 +105,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     @Override
     public void start() {
         // Initialize plugin metrics
-        initMetrics(context.metrics());
+        initMetrics(context.metricRegistry());
         // Initialize the publisher manager
         publisherManager = new LiveStreamPublisherManager(context, managerMetrics);
         // register the manager as a notification handler
@@ -139,7 +139,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     /// Initialize all metrics for the publisher service plugin.
     ///
     /// @param metrics the metrics provider
-    private void initMetrics(@NonNull final Metrics metrics) {
+    private void initMetrics(@NonNull final MetricRegistry metrics) {
         // Initialize Handler and Manager metrics.
         // We create these here to keep the cardinality under control.
         // The Handler metrics require labels to make the metrics useful in most

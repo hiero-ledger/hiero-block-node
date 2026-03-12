@@ -8,7 +8,6 @@ import static java.lang.System.Logger.Level.TRACE;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import org.hiero.block.api.BlockAccessServiceInterface;
 import org.hiero.block.api.BlockRequest;
@@ -21,6 +20,9 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * Plugin that implements the BlockAccessService and provides the 'block' RPC.
@@ -32,13 +34,13 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     /** The block provider */
     private HistoricalBlockFacility blockProvider;
     /** Counter for the number of requests */
-    private Counter requestCounter;
+    private LongCounter.Measurement requestCounter;
     /** Counter for the number of responses Success */
-    private Counter responseCounterSuccess;
+    private LongCounter.Measurement responseCounterSuccess;
     /** Counter for the number of responses not available */
-    private Counter responseCounterNotAvailable;
+    private LongCounter.Measurement responseCounterNotAvailable;
     /** Counter for the number of responses not found */
-    private Counter responseCounterNotFound;
+    private LongCounter.Measurement responseCounterNotFound;
 
     // ==== BlockAccessServiceInterface Methods ========================================================================
 
@@ -150,18 +152,27 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         // Create the metrics
-        requestCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests")
-                        .withDescription("Number of get block requests"));
-        responseCounterSuccess = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests_success")
-                        .withDescription("Successful single block requests"));
-        responseCounterNotAvailable = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests_not_available")
-                        .withDescription("Requests for blocks that were not available"));
-        responseCounterNotFound = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "get_block_requests_not_found")
-                        .withDescription("Requests for blocks that were not found"));
+        final MetricRegistry metricRegistry = context.metricRegistry();
+        requestCounter = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("get_block_requests", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Number of get block requests"))
+                .getOrCreateNotLabeled();
+        responseCounterSuccess = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("get_block_requests_success", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Successful single block requests"))
+                .getOrCreateNotLabeled();
+        responseCounterNotAvailable = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("get_block_requests_not_available", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Requests for blocks that were not available"))
+                .getOrCreateNotLabeled();
+        responseCounterNotFound = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("get_block_requests_not_found", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Requests for blocks that were not found"))
+                .getOrCreateNotLabeled();
         // Get the block provider
         this.blockProvider = context.historicalBlockProvider();
         // Register this service

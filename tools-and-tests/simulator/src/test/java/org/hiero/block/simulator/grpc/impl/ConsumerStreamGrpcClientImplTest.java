@@ -2,7 +2,6 @@
 package org.hiero.block.simulator.grpc.impl;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.findFreePort;
-import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -102,7 +101,7 @@ public class ConsumerStreamGrpcClientImplTest {
 
         final Configuration config = TestUtils.getTestConfiguration();
         ConsumerConfig consumerConfig = config.getConfigData(ConsumerConfig.class);
-        final MetricsService metricsService = new MetricsServiceImpl(getTestMetrics(config));
+        final MetricsService metricsService = new MetricsServiceImpl(config);
         consumerStreamGrpcClientImpl =
                 new ConsumerStreamGrpcClientImpl(grpcConfig, blockStreamConfig, consumerConfig, metricsService);
         consumerStreamGrpcClientImpl.init();

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.grpc.impl;
 
-import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -37,7 +36,7 @@ class PublishStreamServerObserverTest {
     @BeforeEach
     void setUp() throws IOException {
         final Configuration config = TestUtils.getTestConfiguration();
-        metricsService = new MetricsServiceImpl(getTestMetrics(config));
+        metricsService = new MetricsServiceImpl(config);
 
         responseObserver = mock(StreamObserver.class);
         lastKnownStatuses = new ArrayDeque<>();

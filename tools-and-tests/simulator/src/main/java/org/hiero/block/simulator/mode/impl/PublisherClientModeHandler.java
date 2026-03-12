@@ -162,11 +162,10 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         LOGGER.log(
                 INFO,
                 "Number of BlockItems sent by the Block Stream Simulator: "
-                        + metricsService.get(LiveBlockItemsSent).get());
+                        + metricsService.getValue(LiveBlockItemsSent));
         LOGGER.log(
                 INFO,
-                "Number of Blocks sent by the Block Stream Simulator: "
-                        + metricsService.get(LiveBlocksSent).get());
+                "Number of Blocks sent by the Block Stream Simulator: " + metricsService.getValue(LiveBlocksSent));
     }
 
     private void constantRateStreaming()

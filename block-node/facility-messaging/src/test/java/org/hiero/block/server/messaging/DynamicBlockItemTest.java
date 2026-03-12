@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
-import static org.hiero.block.server.messaging.TestConfig.BLOCK_NODE_CONTEXT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -110,7 +109,7 @@ public class DynamicBlockItemTest {
         };
         // create message service to test, add handlers and start the service
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT, null);
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
         messagingService.registerNoBackpressureBlockItemHandler(slowHandler, false, null);
         messagingService.registerNoBackpressureBlockItemHandler(fastHandler, false, null);
         messagingService.start();
@@ -193,7 +192,7 @@ public class DynamicBlockItemTest {
         };
         // create message service to test, add handlers and start the service
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT, null);
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
         messagingService.registerNoBackpressureBlockItemHandler(handler1, false, null);
         messagingService.registerNoBackpressureBlockItemHandler(handler2, false, null);
         messagingService.start();

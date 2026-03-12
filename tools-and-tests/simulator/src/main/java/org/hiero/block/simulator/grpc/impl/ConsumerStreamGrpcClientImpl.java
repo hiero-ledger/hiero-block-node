@@ -117,7 +117,7 @@ public class ConsumerStreamGrpcClientImpl implements ConsumerStreamGrpcClient {
 
     @Override
     public long getConsumedBlocks() {
-        return metricsService.get(LiveBlocksConsumed).get();
+        return metricsService.getValue(LiveBlocksConsumed);
     }
 
     @Override

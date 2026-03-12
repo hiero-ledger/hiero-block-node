@@ -20,7 +20,7 @@ testModuleInfo {
     requires("org.junit.jupiter.params")
     requires("org.assertj.core")
     requires("org.hiero.block.node.app.test.fixtures")
-    runtimeOnly("com.swirlds.metrics.api")
+    runtimeOnly("org.hiero.metrics")
     requires("org.mockito")
     runtimeOnly("org.mockito.junit.jupiter")
 }

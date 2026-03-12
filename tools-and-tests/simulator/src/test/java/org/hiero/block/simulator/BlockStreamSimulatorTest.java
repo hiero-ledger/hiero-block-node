@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator;
 
-import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -79,7 +78,7 @@ class BlockStreamSimulatorTest {
                 Map.of("blockStream.maxBlockItemsToStream", "100", "blockStream.streamingMode", "CONSTANT_RATE"));
 
         configurationLoggingMock = new SimulatorConfigurationLogger(configuration);
-        metricsService = new MetricsServiceImpl(getTestMetrics(configuration));
+        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,
@@ -116,7 +115,7 @@ class BlockStreamSimulatorTest {
         SimulatorModeHandler consumerModeHandler = new ConsumerModeHandler(consumerStreamGrpcClient);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "CONSUMER"));
 
-        metricsService = new MetricsServiceImpl(getTestMetrics(configuration));
+        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,
@@ -189,7 +188,7 @@ class BlockStreamSimulatorTest {
         Configuration configuration =
                 TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "PUBLISHER_CLIENT"));
 
-        metricsService = new MetricsServiceImpl(getTestMetrics(configuration));
+        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,
@@ -209,7 +208,7 @@ class BlockStreamSimulatorTest {
         SimulatorModeHandler consumerModeHandler = new ConsumerModeHandler(consumerStreamGrpcClient);
         Configuration configuration = TestUtils.getTestConfiguration(Map.of("blockStream.simulatorMode", "CONSUMER"));
 
-        metricsService = new MetricsServiceImpl(getTestMetrics(configuration));
+        metricsService = new MetricsServiceImpl(configuration);
         blockStreamSimulator = new BlockStreamSimulatorApp(
                 configuration,
                 blockStreamManager,

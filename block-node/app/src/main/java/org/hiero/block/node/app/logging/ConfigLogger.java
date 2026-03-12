@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.logging;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 
 import com.swirlds.config.api.ConfigData;
@@ -85,7 +86,13 @@ public final class ConfigLogger {
                                 // loggablePackages.
                                 config.put(configDataAnnotation.value() + "." + fieldName, value);
                             }
-                        } catch (IllegalAccessException | InvocationTargetException e) {
+                        } catch (final IllegalAccessException e) {
+                            // Third-party modules (e.g. openmetrics-httpserver) may register config
+                            // types whose packages are not exported to this module. Skip the entire
+                            // config type gracefully rather than crashing the application.
+                            LOGGER.log(DEBUG, "Cannot log config type {0}: {1}", configType.getName(), e.getMessage());
+                            break;
+                        } catch (final InvocationTargetException e) {
                             throw new RuntimeException(e);
                         }
                     }

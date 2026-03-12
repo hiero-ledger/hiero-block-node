@@ -15,8 +15,8 @@ module org.hiero.block.node.stream.subscriber {
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
-    requires com.swirlds.metrics.api;
     requires org.hiero.block.node.base;
+    requires org.hiero.metrics;
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with

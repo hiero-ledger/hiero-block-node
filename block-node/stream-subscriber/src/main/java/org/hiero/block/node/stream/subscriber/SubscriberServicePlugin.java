@@ -8,8 +8,6 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.grpc.Pipelines.ServerStreamingMethod;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
@@ -35,6 +33,10 @@ import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.LongGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * Provides implementation for the block stream subscriber endpoints of the server. These handle incoming requests for block
@@ -140,9 +142,9 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
         private volatile Map<Long, BlockStreamSubscriberSession> openSessions;
         // Metrics
         /** Counter for errors while streaming to subscribers */
-        private final Counter subscriberErrorsCounter;
+        private final LongCounter.Measurement subscriberErrorsCounter;
         /** Gauge for number of subscribers */
-        private final LongGauge numberOfSubscribers;
+        private final LongGauge.Measurement numberOfSubscribers;
 
         private final ExecutorService virtualThreadExecutor;
         private volatile CompletionService<BlockStreamSubscriberSession> streamSessions;
@@ -153,12 +155,17 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
             streamSessions = new ExecutorCompletionService<>(virtualThreadExecutor);
             // create the metrics
-            numberOfSubscribers = context.metrics()
-                    .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "subscriber_open_connections")
-                            .withDescription("Connected subscribers"));
-            subscriberErrorsCounter = context.metrics()
-                    .getOrCreate(new Counter.Config(METRICS_CATEGORY, "subscriber_errors")
-                            .withDescription("Errors while streaming to subscribers"));
+            final MetricRegistry metricRegistry = context.metricRegistry();
+            numberOfSubscribers = metricRegistry
+                    .register(LongGauge.builder(MetricKey.of("subscriber_open_connections", LongGauge.class)
+                                    .addCategory(METRICS_CATEGORY))
+                            .setDescription("Connected subscribers"))
+                    .getOrCreateNotLabeled();
+            subscriberErrorsCounter = metricRegistry
+                    .register(LongCounter.builder(MetricKey.of("subscriber_errors", LongCounter.class)
+                                    .addCategory(METRICS_CATEGORY))
+                            .setDescription("Errors while streaming to subscribers"))
+                    .getOrCreateNotLabeled();
         }
 
         private void stop() {

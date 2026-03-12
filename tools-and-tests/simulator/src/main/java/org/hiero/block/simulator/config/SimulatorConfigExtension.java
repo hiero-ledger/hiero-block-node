@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.config;
 
-import com.swirlds.common.metrics.config.MetricsConfig;
-import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.ConfigurationExtension;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Set;
@@ -30,8 +28,6 @@ public class SimulatorConfigExtension implements ConfigurationExtension {
                 ConsumerConfig.class,
                 GrpcConfig.class,
                 BlockGeneratorConfig.class,
-                SimulatorStartupDataConfig.class,
-                MetricsConfig.class,
-                PrometheusConfig.class);
+                SimulatorStartupDataConfig.class);
     }
 }

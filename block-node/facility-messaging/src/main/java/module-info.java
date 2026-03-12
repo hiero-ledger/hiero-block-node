@@ -13,9 +13,9 @@ module org.hiero.block.node.messaging {
 
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
-    requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
     requires org.hiero.block.node.base;
+    requires org.hiero.metrics;
     requires com.github.spotbugs.annotations;
     requires com.lmax.disruptor;
 

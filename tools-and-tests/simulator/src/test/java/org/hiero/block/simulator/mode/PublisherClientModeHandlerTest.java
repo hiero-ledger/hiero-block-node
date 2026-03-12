@@ -51,7 +51,7 @@ public class PublisherClientModeHandlerTest {
                 "blockstream.millisecondsPerBlock", "0"));
         blockStreamConfig = configuration.getConfigData(BlockStreamConfig.class);
 
-        metricsService = new MetricsServiceImpl(TestUtils.getTestMetrics(configuration));
+        metricsService = new MetricsServiceImpl(configuration);
     }
 
     @Test
