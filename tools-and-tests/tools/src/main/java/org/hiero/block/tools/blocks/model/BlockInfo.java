@@ -69,7 +69,8 @@ public class BlockInfo {
             totalBytesCompressed.set(0);
             totalBytesUncompressed.set(0);
             // Find all block sources (files and zip entries) sorted by block number, then filter by size
-            List<BlockSource> allSources = BlockZipsUtilities.findBlockSources(files, null);
+            List<BlockSource> allSources =
+                    BlockZipsUtilities.expandWholeZipSources(BlockZipsUtilities.findBlockSources(files, null));
             final List<BlockSource> blockSources;
             if (minSizeMb != Double.MAX_VALUE) {
                 blockSources = allSources.stream()

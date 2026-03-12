@@ -67,6 +67,9 @@ public final class HbarSupplyValidation implements BlockValidation {
     /** Extracted transfer data cached between validate() and commitState() to avoid double-parsing. */
     private List<List<TransferData>> stagedMergedTransfers;
 
+    /** Reusable in-block balance overlay map, cleared between blocks to avoid per-block allocation. */
+    private final LongLongHashMap inBlockBalances = new LongLongHashMap();
+
     @Override
     public String name() {
         return "HBAR Supply";
@@ -113,7 +116,7 @@ public final class HbarSupplyValidation implements BlockValidation {
         // within a single block (each delta is computed against the most recent balance, not
         // always against the committed base state).
         long hbarDelta = 0;
-        final LongLongHashMap inBlockBalances = new LongLongHashMap();
+        inBlockBalances.clear();
 
         for (final StateChanges stateChanges : parsedStateChanges) {
             for (final StateChange stateChange : stateChanges.stateChanges()) {

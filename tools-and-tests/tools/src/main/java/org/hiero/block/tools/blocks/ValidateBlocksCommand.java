@@ -117,7 +117,7 @@ public class ValidateBlocksCommand implements Runnable {
     @Option(
             names = {"--prefetch"},
             description = "Number of blocks to buffer ahead for decompression (default: ${DEFAULT-VALUE})")
-    private int prefetch = 512;
+    private int prefetch = 64;
 
     @Option(
             names = {"--skip-signatures"},
@@ -261,12 +261,13 @@ public class ValidateBlocksCommand implements Runnable {
             return;
         }
 
-        // Find all block sources
+        // Find all block sources (zips are represented as whole-zip sources — one per zip)
         List<BlockSource> sources = BlockZipsUtilities.findBlockSources(files, corruptZipCount);
         if (sources.isEmpty()) {
             System.err.println(Ansi.AUTO.string("@|red Error:|@ No block files found"));
             return;
         }
+        final long estimatedTotalBlocks = BlockZipsUtilities.estimateTotalBlocks(sources);
 
         // Checkpoint directory lives inside the first input directory
         Path checkpointDir = Arrays.stream(files)
@@ -286,9 +287,17 @@ public class ValidateBlocksCommand implements Runnable {
         }
 
         final long resumeFrom = checkpoint != null ? checkpoint.lastValidatedBlockNumber() : -1L;
+        // Filter sources: for whole-zip sources, keep if the zip might contain blocks > resumeFrom
         final List<BlockSource> pendingSources = (checkpoint == null)
                 ? sources
-                : sources.stream().filter(s -> s.blockNumber() > resumeFrom).toList();
+                : sources.stream()
+                        .filter(s -> {
+                            if (s.isWholeZip()) {
+                                return s.blockNumber() + BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP > resumeFrom;
+                            }
+                            return s.blockNumber() > resumeFrom;
+                        })
+                        .toList();
 
         // Detect binary state files in any input directory
         Path hashRegistryPath = null;
@@ -308,18 +317,26 @@ public class ValidateBlocksCommand implements Runnable {
         }
         final boolean hasStateFiles = (hashRegistryPath != null);
 
+        // Compute display range: first block is from first source; last block is estimated from last source
+        final long firstDisplayBlock = sources.getFirst().blockNumber();
+        final BlockSource lastSource = sources.getLast();
+        final long lastDisplayBlock = lastSource.isWholeZip()
+                ? lastSource.blockNumber() + BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP - 1
+                : lastSource.blockNumber();
+
         System.out.print(Ansi.AUTO.string("""
               @|bold,cyan ════════════════════════════════════════════════════════════|@
               @|bold,cyan   BLOCK STREAM VALIDATION|@
               @|bold,cyan ════════════════════════════════════════════════════════════|@
 
-              @|yellow Total blocks to validate:|@ %d
+              @|yellow Estimated total blocks:|@ %d  (sources: %d)
               @|yellow Block range:|@ %d - %d
               @|yellow Threads:|@ %d  prefetch: %d
               """.formatted(
+                        estimatedTotalBlocks,
                         sources.size(),
-                        sources.getFirst().blockNumber(),
-                        sources.getLast().blockNumber(),
+                        firstDisplayBlock,
+                        lastDisplayBlock,
                         threads,
                         prefetch)));
         if (hasStateFiles) {
@@ -327,19 +344,28 @@ public class ValidateBlocksCommand implements Runnable {
                     + "streamingMerkleTree.bin, completeMerkleTree.bin, jumpstart.bin"));
         }
         if (checkpoint != null) {
-            System.out.println(Ansi.AUTO.string("@|yellow Pending blocks:|@ " + pendingSources.size()
+            System.out.println(Ansi.AUTO.string("@|yellow Pending sources:|@ " + pendingSources.size()
                     + " (resuming after block " + checkpoint.lastValidatedBlockNumber() + ")"));
         }
         System.out.println();
 
-        // Check for gaps in block numbers (across the full dataset)
+        // Gap detection for non-zip sources (zips are checked during streaming)
         long expectedBlockNumber = sources.getFirst().blockNumber();
         for (BlockSource source : sources) {
-            if (source.blockNumber() != expectedBlockNumber) {
-                System.out.println(Ansi.AUTO.string("@|red Gap detected:|@ Expected block " + expectedBlockNumber
-                        + " but found " + source.blockNumber()));
+            if (source.isWholeZip()) {
+                // For whole-zip sources, check that ranges are contiguous
+                if (source.blockNumber() != expectedBlockNumber) {
+                    System.out.println(Ansi.AUTO.string("@|red Gap detected:|@ Expected block " + expectedBlockNumber
+                            + " but found zip starting at " + source.blockNumber()));
+                }
+                expectedBlockNumber = source.blockNumber() + BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP;
+            } else {
+                if (source.blockNumber() != expectedBlockNumber) {
+                    System.out.println(Ansi.AUTO.string("@|red Gap detected:|@ Expected block " + expectedBlockNumber
+                            + " but found " + source.blockNumber()));
+                }
+                expectedBlockNumber = source.blockNumber() + 1;
             }
-            expectedBlockNumber = source.blockNumber() + 1;
         }
 
         // ── Build validation list ────────────────────────────────────────────
@@ -378,8 +404,7 @@ public class ValidateBlocksCommand implements Runnable {
         }
 
         // Balance checkpoint validation (genesis-requiring, optional)
-        final long firstBlockNumber = sources.getFirst().blockNumber();
-        if (firstBlockNumber == 0 && validateBalances) {
+        if (firstDisplayBlock == 0 && validateBalances) {
             try {
                 final BalanceCheckpointValidator checkpointValidator = new BalanceCheckpointValidator();
                 checkpointValidator.setCheckIntervalDays(balanceCheckIntervalDays);
@@ -409,7 +434,7 @@ public class ValidateBlocksCommand implements Runnable {
         validations.addAll(sequentialValidations);
 
         // Filter out genesis-required validations when not starting from block 0 and no checkpoint
-        if (firstBlockNumber != 0 && checkpoint == null) {
+        if (firstDisplayBlock != 0 && checkpoint == null) {
             List<BlockValidation> genesisSkipped = new ArrayList<>();
             sequentialValidations.removeIf(v -> {
                 if (v.requiresGenesisStart()) {
@@ -421,7 +446,7 @@ public class ValidateBlocksCommand implements Runnable {
             validations.removeIf(genesisSkipped::contains);
             for (BlockValidation skipped : genesisSkipped) {
                 System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ " + skipped.name()
-                        + " (requires genesis start, first block is " + firstBlockNumber + ")"));
+                        + " (requires genesis start, first block is " + firstDisplayBlock + ")"));
             }
         }
 
@@ -447,11 +472,10 @@ public class ValidateBlocksCommand implements Runnable {
 
         // Rebuild CompleteMerkleTreeValidation by replaying already-validated block hashes from registry
         if (checkpoint != null && registry != null && checkpoint.lastValidatedBlockNumber() >= 0) {
-            long firstBlock = sources.getFirst().blockNumber();
             long replayTo = checkpoint.lastValidatedBlockNumber();
-            System.out.println(Ansi.AUTO.string("@|yellow Replaying |@" + (replayTo - firstBlock + 1)
-                    + " block hashes into in-memory hasher (blocks " + firstBlock + ".." + replayTo + ")"));
-            completeMerkleTreeValidation.replayFromRegistry(registry, firstBlock, replayTo);
+            System.out.println(Ansi.AUTO.string("@|yellow Replaying |@" + (replayTo - firstDisplayBlock + 1)
+                    + " block hashes into in-memory hasher (blocks " + firstDisplayBlock + ".." + replayTo + ")"));
+            completeMerkleTreeValidation.replayFromRegistry(registry, firstDisplayBlock, replayTo);
         }
 
         // Track validation progress
@@ -511,7 +535,24 @@ public class ValidateBlocksCommand implements Runnable {
                         int i = 0;
                         while (i < pendingSources.size()) {
                             BlockSource first = pendingSources.get(i);
-                            if (!first.isZipEntry()) {
+                            if (first.isWholeZip()) {
+                                // Whole-zip source: stream all entries, discover blocks on the fly
+                                try {
+                                    readAllZipEntries(
+                                            first.filePath(),
+                                        resumeFrom,
+                                            parallelValidations,
+                                            blockQueue,
+                                            decompPool);
+                                } catch (IOException e) {
+                                    corruptZipCount.incrementAndGet();
+                                    System.out.println(Ansi.AUTO.string(
+                                            "@|yellow Warning:|@ error streaming zip: "
+                                                    + first.filePath().getFileName() + " — " + e.getMessage()));
+                                }
+                                i++;
+                            } else if (!first.isZipEntry()) {
+                                // Standalone block file
                                 final Path path = first.filePath();
                                 final boolean[] flags = BlockZipsUtilities.compressionFlags(first);
                                 final boolean isZstd = flags[0];
@@ -528,6 +569,7 @@ public class ValidateBlocksCommand implements Runnable {
                                 }));
                                 i++;
                             } else {
+                                // Per-entry zip source (e.g. from jimfs tests)
                                 Path zipPath = first.filePath();
                                 int runEnd = i;
                                 Set<String> wanted = new HashSet<>();
@@ -581,8 +623,7 @@ public class ValidateBlocksCommand implements Runnable {
             long lastCheckpointSaveMs = System.currentTimeMillis();
             long lastProgressMs = System.currentTimeMillis();
 
-            for (int i = 0; i < pendingSources.size(); i++) {
-                long blockNum = pendingSources.get(i).blockNumber();
+            while (true) {
 
                 try {
                     Future<PreValidatedBlock> future = blockQueue.take();
@@ -613,6 +654,7 @@ public class ValidateBlocksCommand implements Runnable {
                     }
 
                     BlockUnparsed block = preValidated.block();
+                    long blockNum = preValidated.blockNumber();
 
                     // Phase 1: validate sequential (stateful) validations only
                     for (BlockValidation v : sequentialValidations) {
@@ -670,11 +712,11 @@ public class ValidateBlocksCommand implements Runnable {
                     }
 
                     // Progress every 5 seconds
-                    if (nowMs - lastProgressMs >= 5_000L || i == pendingSources.size() - 1) {
+                    if (nowMs - lastProgressMs >= 5_000L) {
                         long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-                        long currentPercent = (blocksValidated * 100) / sources.size();
+                        long currentPercent = (blocksValidated * 100) / estimatedTotalBlocks;
                         long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
-                                blocksValidated, sources.size(), elapsedMillis);
+                                blocksValidated, estimatedTotalBlocks, elapsedMillis);
 
                         // Compute speed multiplier (consensus-time / wall-clock)
                         BlockHeader parsedHeader = BlockHeader.PROTOBUF.parse(
@@ -705,7 +747,7 @@ public class ValidateBlocksCommand implements Runnable {
                         }
 
                         String progressString =
-                                "Validated " + blocksValidated + "/" + sources.size() + " blocks" + speedString;
+                                "Validated " + blocksValidated + "/~" + estimatedTotalBlocks + " blocks" + speedString;
                         PrettyPrint.printProgressWithEta(currentPercent, progressString, remainingMillis);
                         lastProgressMs = nowMs;
                     }
@@ -717,9 +759,10 @@ public class ValidateBlocksCommand implements Runnable {
                             ? e.getCause()
                             : e;
                     failureMessage = cause.getMessage() != null ? cause.getMessage() : cause.toString();
-                    failedBlockNumber = blockNum;
+                    failedBlockNumber = lastValidatedRef[0] + 1;
                     // Always print for unexpected errors (not just in verbose mode)
-                    System.err.println("Unexpected error at block " + blockNum + ": " + failureMessage);
+                    System.err.println(
+                            "Unexpected error near block " + failedBlockNumber + ": " + failureMessage);
                     cause.printStackTrace();
                     break;
                 }
@@ -765,7 +808,8 @@ public class ValidateBlocksCommand implements Runnable {
 
         // Determine overall result
         boolean validationFailed = (failedValidationName != null || failureMessage != null);
-        boolean allBlocksValidated = (blocksValidated == sources.size());
+        boolean allBlocksValidated = (blocksValidated >= estimatedTotalBlocks - BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP
+                || blocksValidated == estimatedTotalBlocks);
 
         // On full success: remove checkpoint (validation is complete).
         // On partial/error: save a final checkpoint for next resume.
@@ -879,6 +923,75 @@ public class ValidateBlocksCommand implements Runnable {
             // ZipInputStream rejects STORED entries with data descriptors (General Purpose Bit 3).
             // Fall back to ZipFile which uses the Central Directory and handles any valid zip.
             readZipEntriesViaRandomAccess(zipPath, wanted, parallelValidations, blockQueue, decompPool);
+        }
+    }
+
+    /**
+     * Streams ALL block entries from a zip archive (lazy discovery — no pre-known entry list).
+     * Entries with block numbers {@code <= skipBlocksUpTo} are skipped (for resume support).
+     */
+    private static void readAllZipEntries(
+            Path zipPath,
+            long skipBlocksUpTo,
+            List<BlockValidation> parallelValidations,
+            BlockingQueue<Future<PreValidatedBlock>> blockQueue,
+            ExecutorService decompPool)
+            throws IOException, InterruptedException {
+        try (ZipInputStream zis =
+                new ZipInputStream(new BufferedInputStream(Files.newInputStream(zipPath), ZIP_READ_BUFFER))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                final String entryName = entry.getName();
+                final String fileName = entryName.substring(entryName.lastIndexOf('/') + 1);
+                final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
+                if (bNum < 0 || entry.isDirectory()) {
+                    zis.closeEntry();
+                    continue;
+                }
+                if (bNum <= skipBlocksUpTo) {
+                    zis.closeEntry();
+                    continue;
+                }
+                final boolean[] flags = BlockZipsUtilities.compressionFlags(entryName);
+                final boolean isZstd = flags[0];
+                final boolean isGz = flags[1];
+                final byte[] raw = zis.readAllBytes();
+                blockQueue.put(decompPool.submit(() -> {
+                    BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
+                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
+                    return err != null
+                            ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
+                            : new PreValidatedBlock(block, bNum, null, null);
+                }));
+            }
+        } catch (IOException streamErr) {
+            // ZipInputStream rejects STORED entries with data descriptors (General Purpose Bit 3).
+            // Fall back to ZipFile which reads the Central Directory and handles any valid zip.
+            try (ZipFile zf = new ZipFile(zipPath.toFile())) {
+                java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry fallbackEntry = entries.nextElement();
+                    if (fallbackEntry.isDirectory()) continue;
+                    final String entryName2 = fallbackEntry.getName();
+                    final String fileName2 = entryName2.substring(entryName2.lastIndexOf('/') + 1);
+                    final long bNum = BlockZipsUtilities.extractBlockNumber(fileName2);
+                    if (bNum < 0 || bNum <= skipBlocksUpTo) continue;
+                    final boolean[] flags = BlockZipsUtilities.compressionFlags(entryName2);
+                    final boolean isZstd = flags[0];
+                    final boolean isGz = flags[1];
+                    final byte[] raw;
+                    try (var entryStream = zf.getInputStream(fallbackEntry)) {
+                        raw = entryStream.readAllBytes();
+                    }
+                    blockQueue.put(decompPool.submit(() -> {
+                        BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
+                        Object[] err = runParallelValidations(parallelValidations, block, bNum);
+                        return err != null
+                                ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
+                                : new PreValidatedBlock(block, bNum, null, null);
+                    }));
+                }
+            }
         }
     }
 

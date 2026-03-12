@@ -12,6 +12,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -32,21 +33,40 @@ public final class BlockZipsUtilities {
     /** Pattern to match block file names and extract the block number. */
     private static final Pattern BLOCK_FILE_PATTERN = Pattern.compile("^(\\d+)\\.blk(\\.gz|\\.zstd)?$");
 
+    /** Pattern to match zip file names used by BlockWriter (e.g. "50000s.zip"). */
+    private static final Pattern ZIP_NAME_PATTERN = Pattern.compile("^(\\d+)s\\.zip$");
+
+    /** Default blocks per zip file (10^4 = 10,000). */
+    public static final int DEFAULT_BLOCKS_PER_ZIP =
+            (int) Math.pow(10, BlockWriter.DEFAULT_POWERS_OF_TEN_PER_ZIP);
+
     /** Private constructor to prevent instantiation. */
     private BlockZipsUtilities() {}
 
     /**
-     * Represents a source for reading a block — either a standalone file or an entry in a zip archive.
+     * Represents a source for reading a block — either a standalone file, an entry in a zip archive,
+     * or a whole zip archive (lazy discovery).
      *
-     * @param blockNumber the block number extracted from the filename
+     * <p>For whole-zip sources, {@code zipEntryName} is null and {@code filePath} ends with ".zip".
+     * The {@code blockNumber} is the inferred first block in the zip range, used for sorting and
+     * resume filtering. Actual entries are discovered lazily during processing.
+     *
+     * @param blockNumber the block number extracted from the filename (or inferred first block for whole-zip)
      * @param filePath the path to the file (either the block file or the zip file)
-     * @param zipEntryName the name of the entry within the zip file, or null for standalone files
-     * @param compressionType the compression type of the block data (null for .gz files)
+     * @param zipEntryName the name of the entry within the zip file, or null for standalone/whole-zip
+     * @param compressionType the compression type of the block data (null for .gz files or whole-zip)
      */
     public record BlockSource(long blockNumber, Path filePath, String zipEntryName, CompressionType compressionType) {
-        /** Check if this is a zip entry source. */
+        /** Check if this is a per-entry zip source (entry name already known). */
         public boolean isZipEntry() {
             return zipEntryName != null;
+        }
+
+        /** Check if this is a whole-zip source (entries discovered lazily during processing). */
+        public boolean isWholeZip() {
+            return zipEntryName == null
+                    && filePath != null
+                    && filePath.getFileName().toString().endsWith(".zip");
         }
     }
 
@@ -92,6 +112,8 @@ public final class BlockZipsUtilities {
 
     /**
      * Find all block sources from the given files/directories, sorted by block number.
+     * Zip archives are represented as whole-zip sources (one per zip) to avoid opening
+     * them during discovery. Actual entries are discovered lazily during processing.
      *
      * @param files array of files or directories to scan
      * @param corruptZipCounter if non-null, corrupt zips increment this counter and print a warning instead of
@@ -123,7 +145,7 @@ public final class BlockZipsUtilities {
     }
 
     /**
-     * Recursively finds block files in a directory, including entries within zip archives.
+     * Recursively finds block files in a directory, including zip archives (as whole-zip sources).
      *
      * @param dir the directory to search
      * @param sources list to add sources to
@@ -149,13 +171,145 @@ public final class BlockZipsUtilities {
     }
 
     /**
-     * Finds block files inside a zip archive using {@link FileSystem}.
+     * Registers a zip archive as a block source. On the default filesystem, creates a lightweight
+     * whole-zip source by inferring the first block number from the zip path (no zip opening).
+     * Falls back to per-entry discovery for in-memory filesystems (jimfs) used in tests.
      *
      * @param zipPath path to the zip file
      * @param sources list to add sources to
      * @param corruptZipCounter optional counter for corrupt zips (may be null)
      */
     public static void findBlocksInZip(Path zipPath, List<BlockSource> sources, AtomicLong corruptZipCounter) {
+        if (zipPath.getFileSystem() == FileSystems.getDefault()) {
+            // Lightweight: infer block range from path, don't open the zip
+            long firstBlock = inferFirstBlockFromZipPath(zipPath);
+            if (firstBlock >= 0) {
+                sources.add(new BlockSource(firstBlock, zipPath, null, null));
+            } else {
+                // Can't infer — skip with warning
+                System.err.println("Warning: cannot infer block range from zip: " + zipPath.getFileName());
+            }
+        } else {
+            // In-memory filesystem (jimfs tests): open and discover entries
+            try {
+                findBlocksInZipViaFileSystem(zipPath, sources);
+            } catch (IOException e) {
+                if (corruptZipCounter != null) {
+                    corruptZipCounter.incrementAndGet();
+                }
+                System.err.println(
+                        "Warning: skipping corrupt zip: " + zipPath.getFileName() + " — " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Infers the first block number contained in a zip file from its path in the block storage
+     * trie structure. The directory names and zip filename encode the block number range:
+     * e.g., {@code basedir/000/000/004/50000s.zip} → first block 450000.
+     *
+     * @param zipPath the path to the zip file
+     * @return the first block number, or -1 if the path doesn't match the expected pattern
+     */
+    public static long inferFirstBlockFromZipPath(Path zipPath) {
+        // Validate zip filename matches pattern
+        String zipName = zipPath.getFileName().toString();
+        Matcher zipMatcher = ZIP_NAME_PATTERN.matcher(zipName);
+        if (!zipMatcher.matches()) {
+            return -1;
+        }
+        String numericPart = zipMatcher.group(1); // e.g., "50000" from "50000s.zip"
+
+        // Walk up parent directories, collecting numeric directory names
+        List<String> dirNames = new ArrayList<>();
+        Path parent = zipPath.getParent();
+        while (parent != null && parent.getFileName() != null) {
+            String name = parent.getFileName().toString();
+            if (name.matches("\\d+")) {
+                dirNames.add(name);
+            } else {
+                break; // Stop at first non-numeric directory (base dir)
+            }
+            parent = parent.getParent();
+        }
+        Collections.reverse(dirNames);
+
+        // Build the full block number: dir digits + zip digit prefix + trailing zeros
+        StringBuilder digits = new StringBuilder();
+        for (String dir : dirNames) {
+            digits.append(dir);
+        }
+        // First char of numericPart is the zip-level digit; remaining chars are range zeros
+        digits.append(numericPart.charAt(0));
+        // Pad to 19 digits with zeros (block number is always 19 digits)
+        while (digits.length() < 19) {
+            digits.append('0');
+        }
+        return Long.parseLong(digits.toString());
+    }
+
+    /**
+     * Estimates the total number of blocks across all sources. Whole-zip sources are assumed
+     * to contain {@link #DEFAULT_BLOCKS_PER_ZIP} blocks each; standalone and per-entry sources
+     * count as one block each.
+     *
+     * @param sources the block sources
+     * @return estimated total block count
+     */
+    public static long estimateTotalBlocks(List<BlockSource> sources) {
+        long total = 0;
+        for (BlockSource s : sources) {
+            total += s.isWholeZip() ? DEFAULT_BLOCKS_PER_ZIP : 1;
+        }
+        return total;
+    }
+
+    /**
+     * Expands whole-zip sources into per-entry sources by opening each zip and discovering entries.
+     * Non-zip sources are passed through unchanged. This is intended for commands that process
+     * individual blocks (e.g. BlockInfo) rather than streaming millions of blocks.
+     *
+     * @param sources the sources to expand
+     * @return a new list with whole-zip sources replaced by per-entry sources
+     */
+    public static List<BlockSource> expandWholeZipSources(List<BlockSource> sources) {
+        List<BlockSource> expanded = new ArrayList<>();
+        for (BlockSource s : sources) {
+            if (s.isWholeZip()) {
+                try {
+                    findBlocksInZipViaZipFile(s.filePath(), expanded);
+                } catch (IOException e) {
+                    System.err.println("Warning: cannot expand zip: " + s.filePath().getFileName() + " — " + e);
+                }
+            } else {
+                expanded.add(s);
+            }
+        }
+        expanded.sort(Comparator.comparingLong(BlockSource::blockNumber));
+        return expanded;
+    }
+
+    /** Fast discovery using {@link java.util.zip.ZipFile} — opens CEN but avoids filesystem objects per entry. */
+    private static void findBlocksInZipViaZipFile(Path zipPath, List<BlockSource> sources) throws IOException {
+        try (java.util.zip.ZipFile zf = new java.util.zip.ZipFile(zipPath.toFile())) {
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zf.entries();
+            while (entries.hasMoreElements()) {
+                java.util.zip.ZipEntry entry = entries.nextElement();
+                if (entry.isDirectory()) continue;
+                String entryName = entry.getName();
+                int lastSlash = entryName.lastIndexOf('/');
+                String fileName = lastSlash >= 0 ? entryName.substring(lastSlash + 1) : entryName;
+                long blockNum = extractBlockNumber(fileName);
+                if (blockNum >= 0) {
+                    CompressionType compression = getCompressionType(fileName);
+                    sources.add(new BlockSource(blockNum, zipPath, "/" + entryName, compression));
+                }
+            }
+        }
+    }
+
+    /** Fallback discovery using {@link FileSystem} — works with in-memory filesystems (jimfs). */
+    private static void findBlocksInZipViaFileSystem(Path zipPath, List<BlockSource> sources) throws IOException {
         try (FileSystem zipFs = FileSystems.newFileSystem(zipPath)) {
             for (Path root : zipFs.getRootDirectories()) {
                 try (Stream<Path> filesStream = Files.walk(root)) {
@@ -169,11 +323,6 @@ public final class BlockZipsUtilities {
                     });
                 }
             }
-        } catch (IOException e) {
-            if (corruptZipCounter != null) {
-                corruptZipCounter.incrementAndGet();
-            }
-            System.err.println("Warning: skipping corrupt zip: " + zipPath.getFileName() + " — " + e.getMessage());
         }
     }
 
@@ -186,6 +335,7 @@ public final class BlockZipsUtilities {
      * @return the parsed Block
      * @throws Exception if decompression or parsing fails
      */
+    @SuppressWarnings("unused")
     public static Block decompressAndParse(byte[] raw, boolean isZstd, boolean isGz) throws Exception {
         final byte[] blockBytes;
         if (isZstd) {

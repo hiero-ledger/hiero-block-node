@@ -58,6 +58,9 @@ public class RunningAccountsState {
 
     private final LongObjectHashMap<Account> accounts = new LongObjectHashMap<>();
 
+    /** Cached sum of all HBAR balances, updated incrementally to avoid iterating all accounts. */
+    private long runningHbarTotal = 0;
+
     /**
      * Sets the HBAR balance for an account to an absolute value (from StateChanges map update).
      * Creates the account entry if it does not yet exist.
@@ -66,7 +69,9 @@ public class RunningAccountsState {
      * @param tinyBarBalance the new absolute tinybar balance
      */
     public void setHbarBalance(final long accountNum, final long tinyBarBalance) {
-        accounts.getIfAbsentPut(accountNum, Account::new).tinyBarBalance = tinyBarBalance;
+        final Account account = accounts.getIfAbsentPut(accountNum, Account::new);
+        runningHbarTotal += (tinyBarBalance - account.tinyBarBalance);
+        account.tinyBarBalance = tinyBarBalance;
     }
 
     /**
@@ -78,6 +83,7 @@ public class RunningAccountsState {
      */
     public void applyHbarChange(final long accountNum, final long tinyBarChange) {
         accounts.getIfAbsentPut(accountNum, Account::new).tinyBarBalance += tinyBarChange;
+        runningHbarTotal += tinyBarChange;
     }
 
     /**
@@ -86,7 +92,10 @@ public class RunningAccountsState {
      * @param accountIdNum the account number
      */
     public void deleteAccount(final long accountIdNum) {
-        accounts.remove(accountIdNum);
+        final Account removed = accounts.remove(accountIdNum);
+        if (removed != null) {
+            runningHbarTotal -= removed.tinyBarBalance;
+        }
     }
 
     /**
@@ -137,15 +146,12 @@ public class RunningAccountsState {
 
     /**
      * Returns the sum of all HBAR balances across all tracked accounts.
+     * This is maintained incrementally and returns in O(1) time.
      *
      * @return total tinybar balance across all accounts
      */
     public long totalHbarBalance() {
-        long total = 0;
-        for (Account account : accounts.values()) {
-            total += account.tinyBarBalance;
-        }
-        return total;
+        return runningHbarTotal;
     }
 
     /**
@@ -312,6 +318,7 @@ public class RunningAccountsState {
      */
     public void load(final Path path) throws IOException {
         accounts.clear();
+        runningHbarTotal = 0;
         try (DataInputStream in = new DataInputStream(Files.newInputStream(path))) {
             final int version = in.readInt();
             if (version != 1) {
@@ -322,6 +329,7 @@ public class RunningAccountsState {
                 final long accountNum = in.readLong();
                 final Account account = new Account();
                 account.tinyBarBalance = in.readLong();
+                runningHbarTotal += account.tinyBarBalance;
                 // Fungible tokens
                 final int fungibleCount = in.readInt();
                 for (int j = 0; j < fungibleCount; j++) {
