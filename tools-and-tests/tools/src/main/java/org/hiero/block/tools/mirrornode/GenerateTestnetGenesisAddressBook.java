@@ -16,8 +16,15 @@ import picocli.CommandLine.Option;
 /**
  * Generates the testnet genesis address book protobuf binary file from the testnet mirror node API.
  *
- * <p>This command fetches the current node information from the testnet mirror node and serializes
- * it as a {@link NodeAddressBook} protobuf binary file suitable for use as a classpath resource.
+ * <p>This command fetches the <b>current</b> node information from the testnet mirror node and
+ * serializes it as a {@link NodeAddressBook} protobuf binary file. This is valid for the genesis
+ * address book as long as testnet nodes have not changed since the February 2024 reset
+ * (7 nodes: 0.0.3 through 0.0.9).
+ *
+ * <p><b>Note:</b> The mirror node {@code /api/v1/network/nodes} endpoint does not support a
+ * {@code timestamp} parameter, so historical node data cannot be queried. If testnet undergoes
+ * a node change in the future, this command's output will no longer match genesis and the
+ * bundled {@code testnet-genesis-address-book.proto.bin} should not be regenerated.
  *
  * <p>Usage example:
  * <pre>

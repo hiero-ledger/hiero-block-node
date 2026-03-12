@@ -28,19 +28,31 @@ import org.hiero.block.tools.config.NetworkConfig;
 
 /**
  * Provides the genesis state for testnet block zero by fetching account balances from the
- * testnet mirror node API at genesis time.
+ * testnet mirror node API near genesis time.
  *
  * <p>Testnet was reset in February 2024. Genesis date: 2024-02-01, first block timestamp:
  * 2024-02-01T18:35:20.644859297Z, nodes: 0.0.3 through 0.0.9 (7 nodes).
  *
  * <p>Unlike mainnet (which requires a saved state snapshot and transaction reversal), testnet
- * genesis state can be fetched directly from the mirror node API since the network was freshly
- * reset at that point.
+ * genesis state can be fetched from the mirror node API since the network was freshly reset at
+ * that point. The exact genesis timestamp returns empty results because mirror node balance
+ * snapshots are periodic, so we use the earliest available snapshot (~72 minutes after genesis).
+ * This snapshot captures the true genesis state: the treasury (0.0.2) holds all HBAR, and
+ * system accounts (0.0.1 through ~0.0.750+) exist with 0 balance before any meaningful
+ * transactions have occurred.
  */
 public final class TestnetBlockZeroState {
 
-    /** Genesis timestamp for testnet */
+    /** Genesis timestamp for testnet, used for the consensus timestamp in state change block items. */
     private static final String GENESIS_TIMESTAMP = "2024-02-01T18:35:20.644859297Z";
+
+    /**
+     * Earliest available balance snapshot timestamp on the testnet mirror node.
+     * The exact genesis timestamp returns empty results because balance snapshots are periodic.
+     * This timestamp (~72 min after genesis) captures the genesis state before any meaningful
+     * transactions have occurred.
+     */
+    private static final String EARLIEST_SNAPSHOT_TIMESTAMP = "1706815000.000000000";
 
     /** Cached genesis state changes */
     private static List<BlockItem> cachedStateChanges;
@@ -113,7 +125,7 @@ public final class TestnetBlockZeroState {
         // Extract host portion (e.g. "https://testnet.mirrornode.hedera.com") for building
         // absolute URLs from relative "next" links returned by the API.
         String baseHost = baseUrl.substring(0, baseUrl.indexOf("/api/v1/"));
-        String nextUrl = baseUrl + "balances?timestamp=" + GENESIS_TIMESTAMP + "&limit=100&order=asc";
+        String nextUrl = baseUrl + "balances?timestamp=" + EARLIEST_SNAPSHOT_TIMESTAMP + "&limit=100&order=asc";
 
         while (nextUrl != null) {
             BalancesResponse response = fetchBalancesPage(nextUrl);
