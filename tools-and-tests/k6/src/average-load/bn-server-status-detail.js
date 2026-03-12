@@ -5,9 +5,12 @@ import { check, sleep } from "k6";
 import { SharedArray } from "k6/data";
 import { ServerStatusRequest } from "../lib/grpc.js";
 import { vu } from "k6/execution";
-import { Rate } from "k6/metrics";
+import { Rate, Counter } from "k6/metrics";
 
 const grpcErrors = new Rate("grpc_errors");
+const statusDeadlineExceeded = new Counter(
+    "grpc_status_deadline_exceeded"
+);
 
 // Configure k6 VUs scheduling and iterations & thresholds
 export const options = {
@@ -28,6 +31,7 @@ export const options = {
             "p(100)<300",
         ],
         grpc_errors: ["rate<0.01"],
+        grpc_status_deadline_exceeded: ["count<1000"],
     },
 };
 
@@ -43,7 +47,8 @@ client.load([data.protobufPath], "block-node/api/node_service.proto");
 // run test
 export default () => {
     if (vu.iterationInScenario === 0) {
-        // connect only once per vu's runs, we should
+        // connect only once per vu's runs. This should be sufficient.
+        // Only the first iteration must do the extra work to connect.
         client.connect(data.blockNodeUrl, {
             plaintext: true,
         });
@@ -66,6 +71,9 @@ export default () => {
                 `gRPC error: Status ${response.status}, Message: ${response.message}`
             );
         }
+    } else {
+        // keep track of the StatusDeadlineExceeded errors
+        statusDeadlineExceeded.add(1);
     }
     sleep(1);
 };
