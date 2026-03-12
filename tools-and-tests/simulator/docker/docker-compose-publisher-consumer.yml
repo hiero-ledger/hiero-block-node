@@ -5,6 +5,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}:${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}"
     env_file:
@@ -26,6 +28,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER}:${CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER}"
     env_file:

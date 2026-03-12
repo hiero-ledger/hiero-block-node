@@ -13,9 +13,6 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.LongGauge;
-import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.BufferedOutputStream;
@@ -48,6 +45,10 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.ObservableGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * This plugin is responsible for providing the "Files Recent" block provider. This stores incoming blocks in files in
@@ -104,19 +105,15 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     private Path linksRootPath;
     // Metrics
     /** Counter for blocks written to the recent tier */
-    private Counter blocksWrittenCounter;
+    private LongCounter.Measurement blocksWrittenCounter;
     /** Counter for blocks read from the recent tier */
-    private Counter blocksReadCounter;
+    private LongCounter.Measurement blocksReadCounter;
     /** Counter for blocks deleted from the recent tier */
-    private Counter blocksDeletedCounter;
+    private LongCounter.Measurement blocksDeletedCounter;
     /** Counter for blocks deleted from the recent tier that failed */
-    private Counter blocksDeletedFailedCounter;
-    /** Gauge for the number of blocks stored in the recent tier */
-    private LongGauge blocksStoredGauge;
-    /** Gauge for the total bytes stored in the recent tier */
-    private LongGauge bytesStoredGauge;
+    private LongCounter.Measurement blocksDeletedFailedCounter;
     /** Persistence Writing total time in nanos **/
-    private Counter persistenceLatencyNs;
+    private LongCounter.Measurement persistenceLatencyNs;
 
     /**
      * Default constructor for the plugin. This is used for normal service loading.
@@ -155,7 +152,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
         blockRetentionThreshold = config.blockRetentionThreshold();
         this.blockMessaging = context.blockMessaging();
         // Initialize metrics
-        initMetrics(context.metrics());
+        initMetrics(context.metricRegistry());
         final Path liveRootPath = config.liveRootPath();
         this.linksRootPath = liveRootPath.resolve("links");
         try {
@@ -186,37 +183,54 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                 LOGGER.log(INFO, "Failed to get size of block file for block " + blockNumber, e);
             }
         });
-
-        // Register gauge updater
-        context.metrics().addUpdater(this::updateGauges);
     }
 
     /**
      * Initialize metrics for this plugin. vb
      */
-    private void initMetrics(final Metrics metrics) {
-        blocksWrittenCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_written")
-                .withDescription("Blocks written to files.recent provider"));
+    private void initMetrics(final MetricRegistry metricRegistry) {
+        blocksWrittenCounter = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("files_recent_blocks_written", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Blocks written to files.recent provider"))
+                .getOrCreateNotLabeled();
 
-        blocksReadCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_read")
-                .withDescription("Blocks read from files.recent provider"));
+        blocksReadCounter = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("files_recent_blocks_read", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Blocks read from files.recent provider"))
+                .getOrCreateNotLabeled();
 
-        blocksDeletedCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_deleted")
-                .withDescription("Blocks deleted from files.recent provider"));
+        blocksDeletedCounter = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("files_recent_blocks_deleted", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Blocks deleted from files.recent provider"))
+                .getOrCreateNotLabeled();
 
-        blocksDeletedFailedCounter =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_blocks_deleted_failed")
-                        .withDescription("Blocks failed deletion from files.recent provider"));
+        blocksDeletedFailedCounter = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("files_recent_blocks_deleted_failed", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Blocks failed deletion from files.recent provider"))
+                .getOrCreateNotLabeled();
 
-        blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_recent_blocks_stored")
-                .withDescription("Blocks stored in files.recent provider"));
+        metricRegistry
+                .register(ObservableGauge.builder(MetricKey.of("files_recent_blocks_stored", ObservableGauge.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Blocks stored in files.recent provider"))
+                .observe(availableBlocks::size);
 
-        bytesStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_recent_total_bytes_stored")
-                .withDescription("Bytes stored in files.recent provider"));
+        metricRegistry
+                .register(ObservableGauge.builder(MetricKey.of("files_recent_total_bytes_stored", ObservableGauge.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Bytes stored in files.recent provider"))
+                .observe(totalBytesStored::get);
 
-        persistenceLatencyNs =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_recent_persistence_time_latency_ns")
-                        .withDescription("Total time spent persisting blocks in files.recent provider in nanoseconds"));
+        persistenceLatencyNs = metricRegistry
+                .register(LongCounter.builder(
+                                MetricKey.of("files_recent_persistence_time_latency_ns", LongCounter.class)
+                                        .addCategory(METRICS_CATEGORY))
+                        .setDescription("Total time spent persisting blocks in files.recent provider in nanoseconds"))
+                .getOrCreateNotLabeled();
     }
 
     /**
@@ -240,17 +254,6 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-    }
-
-    /**
-     * Update gauge metrics with current state.
-     */
-    private void updateGauges() {
-        // Update blocks stored gauge with the count of available blocks
-        blocksStoredGauge.set(availableBlocks.size());
-
-        // Use the running total instead of calculating it each time
-        bytesStoredGauge.set(totalBytesStored.get());
     }
 
     /**
@@ -330,7 +333,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
                 }
             }
             final long totalTime = System.nanoTime() - startTime;
-            persistenceLatencyNs.add(totalTime);
+            persistenceLatencyNs.increment(totalTime);
             LOGGER.log(
                     TRACE,
                     "Persistence Handle verification finished for block {0,number,#}, and it took {1,number,#} ns to complete",

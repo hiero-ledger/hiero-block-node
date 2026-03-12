@@ -94,6 +94,7 @@ mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    runtimeOnly("org.hiero.metrics.openmetrics.httpserver")
 }
 
 // Authoritative list of block node plugins. When adding a new plugin, add it here

@@ -180,7 +180,7 @@ public class BlockNotificationTest {
                 new LatchCountdownHandler(TEST_DATA_COUNT, counters, latch, 0, holdBackSlowHandler);
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(TestConfig.BLOCK_NODE_CONTEXT, null);
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
         messagingService.start();

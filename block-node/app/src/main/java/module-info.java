@@ -15,15 +15,14 @@ module org.hiero.block.node.app {
     requires com.hedera.pbj.grpc.helidon.config;
     requires com.hedera.pbj.grpc.helidon;
     requires com.hedera.pbj.runtime;
-    requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
-    requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires org.hiero.block.node.spi;
     requires org.hiero.block.protobuf.pbj;
+    requires org.hiero.metrics;
     requires io.helidon.common;
     requires io.helidon.webserver.http2;
     requires io.helidon.webserver;

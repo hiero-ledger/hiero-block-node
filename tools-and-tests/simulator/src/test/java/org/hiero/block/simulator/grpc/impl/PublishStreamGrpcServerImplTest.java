@@ -2,7 +2,6 @@
 package org.hiero.block.simulator.grpc.impl;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.findFreePort;
-import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -55,7 +54,7 @@ class PublishStreamGrpcServerImplTest {
 
         final Configuration config = TestUtils.getTestConfiguration();
         blockStreamConfig = config.getConfigData(BlockStreamConfig.class);
-        metricsService = new MetricsServiceImpl(getTestMetrics(config));
+        metricsService = new MetricsServiceImpl(config);
 
         publishStreamGrpcServer = new PublishStreamGrpcServerImpl(grpcConfig, blockStreamConfig, metricsService);
         publishStreamGrpcServer.init();

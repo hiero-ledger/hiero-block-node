@@ -8,10 +8,6 @@ import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.IntegerGauge;
-import com.swirlds.metrics.api.LongGauge;
-import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -49,6 +45,10 @@ import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.LongGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// todo(1420) add documentation
 public final class LiveStreamPublisherManager implements StreamPublisherManager {
@@ -61,6 +61,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentNavigableMap<Long, PublisherHandler> handlers;
     private final AtomicLong nextHandlerId;
     private final ConcurrentNavigableMap<Long, Deque<BlockItemSetUnparsed>> queueByBlockMap;
+    private final AtomicLong highestBlockNumber;
+    private final AtomicLong blocksClosedComplete;
     private final Condition dataReadyLatch;
     private final ReentrantLock dataReadyLock;
     private final long earliestManagedBlock;
@@ -95,6 +97,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         threadManager = serverContext.threadPoolManager();
         handlers = new ConcurrentSkipListMap<>();
         nextHandlerId = new AtomicLong(0);
+        highestBlockNumber = new AtomicLong(0);
+        blocksClosedComplete = new AtomicLong(0);
         queueByBlockMap = new ConcurrentSkipListMap<>();
         currentStreamingBlockNumber = new AtomicLong(-1);
         lastStreamedBlockNumber = new AtomicLong(-1);
@@ -211,7 +215,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         checkLogAndRestartForwarderTask();
         metrics.blocksClosedComplete.increment();
         // @todo(1415) Remove this log when the related tickets are done.
-        LOGGER.log(DEBUG, "Completed blocks {0}", metrics.blocksClosedComplete.get());
+        LOGGER.log(DEBUG, "Completed blocks {0}", blocksClosedComplete.incrementAndGet());
     }
 
     @Override
@@ -469,9 +473,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // This should result in new data being available, so we
             // count down the data ready latch.
             signalDataReady();
-            if (blockNumber > metrics.highestBlockNumber.get()) {
-                metrics.highestBlockNumber.set(blockNumber);
-            }
+            metrics.highestBlockNumber.set(highestBlockNumber.accumulateAndGet(blockNumber, Math::max));
             // We're one of the handlers currently streaming, keep going.
             return BlockAction.ACCEPT;
         } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
@@ -573,7 +575,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (currentResult != null && currentResult.isDone()) {
             try {
                 final long blocksForwarded = currentResult.get();
-                metrics.blockBatchesMessaged().add(blocksForwarded);
+                metrics.blockBatchesMessaged().increment(blocksForwarded);
                 final String formatString = "Queue forwarder task completed normally after forwarding %d blocks.";
                 LOGGER.log(DEBUG, formatString.formatted(blocksForwarded));
             } catch (CancellationException | ExecutionException e) {
@@ -675,7 +677,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                                 itemsSent = currentBatch.blockItems().size();
                             }
                             if (itemsSent > 0) {
-                                publisherManager.metrics.blockItemsMessaged().add(itemsSent);
+                                publisherManager.metrics.blockItemsMessaged().increment(itemsSent);
                             }
                             // limit how many batches we send in a single task.
                             batchesSent++;
@@ -705,7 +707,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             publisherManager
                                     .metrics
                                     .blockItemsMessaged()
-                                    .add(itemSet.blockItems().size());
+                                    .increment(itemSet.blockItems().size());
                             // Then potentially increment the current streaming
                             // block number.
                             publisherManager.currentStreamingBlockNumber.compareAndSet(
@@ -775,36 +777,51 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// latestBlockNumberAcknowledged - The latest block number acknowledged
     /// blocksClosedComplete - Number of blocks received complete (with both header and end of block)
     public record MetricsHolder(
-            Counter blockItemsMessaged,
-            Counter blockBatchesMessaged,
-            IntegerGauge currentPublisherCount,
-            LongGauge lowestBlockNumber,
-            LongGauge highestBlockNumber,
-            LongGauge latestBlockNumberAcknowledged,
-            Counter blocksClosedComplete) {
+            LongCounter.Measurement blockItemsMessaged,
+            LongCounter.Measurement blockBatchesMessaged,
+            LongGauge.Measurement currentPublisherCount,
+            LongGauge.Measurement lowestBlockNumber,
+            LongGauge.Measurement highestBlockNumber,
+            LongGauge.Measurement latestBlockNumberAcknowledged,
+            LongCounter.Measurement blocksClosedComplete) {
         /// todo(1420) add documentation
-        static MetricsHolder createMetrics(@NonNull final Metrics metrics) {
-            final Counter blockItemsMessaged =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_items_messaged")
-                            .withDescription("Live block items messaged to the messaging service"));
-            final Counter blockBatchesMessaged =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_block_batches_messaged")
-                            .withDescription("Live block batches processed and sent to the messaging service"));
-            final Counter blocksClosedComplete =
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "publisher_blocks_closed_complete")
-                            .withDescription("Blocks received complete (with both header and proof) by any Handler"));
-            final IntegerGauge numberOfProducers =
-                    metrics.getOrCreate(new IntegerGauge.Config(METRICS_CATEGORY, "publisher_open_connections")
-                            .withDescription("Connected publishers"));
-            final LongGauge lowestBlockNumber =
-                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_lowest_block_number_inbound")
-                            .withDescription("Oldest inbound block number"));
-            final LongGauge highestBlockNumber =
-                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "publisher_highest_block_number_inbound")
-                            .withDescription("Newest inbound block number"));
-            final LongGauge latestBlockNumberAcknowledged = metrics.getOrCreate(
-                    new LongGauge.Config(METRICS_CATEGORY, "publisher_latest_block_number_acknowledged")
-                            .withDescription("Latest block number acknowledged"));
+        static MetricsHolder createMetrics(@NonNull final MetricRegistry metricRegistry) {
+            final LongCounter.Measurement blockItemsMessaged = metricRegistry
+                    .register(LongCounter.builder(MetricKey.of("publisher_block_items_messaged", LongCounter.class)
+                                    .addCategory(METRICS_CATEGORY))
+                            .setDescription("Live block items messaged to the messaging service"))
+                    .getOrCreateLabeled();
+            final LongCounter.Measurement blockBatchesMessaged = metricRegistry
+                    .register(LongCounter.builder(MetricKey.of("publisher_block_batches_messaged", LongCounter.class)
+                                    .addCategory(METRICS_CATEGORY))
+                            .setDescription("Live block batches processed and sent to the messaging service"))
+                    .getOrCreateLabeled();
+            final LongCounter.Measurement blocksClosedComplete = metricRegistry
+                    .register(LongCounter.builder(MetricKey.of("publisher_blocks_closed_complete", LongCounter.class)
+                                    .addCategory(METRICS_CATEGORY))
+                            .setDescription("Blocks received complete (with both header and proof) by any Handler"))
+                    .getOrCreateLabeled();
+            final LongGauge.Measurement numberOfProducers = metricRegistry
+                    .register(LongGauge.builder(MetricKey.of("publisher_open_connections", LongGauge.class)
+                                    .addCategory(METRICS_CATEGORY))
+                            .setDescription("Connected publishers"))
+                    .getOrCreateNotLabeled();
+            final LongGauge.Measurement lowestBlockNumber = metricRegistry
+                    .register(LongGauge.builder(MetricKey.of("publisher_lowest_block_number_inbound", LongGauge.class)
+                                    .addCategory(METRICS_CATEGORY))
+                            .setDescription("Oldest inbound block number"))
+                    .getOrCreateNotLabeled();
+            final LongGauge.Measurement highestBlockNumber = metricRegistry
+                    .register(LongGauge.builder(MetricKey.of("publisher_highest_block_number_inbound", LongGauge.class)
+                                    .addCategory(METRICS_CATEGORY))
+                            .setDescription("Newest inbound block number"))
+                    .getOrCreateNotLabeled();
+            final LongGauge.Measurement latestBlockNumberAcknowledged = metricRegistry
+                    .register(LongGauge.builder(
+                                    MetricKey.of("publisher_latest_block_number_acknowledged", LongGauge.class)
+                                            .addCategory(METRICS_CATEGORY))
+                            .setDescription("Latest block number acknowledged"))
+                    .getOrCreateNotLabeled();
             return new MetricsHolder(
                     blockItemsMessaged,
                     blockBatchesMessaged,

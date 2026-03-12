@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.fixtures;
 
-import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.config.extensions.sources.SimpleConfigSource;
-import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -35,13 +33,6 @@ public class TestUtils {
 
     public static Configuration getTestConfiguration() throws IOException {
         return getTestConfiguration(Map.of());
-    }
-
-    public static Metrics getTestMetrics(@NonNull Configuration configuration) {
-        final DefaultMetricsProvider metricsProvider = new DefaultMetricsProvider(configuration);
-        final Metrics metrics = metricsProvider.createGlobalMetrics();
-        metricsProvider.start();
-        return metrics;
     }
 
     public static int findFreePort() throws IOException {

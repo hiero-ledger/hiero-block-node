@@ -14,9 +14,6 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.LongGauge;
-import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.BufferedOutputStream;
@@ -50,6 +47,10 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessorBatch;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.ObservableGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * This plugin provides a block provider that stores historical blocks in file. It is designed to store them in the
@@ -91,15 +92,11 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private Path zipWorkRootPath;
     // Metrics
     /** Counter for blocks written to the historic tier */
-    private Counter blocksWrittenCounter;
+    private LongCounter.Measurement blocksWrittenCounter;
     /** Counter for blocks read from the historic tier */
-    private Counter blocksReadCounter;
-    /** Gauge for the number of blocks stored in the historic tier */
-    private LongGauge blocksStoredGauge;
-    /** Gauge for the total bytes stored in the historic tier */
-    private LongGauge bytesStoredGauge;
+    private LongCounter.Measurement blocksReadCounter;
     /** Counter for failed zip deletions from the historic tier */
-    private Counter zipsDeletedFailedCounter;
+    private LongCounter.Measurement zipsDeletedFailedCounter;
 
     // ==== BlockProviderPlugin Methods ================================================================================
 
@@ -122,7 +119,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             config = context.configuration().getConfigData(FilesHistoricConfig.class);
             blockRetentionThreshold = config.blockRetentionThreshold();
             // Initialize metrics
-            initMetrics(context.metrics());
+            initMetrics(context.metricRegistry());
             // create plugin data root directory if it does not exist
             final Path dataRootPath = config.rootPath();
             linksRootPath = dataRootPath.resolve("links");
@@ -184,8 +181,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 // an error. In the future we will implement better handling of such situation with
                 // a more sophisticated plugin health mechanism
             }
-            // Register gauge updater
-            context.metrics().addUpdater(this::updateGauges);
         } catch (IOException e) {
             LOGGER.log(ERROR, "Could not initialize historic plugin due to I/O exception", e);
             // ------------------------------------
@@ -255,30 +250,34 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     /**
      * Initialize metrics for this plugin.
      */
-    private void initMetrics(Metrics metrics) {
-        blocksWrittenCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_blocks_written")
-                .withDescription("Blocks written to files.historic provider"));
-        blocksReadCounter = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_blocks_read")
-                .withDescription("Blocks read from files.historic provider"));
-        blocksStoredGauge = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_blocks_stored")
-                .withDescription("Blocks stored in files.historic provider"));
-        bytesStoredGauge =
-                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "files_historic_total_bytes_stored")
-                        .withDescription("Bytes stored in files.historic provider"));
-        zipsDeletedFailedCounter =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "files_historic_zips_deleted_failed")
-                        .withDescription("Zips failed deletion from files.historic provider"));
-    }
+    private void initMetrics(MetricRegistry metricRegistry) {
+        blocksWrittenCounter = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("files_historic_blocks_written", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Blocks written to files.historic provider"))
+                .getOrCreateNotLabeled();
+        blocksReadCounter = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("files_historic_blocks_read", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Blocks read from files.historic provider"))
+                .getOrCreateNotLabeled();
+        zipsDeletedFailedCounter = metricRegistry
+                .register(LongCounter.builder(MetricKey.of("files_historic_zips_deleted_failed", LongCounter.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Zips failed deletion from files.historic provider"))
+                .getOrCreateNotLabeled();
 
-    /**
-     * Update gauge metrics with current state.
-     */
-    private void updateGauges() {
-        // Update blocks stored gauge with the count of available blocks
-        blocksStoredGauge.set(availableBlocks.size());
-
-        // Use the running total instead of calculating it each time
-        bytesStoredGauge.set(totalBytesStored.get());
+        metricRegistry
+                .register(ObservableGauge.builder(MetricKey.of("files_historic_blocks_stored", ObservableGauge.class)
+                                .addCategory(METRICS_CATEGORY))
+                        .setDescription("Blocks stored in files.historic provider"))
+                .observe(availableBlocks::size);
+        metricRegistry
+                .register(
+                        ObservableGauge.builder(MetricKey.of("files_historic_total_bytes_stored", ObservableGauge.class)
+                                        .addCategory(METRICS_CATEGORY))
+                                .setDescription("Bytes stored in files.historic provider"))
+                .observe(totalBytesStored::get);
     }
 
     /**
@@ -499,7 +498,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 }
                 excess--;
             }
-            updateGauges();
         }
     }
 
@@ -582,7 +580,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     // Update total bytes stored with the new zip file size
                     plugin.totalBytesStored.addAndGet(zipFileSize);
                     // Increment the blocks written counter
-                    plugin.blocksWrittenCounter.add(plugin.numberOfBlocksPerZipFile);
+                    plugin.blocksWrittenCounter.increment(plugin.numberOfBlocksPerZipFile);
                     // -----------------------------------------------
                     // @todo Remove, make staging file accessor handle this, if reasonable
                     for (long blockNumber = batchFirstBlockNumber; blockNumber <= batchLastBlockNumber; blockNumber++) {

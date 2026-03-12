@@ -14,8 +14,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.LongGauge;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +28,7 @@ import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.metrics.LongCounter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -50,8 +49,8 @@ class BackfillRunnerTest {
     private BackfillFetcher mockFetcher;
     private TestBlockMessagingFacility messaging;
     private BackfillPlugin.MetricsHolder mockMetricsHolder;
-    private Counter mockFetchErrorsCounter;
-    private Counter mockFetchedBlocksCounter;
+    private LongCounter.Measurement mockFetchErrorsCounter;
+    private LongCounter.Measurement mockFetchedBlocksCounter;
     private AtomicLong pendingBackfillBlocks;
     private BackfillPersistenceAwaiter persistenceAwaiter;
     private System.Logger logger;
@@ -61,17 +60,14 @@ class BackfillRunnerTest {
     void setUp() {
         mockFetcher = mock(BackfillFetcher.class);
         messaging = new TestBlockMessagingFacility();
-        mockFetchErrorsCounter = mock(Counter.class);
-        mockFetchedBlocksCounter = mock(Counter.class);
+        mockFetchErrorsCounter = mock(LongCounter.Measurement.class);
+        mockFetchedBlocksCounter = mock(LongCounter.Measurement.class);
         mockMetricsHolder = new BackfillPlugin.MetricsHolder(
-                mock(Counter.class), // backfillGapsDetected
+                mock(LongCounter.Measurement.class), // backfillGapsDetected
                 mockFetchedBlocksCounter, // backfillFetchedBlocks
-                mock(Counter.class), // backfillBlocksBackfilled
+                mock(LongCounter.Measurement.class), // backfillBlocksBackfilled
                 mockFetchErrorsCounter, // backfillFetchErrors
-                mock(Counter.class), // backfillRetries
-                mock(LongGauge.class), // backfillStatus
-                mock(LongGauge.class), // backfillPendingBlocksGauge
-                mock(LongGauge.class)); // backfillInFlightGauge
+                mock(LongCounter.Measurement.class)); // backfillInFlightGauge
         pendingBackfillBlocks = new AtomicLong(0);
         persistenceAwaiter = new BackfillPersistenceAwaiter();
         logger = System.getLogger(BackfillRunnerTest.class.getName());
