@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
-import static org.hiero.block.server.messaging.TestConfig.BLOCK_NODE_CONTEXT;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.OneOf;
@@ -81,7 +80,7 @@ public class FacilityExceptionTest {
     @Test
     void testBlockItemHandlerException() {
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
-        service.init(BLOCK_NODE_CONTEXT, null);
+        service.init(TestConfig.getBlockNodeContext(), null);
         // register a block item handler that just throws an exception
         service.registerBlockItemHandler(
                 (blockItems) -> {

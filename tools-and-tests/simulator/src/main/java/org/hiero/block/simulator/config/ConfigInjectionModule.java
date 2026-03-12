@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.config;
 
-import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.Configuration;
 import dagger.Module;
 import dagger.Provides;
@@ -65,18 +64,6 @@ public interface ConfigInjectionModule {
     @Provides
     static BlockGeneratorConfig provideBlockGeneratorConfig(final Configuration configuration) {
         return configuration.getConfigData(BlockGeneratorConfig.class);
-    }
-
-    /**
-     * Provides a Prometheus configuration singleton using the configuration.
-     *
-     * @param configuration is the configuration singleton
-     * @return a Prometheus configuration singleton
-     */
-    @Singleton
-    @Provides
-    static PrometheusConfig providePrometheusConfig(final Configuration configuration) {
-        return configuration.getConfigData(PrometheusConfig.class);
     }
 
     /**

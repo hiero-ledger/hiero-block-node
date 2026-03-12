@@ -4,8 +4,6 @@ package org.hiero.block.simulator.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 
-import com.swirlds.common.metrics.config.MetricsConfig;
-import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.extensions.sources.ConfigMapping;
@@ -15,13 +13,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.assertj.core.api.Assertions;
 import org.hiero.block.simulator.config.logging.Loggable;
@@ -77,8 +72,8 @@ class SimulatorMappedConfigSourceInitializerTest {
         new ConfigMapping("generator.realmNum", "GENERATOR_REALM_NUM"),
 
         // Prometheus configuration (externally managed, but we need this mapping)
-        new ConfigMapping("prometheus.endpointEnabled", "PROMETHEUS_ENDPOINT_ENABLED"),
-        new ConfigMapping("prometheus.endpointPortNumber", "PROMETHEUS_ENDPOINT_PORT_NUMBER"),
+        new ConfigMapping("metrics.exporter.openmetrics.http.enabled", "PROMETHEUS_ENDPOINT_ENABLED"),
+        new ConfigMapping("metrics.exporter.openmetrics.http.port", "PROMETHEUS_ENDPOINT_PORT_NUMBER"),
 
         // Startup Data Config
         new ConfigMapping("simulator.startup.data.enabled", "SIMULATOR_STARTUP_DATA_ENABLED"),
@@ -240,31 +235,7 @@ class SimulatorMappedConfigSourceInitializerTest {
     }
 
     private static Stream<Arguments> allManagedConfigDataTypes() {
-        // Add any classes that should be excluded from the test for any reason in the set below
-        // MetricsConfig is not managed by us.
-        final Set<Class<? extends Record>> excluded = Set.of(MetricsConfig.class);
-
-        // Add any classes that should be partially checked in the map below
-        // for example, we do not manage PrometheusConfig, but we need the endpointEnabled and endpointPortNumber
-        // mappings to be present in our scope, so we exclude all other fields. We must do the strategy
-        // of exclusion and not inclusion because fields in the config classes can be added or removed, we want
-        // to detect that.
-        final Entry<Class<PrometheusConfig>, List<String>> prometheusFieldsToExclude =
-                Map.entry(PrometheusConfig.class, List.of("endpointMaxBacklogAllowed"));
-        final Map<Class<? extends Record>, List<String>> fieldNamesToExcludeForConfig =
-                Map.ofEntries(prometheusFieldsToExclude);
-
-        // Here are all the config classes that we need to check mappings for
-        final Set<Class<? extends Record>> allRegisteredRecordsFilteredWithExcluded = new SimulatorConfigExtension()
-                .getConfigDataTypes().stream()
-                        .filter(configType -> !excluded.contains(configType))
-                        .collect(Collectors.toSet());
-
-        // Here we return all config classes that we need to check mappings for and a list of field names to
-        // exclude from the test for the given config class. If the list is empty, all fields will be checked.
-        return allRegisteredRecordsFilteredWithExcluded.stream().map(config -> {
-            final List<String> fieldsToExclude = fieldNamesToExcludeForConfig.getOrDefault(config, List.of());
-            return Arguments.of(config, fieldsToExclude);
-        });
+        return new SimulatorConfigExtension()
+                .getConfigDataTypes().stream().map(config -> Arguments.of(config, List.of()));
     }
 }

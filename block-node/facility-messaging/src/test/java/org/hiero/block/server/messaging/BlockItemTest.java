@@ -2,7 +2,6 @@
 package org.hiero.block.server.messaging;
 
 import static org.hiero.block.server.messaging.DynamicBlockItemTest.intToBytes;
-import static org.hiero.block.server.messaging.TestConfig.BLOCK_NODE_CONTEXT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -63,7 +62,7 @@ public class BlockItemTest {
                 .toList();
         // Create MessagingService to test
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT, null);
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
         // Register the handlers, if registerBeforeStart is true
         if (registerBeforeStart) {
             testHandlers.forEach(handler -> messagingService.registerBlockItemHandler(handler, false, "testHandler"));
@@ -128,7 +127,7 @@ public class BlockItemTest {
                 .toList();
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(BLOCK_NODE_CONTEXT, null);
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
         messagingService.registerBlockItemHandler(testHandlers.get(0), false, "testHandler0");
         messagingService.registerBlockItemHandler(testHandlers.get(1), false, "testHandler1");
         messagingService.registerNoBackpressureBlockItemHandler(testHandlers.get(2), false, "testHandler2");
@@ -165,7 +164,7 @@ public class BlockItemTest {
     public void testThreadNameAndVirtualVsNonVirtual() {
         // Create a MessagingService instance
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
-        service.init(BLOCK_NODE_CONTEXT, null);
+        service.init(TestConfig.getBlockNodeContext(), null);
         // collect thread names and virtual vs non-virtual flags
         final AtomicReference<String> threadName1 = new AtomicReference<>();
         final AtomicReference<String> threadName2 = new AtomicReference<>();

@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher;
 
+import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
+
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.LongGauge;
-import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.Objects;
@@ -18,6 +17,10 @@ import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.LongGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// A plugin for the block node.
 ///
@@ -38,6 +41,50 @@ import org.hiero.block.node.spi.ServiceBuilder;
 /// that messaging sends one notification and, if needed, all handlers can send
 /// appropriate responses to their publishers.
 public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStreamPublishServiceInterface {
+
+    // Metric key constants
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED =
+            MetricKey.of("publisher_block_items_received", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCKS_ACK_SENT =
+            MetricKey.of("publisher_blocks_ack_sent", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_STREAM_SETS_DROPPED =
+            MetricKey.of("publisher_stream_sets_dropped", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_STREAM_ERRORS =
+            MetricKey.of("publisher_stream_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCKS_SKIPS_SENT =
+            MetricKey.of("publisher_blocks_skips_sent", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCKS_RESEND_SENT =
+            MetricKey.of("publisher_blocks_resend_sent", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCK_NODE_BEHIND_SENT =
+            MetricKey.of("publisher_block_node_behind_sent", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT =
+            MetricKey.of("publisher_block_endofstream_sent", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED = MetricKey.of(
+                    "publisher_block_send_response_failed", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED = MetricKey.of(
+                    "publisher_block_endstream_received", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_RECEIVE_LATENCY_NS =
+            MetricKey.of("publisher_receive_latency_ns", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCK_ITEMS_MESSAGED =
+            MetricKey.of("publisher_block_items_messaged", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED =
+            MetricKey.of("publisher_block_batches_messaged", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE =
+            MetricKey.of("publisher_blocks_closed_complete", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongGauge> METRIC_PUBLISHER_OPEN_CONNECTIONS =
+            MetricKey.of("publisher_open_connections", LongGauge.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongGauge> METRIC_PUBLISHER_LOWEST_BLOCK_NUMBER_INBOUND = MetricKey.of(
+                    "publisher_lowest_block_number_inbound", LongGauge.class)
+            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongGauge> METRIC_PUBLISHER_HIGHEST_BLOCK_NUMBER_INBOUND = MetricKey.of(
+                    "publisher_highest_block_number_inbound", LongGauge.class)
+            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongGauge> METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED = MetricKey.of(
+                    "publisher_latest_block_number_acknowledged", LongGauge.class)
+            .addCategory(METRICS_CATEGORY);
+
     /// The logger for this class.
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
@@ -52,7 +99,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     /// The metrics used by the publisher Manager.
     private LiveStreamPublisherManager.MetricsHolder managerMetrics;
     /// The number of live block items messaged to the messaging service.
-    private Counter liveBlockItemsMessaged;
+    private LongCounter liveBlockItemsMessaged;
     /// The number of producers publishing block items.
     private LongGauge numberOfProducers;
 
@@ -105,7 +152,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     @Override
     public void start() {
         // Initialize plugin metrics
-        initMetrics(context.metrics());
+        initMetrics(context.metricRegistry());
         // Initialize the publisher manager
         publisherManager = new LiveStreamPublisherManager(context, managerMetrics);
         // register the manager as a notification handler
@@ -139,7 +186,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     /// Initialize all metrics for the publisher service plugin.
     ///
     /// @param metrics the metrics provider
-    private void initMetrics(@NonNull final Metrics metrics) {
+    private void initMetrics(@NonNull final MetricRegistry metrics) {
         // Initialize Handler and Manager metrics.
         // We create these here to keep the cardinality under control.
         // The Handler metrics require labels to make the metrics useful in most

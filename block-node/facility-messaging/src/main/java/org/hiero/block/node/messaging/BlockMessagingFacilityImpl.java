@@ -2,6 +2,7 @@
 package org.hiero.block.node.messaging;
 
 import static java.lang.System.Logger.Level.TRACE;
+import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.lmax.disruptor.BatchEventProcessor;
 import com.lmax.disruptor.BatchEventProcessorBuilder;
@@ -11,9 +12,6 @@ import com.lmax.disruptor.SequenceBarrier;
 import com.lmax.disruptor.SleepingWaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.DoubleGauge;
-import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.lang.System.Logger.Level;
 import java.util.ArrayList;
@@ -34,6 +32,10 @@ import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.ObservableGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * Implementation of the MessagingService interface. It uses the LMAX Disruptor to handle block item batches and block
@@ -44,28 +46,59 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     /** Logger for the messaging service. */
     private static final System.Logger LOGGER = System.getLogger(BlockMessagingFacilityImpl.class.getName());
 
+    /** Metric key for incoming block items seen by the mediator */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_ITEMS_RECEIVED =
+            MetricKey.of("messaging_block_items_received", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for notifications issued after verification */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_VERIFICATION_NOTIFICATIONS = MetricKey.of(
+                    "messaging_block_verification_notifications", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for notifications issued after persistence */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_PERSISTED_NOTIFICATIONS = MetricKey.of(
+                    "messaging_block_persisted_notifications", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for notifications issued after backfilling */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_BLOCK_BACKFILLED_NOTIFICATIONS = MetricKey.of(
+                    "messaging_block_backfilled_notifications", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for notifications issued after the newest block known to network */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_NEWEST_BLOCK_KNOWN_TO_NETWORK_NOTIFICATIONS =
+            MetricKey.of("messaging_newest_block_known_to_network_notifications", LongCounter.class)
+                    .addCategory(METRICS_CATEGORY);
+    /** Metric key for publisher status update notifications sent */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_PUBLISHER_STATUS_UPDATE_NOTIFICATIONS = MetricKey.of(
+                    "messaging_publisher_status_update_notifications", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for the number of active item listeners */
+    public static final MetricKey<ObservableGauge> METRIC_MESSAGING_NO_OF_ITEM_LISTENERS = MetricKey.of(
+                    "messaging_no_of_item_listeners", ObservableGauge.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for the number of active notification listeners */
+    public static final MetricKey<ObservableGauge> METRIC_MESSAGING_NO_OF_NOTIFICATION_LISTENERS = MetricKey.of(
+                    "messaging_no_of_notification_listeners", ObservableGauge.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for the percent of item queue utilised */
+    public static final MetricKey<ObservableGauge> METRIC_MESSAGING_ITEM_QUEUE_PERCENT_USED = MetricKey.of(
+                    "messaging_item_queue_percent_used", ObservableGauge.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for the percent of notification queue utilised */
+    public static final MetricKey<ObservableGauge> METRIC_MESSAGING_NOTIFICATION_QUEUE_PERCENT_USED = MetricKey.of(
+                    "messaging_notification_queue_percent_used", ObservableGauge.class)
+            .addCategory(METRICS_CATEGORY);
+
     // Metrics
     /** Counter for incoming block items seen by the mediator */
-    private Counter blockItemsReceivedCounter;
+    private LongCounter.Measurement blockItemsReceivedCounter;
     /** Counter for notifications issued after verification */
-    private Counter blockVerificationNotificationsCounter;
+    private LongCounter.Measurement blockVerificationNotificationsCounter;
     /** Counter for notifications issued after persistence */
-    private Counter blockPersistedNotificationsCounter;
+    private LongCounter.Measurement blockPersistedNotificationsCounter;
     /** Counter for notifications issued after backfilling */
-    private Counter blockBackfilledNotificationsCounter;
+    private LongCounter.Measurement blockBackfilledNotificationsCounter;
     /** Counter for notifications issued after the newest block known to network */
-    private Counter newestBlockKnownToNetworkNotificationsCounter;
+    private LongCounter.Measurement newestBlockKnownToNetworkNotificationsCounter;
     /** Counter for publisher status update notifications sent */
-    private Counter publisherStatusUpdateNotificationsCounter;
-
-    /** Gauge for active item listeners */
-    private LongGauge itemListenersGauge;
-    /** Gauge for active notification listeners */
-    private LongGauge notificationListenersGauge;
-    /** Gauge for percent of item queue utilised */
-    private DoubleGauge itemQueuePercentUsedGauge;
-    /** Gauge for percent of notification queue utilised */
-    private DoubleGauge notificationQueuePercentUsedGauge;
+    private LongCounter.Measurement publisherStatusUpdateNotificationsCounter;
 
     /**
      * The thread factory used to create the virtual threads for the disruptor. Virtual threads are daemon threads by
@@ -230,78 +263,68 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      */
     private void initMetrics(BlockNodeContext context) {
         // Initialize counters
-        blockItemsReceivedCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_block_items_received")
-                        .withDescription("Incoming block items seen by the mediator"));
+        final MetricRegistry metricRegistry = context.metricRegistry();
+        blockItemsReceivedCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_BLOCK_ITEMS_RECEIVED)
+                        .setDescription("Incoming block items seen by the mediator"))
+                .getOrCreateNotLabeled();
 
-        blockVerificationNotificationsCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_block_verification_notifications")
-                        .withDescription("Notifications issued after verification"));
+        blockVerificationNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_BLOCK_VERIFICATION_NOTIFICATIONS)
+                        .setDescription("Notifications issued after verification"))
+                .getOrCreateNotLabeled();
 
-        blockPersistedNotificationsCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_block_persisted_notifications")
-                        .withDescription("Notifications issued after persistence"));
+        blockPersistedNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_BLOCK_PERSISTED_NOTIFICATIONS)
+                        .setDescription("Notifications issued after persistence"))
+                .getOrCreateNotLabeled();
 
-        blockBackfilledNotificationsCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_block_backfilled_notifications")
-                        .withDescription("Notifications issued after backfilling"));
+        blockBackfilledNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_BLOCK_BACKFILLED_NOTIFICATIONS)
+                        .setDescription("Notifications issued after backfilling"))
+                .getOrCreateNotLabeled();
 
-        newestBlockKnownToNetworkNotificationsCounter = context.metrics()
-                .getOrCreate(
-                        new Counter.Config(METRICS_CATEGORY, "messaging_newest_block_known_to_network_notifications")
-                                .withDescription("Notifications issued after the newest block known to network"));
+        newestBlockKnownToNetworkNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_NEWEST_BLOCK_KNOWN_TO_NETWORK_NOTIFICATIONS)
+                        .setDescription("Notifications issued after the newest block known to network"))
+                .getOrCreateNotLabeled();
 
-        publisherStatusUpdateNotificationsCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "messaging_publisher_status_update_notifications")
-                        .withDescription("Notifications issued for publisher status updates"));
+        publisherStatusUpdateNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_PUBLISHER_STATUS_UPDATE_NOTIFICATIONS)
+                        .setDescription("Notifications issued for publisher status updates"))
+                .getOrCreateNotLabeled();
 
         // Initialize gauges
-        itemListenersGauge = context.metrics()
-                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "messaging_no_of_item_listeners")
-                        .withDescription("Active item listeners"));
+        metricRegistry
+                .register(ObservableGauge.builder(METRIC_MESSAGING_NO_OF_ITEM_LISTENERS)
+                        .setDescription("Active item listeners"))
+                .observe(blockItemHandlerToThread::size);
 
-        notificationListenersGauge = context.metrics()
-                .getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "messaging_no_of_notification_listeners")
-                        .withDescription("Active notification listeners"));
+        metricRegistry
+                .register(ObservableGauge.builder(METRIC_MESSAGING_NO_OF_NOTIFICATION_LISTENERS)
+                        .setDescription("Active notification listeners"))
+                .observe(blockNotificationHandlerToThread::size);
 
-        itemQueuePercentUsedGauge = context.metrics()
-                .getOrCreate(new DoubleGauge.Config(METRICS_CATEGORY, "messaging_item_queue_percent_used")
-                        .withDescription("Percent of item queue utilised"));
+        metricRegistry
+                .register(ObservableGauge.builder(METRIC_MESSAGING_ITEM_QUEUE_PERCENT_USED)
+                        .setDescription("Percent of item queue utilised"))
+                .observe(() -> getUsagePercentage(blockItemDisruptor));
 
-        notificationQueuePercentUsedGauge = context.metrics()
-                .getOrCreate(new DoubleGauge.Config(METRICS_CATEGORY, "messaging_notification_queue_percent_used")
-                        .withDescription("Percent of notification queue utilised"));
-
-        // Register metrics updater for gauges
-        context.metrics().addUpdater(this::updateMetrics);
+        metricRegistry
+                .register(ObservableGauge.builder(METRIC_MESSAGING_NOTIFICATION_QUEUE_PERCENT_USED)
+                        .setDescription("Percent of notification queue utilised"))
+                .observe(() -> getUsagePercentage(blockNotificationDisruptor));
     }
 
-    /**
-     * Update gauge metrics with current values.
-     */
-    private void updateMetrics() {
-        // Update listener count gauges
-        itemListenersGauge.set(blockItemHandlerToThread.size());
-        notificationListenersGauge.set(blockNotificationHandlerToThread.size());
-
-        // Calculate and update item queue usage
-        if (blockItemDisruptor != null && blockItemDisruptor.hasStarted()) {
-            RingBuffer<BlockItemBatchRingEvent> itemRing = blockItemDisruptor.getRingBuffer();
-            long itemCursor = itemRing.getCursor();
-            long itemMinSequence = itemRing.getMinimumGatingSequence();
-            double percentUsed = ((double) (itemCursor - itemMinSequence) / (double) itemRing.getBufferSize()) * 100.0;
-            itemQueuePercentUsedGauge.set(Math.min(100.0, Math.max(0.0, percentUsed)));
+    private <T> Double getUsagePercentage(Disruptor<T> disruptor) {
+        if (disruptor == null || !disruptor.hasStarted()) {
+            return 0.0;
         }
-
-        // Calculate and update notification queue usage
-        if (blockNotificationDisruptor != null && blockNotificationDisruptor.hasStarted()) {
-            RingBuffer<BlockNotificationRingEvent> notificationRing = blockNotificationDisruptor.getRingBuffer();
-            long notifCursor = notificationRing.getCursor();
-            long notifMinSequence = notificationRing.getMinimumGatingSequence();
-            double percentUsed =
-                    ((double) (notifCursor - notifMinSequence) / (double) notificationRing.getBufferSize()) * 100.0;
-            notificationQueuePercentUsedGauge.set(Math.min(100.0, Math.max(0.0, percentUsed)));
-        }
+        RingBuffer<T> itemRing = disruptor.getRingBuffer();
+        long itemCursor = itemRing.getCursor();
+        long itemMinSequence = itemRing.getMinimumGatingSequence();
+        double percentUsed = ((double) (itemCursor - itemMinSequence) / (double) itemRing.getBufferSize()) * 100.0;
+        return Math.clamp(percentUsed, 0.0, 100.0);
     }
 
     /**
@@ -312,7 +335,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         blockItemDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(blockItems));
         // metrics
         long blockItemsSize = blockItems.blockItems().size();
-        blockItemsReceivedCounter.add(blockItemsSize);
+        blockItemsReceivedCounter.increment(blockItemsSize);
         // log sending of block items with details
         LOGGER.log(
                 TRACE,

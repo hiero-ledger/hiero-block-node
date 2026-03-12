@@ -5,7 +5,6 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
-import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -22,6 +21,7 @@ import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.backfill.client.BlockNodeClient;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.metrics.LongCounter;
 
 /**
  * Client for fetching blocks from block nodes using gRPC.
@@ -38,7 +38,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     private static final System.Logger LOGGER = System.getLogger(BackfillFetcher.class.getName());
 
     /** Metric for Number of retries during the backfill process. */
-    private final Counter backfillRetries;
+    private final LongCounter.Measurement backfillRetries;
     /** Source of block node configurations. */
     private final BackfillSource blockNodeSource;
     /**

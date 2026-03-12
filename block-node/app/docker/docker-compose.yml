@@ -8,6 +8,8 @@ services:
       - ./plugins:/opt/hiero/block-node/app-${VERSION}/plugins:ro
     env_file:
       - .env
+    environment:
+      JAVA_TOOL_OPTIONS: "-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0"
     ports:
       - "40840:40840"
       - "5005:5005"

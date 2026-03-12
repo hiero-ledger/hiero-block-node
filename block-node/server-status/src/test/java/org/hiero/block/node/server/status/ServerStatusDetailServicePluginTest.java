@@ -123,7 +123,7 @@ public class ServerStatusDetailServicePluginTest
         // notify the plugin of an update to the block node plugin
         BlockNodeContext newBlockNodeContext = new BlockNodeContext(
                 blockNodeContext.configuration(),
-                blockNodeContext.metrics(),
+                blockNodeContext.metricRegistry(),
                 blockNodeContext.serverHealth(),
                 blockNodeContext.blockMessaging(),
                 blockNodeContext.historicalBlockProvider(),

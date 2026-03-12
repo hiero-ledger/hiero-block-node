@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.Configuration;
 import java.io.IOException;
 import java.util.Map;
@@ -68,20 +67,6 @@ class ConfigInjectionModuleTest {
                 ConfigInjectionModule.provideBlockGeneratorConfig(configuration);
         assertNotNull(blockGeneratorConfig);
         assertEquals(GenerationMode.CRAFT, blockGeneratorConfig.generationMode());
-    }
-
-    /**
-     * This test aims to assert that the
-     * {@link ConfigInjectionModule#providePrometheusConfig(Configuration)}
-     * returns a non-null {@link PrometheusConfig} object and no exception is
-     * thrown.
-     */
-    @Test
-    void providePrometheusConfig() {
-        final PrometheusConfig prometheusConfig = ConfigInjectionModule.providePrometheusConfig(configuration);
-        assertNotNull(prometheusConfig);
-        assertFalse(prometheusConfig.endpointEnabled());
-        assertEquals(16007, prometheusConfig.endpointPortNumber());
     }
 
     /**
