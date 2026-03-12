@@ -151,7 +151,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         } catch (final InterruptedException | RuntimeException e) {
             // If we reach here, it means that the handler was interrupted or
             // an unexpected error occurred. We should log the error and shut down.
-            LOGGER.log(INFO, "Error processing request: %s".formatted(e.getMessage()), e);
+            LOGGER.log(INFO, "Error processing request: %s".formatted(e), e);
             sendEndAndResetState(Code.ERROR);
         }
     }
@@ -387,39 +387,45 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     private void handleEndOfBlock(final BlockEnd endOfBlock) {
         final long endOfBlockNumber = endOfBlock.blockNumber();
-        final long expectedBlockNumber = currentStreamingBlockNumber.get();
-        if (endOfBlockNumber != expectedBlockNumber) {
-            final String message = "Expected to close block {0}, but received close for block {1}.";
-            LOGGER.log(INFO, message, expectedBlockNumber, endOfBlockNumber);
-            // @todo(2200) should we take another action as part of the additional handling of the end of block message?
-        }
-        metrics.receiveBlockTimeLatencyNs.add(System.nanoTime() - currentStreamingBlockHeaderReceivedTime);
-        final ActionForBlock actionForBlock = publisherManager.endOfBlock(endOfBlockNumber);
-        publisherManager.closeBlock(handlerId);
-        unacknowledgedStreamedBlocks.add(endOfBlockNumber);
-        final BatchHandleResult result =
-                switch (actionForBlock.action()) {
-                    // If we get ACCEPT, we must simply reset the state and continue
-                    case ACCEPT -> {
-                        if (endOfBlockNumber == actionForBlock.blockNumber()) {
-                            yield new BatchHandleResult(false, true);
-                        } else {
-                            yield unexpectedActionForEndOfBlock(actionForBlock, endOfBlockNumber);
+        final long currentStreamingNumber = currentStreamingBlockNumber.get();
+        if (currentStreamingNumber <= UNKNOWN_BLOCK_NUMBER) {
+            final String message =
+                    "Handler {0} received EndOfBlock for block {1}, but is not currently streaming a block";
+            LOGGER.log(INFO, message, handlerId, endOfBlockNumber);
+        } else {
+            if (endOfBlockNumber != currentStreamingNumber) {
+                final String message = "Handler {0} is expected to end block {1}, but received end for block {2}.";
+                LOGGER.log(INFO, message, handlerId, currentStreamingNumber, endOfBlockNumber);
+            }
+            metrics.receiveBlockTimeLatencyNs.add(System.nanoTime() - currentStreamingBlockHeaderReceivedTime);
+            final ActionForBlock actionForBlock = publisherManager.endOfBlock(currentStreamingNumber);
+            publisherManager.closeBlock(handlerId);
+            unacknowledgedStreamedBlocks.add(currentStreamingNumber);
+            final BatchHandleResult result =
+                    switch (actionForBlock.action()) {
+                        // If we get ACCEPT, we must simply reset the state and continue
+                        case ACCEPT -> {
+                            if (actionForBlock.blockNumber() > UNKNOWN_BLOCK_NUMBER
+                                    && currentStreamingNumber == actionForBlock.blockNumber()) {
+                                yield new BatchHandleResult(false, true);
+                            } else {
+                                yield unexpectedActionForEndOfBlock(actionForBlock, currentStreamingNumber);
+                            }
                         }
-                    }
-                    // If we get a resend, we must handle it
-                    case RESEND -> handleResend(actionForBlock.blockNumber());
-                    // These cases are not expected to be returned
-                    case SKIP, SEND_BEHIND, END_DUPLICATE, END_ERROR ->
-                        unexpectedActionForEndOfBlock(actionForBlock, endOfBlockNumber);
-                };
-        handleBlockActionResult(result);
+                        // If we get a resend, we must handle it
+                        case RESEND -> handleResend(actionForBlock.blockNumber());
+                        // These cases are not expected to be returned
+                        case SKIP, SEND_BEHIND, END_DUPLICATE, END_ERROR ->
+                            unexpectedActionForEndOfBlock(actionForBlock, currentStreamingNumber);
+                    };
+            handleBlockActionResult(result);
+        }
     }
 
     private BatchHandleResult unexpectedActionForEndOfBlock(
-            final ActionForBlock actionForBlock, final long endOfBlockNumber) {
+            final ActionForBlock actionForBlock, final long blockToEnd) {
         final String errorMessage = "Handler {0} received unexpected action for block: {1}, when ending block {2}";
-        return handleEndError(WARNING, errorMessage, handlerId, actionForBlock, endOfBlockNumber);
+        return handleEndError(WARNING, errorMessage, handlerId, actionForBlock, blockToEnd);
     }
 
     private boolean isEndStreamRequestValid(
@@ -679,7 +685,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         if (blockInProgress != UNKNOWN_BLOCK_NUMBER && currentBlockQueue.get() != null) {
             // This should generally not happen, we expect an end stream request
             // from a publisher after it has completely streamed a full block.
-            publisherManager.handlerIsEnding(blockInProgress, handlerId);
+            publisherManager.blockIsEnding(blockInProgress, handlerId);
         }
         metrics.endStreamsReceived.increment();
         return new EndStreamResult(true);
@@ -712,7 +718,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         try {
             final long blockInProgress = currentStreamingBlockNumber.getAndSet(UNKNOWN_BLOCK_NUMBER);
             if (blockInProgress != UNKNOWN_BLOCK_NUMBER && currentBlockQueue.get() != null) {
-                publisherManager.handlerIsEnding(blockInProgress, handlerId);
+                publisherManager.blockIsEnding(blockInProgress, handlerId);
                 publisherManager.closeBlock(handlerId);
             }
             // reset state

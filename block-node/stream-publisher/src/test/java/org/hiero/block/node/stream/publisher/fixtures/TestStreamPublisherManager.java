@@ -118,8 +118,8 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
-    public void handlerIsEnding(final long blockNumber, final long handlerId) {
-        throw new UnsupportedOperationException("implement handlerIsEnding in test fixture if needed");
+    public void blockIsEnding(final long blockNumber, final long handlerId) {
+        // @todo(2349) we can add a counter here to aid asserts
     }
 
     @Override

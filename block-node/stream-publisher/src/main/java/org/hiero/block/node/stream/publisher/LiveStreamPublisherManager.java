@@ -193,7 +193,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     @Override
-    public void handlerIsEnding(final long blockNumber, final long handlerId) {
+    public void blockIsEnding(final long blockNumber, final long handlerId) {
         // @todo(2344) we can further improve this
         LOGGER.log(INFO, "Handler {0} is ending mid-block {1}", handlerId, blockNumber);
         final Deque<BlockItemSetUnparsed> deque = queueByBlockMap.remove(blockNumber);
@@ -288,7 +288,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (notification != null) {
             final long newLastPersistedBlock = notification.blockNumber();
             if (notification.succeeded()) {
-                if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
+                // If we are currently streaming any blocks < newLastPersistedBlock, then do not send acknowledgement
+                if (newLastPersistedBlock > lastPersistedBlockNumber.get()
+                        && isBeforeEarliestActiveBlock(newLastPersistedBlock)) {
                     handlers.values().parallelStream().unordered().forEach(handler -> {
                         // _Important_, we only need the last persisted block number
                         // all previous blocks are implicitly acknowledged.
@@ -305,6 +307,18 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 currentStreamingBlockNumber.set(blockNumber);
                 handlers.values().parallelStream().unordered().forEach(PublisherHandler::handleFailedPersistence);
             }
+        }
+    }
+
+    /// Determine if the given block number is before the earliest active block.
+    /// @param blockNumber to check
+    /// @return `true` if, and only if, there are no blocks currently streaming or `blockNumber` is strictly less
+    ///     than the earliest block currently waiting to be sent to messaging
+    private boolean isBeforeEarliestActiveBlock(final long blockNumber) {
+        try {
+            return queueByBlockMap.isEmpty() || blockNumber < queueByBlockMap.firstKey();
+        } catch (final NoSuchElementException e) {
+            return true;
         }
     }
 
@@ -421,15 +435,19 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// This method could also return {@link org.hiero.block.node.spi.BlockNodePlugin#UNKNOWN_BLOCK_NUMBER} if no
     /// more blocks are awaiting resend.
     private long nextBlockToResend() {
+        long nextBlock;
         if (!blocksToResend.isEmpty()) {
             try {
                 // The blocksToResend set is a SortedSet, so first item will be the lowest one.
-                return blocksToResend.first();
+                nextBlock = blocksToResend.first();
             } catch (final NoSuchElementException e) {
                 // do nothing; we have no more blocks to resend.
+                nextBlock = UNKNOWN_BLOCK_NUMBER;
             }
+        } else {
+            nextBlock = UNKNOWN_BLOCK_NUMBER;
         }
-        return UNKNOWN_BLOCK_NUMBER;
+        return nextBlock;
     }
 
     /// todo(1420) add documentation
