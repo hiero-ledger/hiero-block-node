@@ -31,3 +31,11 @@ tasks.register<Exec>("runK6Tests") {
         "./run-k6-tests.sh",
     )
 }
+
+tasks.register<Exec>("printK6Logs") {
+    description = "print the K6 test logs"
+    commandLine(
+        "sh",
+        "./print-logs.sh",
+    )
+}

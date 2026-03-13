@@ -55,6 +55,29 @@ jobs:
         with:
           node-version: "20.19.4"
 
+      - name: Install Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+
+      - name: Setup Kind
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          install_only: true
+          node_image: kindest/node:v1.31.4@sha256:2cb39f7295fe7eafee0842b1052a599a4fb0f8bcf3f83d96c7f4864c357c6c30
+          version: v0.26.0
+          kubectl_version: v1.31.4
+          verbosity: 3
+          wait: 120s
+
+      # Install Solo CLI
+      - name: Install Solo CLI via npm
+        id: solo
+        run: |
+          npm i @hashgraph/solo@${{ inputs.solo-version }} -g
+          # Extract version number from solo output (handles various output formats)
+          SOLO_INSTALLED=$(solo --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+          echo "Solo version: ${SOLO_INSTALLED}"
+          echo "solo_version=${SOLO_INSTALLED}" >> "${GITHUB_OUTPUT}"
+
       - name: Install k6
         run: |
           # based on https://grafana.com/docs/k6/latest/set-up/install-k6/#debianubuntu
@@ -65,17 +88,7 @@ jobs:
           sudo apt-get install k6
 
       - name: Run k6 tests
-        run: |
-          pushd ${K6_ROOT} || exit 1
-          trap "popd" EXIT
-          npm run test
+        run: ${GRADLE_EXEC} runK6Tests
 
       - name: Display Test Logs
-        run: |
-          pushd ${K6_ROOT} || exit 1
-          trap "popd" EXIT
-          npm run print-logs
-
-      - name: Stop Containers
-        if: ${{ always() }}
-        run: ${GRADLE_EXEC} stopDockerContainer
+        run: ${GRADLE_EXEC} printK6Logs
