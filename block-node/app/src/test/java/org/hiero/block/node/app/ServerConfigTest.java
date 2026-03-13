@@ -106,13 +106,13 @@ class ServerConfigTest {
         return Stream.of(
                 Arguments.of(
                         10_238,
-                        String.format(RANGE_ERROR_TEMPLATE, "server.maxMessageSizeBytes", 10_238, 10_240, 16_777_215)),
+                        String.format(RANGE_ERROR_TEMPLATE, "server.maxMessageSizeBytes", 10_238, 10_240, 37_748_736)),
                 Arguments.of(
                         10_239,
-                        String.format(RANGE_ERROR_TEMPLATE, "server.maxMessageSizeBytes", 10_239, 10_240, 16_777_215)),
+                        String.format(RANGE_ERROR_TEMPLATE, "server.maxMessageSizeBytes", 10_239, 10_240, 37_748_736)),
                 Arguments.of(
-                        16_777_216,
+                        37_748_737,
                         String.format(
-                                RANGE_ERROR_TEMPLATE, "server.maxMessageSizeBytes", 16_777_216, 10_240, 16_777_215)));
+                                RANGE_ERROR_TEMPLATE, "server.maxMessageSizeBytes", 37_748_737, 10_240, 37_748_736)));
     }
 }
