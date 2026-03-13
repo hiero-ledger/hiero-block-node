@@ -26,7 +26,7 @@ import org.hiero.block.node.base.Loggable;
  */
 @ConfigData("server")
 public record ServerConfig(
-        @Loggable @ConfigProperty(defaultValue = "4_194_304") @Min(262_144) @Max(16_777_215) int maxMessageSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "37_748_736") @Min(262_144) @Max(37_748_736) int maxMessageSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "131_072") @Min(32768) @Max(Integer.MAX_VALUE)
                 int socketSendBufferSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "131_072") @Min(32768) @Max(Integer.MAX_VALUE)
