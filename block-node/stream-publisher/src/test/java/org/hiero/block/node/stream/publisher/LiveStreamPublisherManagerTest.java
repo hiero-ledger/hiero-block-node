@@ -754,6 +754,8 @@ class LiveStreamPublisherManagerTest {
                 // was the next expected block.
                 publisherHandler.onNext(request);
                 endThisBlock(publisherHandler, block.number());
+                // We run the queued messaging forwarder to properly stream the block to messaging
+                threadPoolManager.executor().executeAsync(1_000L, false);
                 // Now we need to send a PersistedNotification, so that the
                 // latest known block number will be updated to 0L.
                 final PersistedNotification persistedNotification =
@@ -810,6 +812,8 @@ class LiveStreamPublisherManagerTest {
                 // was the next expected block.
                 publisherHandler.onNext(request);
                 endThisBlock(publisherHandler, block.number());
+                // We run the queued messaging forwarder to properly stream the block to messaging
+                threadPoolManager.executor().executeAsync(1_000L, false);
                 // We need to send a PersistedNotification first, so that the latest known block number will be updated
                 // to 0L.
                 final PersistedNotification persistedNotification =
