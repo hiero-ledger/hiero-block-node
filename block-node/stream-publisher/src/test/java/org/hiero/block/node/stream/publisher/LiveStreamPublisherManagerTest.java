@@ -542,8 +542,7 @@ class LiveStreamPublisherManagerTest {
             void testBatchesIncrementOnlyAfterForwarderCompletes() throws InterruptedException {
                 // Baseline the async batches counter.
                 final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
-                // Use a distinct block number for isolation from other tests.
-                final long blockNumber = 100L;
+                final long blockNumber = 0L;
 
                 // Build items for the same block that we will close.
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
@@ -580,23 +579,23 @@ class LiveStreamPublisherManagerTest {
             void testRestartForwarderAfterCompletion() throws InterruptedException {
                 // ===== Run #1 =====
                 // Use a unique block number for the first run.
-                final long b2 = 2L;
+                final long b0 = 0L;
                 // Build items for block #b0.
-                final TestBlock block2 = TestBlockBuilder.generateBlockWithNumber(b2);
+                final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(b0);
                 // Wrap into a request.
                 final PublishStreamRequestUnparsed req0 = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(block2.asItemSetUnparsed())
+                        .blockItems(block0.asItemSetUnparsed())
                         .build();
 
                 // Enqueue to handler.
                 publisherHandler.onNext(req0);
                 // Mark block b0 as ended.
-                endThisBlock(publisherHandler, b2);
+                endThisBlock(publisherHandler, b0);
                 // Baseline both async batches and immediate close counters.
                 final long beforeBatches = managerMetrics.blockBatchesMessaged().get();
                 final long beforeClosed = managerMetrics.blocksClosedComplete().get();
                 // Close the block (immediate metric should +1).
-                toTest.closeBlock(b2);
+                toTest.closeBlock(b0);
                 // Verify immediate close counter progressed by exactly one.
                 assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 1);
                 // Execute the queued tasks; the test pool throws if the queue is empty, enforcing correct sequencing.
@@ -610,20 +609,20 @@ class LiveStreamPublisherManagerTest {
 
                 // ===== Run #2 =====
                 // Use another unique block number for isolation.
-                final long b3 = 3L;
+                final long b1 = 1L;
                 // Build items for block #b1.
-                final TestBlock block3 = TestBlockBuilder.generateBlockWithNumber(b3);
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(b1);
                 // Wrap into a request.
                 final PublishStreamRequestUnparsed req1 = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(block3.asItemSetUnparsed())
+                        .blockItems(block1.asItemSetUnparsed())
                         .build();
 
                 // Enqueue to handler.
                 publisherHandler.onNext(req1);
                 // Mark block b1 as ended.
-                endThisBlock(publisherHandler, b3);
+                endThisBlock(publisherHandler, b1);
                 // Close the block
-                toTest.closeBlock(b3);
+                toTest.closeBlock(b1);
                 assertThat(managerMetrics.blocksClosedComplete().get()).isEqualTo(beforeClosed + 3);
 
                 // Wait until batches surpass the +2 baseline from the first run.
@@ -641,7 +640,7 @@ class LiveStreamPublisherManagerTest {
             @DisplayName("no batch/count updates while forwarder active (idempotent closes)")
             void testNoMetricUpdatesWhileForwarderActive() throws InterruptedException {
                 // Use a unique block number for this scenario.
-                final long blockNumber = 4L;
+                final long blockNumber = 0L;
 
                 // Build items for this block.
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(blockNumber);
@@ -755,6 +754,8 @@ class LiveStreamPublisherManagerTest {
                 // was the next expected block.
                 publisherHandler.onNext(request);
                 endThisBlock(publisherHandler, block.number());
+                // We run the queued messaging forwarder to properly stream the block to messaging
+                threadPoolManager.executor().executeAsync(1_000L, false);
                 // Now we need to send a PersistedNotification, so that the
                 // latest known block number will be updated to 0L.
                 final PersistedNotification persistedNotification =
@@ -811,6 +812,8 @@ class LiveStreamPublisherManagerTest {
                 // was the next expected block.
                 publisherHandler.onNext(request);
                 endThisBlock(publisherHandler, block.number());
+                // We run the queued messaging forwarder to properly stream the block to messaging
+                threadPoolManager.executor().executeAsync(1_000L, false);
                 // We need to send a PersistedNotification first, so that the latest known block number will be updated
                 // to 0L.
                 final PersistedNotification persistedNotification =

@@ -344,72 +344,6 @@ class PublisherHandlerTest {
             }
 
             /// This test aims to assert that the [PublisherHandler] correctly
-            /// handles a received request
-            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
-            /// path scenario. Here we stream a single complete valid block as items.
-            /// The request's first item is the block header for the streamed block,
-            /// and the last item is the block proof for the streamed block.
-            /// We expect that when the [StreamPublisherManager] returns
-            /// any action for the streamed block number and when the
-            /// streamed items end with a valid block proof, the handler will send
-            /// a signal to the manager to close the block.
-            @ParameterizedTest
-            @EnumSource(value = BlockAction.class)
-            @DisplayName(
-                    "Test onNext() with valid request with a complete single block calls closeBlock on manager when batch ends with valid proof - happy path ACCEPT")
-            void testOnNextCloseBlockValidProofHappyPathACCEPT(final BlockAction action) {
-                // Setup request to send, in this case a single complete valid block
-                // as items, starting with header and ending with proof
-                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(block.asItemSetUnparsed())
-                        .build();
-                // Train the manager to return the current action for the block number
-                manager.setBlockActionForBlock(action);
-                // Call
-                toTest.onNext(request);
-                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
-                endThisBlock(toTest, block.number());
-                // Assert that the manager's closeBlock method was called
-                assertThat(manager.closeBlockCallsForHandler(handlerId)).isOne();
-            }
-
-            /// This test aims to assert that the [PublisherHandler] correctly
-            /// handles a received request
-            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
-            /// Here we stream a single complete valid block as items.
-            /// The request's first item is the block header for the streamed block,
-            /// and the last item is the block proof for the streamed block.
-            /// We expect that when the [StreamPublisherManager] returns
-            /// any action for the streamed block number and when the
-            /// streamed items end with a valid block proof, the handler will send
-            /// a signal to the manager to close the block.
-            @ParameterizedTest
-            @EnumSource(value = BlockAction.class)
-            @DisplayName(
-                    "Test onNext() with valid request with a complete single block calls closeBlock on manager when batch ends with broken proof - ACCEPT")
-            void testOnNextCloseBlockBrokenProofACCEPT(final BlockAction action) {
-                // Setup request to send, in this case a single complete valid block
-                // as items, starting with header and ending with a broken proof
-                final long streamedBlockNumber = 0L;
-                final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenProof(streamedBlockNumber);
-                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
-                        .blockItems(block.blockItems())
-                        .build();
-                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
-                        .build();
-                // Train the manager to return the current action for the block number
-                manager.setBlockActionForBlock(action);
-                // Call
-                toTest.onNext(request);
-                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, streamedBlockNumber);
-                endThisBlock(toTest, streamedBlockNumber);
-                // Assert that the manager's closeBlock method was called
-                assertThat(manager.closeBlockCallsForHandler(handlerId)).isEqualTo(1);
-            }
-
-            /// This test aims to assert that the [PublisherHandler] correctly
             /// handles received requests
             /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
             /// path scenario. Here we stream a single complete valid block as items.
@@ -2164,18 +2098,30 @@ class PublisherHandlerTest {
 
         /// Tests for receiving the [org.hiero.block.api.PublishStreamRequest.RequestOneOfType#END_OF_BLOCK] requests.
         @Nested
-        @DisplayName("EndOfBlock Tests")
+        @DisplayName("endOfBlock() Tests")
         class EndOfBlockTests {
             /// This test aims to assert that when an action for block with [BlockAction#ACCEPT] and the correct
             /// block number is received by the manager, the handler will send no responses and will still
-            // be active.
+            /// be active. The block will be ended for the manager.
             @Test
             @DisplayName(
-                    "endOfBlock - No response when the manager sends ActionForBlock with ACCEPT and correct block number")
+                    "endOfBlock - No response when the manager sends ActionForBlock with ACCEPT and correct block number, block is ended for the manager")
             void testAccept() {
-                final long endingBlock = 0L;
-                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.ACCEPT, endingBlock));
-                endThisBlock(toTest, endingBlock);
+                // First, build a block we want to close.
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build();
+                // Now send the request. This will correctly update the current streaming block of the handler.
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                toTest.onNext(request);
+                // As a pre-check, assert that no block has yet been ended for the manager
+                assertThat(manager.getEndOfBlocksReceived()).isEmpty();
+                // Call
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.ACCEPT, block.number()));
+                endThisBlock(toTest, block.number());
+                // Assert that the block was ended for the manager
+                assertThat(manager.getEndOfBlocksReceived()).containsExactly(block.number());
                 // Assert no responses
                 assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
@@ -2186,21 +2132,34 @@ class PublisherHandlerTest {
 
             /// This test aims to assert that when an action for block with [BlockAction#RESEND] and a correct
             /// block number is received by the manager, the handler will send the RESEND response and still
-            // be active.
+            /// be active. The block will be ended for the manager.
             @Test
             @DisplayName(
-                    "endOfBlock - RESEND response when the manager sends ActionForBlock with RESEND and correct block number")
+                    "endOfBlock - RESEND response when the manager sends ActionForBlock with RESEND and correct block number, block is ended for the manager")
             void testResend() {
-                final long resendingBlock = 0L;
-                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.RESEND, resendingBlock));
-                // End another block, but could be the same as the one we want to resend
-                endThisBlock(toTest, resendingBlock + 1L);
+                // First, we need to create the block we want to stream and end
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build();
+                // Then we need to stream it to the publisher handler. This will correctly update the
+                // current streaming block of the handler.
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                toTest.onNext(request);
+                // As a pre-check, assert that no block has yet been ended for the manager
+                assertThat(manager.getEndOfBlocksReceived()).isEmpty();
+                // Call
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.RESEND, block.number()));
+                // End the block, we have told the manager to give us a resend for it, we expect a resend
+                endThisBlock(toTest, block.number());
+                // Assert that the block was ended for the manager
+                assertThat(manager.getEndOfBlocksReceived()).containsExactly(block.number());
                 // Assert RESEND has been sent
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
-                        .returns(resendingBlock, resendBlockNumberExtractor);
+                        .returns(block.number(), resendBlockNumberExtractor);
                 // Assert no other responses
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
@@ -2213,13 +2172,28 @@ class PublisherHandlerTest {
             /// [org.hiero.block.api.PublishStreamRequest.RequestOneOfType#END_OF_BLOCK] request,
             /// the handler will proceed to end with an
             /// [ResponseOneOfType#END_STREAM] with code [Code#ERROR] and the connection will be closed.
+            /// The block will be ended for the manager.
             @ParameterizedTest
             @MethodSource("unexpectedBlockActions")
             @DisplayName(
-                    "endOfBlock - EndOfStream response with Code ERROR when manager supplies an unexpected ActionForBlock")
+                    "endOfBlock - EndOfStream response with Code ERROR when manager supplies an unexpected ActionForBlock, block is ended for the manager")
             void testUnexpectedActionForBlockReceived(final ActionForBlock action) {
+                // First, we need to create the block we want to stream and end
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build();
+                // Then we need to stream it to the publisher handler. This will correctly update the
+                // current streaming block of the handler.
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                toTest.onNext(request);
+                // As a pre-check, assert that no block has yet been ended for the manager
+                assertThat(manager.getEndOfBlocksReceived()).isEmpty();
+                // Call
                 manager.setBlockActionForEndOfBlock(action);
-                endThisBlock(toTest, 0L);
+                endThisBlock(toTest, block.number());
+                // Assert that the block was ended with the manager
+                assertThat(manager.getEndOfBlocksReceived()).containsExactly(block.number());
                 // Assert single response is EndOfStream with Code ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -2232,6 +2206,27 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /// This test aims to assert that when an
+            /// [org.hiero.block.api.PublishStreamRequest.RequestOneOfType#END_OF_BLOCK] request
+            /// is received by a handler which is not currently streaming a block, it will do nothing. No
+            /// blocks will be ended for the manager. No responses will be observed.
+            @Test
+            @DisplayName("endOfBlock - when handler is not streaming a block, no block will be ended")
+            void testDoNothingIfNotStreaming() {
+                // As a pre-check, assert that no block has yet been ended for the manager
+                assertThat(manager.getEndOfBlocksReceived()).isEmpty();
+                // Call
+                endThisBlock(toTest, 0L);
+                // Assert that the handler has not ended a block for the manager
+                assertThat(manager.getEndOfBlocksReceived()).isEmpty();
+                // Assert no responses
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+                assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(repliesPipeline.getClientEndStreamCalls().get()).isZero();
             }
 
             private static Stream<Arguments> unexpectedBlockActions() {
@@ -2248,6 +2243,85 @@ class PublisherHandlerTest {
                         Arguments.of(new ActionForBlock(BlockAction.END_DUPLICATE, 0L)),
                         // not expected action with a valid number
                         Arguments.of(new ActionForBlock(BlockAction.END_ERROR, 0L)));
+            }
+        }
+
+        /// Tests for the [LiveStreamPublisherManager#closeBlock(long)] method.
+        @Nested
+        @DisplayName("closeBlock() Tests")
+        class CloseBlockTests {
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] happy
+            /// path scenario. Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#ACCEPT] for the streamed block number and when the
+            /// streamed items end with a valid block proof, the handler will send
+            /// a signal to the manager to close the block.
+            ///
+            /// **NOTE**:
+            /// > For any other action returned by the manager when we start a new block,
+            /// we will not have started streaming that block for that manager. It is not
+            /// expected to have to end or close anything.
+            @Test
+            @DisplayName(
+                    "closeBlock() - a valid request with a complete single block calls closeBlock on manager when batch ends with valid proof - ACCEPT")
+            void testOnNextCloseBlockValidProofHappyPathACCEPT() {
+                // Setup request to send, in this case a single complete valid block
+                // as items, starting with header and ending with proof
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build();
+                // Train the manager to return the current action for the block number
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                // Call
+                toTest.onNext(request);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                endThisBlock(toTest, block.number());
+                // Assert that the manager's closeBlock method was called
+                assertThat(manager.closeBlockCallsForHandler(handlerId)).isOne();
+            }
+
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)].
+            /// Here we stream a single complete valid block as items.
+            /// The request's first item is the block header for the streamed block,
+            /// and the last item is the block proof for the streamed block.
+            /// We expect that when the [StreamPublisherManager] returns
+            /// [BlockAction#ACCEPT] for the streamed block number and when the
+            /// streamed items end with an invalid block proof, the handler will send
+            /// a signal to the manager to close the block.
+            ///
+            /// **NOTE**:
+            /// > For any other action returned by the manager when we start a new block,
+            /// we will not have started streaming that block for that manager. It is not
+            /// expected to have to end or close anything.
+            @Test
+            @DisplayName(
+                    "closeBlock() - with valid request with a complete single block calls closeBlock on manager when batch ends with broken proof - ACCEPT")
+            void testOnNextCloseBlockBrokenProofACCEPT() {
+                // Setup request to send, in this case a single complete valid block
+                // as items, starting with header and ending with a broken proof
+                final long streamedBlockNumber = 0L;
+                final BlockUnparsed block = TestBlockBuilder.generateBlockWithBrokenProof(streamedBlockNumber);
+                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
+                        .blockItems(block.blockItems())
+                        .build();
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(blockItemSet)
+                        .build();
+                // Train the manager to return the current action for the block number
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                // Call
+                toTest.onNext(request);
+                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, streamedBlockNumber);
+                endThisBlock(toTest, streamedBlockNumber);
+                // Assert that the manager's closeBlock method was called
+                assertThat(manager.closeBlockCallsForHandler(handlerId)).isEqualTo(1);
             }
         }
     }
