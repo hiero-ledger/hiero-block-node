@@ -35,7 +35,7 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 | ENV Variable                            | Description                                  |   Default |
 |:----------------------------------------|:---------------------------------------------|----------:|
-| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2.         | 4,194,304 |
+| SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2.         | 37,748,736 |
 | SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                    |     32768 |
 | SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).                 |     32768 |
 | SERVER_PORT                             | Server listening port.                       |     40840 |
