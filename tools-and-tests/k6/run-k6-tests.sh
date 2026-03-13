@@ -59,8 +59,8 @@ run_simulator() {
 
 cleanup() {
     (
-    cd ../../
-    $GRADLEW stopDockerContainer &> /dev/null # stop all running containers
+    # shutdown solo
+    task down --taskfile ../scripts/solo-e2e-test/Taskfile.yml
     )
 }
 
@@ -84,8 +84,7 @@ run_stream_validation_test() {
 
 run_shared_node_tests() {
     # These tests can run on a shared node setup as they only read data
-    run_bn
-    run_simulator 0 100
+    task up --taskfile ../scripts/solo-e2e-test/Taskfile.yml
 
     declare -i rc=0
     run_server_status_test
