@@ -23,13 +23,24 @@ spotless {
     }
 }
 
+tasks.register<Exec>("solo-up") {
+    workingDir("../scripts/solo-e2e-test")
+    commandLine("task", "up")
+}
+
+tasks.register<Exec>("solo-down") {
+    workingDir("../scripts/solo-e2e-test")
+    commandLine("task", "down")
+}
+
+
 tasks.register<Exec>("runK6Tests") {
     description = "runs the K6 tests"
     dependsOn("spotlessJavascriptCheck")
-    commandLine(
-        "sh",
-        "./run-k6-tests.sh",
-    )
+    dependsOn("solo-up")
+    commandLine("sh", "./run-k6-tests.sh")
+    finalizedBy("solo-down")
+
 }
 
 tasks.register<Exec>("printK6Logs") {
