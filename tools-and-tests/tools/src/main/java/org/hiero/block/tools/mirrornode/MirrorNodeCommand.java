@@ -24,6 +24,7 @@ import picocli.CommandLine.Spec;
             UpdateBlockData.class,
             GenerateAddressBookFromMirrorNode.class,
             GenerateTestnetGenesisAddressBook.class,
+            GenerateTestnetAddressBookHistory.class,
             CompareAddressBooks.class
         },
         mixinStandardHelpOptions = true)
