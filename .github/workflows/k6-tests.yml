@@ -21,6 +21,12 @@ permissions:
 env:
   GRADLE_EXEC: ionice -c 2 -n 2 nice -n 19 ./gradlew --no-daemon
   K6_ROOT: ./tools-and-tests/k6
+  # Solo ENV
+  DEPLOYMENT: "deployment-solo"
+  NAMESPACE: "solo-network"
+  CLUSTER_NAME: "solo-cluster"
+  CONTEXT: "kind-solo-cluster"
+  CLUSTER_REFERENCE: "kind-solo-cluster"
 
 jobs:
   k6-tests:
