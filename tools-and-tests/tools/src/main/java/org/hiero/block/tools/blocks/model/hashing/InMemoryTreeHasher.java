@@ -8,10 +8,13 @@ import static org.hiero.block.tools.utils.Sha384.SHA_384_HASH_SIZE;
 import static org.hiero.block.tools.utils.Sha384.sha384Digest;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
@@ -407,7 +410,9 @@ public class InMemoryTreeHasher implements Hasher {
      */
     @Override
     public void save(Path filePath) throws Exception {
-        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(filePath))) {
+        final Path tmpPath = filePath.resolveSibling(filePath.getFileName() + ".tmp");
+        try (DataOutputStream out =
+                new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(tmpPath), 4 * 1024 * 1024))) {
             // Write leaf count
             out.writeLong(leafCount);
 
@@ -429,6 +434,7 @@ public class InMemoryTreeHasher implements Hasher {
                 out.writeInt(root[1]); // index
             }
         }
+        Files.move(tmpPath, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
     }
 
     /**
@@ -439,13 +445,16 @@ public class InMemoryTreeHasher implements Hasher {
      */
     @Override
     public void load(Path filePath) throws Exception {
-        try (DataInputStream din = new DataInputStream(Files.newInputStream(filePath))) {
+        final long newLeafCount;
+        final List<List<byte[]>> newLevels = new ArrayList<>();
+        final List<int[]> newPending = new ArrayList<>();
+        try (DataInputStream din =
+                new DataInputStream(new BufferedInputStream(Files.newInputStream(filePath), 4 * 1024 * 1024))) {
             // Read leaf count
-            leafCount = din.readLong();
+            newLeafCount = din.readLong();
 
             // Read levels
             int levelCount = din.readInt();
-            levels.clear();
             for (int l = 0; l < levelCount; l++) {
                 int hashCount = din.readInt();
                 List<byte[]> level = new ArrayList<>(hashCount);
@@ -454,18 +463,23 @@ public class InMemoryTreeHasher implements Hasher {
                     din.readFully(hash);
                     level.add(hash);
                 }
-                levels.add(level);
+                newLevels.add(level);
             }
 
             // Read pending subtree roots
             int pendingCount = din.readInt();
-            pendingSubtreeRoots.clear();
             for (int i = 0; i < pendingCount; i++) {
                 int level = din.readInt();
                 int index = din.readInt();
-                pendingSubtreeRoots.add(new int[] {level, index});
+                newPending.add(new int[] {level, index});
             }
         }
+        // Commit only after all reads succeed
+        leafCount = newLeafCount;
+        levels.clear();
+        levels.addAll(newLevels);
+        pendingSubtreeRoots.clear();
+        pendingSubtreeRoots.addAll(newPending);
     }
 
     /**

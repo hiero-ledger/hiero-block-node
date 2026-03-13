@@ -2,9 +2,9 @@
 package org.hiero.block.tools.blocks;
 
 import static org.hiero.block.tools.blocks.AmendmentProvider.createAmendmentProvider;
-import static org.hiero.block.tools.blocks.HasherStateFiles.loadWithFallback;
 import static org.hiero.block.tools.blocks.HasherStateFiles.saveStateCheckpoint;
 import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_COMPRESSION;
+import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_POWERS_OF_TEN_PER_ZIP;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
@@ -13,11 +13,12 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import java.io.DataOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -32,13 +33,14 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
-import java.util.zip.ZipOutputStream;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
 import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.hiero.block.tools.blocks.model.BlockWriter.BlockPath;
+import org.hiero.block.tools.blocks.model.BlockWriter.BlockZipAppender;
 import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
@@ -76,12 +78,12 @@ import picocli.CommandLine.Option;
  * Stage 1 — Parse + RSA-Verify  [parseAndVerifyPool, N threads, sliding prefetch window]
  *
  *   For each UnparsedRecordBlock:
- *     1. unparsed.parse()  ->  ParsedRecordBlock
+ *     1. unparsed.parse()  -&gt;  ParsedRecordBlock
  *     2. addressBookRegistry.getAddressBookForBlock(parsed.blockTime())
  *     3. parsed.signatureFiles().stream().parallel()
- *            .filter(psf -> psf.isValid(signedHash, addressBook))   // RSA verify
- *            .map(psf  -> psf.toRecordFileSignature(addressBook))
- *     ->  PreVerifiedBlock(recordBlock, addressBook, verifiedSignatures)
+ *            .filter(psf -&gt; psf.isValid(signedHash, addressBook))   // RSA verify
+ *            .map(psf  -&gt; psf.toRecordFileSignature(addressBook))
+ *     -&gt;  PreVerifiedBlock(recordBlock, addressBook, verifiedSignatures)
  *
  *     future.join() — main thread waits for the oldest in-flight future
  *     |
@@ -89,7 +91,7 @@ import picocli.CommandLine.Option;
  * Stage 2 — Convert + Chain-State Update  [main thread, strictly sequential]
  *
  *   RecordBlockConverter.toBlock(preVerified, blockNum, prevHash, treeRoot, amendments)
- *   hashBlock(wrapped)  ->  blockStreamBlockHash
+ *   hashBlock(wrapped)  -&gt;  blockStreamBlockHash
  *   streamingHasher.addNodeByHash(hash)       // NOT thread-safe; stays on main thread
  *   inMemoryTreeHasher.addNodeByHash(hash)    // NOT thread-safe; stays on main thread
  *   blockRegistry.addBlock(blockNum, hash)    // NOT thread-safe; stays on main thread
@@ -111,7 +113,7 @@ import picocli.CommandLine.Option;
  *   One ZipOutputStream is kept open across many consecutive blocks.
  *   It is closed and re-opened only when the block number crosses into a
  *   new 10,000-block zip-file range (i.e. blockPath.zipFilePath() changes).
- *   BlockWriter.writeBlockEntry(zip, blockPath, bytes)  ->  CRC32 + putNextEntry + write
+ *   BlockWriter.writeBlockEntry(zip, blockPath, bytes)  -&gt;  CRC32 + putNextEntry + write
  * </pre>
  *
  * <p>The {@code allOf(prevWriteFuture, serFuture)} dependency in Stage 4 guarantees:</p>
@@ -120,12 +122,17 @@ import picocli.CommandLine.Option;
  *   <li>Block N's compressed bytes are available before the write begins.</li>
  * </ul>
  *
+ * <h2>Durability</h2>
+ * <p>A durable commit watermark ({@code wrap-commit.bin}) tracks the highest block number whose
+ * zip write has completed. On crash, the registry and hashers are truncated/rebuilt to the
+ * watermark, ensuring no block is claimed as written when its zip entry may be incomplete.</p>
+ *
  * <h2>Thread-Safety Constraints</h2>
  * <ul>
  *   <li>{@link StreamingHasher}, {@link InMemoryTreeHasher}, and
  *       {@link BlockStreamBlockHashRegistry} are <em>not</em> thread-safe — all updates
  *       are performed on the Stage 2 (main) thread only.</li>
- *   <li>The single {@link ZipOutputStream} held by Stage 4 is never shared across threads;
+ *   <li>The single zip appender held by Stage 4 is never shared across threads;
  *       only {@code zipWritePool}'s single thread accesses it.</li>
  *   <li>{@link AddressBookRegistry}, {@link RecordBlockConverter}, and
  *       {@link BlockWriter#serializeBlockToBytes} are safe to call from multiple threads.</li>
@@ -139,12 +146,18 @@ import picocli.CommandLine.Option;
  *       {@code --parse-threads})</li>
  * </ul>
  */
-@SuppressWarnings({"CallToPrintStackTrace", "FieldCanBeLocal", "DuplicatedCode"})
+@SuppressWarnings("FieldCanBeLocal")
 @Command(
         name = "wrap",
         description = "Convert record file blocks in day files to wrapped block stream blocks",
         mixinStandardHelpOptions = true)
 public class ToWrappedBlocksCommand implements Runnable {
+
+    /** Name of the durable commit watermark file inside the output directory. */
+    private static final String WATERMARK_FILE_NAME = "wrap-commit.bin";
+
+    /** Write the watermark every this many blocks (plus on zip close and shutdown). */
+    private static final int WATERMARK_BATCH_SIZE = 256;
 
     @Option(
             names = {"-b", "--blocktimes-file"},
@@ -190,11 +203,26 @@ public class ToWrappedBlocksCommand implements Runnable {
                     + "Default: same as --parse-threads")
     private int prefetchSize = -1;
 
+    /** Set by the shutdown hook to request an orderly drain of the pipeline. */
+    private volatile boolean shutdownRequested = false;
+
+    /** Guards Stage 2 hasher updates so the shutdown hook does not read partially updated state. */
+    private final Object chainStateLock = new Object();
+
     /**
      * Run the ToWrappedBlocksCommand to convert record file blocks in day files to wrapped block stream blocks.
      */
     @Override
     public void run() {
+        // ---- Validate thread options ----
+        if (parseThreads < 1) {
+            System.err.println("Error: --parse-threads must be >= 1, got " + parseThreads);
+            return;
+        }
+        if (serializeThreads < 1) {
+            System.err.println("Error: --serialize-threads must be >= 1, got " + serializeThreads);
+            return;
+        }
         // create an output directory if it does not exist
         try {
             Files.createDirectories(outputBlocksDir);
@@ -205,7 +233,7 @@ public class ToWrappedBlocksCommand implements Runnable {
         }
         // create AddressBookRegistry to load address books as needed during conversion
         final Path addressBookFile = outputBlocksDir.resolve("addressBookHistory.json");
-        // check if it exists already, if not, try coping from input dir
+        // check if it exists already, if not, try copying from input dir
         if (!Files.exists(addressBookFile)) {
             final Path inputAddressBookFile = compressedDaysDir.resolve("addressBookHistory.json");
             if (Files.exists(inputAddressBookFile)) {
@@ -235,12 +263,12 @@ public class ToWrappedBlocksCommand implements Runnable {
                    mirror extractBlockTimes
                    mirror extractDayBlock
                 """);
-            System.exit(1);
+            return;
         }
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
 
-        // Create an amendment provider based on network selection (inherited from parent --network flag)
+        // Create an amendment provider based on network selection
         final AmendmentProvider amendmentProvider =
                 createAmendmentProvider(NetworkConfig.current().networkName());
 
@@ -253,27 +281,83 @@ public class ToWrappedBlocksCommand implements Runnable {
         final ExecutorService zipWritePool = Executors.newSingleThreadExecutor();
 
         // Long-lived zip state managed exclusively by zipWritePool.
-        // Declared here (outside the try-with-resources) so the shutdown hook can close the zip.
-        final AtomicReference<ZipOutputStream> currentZipRef = new AtomicReference<>(null);
+        final AtomicReference<BlockZipAppender> currentZipRef = new AtomicReference<>(null);
         final AtomicReference<Path> currentZipPathRef = new AtomicReference<>(null);
+
+        // Durable watermark: highest block whose zip write completed. Updated on zipWritePool.
+        final Path watermarkFile = outputBlocksDir.resolve(WATERMARK_FILE_NAME);
+        final AtomicLong durableWatermark = new AtomicLong(loadWatermark(watermarkFile));
+
+        // Track how many blocks have been written since the last watermark flush
+        final AtomicLong blocksSinceWatermarkFlush = new AtomicLong(0);
 
         try ( // load block times
         final BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile);
                 // BlockStreamBlockHashRegistry for storing block hashes
                 final BlockStreamBlockHashRegistry blockRegistry =
                         new BlockStreamBlockHashRegistry(outputBlocksDir.resolve("blockStreamBlockHashes.bin"))) {
-            // get the most recent block number from BlockStreamBlockHashRegistry
-            long highestStoredBlockNumber = blockRegistry.highestBlockNumberStored();
-            System.out.println(Ansi.AUTO.string("@|yellow Starting from block:|@ " + highestStoredBlockNumber + " @|"));
-            // Print highest stored block time
+
+            // ---- Watermark-based resume reconciliation ----
+            final long watermark = durableWatermark.get();
+            final long registryHighest = blockRegistry.highestBlockNumberStored();
+
+            // If registry is ahead of the watermark, truncate it back. Blocks beyond the
+            // watermark may not have been fully written to zip files before the crash.
+            if (watermark >= 0 && registryHighest > watermark) {
+                System.out.println("Registry has blocks up to " + registryHighest + " but watermark is at " + watermark
+                        + "; truncating registry.");
+                blockRegistry.truncateTo(watermark);
+            } else if (watermark < 0 && registryHighest >= 0) {
+                // No watermark file but registry has data — trust registry as-is for
+                // backwards compatibility with runs before watermark was introduced.
+                System.out.println("No watermark file found; trusting registry at block " + registryHighest);
+                durableWatermark.set(registryHighest);
+            }
+
+            long effectiveHighest = blockRegistry.highestBlockNumberStored();
+
+            // Mid-zip resume detection: if the watermark is not the last block of its zip
+            // range, the partial zip may contain entries written by ZipFileSystem with data
+            // descriptors that ZipInputStream cannot read. Back up to the start of that zip
+            // range and delete the partial zip so it is rewritten entirely.
+            if (effectiveHighest >= 0 && archiveType == BlockArchiveType.UNCOMPRESSED_ZIP) {
+                final long zipRangeFirst =
+                        BlockWriter.zipRangeFirstBlock(effectiveHighest, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+                final long blocksPerZip = (long) Math.pow(10, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+                final long zipRangeLast = zipRangeFirst + blocksPerZip - 1;
+                if (effectiveHighest < zipRangeLast) {
+                    // We're mid-zip. Truncate to one before the zip range start.
+                    final long truncateTo = zipRangeFirst - 1;
+                    System.out.println("Mid-zip resume: block " + effectiveHighest + " is inside zip range "
+                            + zipRangeFirst + "-" + zipRangeLast + "; truncating to " + truncateTo
+                            + " and deleting partial zip.");
+                    final BlockPath partialZipPath =
+                            BlockWriter.computeBlockPath(outputBlocksDir, effectiveHighest, archiveType);
+                    Files.deleteIfExists(partialZipPath.zipFilePath());
+                    blockRegistry.truncateTo(truncateTo);
+                    durableWatermark.set(truncateTo);
+                    saveWatermark(watermarkFile, truncateTo);
+                    effectiveHighest = blockRegistry.highestBlockNumberStored();
+                }
+            }
+
+            System.out.println(Ansi.AUTO.string("@|yellow Starting from block:|@ " + effectiveHighest));
+
+            // Bounds check: ensure block_times.bin covers the resume block
+            if (effectiveHighest >= 0 && effectiveHighest > blockTimeReader.getMaxBlockNumber()) {
+                throw new RuntimeException("Registry highest block (" + effectiveHighest
+                        + ") exceeds block_times.bin range (max=" + blockTimeReader.getMaxBlockNumber()
+                        + "). Run UpdateBlockData to fetch latest block times.");
+            }
+
             // Use a time just before the first block so block 0 passes the isAfter filter
-            final Instant highestStoredBlockTime = highestStoredBlockNumber == -1
+            final Instant highestStoredBlockTime = effectiveHighest == -1
                     ? FIRST_BLOCK_TIME_INSTANT.minusNanos(1)
-                    : blockTimeReader.getBlockInstant(highestStoredBlockNumber);
-            System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockTime + " @|"));
+                    : blockTimeReader.getBlockInstant(effectiveHighest);
+            System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockTime));
 
             // compute the block to start processing at
-            final long startBlock = highestStoredBlockNumber == -1 ? 0 : highestStoredBlockNumber + 1;
+            final long startBlock = effectiveHighest == -1 ? 0 : effectiveHighest + 1;
             System.out.println(Ansi.AUTO.string("@|yellow Starting from block number:|@ " + startBlock));
 
             // compute the day that the startBlock is part of
@@ -281,8 +365,29 @@ public class ToWrappedBlocksCommand implements Runnable {
             final LocalDate startBlockDate = startBlockDateTime.toLocalDate();
             System.out.println(Ansi.AUTO.string("@|yellow Starting from day:|@ " + startBlockDate));
 
+            // Create fresh hashers and replay all hashes from registry.
+            // StreamingHasher and InMemoryTreeHasher cannot go backwards, so on resume we
+            // always rebuild from the authoritative registry rather than loading stale state files.
+            final Path streamingMerkleTreeFile = outputBlocksDir.resolve("streamingMerkleTree.bin");
+            final StreamingHasher streamingHasher = new StreamingHasher();
+
+            final Path inMemoryMerkleTreeFile = outputBlocksDir.resolve("completeMerkleTree.bin");
+            final InMemoryTreeHasher inMemoryTreeHasher = new InMemoryTreeHasher();
+
+            if (effectiveHighest >= 0) {
+                System.out.println("Replaying " + (effectiveHighest + 1) + " block hashes into hashers (blocks 0.."
+                        + effectiveHighest + ")");
+                for (long bn = 0; bn <= effectiveHighest; bn++) {
+                    final byte[] hash = blockRegistry.getBlockHash(bn);
+                    streamingHasher.addNodeByHash(hash);
+                    inMemoryTreeHasher.addNodeByHash(hash);
+                }
+                System.out.println("Hasher replay complete. Streaming leafCount=" + streamingHasher.leafCount()
+                        + ", inMemory leafCount=" + inMemoryTreeHasher.leafCount());
+            }
+
             // load day paths from the input directory, filtering to just ones newer than the startBlockDate and sorting
-            final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir.toFile()}).stream()
+            final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new Path[] {compressedDaysDir}).stream()
                     .filter(p -> {
                         final LocalDate fileDate = dayPathToLocalDate(p);
                         return fileDate.isEqual(startBlockDate) || fileDate.isAfter(startBlockDate);
@@ -300,6 +405,16 @@ public class ToWrappedBlocksCommand implements Runnable {
                         + dayPathToLocalDate(dayPaths.getLast())));
             }
 
+            // Validate all day paths have matching entries in day_blocks.json
+            final List<LocalDate> missingDates = dayPaths.stream()
+                    .map(ToWrappedBlocksCommand::dayPathToLocalDate)
+                    .filter(d -> !dayMap.containsKey(d))
+                    .toList();
+            if (!missingDates.isEmpty()) {
+                throw new RuntimeException("Day archives found without matching entries in day_blocks.json: "
+                        + missingDates + ". Run 'mirror extractDayBlock' to regenerate metadata.");
+            }
+
             // Progress tracking setup
             final long startNanos = System.nanoTime();
             // Calculate total blocks to process from the last day's info
@@ -312,92 +427,76 @@ public class ToWrappedBlocksCommand implements Runnable {
             // Track the last reported minute to avoid spamming progress output
             final AtomicLong lastReportedMinute = new AtomicLong(Long.MIN_VALUE);
 
-            // create Streaming and In Memory Merkle Tree hashers and load state if files exist.
-            // loadWithFallback tries the primary file first, then the .bak rotation if corrupt.
-            final Path streamingMerkleTreeFile = outputBlocksDir.resolve("streamingMerkleTree.bin");
-            final StreamingHasher streamingHasher = new StreamingHasher();
-            loadWithFallback(streamingMerkleTreeFile, streamingHasher::load);
-
-            final Path inMemoryMerkleTreeFile = outputBlocksDir.resolve("completeMerkleTree.bin");
-            final InMemoryTreeHasher inMemoryTreeHasher = new InMemoryTreeHasher();
-            loadWithFallback(inMemoryMerkleTreeFile, inMemoryTreeHasher::load);
-
-            // Reconcile hasher states with the block registry.
-            // The registry is a RandomAccessFile written synchronously per block, so after a crash
-            // it can be ahead of the periodic hasher checkpoints.  If we let the mismatch stand,
-            // every subsequent block would get a wrong rootHashOfBlockHashesMerkleTree in its
-            // footer, silently corrupting the chain.  Re-feed any missing hashes from the registry
-            // before processing begins so all three data structures are consistent.
-            final long registryHighest = blockRegistry.highestBlockNumberStored();
-            if (registryHighest >= 0) {
-                final long streamingLeafCount = streamingHasher.leafCount();
-                if (streamingLeafCount <= registryHighest) {
-                    System.out.println("Replaying " + (registryHighest - streamingLeafCount + 1)
-                            + " block hashes into streaming hasher (blocks "
-                            + streamingLeafCount + ".." + registryHighest + ")");
-                    for (long bn = streamingLeafCount; bn <= registryHighest; bn++) {
-                        streamingHasher.addNodeByHash(blockRegistry.getBlockHash(bn));
-                    }
-                }
-                final long inMemoryLeafCount = inMemoryTreeHasher.leafCount();
-                if (inMemoryLeafCount <= registryHighest) {
-                    System.out.println("Replaying " + (registryHighest - inMemoryLeafCount + 1)
-                            + " block hashes into in-memory hasher (blocks "
-                            + inMemoryLeafCount + ".." + registryHighest + ")");
-                    for (long bn = inMemoryLeafCount; bn <= registryHighest; bn++) {
-                        inMemoryTreeHasher.addNodeByHash(blockRegistry.getBlockHash(bn));
-                    }
-                }
-            }
-
             // File to store jumpstart data (block number, hash, and streaming hasher state)
             final Path jumpstartFile = outputBlocksDir.resolve("jumpstart.bin");
             // Track the last block number and hash in memory, write once at the end
             final AtomicLong jumpstartBlockNumber = new AtomicLong(-1);
             final AtomicReference<byte[]> jumpstartBlockHash = new AtomicReference<>(null);
 
-            // Register a shutdown hook to persist last good status on JVM exit (Ctrl+C, etc.)
-            Runtime.getRuntime()
-                    .addShutdownHook(new Thread(
-                            () -> {
-                                if (!Files.isDirectory(outputBlocksDir)) {
-                                    System.err.println("Shutdown: output directory no longer exists, skipping save: "
-                                            + outputBlocksDir);
-                                    return;
-                                }
-                                // Interrupt pipeline workers so they stop accepting new work
-                                parseAndVerifyPool.shutdownNow();
-                                serializePool.shutdownNow();
+            // Register a shutdown hook to request orderly drain on JVM exit (Ctrl+C, etc.)
+            final Thread shutdownHook = new Thread(
+                    () -> {
+                        if (!Files.isDirectory(outputBlocksDir)) {
+                            System.err.println(
+                                    "Shutdown: output directory no longer exists, skipping save: " + outputBlocksDir);
+                            return;
+                        }
+                        // Signal the main loop to stop after the current block
+                        shutdownRequested = true;
+
+                        // Wait for the zip-write pool to drain pending work (up to 30 seconds)
+                        zipWritePool.shutdown();
+                        try {
+                            if (!zipWritePool.awaitTermination(30, TimeUnit.SECONDS)) {
+                                System.err.println("Shutdown: zip write pool did not drain in 30s, forcing.");
                                 zipWritePool.shutdownNow();
-                                // Close the current open zip (if any) to flush completed entries
-                                final ZipOutputStream openZip = currentZipRef.get();
-                                if (openZip != null) {
-                                    try {
-                                        openZip.close();
-                                    } catch (IOException ignored) {
-                                    }
-                                }
-                                try {
-                                    System.err.println("Shutdown: address book to " + addressBookFile);
-                                    addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-                                } catch (Exception e) {
-                                    System.err.println("Shutdown: could not save address book: " + e.getMessage());
-                                }
-                                saveStateCheckpoint(
-                                        streamingMerkleTreeFile, streamingHasher,
-                                        inMemoryMerkleTreeFile, inMemoryTreeHasher);
-                                System.err.println("Shutdown: saved merkle tree states to " + streamingMerkleTreeFile
-                                        + " and " + inMemoryMerkleTreeFile);
-                                // Save jumpstart data if we processed any blocks
-                                if (jumpstartBlockHash.get() != null) {
-                                    saveJumpstartData(
-                                            jumpstartFile,
-                                            jumpstartBlockNumber.get(),
-                                            jumpstartBlockHash.get(),
-                                            streamingHasher);
-                                }
-                            },
-                            "wrap-shutdown-hook"));
+                            }
+                        } catch (InterruptedException ignored) {
+                            zipWritePool.shutdownNow();
+                        }
+
+                        // Close the open zip appender so CEN is written (makes zip valid)
+                        final BlockZipAppender openZip = currentZipRef.getAndSet(null);
+                        currentZipPathRef.set(null);
+                        if (openZip != null) {
+                            try {
+                                openZip.close();
+                            } catch (IOException e) {
+                                System.err.println("Shutdown: could not close zip appender: " + e.getMessage());
+                            }
+                        }
+
+                        // Save watermark after zip pool has drained
+                        saveWatermark(watermarkFile, durableWatermark.get());
+
+                        // Shut down other pools
+                        parseAndVerifyPool.shutdownNow();
+                        serializePool.shutdownNow();
+
+                        try {
+                            System.err.println("Shutdown: saving address book to " + addressBookFile);
+                            addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+                        } catch (Exception e) {
+                            System.err.println("Shutdown: could not save address book: " + e.getMessage());
+                        }
+                        synchronized (chainStateLock) {
+                            saveStateCheckpoint(
+                                    streamingMerkleTreeFile, streamingHasher,
+                                    inMemoryMerkleTreeFile, inMemoryTreeHasher);
+                            System.err.println("Shutdown: saved merkle tree states to " + streamingMerkleTreeFile
+                                    + " and " + inMemoryMerkleTreeFile);
+                            // Save jumpstart data if we processed any blocks
+                            if (jumpstartBlockHash.get() != null) {
+                                saveJumpstartData(
+                                        jumpstartFile,
+                                        jumpstartBlockNumber.get(),
+                                        jumpstartBlockHash.get(),
+                                        streamingHasher);
+                            }
+                        }
+                    },
+                    "wrap-shutdown-hook");
+            Runtime.getRuntime().addShutdownHook(shutdownHook);
 
             // track the block number we are working on, atomic as we want to update this global state from lambdas
             final AtomicLong blockCounter = new AtomicLong(startBlock);
@@ -410,13 +509,20 @@ public class ToWrappedBlocksCommand implements Runnable {
             // Initialised to -1 so that the first block's month does not trigger a premature save.
             int lastSavedBlockMonth = -1;
 
+            // Track whether a parse failure occurred so we can throw after drain
+            String parseFailureMessage = null;
+
             // Iterate over all the days to convert. We have to convert in order and sequentially as we are building new
             // ordered blockchains
             for (final Path dayPath : dayPaths) {
+                if (shutdownRequested) {
+                    break;
+                }
                 final LocalDate dayDate = dayPathToLocalDate(dayPath);
                 long currentBlockNumberBeingRead = dayMap.get(dayDate).firstBlockNumber;
-                System.out.println(Ansi.AUTO.string("\n@|yellow Starting processing day:|@ " + dayPath
-                        + " @|yellow at block:|@ " + currentBlockNumberBeingRead + " @|"));
+                PrettyPrint.clearProgress();
+                System.out.println(Ansi.AUTO.string("@|yellow Starting processing day:|@ " + dayPath
+                        + " @|yellow at block:|@ " + currentBlockNumberBeingRead));
                 if (currentBlockNumberBeingRead > startBlock) {
                     // double-check blockCounter is in sync
                     if (blockCounter.get() != currentBlockNumberBeingRead) {
@@ -432,7 +538,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                                     recordBlock -> recordBlock.recordFileTime().isAfter(highestStoredBlockTime))
                             .iterator();
 
-                    while (it.hasNext() || !parseWindow.isEmpty()) {
+                    while ((it.hasNext() || !parseWindow.isEmpty()) && !shutdownRequested) {
                         // ---- Stage 1: fill the sliding parse+verify window ----
                         // Submit up to resolvedPrefetch parse+RSA-verify tasks concurrently.
                         while (parseWindow.size() < resolvedPrefetch && it.hasNext()) {
@@ -465,10 +571,12 @@ public class ToWrappedBlocksCommand implements Runnable {
                         } catch (Exception ex) {
                             PrettyPrint.clearProgress();
                             System.err.println("Failed parsing/verifying block in " + dayPath + ": " + ex.getMessage());
-                            ex.printStackTrace();
+                            ex.printStackTrace(System.err);
                             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-                            System.exit(1);
-                            return; // unreachable – silences "preVerified may be uninitialized" warning
+                            parseFailureMessage =
+                                    "Failed parsing/verifying block in " + dayPath + ": " + ex.getMessage();
+                            shutdownRequested = true;
+                            break;
                         }
 
                         final long blockNum = blockCounter.getAndIncrement();
@@ -514,13 +622,16 @@ public class ToWrappedBlocksCommand implements Runnable {
                                 streamingHasher.computeRootHash(),
                                 amendmentProvider);
 
-                        // Update chain state (not thread-safe – must stay on main thread)
+                        // Update chain state under lock so the shutdown hook cannot read
+                        // partially updated hashers while saving state.
                         final byte[] blockStreamBlockHash = hashBlock(wrapped);
-                        streamingHasher.addNodeByHash(blockStreamBlockHash);
-                        inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
-                        blockRegistry.addBlock(blockNum, blockStreamBlockHash);
-                        jumpstartBlockNumber.set(blockNum);
-                        jumpstartBlockHash.set(blockStreamBlockHash);
+                        synchronized (chainStateLock) {
+                            streamingHasher.addNodeByHash(blockStreamBlockHash);
+                            inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
+                            blockRegistry.addBlock(blockNum, blockStreamBlockHash);
+                            jumpstartBlockNumber.set(blockNum);
+                            jumpstartBlockHash.set(blockStreamBlockHash);
+                        }
 
                         // Pre-compute block path on the convert thread (pure arithmetic, fast).
                         // Creating the directory here avoids doing it on the zip-write thread.
@@ -534,9 +645,9 @@ public class ToWrappedBlocksCommand implements Runnable {
 
                         // ---- Stage 4: zip write on the single-threaded zipWritePool ----
                         // allOf(prevWrite, serFuture) ensures:
-                        //   • block N-1's zip write is complete before block N is written
-                        //     (sequential appends to the same open ZipOutputStream)
-                        //   • block N's bytes are ready before we try to write them
+                        //   block N-1's zip write is complete before block N is written
+                        //   (sequential appends to the same open ZipOutputStream)
+                        //   block N's bytes are ready before we try to write them
                         final CompletableFuture<Void> prevWrite = lastWriteFuture;
                         lastWriteFuture = CompletableFuture.allOf(prevWrite, serFuture)
                                 .thenRunAsync(
@@ -546,20 +657,61 @@ public class ToWrappedBlocksCommand implements Runnable {
                                                 if (archiveType == BlockArchiveType.UNCOMPRESSED_ZIP) {
                                                     // Switch zip file when the block number crosses into a new range
                                                     if (!blockPath.zipFilePath().equals(currentZipPathRef.get())) {
-                                                        final ZipOutputStream old = currentZipRef.get();
+                                                        final BlockZipAppender old = currentZipRef.get();
                                                         if (old != null) {
                                                             old.close();
+                                                            // Flush watermark on zip-file close
+                                                            saveWatermark(watermarkFile, durableWatermark.get());
+                                                            blocksSinceWatermarkFlush.set(0);
                                                         }
+                                                        // Clear ref before open so a failure leaves clean null state
+                                                        // rather than a stale/closed appender
+                                                        currentZipRef.set(null);
+                                                        currentZipPathRef.set(null);
+                                                        BlockZipAppender newAppender;
+                                                        try {
+                                                            newAppender = BlockWriter.openZipForAppend(
+                                                                    blockPath.zipFilePath());
+                                                        } catch (IOException ex) {
+                                                            // Corrupt partial zip from a previous crash — safe to
+                                                            // delete
+                                                            // since watermark guarantees no committed blocks are in
+                                                            // this
+                                                            // zip range. Hashers are rebuilt from registry on resume.
+                                                            System.err.println(
+                                                                    "Warning: deleting corrupt zip and recreating: "
+                                                                            + blockPath.zipFilePath());
+                                                            Files.deleteIfExists(blockPath.zipFilePath());
+                                                            newAppender = BlockWriter.openZipForAppend(
+                                                                    blockPath.zipFilePath());
+                                                        }
+                                                        currentZipRef.set(newAppender);
                                                         currentZipPathRef.set(blockPath.zipFilePath());
-                                                        currentZipRef.set(
-                                                                BlockWriter.openZipForAppend(blockPath.zipFilePath()));
                                                     }
                                                     BlockWriter.writeBlockEntry(currentZipRef.get(), blockPath, bytes);
                                                 } else {
                                                     // Individual-file mode: each block is its own file
                                                     Files.write(blockPath.zipFilePath(), bytes);
                                                 }
+                                                // Update watermark after successful write
+                                                durableWatermark.set(blockNum);
+                                                // Flush watermark periodically
+                                                if (blocksSinceWatermarkFlush.incrementAndGet()
+                                                        >= WATERMARK_BATCH_SIZE) {
+                                                    saveWatermark(watermarkFile, blockNum);
+                                                    blocksSinceWatermarkFlush.set(0);
+                                                }
                                             } catch (IOException e) {
+                                                // Close the zip appender to avoid resource leak
+                                                final BlockZipAppender leakedZip = currentZipRef.getAndSet(null);
+                                                currentZipPathRef.set(null);
+                                                if (leakedZip != null) {
+                                                    try {
+                                                        leakedZip.close();
+                                                    } catch (IOException suppressed) {
+                                                        e.addSuppressed(suppressed);
+                                                    }
+                                                }
                                                 throw new UncheckedIOException(e);
                                             }
                                         },
@@ -576,21 +728,33 @@ public class ToWrappedBlocksCommand implements Runnable {
                                 lastReportedMinute);
                     }
                 } catch (Exception e) {
-                    throw new RuntimeException(e);
+                    if (shutdownRequested) {
+                        break; // Ctrl+C: shutdown hook already saved state
+                    }
+                    // Non-parse exception: request orderly drain, then rethrow after state save
+                    parseFailureMessage = "Non-parse exception during day processing: " + e.getMessage();
+                    shutdownRequested = true;
+                    break;
+                }
+                if (shutdownRequested) {
+                    break;
                 }
             }
 
-            // After all days are processed: close the last open zip file and wait for every
-            // pending zip-write task to finish before saving chain state.
+            // After all days are processed (or shutdown requested): close the last open zip file
+            // and wait for every pending zip-write task to finish before saving chain state.
+            // The zip is always closed on its own thread to avoid cross-thread access.
             lastWriteFuture
                     .thenRunAsync(
                             () -> {
                                 try {
-                                    final ZipOutputStream last = currentZipRef.get();
+                                    final BlockZipAppender last = currentZipRef.get();
                                     if (last != null) {
                                         last.close();
                                         currentZipRef.set(null);
                                     }
+                                    // Final watermark flush
+                                    saveWatermark(watermarkFile, durableWatermark.get());
                                 } catch (IOException e) {
                                     throw new UncheckedIOException(e);
                                 }
@@ -602,9 +766,14 @@ public class ToWrappedBlocksCommand implements Runnable {
             PrettyPrint.clearProgress();
             System.out.println("Conversion complete. Blocks written: " + blocksProcessed.get());
 
+            // Remove shutdown hook before saving state to prevent concurrent writes
+            try {
+                Runtime.getRuntime().removeShutdownHook(shutdownHook);
+            } catch (IllegalStateException ignored) {
+                // JVM is already shutting down — hook is running or has run
+            }
+
             // Save hasher states atomically now that all writes are complete.
-            // The shutdown hook will save again on JVM exit, but saving here first ensures
-            // the state is persisted even if the hook is interrupted.
             saveStateCheckpoint(
                     streamingMerkleTreeFile, streamingHasher,
                     inMemoryMerkleTreeFile, inMemoryTreeHasher);
@@ -615,12 +784,73 @@ public class ToWrappedBlocksCommand implements Runnable {
             }
 
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+
+            // If we stopped due to a parse failure, throw after saving state
+            if (parseFailureMessage != null) {
+                throw new RuntimeException(parseFailureMessage);
+            }
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw (e instanceof RuntimeException re) ? re : new RuntimeException(e);
         } finally {
-            parseAndVerifyPool.shutdownNow();
-            serializePool.shutdownNow();
-            zipWritePool.shutdownNow();
+            parseAndVerifyPool.shutdown();
+            serializePool.shutdown();
+            zipWritePool.shutdown();
+            try {
+                if (!parseAndVerifyPool.awaitTermination(10, TimeUnit.SECONDS)) {
+                    parseAndVerifyPool.shutdownNow();
+                }
+                if (!serializePool.awaitTermination(10, TimeUnit.SECONDS)) {
+                    serializePool.shutdownNow();
+                }
+                if (!zipWritePool.awaitTermination(10, TimeUnit.SECONDS)) {
+                    zipWritePool.shutdownNow();
+                }
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /**
+     * Load the durable commit watermark from the given file.
+     *
+     * @param watermarkFile the path to the watermark file
+     * @return the watermark block number, or {@code -1} if the file does not exist or is invalid
+     */
+    static long loadWatermark(Path watermarkFile) {
+        if (!Files.exists(watermarkFile)) {
+            return -1;
+        }
+        try {
+            final byte[] bytes = Files.readAllBytes(watermarkFile);
+            if (bytes.length < Long.BYTES) {
+                return -1;
+            }
+            return ByteBuffer.wrap(bytes).getLong();
+        } catch (IOException e) {
+            System.err.println("Warning: could not read watermark file: " + e.getMessage());
+            return -1;
+        }
+    }
+
+    /**
+     * Save the durable commit watermark atomically (write to .tmp, then rename).
+     *
+     * @param watermarkFile the path to the watermark file
+     * @param blockNumber the highest block number durably written
+     */
+    static void saveWatermark(Path watermarkFile, long blockNumber) {
+        if (blockNumber < 0) {
+            return;
+        }
+        final Path tmpFile = watermarkFile.resolveSibling(WATERMARK_FILE_NAME + ".tmp");
+        try {
+            final byte[] bytes =
+                    ByteBuffer.allocate(Long.BYTES).putLong(blockNumber).array();
+            Files.write(tmpFile, bytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.move(tmpFile, watermarkFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            System.err.println("Warning: could not save watermark: " + e.getMessage());
         }
     }
 
@@ -714,7 +944,7 @@ public class ToWrappedBlocksCommand implements Runnable {
      *   <li>Previous block root hash (48 bytes, SHA-384)</li>
      *   <li>Streaming hasher leaf count (8 bytes, long)</li>
      *   <li>Streaming hasher hash count (4 bytes, int)</li>
-     *   <li>Streaming hasher pending subtree hashes (48 bytes × hash count)</li>
+     *   <li>Streaming hasher pending subtree hashes (48 bytes x hash count)</li>
      * </ul>
      *
      * @param file the file to write to
@@ -722,8 +952,7 @@ public class ToWrappedBlocksCommand implements Runnable {
      * @param blockHash the block hash (SHA-384, 48 bytes) - this is the previous block root hash
      * @param streamingHasher the streaming hasher containing the merkle tree state
      */
-    private static void saveJumpstartData(
-            Path file, long blockNumber, byte[] blockHash, StreamingHasher streamingHasher) {
+    static void saveJumpstartData(Path file, long blockNumber, byte[] blockHash, StreamingHasher streamingHasher) {
         try (DataOutputStream out = new DataOutputStream(
                 Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))) {
             // Block number and hash (previous block root hash for the next block)

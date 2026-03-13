@@ -182,7 +182,7 @@ public class Validate implements Runnable {
         // atomic reference for last good status
         final AtomicReference<Status> lastGood = new AtomicReference<>(resumeStatus);
         // load all the day paths
-        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new File[] {compressedDaysDir});
+        final List<Path> dayPaths = TarZstdDayUtils.sortedDayPaths(new Path[] {compressedDaysDir.toPath()});
         if (dayPaths.isEmpty()) {
             System.out.println("No day files found in " + compressedDaysDir);
             return;

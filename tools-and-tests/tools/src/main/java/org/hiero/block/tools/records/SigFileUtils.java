@@ -17,6 +17,15 @@ public class SigFileUtils {
     /** Cache of decoded RSA public keys keyed by hex-encoded DER string. Avoids repeated hex-decode + KeyFactory cost. */
     private static final Map<String, PublicKey> KEY_CACHE = new ConcurrentHashMap<>();
 
+    /** Thread-local pooled RSA-SHA384 Signature engine to avoid per-call Signature.getInstance() allocation. */
+    private static final ThreadLocal<Signature> RSA_VERIFIER = ThreadLocal.withInitial(() -> {
+        try {
+            return Signature.getInstance("SHA384withRSA");
+        } catch (Exception e) {
+            throw new RuntimeException("SHA384withRSA not available", e);
+        }
+    });
+
     /**
      * Extract the node account number from a signature file path.
      * Expected filename format: node_0.0.X.rcd_sig
@@ -81,7 +90,7 @@ public class SigFileUtils {
      * @throws Exception if the verification operation fails unexpectedly
      */
     static boolean verifyWithInput(PublicKey pubKey, byte[] data, byte[] signatureBytes) throws Exception {
-        final Signature sig = Signature.getInstance("SHA384withRSA");
+        final Signature sig = RSA_VERIFIER.get();
         sig.initVerify(pubKey);
         sig.update(data);
         return sig.verify(signatureBytes);

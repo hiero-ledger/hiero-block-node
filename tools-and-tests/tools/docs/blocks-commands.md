@@ -86,7 +86,8 @@ Validates a wrapped Block Stream by checking:
 #### Usage
 
 ```
-blocks validate [-v] [--skip-signatures] [-a=<addressBookFile>] [<files>...]
+blocks validate [-v] [--skip-signatures] [--no-resume] [--threads=<N>] [--prefetch=<N>]
+                [-a=<addressBookFile>] [<files>...]
 ```
 
 #### Options
@@ -94,7 +95,10 @@ blocks validate [-v] [--skip-signatures] [-a=<addressBookFile>] [<files>...]
 |            Option             |                                                      Description                                                       |
 |-------------------------------|------------------------------------------------------------------------------------------------------------------------|
 | `-a`, `--address-book <file>` | Path to address book history JSON file. If not specified, auto-detects `addressBookHistory.json` in input directories. |
-| `--skip-signatures`           | Skip signature validation (only check hash chain).                                                                     |
+| `--skip-signatures`           | Skip signature validation (only check hash chain and state).                                                           |
+| `--no-resume`                 | Ignore any existing checkpoint and start validation from scratch.                                                      |
+| `--threads <N>`               | Decompression + parse threads (default: available CPU cores - 1).                                                      |
+| `--prefetch <N>`              | Number of blocks to buffer ahead for decompression (default: 512).                                                     |
 | `-v`, `--verbose`             | Print details for each block.                                                                                          |
 | `<files>...`                  | Block files or directories to validate.                                                                                |
 
@@ -130,7 +134,7 @@ Validates wrapped block stream files produced by the `wrap` command. Walks all b
 #### Usage
 
 ```
-blocks validate-wrapped [-n=<network>] [--[no-]validate-balances] [--balance-checkpoints=<file>]
+blocks validate-wrapped [--network=<network>] [--[no-]validate-balances] [--balance-checkpoints=<file>]
                         [--custom-balances-dir=<dir>] [--balance-check-interval-days=<days>] [<files>...]
 ```
 
@@ -138,7 +142,7 @@ blocks validate-wrapped [-n=<network>] [--[no-]validate-balances] [--balance-che
 
 |                      Option                      |                                           Description                                            |
 |--------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| `-n`, `--network <name>`                         | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
+| `--network <name>`                               | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
 | `--validate-balances` / `--no-validate-balances` | Enable or disable balance checkpoint validation. Default: enabled.                               |
 | `--balance-checkpoints <file>`                   | Path to pre-fetched balance checkpoints file (`balance_checkpoints.zstd`).                       |
 | `--custom-balances-dir <dir>`                    | Directory containing custom balance files (`accountBalances_{blockNumber}.pb.gz`).               |
@@ -167,7 +171,7 @@ value.
 
 - When starting from block 0, a `StreamingHasher` is created to validate the historical block hash merkle tree and a balance map is maintained for 50 billion HBAR supply validation. When starting from a later block, both are skipped because the prior state is unavailable.
 - Supports both individual block files (nested directories of `.blk.zstd`) and zip archives produced by the `wrap` command.
-- Progress is printed every 1000 blocks with an ETA.
+- Progress is printed every 1000 blocks with an ETA and on the last block.
 - If no balance checkpoints are loaded, balance validation is automatically skipped with a warning.
 
 #### Example
@@ -198,19 +202,23 @@ Converts record file blocks organized in daily tar.zstd files into wrapped Block
 #### Usage
 
 ```
-blocks wrap [-u] [-n=<network>] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<inputDir>] [-o=<outputDir>]
+blocks wrap [-u] [--network=<network>] [-b=<blockTimesFile>] [-d=<dayBlocksFile>] [-i=<inputDir>] [-o=<outputDir>]
+            [--parse-threads=<N>] [--serialize-threads=<N>] [--prefetch=<N>]
 ```
 
 #### Options
 
-|              Option              |                                                  Description                                                  |
-|----------------------------------|---------------------------------------------------------------------------------------------------------------|
-| `-b`, `--blocktimes-file <file>` | BlockTimes file for mapping record file times to blocks (default: `metadata/block_times.bin`).                |
-| `-d`, `--day-blocks <file>`      | Path to the day blocks JSON file (default: `metadata/day_blocks.json`).                                       |
-| `-n`, `--network <name>`         | Network name for applying amendments (`mainnet`, `testnet`, `none`). Default: `mainnet`.                      |
-| `-u`, `--unzipped`               | Write output files as individual files in nested directories, rather than in uncompressed zip batches of 10k. |
-| `-i`, `--input-dir <dir>`        | Directory of record file tar.zstd days to process (default: `compressedDays`).                                |
-| `-o`, `--output-dir <dir>`       | Directory to write the output wrapped blocks (default: `wrappedBlocks`).                                      |
+|              Option              |                                                    Description                                                     |
+|----------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `-b`, `--blocktimes-file <file>` | BlockTimes file for mapping record file times to blocks (default: `metadata/block_times.bin`).                     |
+| `-d`, `--day-blocks <file>`      | Path to the day blocks JSON file (default: `metadata/day_blocks.json`).                                            |
+| `--network <name>`               | Network name for applying amendments (`mainnet`, `testnet`, `none`). Default: `mainnet`.                           |
+| `-u`, `--unzipped`               | Write output files as individual files in nested directories, rather than in uncompressed zip batches of 10k.      |
+| `-i`, `--input-dir <dir>`        | Directory of record file tar.zstd days to process (default: `compressedDays`).                                     |
+| `-o`, `--output-dir <dir>`       | Directory to write the output wrapped blocks (default: `wrappedBlocks`).                                           |
+| `--parse-threads <N>`            | Thread count for the parse + RSA-verify stage (default: CPU count - 1).                                            |
+| `--serialize-threads <N>`        | Thread count for the block serialization + compression stage (default: CPU count - 1).                             |
+| `--prefetch <N>`                 | Number of parse+verify futures to keep in-flight ahead of the convert thread (default: same as `--parse-threads`). |
 
 #### Prerequisites
 
@@ -235,12 +243,15 @@ The command writes:
 - `addressBookHistory.json` - address book history copied/generated during conversion
 - `blockStreamBlockHashes.bin` - registry of computed block hashes
 - `streamingMerkleTree.bin` and `completeMerkleTree.bin` - Merkle tree state for resume capability
+- `wrap-commit.bin` - durable commit watermark tracking the highest block number fully written to zip
+- `jumpstart.bin` - jumpstart data (block number, hash, streaming hasher state) for Consensus Node continuation
 
 #### Notes
 
-- The command can resume from where it left off if interrupted
-- Progress is saved periodically via shutdown hooks
-- A merkle tree of block hashes is computed during conversion
+- The command can resume from where it left off if interrupted. Resume uses a durable watermark (`wrap-commit.bin`); on crash, blocks beyond the watermark are re-processed.
+- State checkpoints (merkle trees, address book) are saved monthly and on shutdown.
+- A 4-stage concurrent pipeline processes blocks: parse+RSA-verify → convert+chain-state → serialize+compress → zip-write.
+- Progress is printed once per consensus-minute with processing speed multiplier and ETA.
 
 #### Example
 

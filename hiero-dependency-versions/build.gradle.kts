@@ -64,6 +64,14 @@ dependencies.constraints {
     api("io.grpc:grpc-protobuf:$grpcIoVersion") { because("io.grpc.protobuf") }
     api("io.grpc:grpc-netty:$grpcIoVersion") { because("io.grpc.netty") }
 
+    // Eclipse Collections (primitive collections)
+    api("org.eclipse.collections:eclipse-collections-api:12.0.0") {
+        because("org.eclipse.collections.api")
+    }
+    api("org.eclipse.collections:eclipse-collections:12.0.0") {
+        because("org.eclipse.collections.impl")
+    }
+
     // command line tool
     api("info.picocli:picocli:4.7.7") { because("info.picocli") }
 

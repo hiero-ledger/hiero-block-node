@@ -38,6 +38,8 @@ mainModuleInfo {
     requires("io.helidon.webclient.grpc")
     requires("io.helidon.webclient.http2")
     requires("org.antlr.antlr4.runtime")
+    requires("org.eclipse.collections.api")
+    requires("org.eclipse.collections.impl")
 }
 
 testModuleInfo {
@@ -47,6 +49,8 @@ testModuleInfo {
 }
 
 pbj { generateTestClasses = false }
+
+tasks.test { maxParallelForks = Runtime.getRuntime().availableProcessors() }
 
 sourceSets {
     main {

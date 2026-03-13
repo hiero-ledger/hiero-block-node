@@ -42,6 +42,12 @@ public class BlockReader {
      */
     private static final ConcurrentHashMap<Path, StorageFormat> FORMAT_CACHE = new ConcurrentHashMap<>();
 
+    /** The path of the currently cached zip file, or null if no zip is cached. */
+    private static volatile Path cachedZipPath;
+
+    /** The cached ZipFileSystem for {@link #cachedZipPath}, or null if none is open. */
+    private static volatile FileSystem cachedZipFs;
+
     /**
      * Storage format information for a base directory.
      *
@@ -202,6 +208,9 @@ public class BlockReader {
     /**
      * Read a block from a zip file with known powers of ten configurations.
      *
+     * <p>Uses a single-entry cache to avoid re-opening the same ZipFileSystem for consecutive
+     * reads from the same zip file. The cache is invalidated when the zip path changes.
+     *
      * @param baseDirectory The base directory for the block files
      * @param blockNumber The block number
      * @param compressionType The compression type
@@ -209,7 +218,7 @@ public class BlockReader {
      * @return The block
      * @throws IOException If an error occurs reading the block or if the block is not found
      */
-    private static Block readBlockFromZipWithPowersOfTen(
+    private static synchronized Block readBlockFromZipWithPowersOfTen(
             final Path baseDirectory,
             final long blockNumber,
             final CompressionType compressionType,
@@ -222,15 +231,64 @@ public class BlockReader {
             throw new IOException("Zip file not found: " + blockPath.zipFilePath());
         }
 
-        try (final FileSystem zipFs = FileSystems.newFileSystem(blockPath.zipFilePath())) {
-            final Path blockFileInZip = zipFs.getPath("/", blockPath.blockFileName());
+        final FileSystem zipFs = getOrOpenZipFs(blockPath.zipFilePath());
+        final Path blockFileInZip = zipFs.getPath("/", blockPath.blockFileName());
 
-            if (!Files.exists(blockFileInZip)) {
-                throw new IOException("Block " + blockNumber + " not found in zip file: " + blockPath.zipFilePath());
+        if (!Files.exists(blockFileInZip)) {
+            throw new IOException("Block " + blockNumber + " not found in zip file: " + blockPath.zipFilePath());
+        }
+
+        final byte[] compressedBytes = Files.readAllBytes(blockFileInZip);
+        return deserializeBlock(compressedBytes, compressionType);
+    }
+
+    /**
+     * Returns a cached ZipFileSystem for the given path, opening a new one if the path differs
+     * from the currently cached zip. The previous cached ZipFileSystem is closed when evicted.
+     *
+     * @param zipFilePath the path to the zip file
+     * @return an open FileSystem for reading entries from the zip
+     * @throws IOException if an I/O error occurs opening the zip
+     */
+    private static FileSystem getOrOpenZipFs(final Path zipFilePath) throws IOException {
+        if (cachedZipFs != null && zipFilePath.equals(cachedZipPath)) {
+            try {
+                // Verify the cached filesystem is still usable (not just open, but functional).
+                // A ZipFileSystem backed by a closed JimFS may report isOpen()=true but throw
+                // on any actual operation.
+                cachedZipFs.getRootDirectories();
+                return cachedZipFs;
+            } catch (Exception e) {
+                // Cached filesystem is stale — fall through to reopen
             }
+        }
+        // Close the old cached zip if present
+        if (cachedZipFs != null) {
+            try {
+                cachedZipFs.close();
+            } catch (Exception ignored) {
+                // best-effort close; ClosedFileSystemException (an IllegalStateException)
+                // is thrown when the backing filesystem (e.g. JimFS in tests) is already closed
+            }
+        }
+        cachedZipFs = FileSystems.newFileSystem(zipFilePath);
+        cachedZipPath = zipFilePath;
+        return cachedZipFs;
+    }
 
-            final byte[] compressedBytes = Files.readAllBytes(blockFileInZip);
-            return deserializeBlock(compressedBytes, compressionType);
+    /**
+     * Closes the cached ZipFileSystem if one is open. Call this when done reading blocks
+     * to release file handles.
+     */
+    public static synchronized void closeCachedZipFs() {
+        if (cachedZipFs != null) {
+            try {
+                cachedZipFs.close();
+            } catch (Exception ignored) {
+                // best-effort close
+            }
+            cachedZipFs = null;
+            cachedZipPath = null;
         }
     }
 

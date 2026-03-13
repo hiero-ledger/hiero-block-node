@@ -10,7 +10,6 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.BufferedOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -34,7 +33,7 @@ import picocli.CommandLine.Parameters;
 public class ConvertToJson implements Runnable {
 
     @Parameters(index = "0..*")
-    private File[] files;
+    private Path[] files;
 
     @SuppressWarnings({"FieldMayBeFinal", "FieldCanBeLocal"})
     @Option(
@@ -62,7 +61,6 @@ public class ConvertToJson implements Runnable {
             System.err.println("No files to convert");
         } else {
             Arrays.stream(files)
-                    .map(File::toPath)
                     .flatMap(path -> {
                         try {
                             return Files.walk(path);
