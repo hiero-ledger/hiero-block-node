@@ -57,13 +57,6 @@ run_simulator() {
     )
 }
 
-cleanup() {
-    (
-    # shutdown solo
-    task down --taskfile ../scripts/solo-e2e-test/Taskfile.yml
-    )
-}
-
 # todo add more tests here and also make sure to reset BN
 
 run_server_status_test() {
@@ -83,9 +76,6 @@ run_stream_validation_test() {
 }
 
 run_shared_node_tests() {
-    # These tests can run on a shared node setup as they only read data
-    task up --taskfile ../scripts/solo-e2e-test/Taskfile.yml
-
     declare -i rc=0
     run_server_status_test
     rc+=$?
@@ -123,7 +113,6 @@ run_test() {
 }
 
 run_tests() {
-    trap cleanup EXIT
     echo "Starting K6 tests..."
     local k6_out_dir="k6-out"
     rm -rf "${k6_out_dir}" # remove old output dir if exists before running tests
