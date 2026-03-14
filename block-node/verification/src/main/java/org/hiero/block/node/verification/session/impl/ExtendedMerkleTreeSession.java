@@ -12,6 +12,7 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -28,6 +29,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.hiero.block.node.verification.session.VerificationSession;
 
@@ -238,8 +240,18 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         if (signedTxBytes == null || signedTxBytes.length() == 0) {
             return null;
         }
-        SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(signedTxBytes);
-        TransactionBody body = TransactionBody.PROTOBUF.parse(signedTx.bodyBytes());
+        SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(
+                signedTxBytes.toReadableSequentialData(),
+                false,
+                false,
+                Codec.DEFAULT_MAX_DEPTH,
+                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+        TransactionBody body = TransactionBody.PROTOBUF.parse(
+                signedTx.bodyBytes().toReadableSequentialData(),
+                false,
+                false,
+                Codec.DEFAULT_MAX_DEPTH,
+                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
         if (!body.hasLedgerIdPublication()) {
             return null;
         }

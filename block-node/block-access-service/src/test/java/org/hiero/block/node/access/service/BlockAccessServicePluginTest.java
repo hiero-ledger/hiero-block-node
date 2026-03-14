@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -16,10 +18,13 @@ import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
+import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -168,6 +173,29 @@ public class BlockAccessServicePluginTest
         BlockResponse response = BlockResponse.PROTOBUF.parse(fromPluginBytes.get(0));
         // check that the status is NOT_AVAILABLE
         assertEquals(Code.INVALID_REQUEST, response.status());
+    }
+
+    @Test
+    @DisplayName("TSS Wraps Block (1319) can be retrieved from BlockAccessService")
+    void testGetTssWrapsLargeBlock() throws ParseException, IOException {
+        final BlockUtils.SampleBlockInfo info =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.TSS_WRAPS_BLOCK_1319);
+        blockMessaging.sendBlockItems(
+                new BlockItems(info.blockUnparsed().blockItems(), info.blockNumber(), true, true));
+
+        final BlockRequest request =
+                BlockRequest.newBuilder().blockNumber(info.blockNumber()).build();
+        toPluginPipe.onNext(BlockRequest.PROTOBUF.toBytes(request));
+
+        assertEquals(1, fromPluginBytes.size());
+        final BlockResponse response = BlockResponse.PROTOBUF.parse(
+                fromPluginBytes.get(0).toReadableSequentialData(),
+                false,
+                false,
+                Codec.DEFAULT_MAX_DEPTH,
+                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
+        assertEquals(Code.SUCCESS, response.status());
+        assertEquals(1319, response.block().items().getFirst().blockHeader().number());
     }
 
     private void sendBlocks(int numberOfBlocks) {
