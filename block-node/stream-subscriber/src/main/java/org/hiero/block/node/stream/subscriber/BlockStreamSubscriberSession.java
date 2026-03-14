@@ -9,6 +9,7 @@ import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -453,7 +454,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                         throw new IllegalStateException(message);
                     }
                     final int blockByteSize = (int) blockBytes.length();
-                    final BlockUnparsed block = BlockUnparsed.PROTOBUF.parse(blockBytes);
+                    final BlockUnparsed block = BlockUnparsed.PROTOBUF.parse(
+                            blockBytes.toReadableSequentialData(),
+                            false,
+                            false,
+                            Codec.DEFAULT_MAX_DEPTH,
+                            BlockAccessor.MAX_BLOCK_SIZE_BYTES);
                     // We have retrieved the block to send, so send it.
                     sendOneFullBlock(block, blockByteSize);
                     // Trim the queue if necessary, also increment the next block to send.

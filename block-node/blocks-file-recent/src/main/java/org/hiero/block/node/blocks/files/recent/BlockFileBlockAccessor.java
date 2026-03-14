@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -81,7 +82,14 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     public BlockUnparsed blockUnparsed() {
         try {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
-            return rawData == null ? null : BlockUnparsed.PROTOBUF.parse(rawData);
+            return rawData == null
+                    ? null
+                    : BlockUnparsed.PROTOBUF.parse(
+                            rawData.toReadableSequentialData(),
+                            false,
+                            false,
+                            Codec.DEFAULT_MAX_DEPTH,
+                            BlockAccessor.MAX_BLOCK_SIZE_BYTES);
         } catch (final UncheckedIOException | ParseException e) {
             LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
@@ -147,7 +155,12 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     private Bytes getJsonBytesFromProtobufBytes(final Bytes sourceData) {
         if (sourceData != null) {
             try {
-                return Block.JSON.toBytes(Block.PROTOBUF.parse(sourceData));
+                return Block.JSON.toBytes(Block.PROTOBUF.parse(
+                        sourceData.toReadableSequentialData(),
+                        false,
+                        false,
+                        Codec.DEFAULT_MAX_DEPTH,
+                        BlockAccessor.MAX_BLOCK_SIZE_BYTES));
             } catch (final UncheckedIOException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock);
                 LOGGER.log(WARNING, message, e);
