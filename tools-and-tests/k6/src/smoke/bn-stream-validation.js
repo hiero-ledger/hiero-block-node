@@ -51,6 +51,7 @@ const trend = new Trend("full_block_stream_duration", true);
 
 // run test
 export default async () => {
+    // catch any connect errors to fail fast
     try {
         client.connect(data.blockNodeUrl, {
             plaintext: true,
