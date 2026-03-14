@@ -72,6 +72,46 @@ class AmendmentProviderTest {
     }
 
     @Nested
+    @DisplayName("TestnetAmendmentProvider tests")
+    class TestnetAmendmentProviderTests {
+
+        @Test
+        @DisplayName("Network name is testnet")
+        void testNetworkName() {
+            TestnetAmendmentProvider provider = new TestnetAmendmentProvider();
+            assertEquals("testnet", provider.getNetworkName());
+        }
+
+        @Test
+        @DisplayName("hasGenesisAmendments returns true only for block 0")
+        void testHasGenesisAmendments() {
+            TestnetAmendmentProvider provider = new TestnetAmendmentProvider();
+            assertTrue(provider.hasGenesisAmendments(0), "Block 0 should have genesis amendments");
+            assertFalse(provider.hasGenesisAmendments(1), "Block 1 should not have genesis amendments");
+            assertFalse(provider.hasGenesisAmendments(-1), "Block -1 should not have genesis amendments");
+            assertFalse(provider.hasGenesisAmendments(100), "Block 100 should not have genesis amendments");
+        }
+
+        @Test
+        @DisplayName("getGenesisAmendments returns empty list for non-genesis blocks")
+        void testGetGenesisAmendmentsNonGenesis() {
+            TestnetAmendmentProvider provider = new TestnetAmendmentProvider();
+            List<BlockItem> amendments = provider.getGenesisAmendments(1);
+            assertNotNull(amendments, "Amendments should not be null");
+            assertTrue(amendments.isEmpty(), "Amendments should be empty for non-genesis blocks");
+        }
+
+        @Test
+        @DisplayName("getMissingRecordStreamItems returns empty list (default implementation)")
+        void testGetMissingRecordStreamItems() {
+            TestnetAmendmentProvider provider = new TestnetAmendmentProvider();
+            List<RecordStreamItem> items = provider.getMissingRecordStreamItems(100);
+            assertNotNull(items, "Should return non-null list");
+            assertTrue(items.isEmpty(), "Testnet should not have missing transaction amendments");
+        }
+    }
+
+    @Nested
     @DisplayName("NoOpAmendmentProvider tests")
     class NoOpAmendmentProviderTests {
 
@@ -125,10 +165,10 @@ class AmendmentProviderTest {
     class CreateAmendmentProviderTests {
 
         @Test
-        @DisplayName("Testnet creates NoOpAmendmentProvider with 'testnet' network name")
-        void testTestnetCreatesNoOpProvider() {
+        @DisplayName("Testnet creates TestnetAmendmentProvider with 'testnet' network name")
+        void testTestnetCreatesTestnetProvider() {
             AmendmentProvider provider = AmendmentProvider.createAmendmentProvider("testnet");
-            assertInstanceOf(NoOpAmendmentProvider.class, provider);
+            assertInstanceOf(TestnetAmendmentProvider.class, provider);
             assertEquals("testnet", provider.getNetworkName());
         }
 
@@ -159,7 +199,7 @@ class AmendmentProviderTest {
         @DisplayName("Factory method is case-insensitive")
         void testCaseInsensitive() {
             AmendmentProvider upper = AmendmentProvider.createAmendmentProvider("TESTNET");
-            assertInstanceOf(NoOpAmendmentProvider.class, upper);
+            assertInstanceOf(TestnetAmendmentProvider.class, upper);
             assertEquals("testnet", upper.getNetworkName());
 
             AmendmentProvider mixed = AmendmentProvider.createAmendmentProvider("Mainnet");
