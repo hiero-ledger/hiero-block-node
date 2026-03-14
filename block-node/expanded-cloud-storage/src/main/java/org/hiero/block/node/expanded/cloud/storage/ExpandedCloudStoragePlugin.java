@@ -11,13 +11,13 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import org.hiero.block.common.utils.StringUtilities;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
-import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
  * A block node plugin that uploads each individually-verified block as a compressed
@@ -26,7 +26,15 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
  *
  * <p>Unlike the {@code s3-archive} plugin, which batches blocks into large tar files, this
  * plugin uploads one block per object. This makes individual blocks immediately queryable and
- * suits consumers that want block-level granularity in the cloud.
+ * suits consumers that want block-level granularity in the cloud with minimal latency.
+ *
+ * <h2>Trigger: {@link VerificationNotification}</h2>
+ * The plugin reacts to {@code handleVerification()} rather than {@code handlePersisted()}.
+ * This allows cloud upload and local file storage ({@code blocks-file-recent}) to run in
+ * parallel — each registered handler gets its own virtual thread. Block bytes are taken
+ * directly from {@code notification.block()}, avoiding any dependency on the local historical
+ * block provider and eliminating the serialization race that would exist if we waited for
+ * {@code PersistedNotification}.
  *
  * <h2>Object key format</h2>
  * <pre>{objectKeyPrefix}/{zeroPaddedBlockNumber}.blk.zstd</pre>
@@ -35,23 +43,20 @@ import org.hiero.block.node.spi.historicalblocks.BlockAccessor.Format;
  * Example: {@code blocks/0000000000001234567.blk.zstd}
  *
  * <h2>Enable / disable</h2>
- * The plugin is disabled when {@code expanded.cloud.storage.endpointUrl} is blank (the default).
- * Set it to a non-empty URL to activate uploads.
+ * The plugin is disabled when {@code expanded.cloud.storage.endpointUrl} is blank (the
+ * default). Set it to a non-empty URL to activate uploads.
  *
  * <h2>hedera-bucky swap path</h2>
- * The S3 client used by this plugin is abstracted behind the {@link S3Client} interface.
- * Currently backed by {@link BaseS3ClientAdapter}. When hedera-bucky is available on Maven
- * Central, replace {@link #createS3Client} with a {@code HederaBuckyS3ClientAdapter} — no
- * other changes are required.
+ * The S3 client is abstracted behind the {@link S3Client} interface, currently backed by
+ * {@link BaseS3ClientAdapter}. When hedera-bucky is available on Maven Central, replace
+ * {@link #createS3Client} with a {@code HederaBuckyS3ClientAdapter} — no other changes
+ * are required.
  */
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
 
     private static final String CONTENT_TYPE = "application/octet-stream";
 
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-
-    /** Block node context, set during {@link #init}. */
-    private BlockNodeContext context;
 
     /** Plugin configuration, set during {@link #init}. */
     private ExpandedCloudStorageConfig config;
@@ -92,7 +97,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** {@inheritDoc} */
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
-        this.context = context;
         this.config = context.configuration().getConfigData(ExpandedCloudStorageConfig.class);
 
         if (StringUtilities.isBlank(config.endpointUrl())) {
@@ -133,14 +137,21 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
 
     // ---- BlockNotificationHandler -------------------------------------------
 
-    /** {@inheritDoc} */
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Reacts to {@link VerificationNotification} to upload the verified block directly to S3
+     * in parallel with local file storage. Block bytes are taken from the notification itself
+     * ({@code notification.block()}) so there is no dependency on the local historical block
+     * provider and no race with {@code blocks-file-recent}.
+     */
     @Override
-    public void handlePersisted(@NonNull final PersistedNotification notification) {
+    public void handleVerification(@NonNull final VerificationNotification notification) {
         if (!enabled || s3Client == null) {
             return;
         }
-        if (!notification.succeeded()) {
-            LOGGER.log(TRACE, "Skipping upload for block {0}: persistence did not succeed.", notification.blockNumber());
+        if (!notification.success()) {
+            LOGGER.log(TRACE, "Skipping upload for block {0}: verification did not succeed.", notification.blockNumber());
             return;
         }
         final long blockNumber = notification.blockNumber();
@@ -148,29 +159,31 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             LOGGER.log(TRACE, "Skipping upload: invalid block number {0}.", blockNumber);
             return;
         }
-        uploadBlock(blockNumber);
+        final BlockUnparsed block = notification.block();
+        if (block == null) {
+            LOGGER.log(WARNING, "Skipping upload for block {0}: block payload is null.", blockNumber);
+            return;
+        }
+        uploadBlock(blockNumber, block);
     }
 
     // ---- Private helpers ----------------------------------------------------
 
     /**
-     * Fetches the block bytes and uploads to S3.
+     * Serialises the block to ZSTD-compressed protobuf bytes and uploads to S3.
      *
-     * @param blockNumber the block to upload
+     * @param blockNumber the block number (used for key generation and logging)
+     * @param block       the verified block payload from the notification
      */
-    private void uploadBlock(final long blockNumber) {
-        final BlockAccessor accessor = context.historicalBlockProvider().block(blockNumber);
-        if (accessor == null) {
-            LOGGER.log(WARNING, "Block {0} not found in historical provider; skipping upload.", blockNumber);
-            return;
-        }
+    private void uploadBlock(final long blockNumber, @NonNull final BlockUnparsed block) {
         try {
-            final byte[] bytes = accessor.blockBytes(Format.ZSTD_PROTOBUF).toByteArray();
+            final byte[] protoBytes = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
+            final byte[] compressed = CompressionType.ZSTD.compress(protoBytes);
             final String objectKey = buildObjectKey(blockNumber);
             s3Client.uploadFile(
                     objectKey,
                     config.storageClass(),
-                    Collections.singletonList(bytes).iterator(),
+                    Collections.singletonList(compressed).iterator(),
                     CONTENT_TYPE);
             LOGGER.log(TRACE, "Uploaded block {0} to S3 object key: {1}", blockNumber, objectKey);
         } catch (final S3ClientException | IOException e) {
@@ -191,9 +204,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     }
 
     /**
-     * Factory method for the production S3 client. Overriding this in tests is not necessary
-     * because tests use the package-private constructor to inject a {@link NoOpS3Client} or
-     * a real {@link BaseS3ClientAdapter} pointing at MinIO.
+     * Factory method for the production S3 client.
      *
      * @param cfg the plugin configuration
      * @return a new {@link S3Client} backed by {@link BaseS3ClientAdapter}
