@@ -34,6 +34,7 @@ client.load(
 
 // run test
 export default async () => {
+    // catch any connect errors to fail fast
     try {
         client.connect(data.blockNodeUrl, {
             plaintext: true,
