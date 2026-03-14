@@ -7,8 +7,10 @@ import {
     ServerStatusRequest,
     SubscribeBlockStreamRequest,
 } from "../lib/grpc.js";
-import { Trend } from "k6/metrics";
+import { Trend, Counter } from "k6/metrics";
 import { instance } from "k6/execution";
+
+const connectionError = new Counter("grpc_connection_error");
 
 // setup options
 export const options = {
@@ -25,6 +27,7 @@ export const options = {
         // todo make these good defaults, we need these to display tags in the result, but also to ping us if they go over
         "grpc_req_duration{name:block_node_server_status}": ["p(95)<300"],
         "grpc_req_duration{name:subscribe_block_stream}": ["p(95)<3000"],
+        grpc_connection_error: [{ threshold: "count<1", abortOnFail: true }],
         checks: [{ threshold: "rate == 1.0", abortOnFail: true }], // checks defined in this test must fail the test
     },
 };
@@ -48,9 +51,15 @@ const trend = new Trend("full_block_stream_duration", true);
 
 // run test
 export default async () => {
-    client.connect(data.blockNodeUrl, {
-        plaintext: true,
-    });
+    try {
+        client.connect(data.blockNodeUrl, {
+            plaintext: true,
+        });
+    } catch (error) {
+        connectionError.add(1);
+        console.error("gRPC connection error:", error.message);
+        fail("Failed to connect to gRPC server, aborting test.");
+    }
     const serverStatusParams = {
         tags: { name: "block_node_server_status" },
     };

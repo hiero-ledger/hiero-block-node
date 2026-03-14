@@ -16,47 +16,6 @@ setup_proto_defs() {
     )
 }
 
-run_bn() {
-    (
-    cd ../../
-    $GRADLEW clean &> /dev/null # todo we should be able to skip this clean, but locally, too many caching errors...
-    $GRADLEW :app:stopDockerContainer &> /dev/null
-    $GRADLEW :app:startDockerContainer &> /dev/null
-    )
-}
-
-run_simulator() {
-    local a="" b=""
-    if [[ $# -eq 2 ]]; then
-      a=$1
-      b=$2
-    else
-      echo "No arguments supplied for simulator start and end block number to stream!" >&2
-    fi
-    if (( a > b )); then
-        echo "Start block number must be less than or equal to end block number: start=$a, end=$b" >&2
-        exit 1
-    elif (( a < 0 )); then
-        echo "Start and end block numbers must be whole numbers: start=$a, end=$b" >&2
-        exit 1
-    fi
-    (
-    cd ../../
-    export GENERATOR_START_BLOCK_NUMBER=$a
-    export GENERATOR_END_BLOCK_NUMBER=$b
-    export BLOCK_STREAM_MILLISECONDS_PER_BLOCK=100 # stream the blocks fast, no need to stream them 1 per sec, adjust as needed
-    echo "Starting simulator to stream from block number ${GENERATOR_START_BLOCK_NUMBER} to ${GENERATOR_END_BLOCK_NUMBER}..."
-    $GRADLEW clean &> /dev/null # todo we should be able to skip this clean, but locally, too many caching errors...
-    $GRADLEW :simulator:stopDockerContainer &> /dev/null
-    $GRADLEW :simulator:startDockerContainerPublisher &> /dev/null
-    # sleep for the difference in blocks * milliseconds per block + buffer time of 10 seconds for simulator startup
-    local sleep_time=$(( (GENERATOR_END_BLOCK_NUMBER - GENERATOR_START_BLOCK_NUMBER) * BLOCK_STREAM_MILLISECONDS_PER_BLOCK / 1000 + 10 ))
-    echo "Sleeping for ${sleep_time} seconds to allow block streaming to complete..."
-    sleep $sleep_time
-    echo "Stopping simulator after block streaming completed."
-    )
-}
-
 # todo add more tests here and also make sure to reset BN
 
 run_server_status_test() {
@@ -113,11 +72,13 @@ run_test() {
 }
 
 run_tests() {
+    trap cleanup EXIT
     echo "Starting K6 tests..."
     local k6_out_dir="k6-out"
     rm -rf "${k6_out_dir}" # remove old output dir if exists before running tests
     mkdir -p "${k6_out_dir}"
     echo "Setting up tests & environment..."
+    start_solo || exit $?
     setup_proto_defs
     echo "Running shared node tests..."
     run_shared_node_tests
@@ -125,6 +86,26 @@ run_tests() {
     echo "Shared node tests completed. ret=$rc"
     echo "K6 tests completed. Output available at: ${k6_out_dir}"
     return $((rc))
+}
+
+cleanup() {
+    (
+    pushd "../scripts/solo-e2e-test" || exit
+    task down
+    popd || exit
+    )
+}
+
+start_solo() {
+    (
+    pushd "../scripts/solo-e2e-test" || return
+    task up
+    if [[ $? -ne 0 ]]; then
+        echo "FAILED TO START SOLO"
+        return 1
+    fi
+    popd || return
+    )
 }
 
 run_tests
