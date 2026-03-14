@@ -4,6 +4,9 @@ import { Client, StatusOK } from "k6/net/grpc";
 import { check, sleep } from "k6";
 import { SharedArray } from "k6/data";
 import { GetBlockRequest, ServerStatusRequest } from "../lib/grpc.js";
+import { Counter } from "k6/metrics";
+
+const connectionError = new Counter("grpc_connection_error");
 
 // setup options
 export const options = {
@@ -11,6 +14,7 @@ export const options = {
         // todo make these good defaults, we need these to display tags in the result, but also to ping us if they go over
         "grpc_req_duration{name:block_node_server_status}": ["p(95)<300"],
         "grpc_req_duration{name:get_block}": ["p(95)<300"],
+        grpc_connection_error: [{ threshold: "count<1", abortOnFail: true }],
     },
 };
 
@@ -30,9 +34,15 @@ client.load(
 
 // run test
 export default async () => {
-    client.connect(data.blockNodeUrl, {
-        plaintext: true,
-    });
+    try {
+        client.connect(data.blockNodeUrl, {
+            plaintext: true,
+        });
+    } catch (error) {
+        connectionError.add(1);
+        console.error("gRPC connection error:", error.message);
+        fail("Failed to connect to gRPC server, aborting test.");
+    }
     const serverStatusParams = {
         tags: { name: "block_node_server_status" },
     };
