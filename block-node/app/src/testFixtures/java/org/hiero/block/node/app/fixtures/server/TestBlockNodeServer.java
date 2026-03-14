@@ -5,8 +5,10 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.PbjRouting.Builder;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.ConnectionConfig;
 import io.helidon.webserver.WebServer;
@@ -29,8 +31,10 @@ public class TestBlockNodeServer {
 
     public TestBlockNodeServer(int port, HistoricalBlockFacility historicalBlockFacility) {
         // Override the default message size in PBJ
-        final PbjConfig pbjConfig =
-                PbjConfig.builder().name("pbj").maxMessageSizeBytes(4_194_304).build();
+        final PbjConfig pbjConfig = PbjConfig.builder()
+                .name("pbj")
+                .maxMessageSizeBytes(BlockAccessor.MAX_BLOCK_SIZE_BYTES)
+                .build();
 
         // Create the service builder
         final Builder pbjRoutingBuilder = PbjRouting.builder()
@@ -86,7 +90,13 @@ public class TestBlockNodeServer {
                 } else {
                     // Path 2: Block available - send block items followed by end-of-block marker
                     try (BlockAccessor accessor = historicalBlockFacility.block(i)) {
-                        Block block = Block.PROTOBUF.parse(accessor.blockBytes(BlockAccessor.Format.PROTOBUF));
+                        final Bytes blockBytes = accessor.blockBytes(BlockAccessor.Format.PROTOBUF);
+                        Block block = Block.PROTOBUF.parse(
+                                blockBytes.toReadableSequentialData(),
+                                false,
+                                false,
+                                Codec.DEFAULT_MAX_DEPTH,
+                                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
                         replies.onNext(SubscribeStreamResponse.newBuilder()
                                 .blockItems(BlockItemSet.newBuilder()
                                         .blockItems(block.items())

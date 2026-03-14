@@ -3,6 +3,7 @@ package org.hiero.block.node.backfill.client;
 
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
+import com.hedera.pbj.runtime.grpc.GrpcCompression;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.ToIntFunction;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 public class BlockNodeClient {
     private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());
@@ -133,8 +135,14 @@ public class BlockNodeClient {
         int pollWaitMs = POLL_WAIT_TIME.getValidOrDefault(tuning);
 
         Tls tls = Tls.builder().enabled(enableTls).build();
-        grpcConfig =
-                new PbjGrpcClientConfig(Duration.ofMillis(readTimeoutMs), tls, Optional.of(""), "application/grpc");
+        grpcConfig = new PbjGrpcClientConfig(
+                Duration.ofMillis(readTimeoutMs),
+                tls,
+                Optional.of(""),
+                "application/grpc",
+                GrpcCompression.IDENTITY,
+                GrpcCompression.getDecompressorNames(),
+                BlockAccessor.MAX_BLOCK_SIZE_BYTES);
 
         webClient = WebClient.builder()
                 .baseUri("http://" + blockNodeConfig.address() + ":" + blockNodeConfig.port())

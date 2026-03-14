@@ -6,6 +6,7 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
@@ -32,6 +33,8 @@ import picocli.CommandLine.Parameters;
 @SuppressWarnings({"DataFlowIssue", "unused", "DuplicatedCode", "ConstantValue"})
 @Command(name = "json", description = "Converts a binary block stream to JSON")
 public class ConvertToJson implements Runnable {
+    // 36 MB — matches BlockAccessor.MAX_BLOCK_SIZE_BYTES in spi-plugins
+    private static final int MAX_BLOCK_SIZE_BYTES = 37_748_736;
 
     @Parameters(index = "0..*")
     private File[] files;
@@ -104,7 +107,12 @@ public class ConvertToJson implements Runnable {
             } else {
                 uncompressedData = fIn.readAllBytes();
             }
-            final Block block = Block.PROTOBUF.parse(Bytes.wrap(uncompressedData));
+            final Block block = Block.PROTOBUF.parse(
+                    Bytes.wrap(uncompressedData).toReadableSequentialData(),
+                    false,
+                    false,
+                    Codec.DEFAULT_MAX_DEPTH,
+                    MAX_BLOCK_SIZE_BYTES);
             writeJsonBlock(block, outputFile);
             final long numOfTransactions = block.items().stream()
                     .filter(BlockItem::hasSignedTransaction)
@@ -138,14 +146,26 @@ public class ConvertToJson implements Runnable {
                     .filter(BlockItem::hasSignedTransaction)
                     .map(item -> {
                         try {
+                            Transaction tx = Transaction.PROTOBUF.parse(
+                                    item.signedTransaction().toReadableSequentialData(),
+                                    false,
+                                    false,
+                                    Codec.DEFAULT_MAX_DEPTH,
+                                    MAX_BLOCK_SIZE_BYTES);
+                            SignedTransaction signedTx = SignedTransaction.PROTOBUF.parse(
+                                    tx.signedTransactionBytes().toReadableSequentialData(),
+                                    false,
+                                    false,
+                                    Codec.DEFAULT_MAX_DEPTH,
+                                    MAX_BLOCK_SIZE_BYTES);
+                            TransactionBody body = TransactionBody.PROTOBUF.parse(
+                                    signedTx.bodyBytes().toReadableSequentialData(),
+                                    false,
+                                    false,
+                                    Codec.DEFAULT_MAX_DEPTH,
+                                    MAX_BLOCK_SIZE_BYTES);
                             return "          "
-                                    + TransactionBody.JSON
-                                            .toJSON(TransactionBody.PROTOBUF.parse(SignedTransaction.PROTOBUF
-                                                    .parse(Transaction.PROTOBUF
-                                                            .parse(item.signedTransaction())
-                                                            .signedTransactionBytes())
-                                                    .bodyBytes()))
-                                            .replaceAll("\n", "\n          ");
+                                    + TransactionBody.JSON.toJSON(body).replaceAll("\n", "\n          ");
                         } catch (ParseException e) {
                             System.err.println("Error parsing transaction body : " + e.getMessage());
                             throw new RuntimeException(e);

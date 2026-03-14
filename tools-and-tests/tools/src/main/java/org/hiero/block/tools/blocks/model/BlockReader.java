@@ -2,6 +2,7 @@
 package org.hiero.block.tools.blocks.model;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import java.io.ByteArrayInputStream;
@@ -276,7 +277,8 @@ public class BlockReader {
         try (final ByteArrayInputStream byteStream = new ByteArrayInputStream(compressedBytes);
                 final InputStream decompressedStream = compressionType.wrapStream(byteStream);
                 final ReadableStreamingData in = new ReadableStreamingData(decompressedStream)) {
-            return Block.PROTOBUF.parse(in);
+            // 36 MB — matches BlockAccessor.MAX_BLOCK_SIZE_BYTES in spi-plugins
+            return Block.PROTOBUF.parse(in, false, false, Codec.DEFAULT_MAX_DEPTH, 37_748_736);
         } catch (ParseException e) {
             throw new IOException("Failed to parse block from bytes", e);
         }
