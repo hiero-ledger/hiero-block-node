@@ -10,6 +10,7 @@ import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.toBlockI
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.ArrayList;
@@ -28,6 +29,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -51,7 +53,12 @@ class SubscriberServicePluginTest {
     // EXTRACTORS
     private static final Function<Bytes, SubscribeStreamResponse> responseExtractor = bytes -> {
         try {
-            return SubscribeStreamResponse.PROTOBUF.parse(bytes);
+            return SubscribeStreamResponse.PROTOBUF.parse(
+                    bytes.toReadableSequentialData(),
+                    false,
+                    false,
+                    Codec.DEFAULT_MAX_DEPTH,
+                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
         } catch (final ParseException e) {
             throw new RuntimeException(e);
         }

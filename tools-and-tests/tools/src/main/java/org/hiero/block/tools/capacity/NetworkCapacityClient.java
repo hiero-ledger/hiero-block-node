@@ -5,6 +5,7 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
@@ -136,7 +137,9 @@ public class NetworkCapacityClient {
         try (final var gzipInputStream = new GZIPInputStream(Files.newInputStream(blockFile))) {
             blockData = gzipInputStream.readAllBytes();
         }
-        Block block = Block.PROTOBUF.parse(Bytes.wrap(blockData));
+        // 36 MB — matches BlockAccessor.MAX_BLOCK_SIZE_BYTES in spi-plugins
+        Block block = Block.PROTOBUF.parse(
+                Bytes.wrap(blockData).toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, 37_748_736);
         long blockNumber = block.items().getFirst().blockHeader().number();
 
         List<BlockItem> items = block.items();

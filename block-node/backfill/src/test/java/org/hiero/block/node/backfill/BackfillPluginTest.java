@@ -6,8 +6,10 @@ import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.metrics.api.Metric.ValueType;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,6 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -29,6 +32,7 @@ import org.hiero.block.node.app.fixtures.server.TestBlockNodeServer;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
+import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
@@ -37,6 +41,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -605,6 +610,57 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 20,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 20 verification notifications");
+    }
+
+    @Test
+    @Disabled("PBJ bug: PbjGrpcDatagramReader.MAX_BUFFER_SIZE is hardcoded to 10 MB and ignores "
+            + "PbjGrpcClientConfig.maxSize, so receiving a ~30 MB block overflows the client buffer. "
+            + "Re-enable once the PBJ team fixes the datagram reader to respect the configured maxSize.")
+    @DisplayName("On-Demand Backfill - TSS Wraps Block (1319)")
+    void testBackfillOnDemandTssWrapsBlock() throws InterruptedException, IOException, ParseException {
+        final BlockUtils.SampleBlockInfo tssBlockInfo =
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.TSS_WRAPS_BLOCK_1319);
+
+        // Server has block 1318 (synthetic) and block 1319 (TSS Wraps)
+        final SimpleInMemoryHistoricalBlockFacility serverFacility = getHistoricalBlockFacility(1318, 1318);
+        serverFacility.handleBlockItemsReceived(
+                new BlockItems(tssBlockInfo.blockUnparsed().blockItems(), tssBlockInfo.blockNumber(), true, true),
+                false);
+
+        BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(40866)
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(config).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-tss.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
+        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), serverFacility));
+
+        final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
+                .backfillSourcePath(backfillSourcePath)
+                .build();
+
+        // Local has only block 1318 — block 1319 is the gap
+        final SimpleInMemoryHistoricalBlockFacility localFacility = getHistoricalBlockFacility(1318, 1318);
+        start(new BackfillPlugin(), localFacility, configOverride);
+
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+        registerDefaultTestBackfillHandler();
+        registerDefaultTestVerificationHandler(countDownLatch);
+
+        blockMessaging.sendNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(1319L));
+
+        countDownLatch.await(1, TimeUnit.MINUTES);
+
+        assertEquals(0, countDownLatch.getCount(), "Count down latch should be 0 after backfill");
+        assertEquals(
+                1, blockMessaging.getSentPersistedNotifications().size(), "Should have sent 1 persisted notification");
+        assertEquals(
+                1,
+                blockMessaging.getSentVerificationNotifications().size(),
+                "Should have sent 1 verification notification");
     }
 
     @Test
