@@ -12,7 +12,7 @@ dependencies.constraints {
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.34.0"
     val swirldsVersion = "0.61.3"
-    val mockitoVersion = "5.22.0"
+    val mockitoVersion = "5.23.0"
     val testContainersVersion = "1.21.4"
 
     api("com.github.luben:zstd-jni:1.5.7-7") { because("com.github.luben.zstd_jni") }
