@@ -5,32 +5,24 @@ This setup is ideal for production environments on bare metal or cloud VMs.
 
 ## Prerequisites
 
-The single requirement is a server with a supported operating system and sufficient resources to run Kubernetes and the
-Block Node Server.
+A server with a supported operating system and sufficient resources to run Kubernetes and
+the Block Node Server is required.
 
-Suggested minimum specifications for mainnet deployments:
+For full hardware specifications — including minimum CPU, RAM, disk, and NIC requirements
+for both deployment profiles, storage I/O benchmark targets, and network latency
+requirements — see the
+**[Block Node Hardware Specifications](./block-node-hardware-specifications.md)** document.
 
-1. **Local Full History (LFH)**: All block history is stored locally on the server.
-   - CPU: 24 cores, 48 threads (2024 or newer CPU) (PCIe 4+)
-   - RAM: 256 GB
-   - Disk:
-     - 8 TB NVMe SSD
-     - 300 TB
-   - 2 x 10 Gbps Network Interface Cards (NICs)
-2. **Remote Full History (RFH)**: Block history is stored remotely.
-   - CPU: 24 cores, 48 threads (2024 or newer CPU) (PCIe 4+)
-   - RAM: 256 GB
-   - Disk: 8 TB NVMe SSD
-   - 2 x 10 Gbps Network Interface Cards (NICs)
+Quick reference for mainnet deployments:
 
-Recommendations:
-- In both configurations a Linux-based operating system is recommended, such as Ubuntu 22.04 LTS or Debian 11 LTS.
-- Whiles 10 Gbps NICs are suggested, we recommend higher bandwidth NICs (20 Gbps or more) for better performance and future-proofing.
-- Whiles 300 TB disk space is suggested for LFH, we recommend higher storage space (500 TB) for local full history that
-will maintain block history and state on disk.
+| Profile | CPU | RAM | Fast NVMe | Bulk Storage | NICs |
+|---------|-----|-----|-----------|--------------|------|
+| Local Full History (LFH) | 24c / 48t, ≥ 2.0 GHz, PCIe 4+ | 256 GB | 8 TB | 300 TB | 2 × 10 Gbps |
+| Remote Full History (RFH) | 24c / 48t, ≥ 2.0 GHz, PCIe 4+ | 256 GB | 8 TB | — | 2 × 10 Gbps |
 
-Note: Servers may be acquired by bare metal providers or cloud service providers that offer dedicated instances.
-LFH servers require significant storage capacity, as such these are expected to be sourced from bare metal providers.
+Note: Servers may be acquired from bare metal or cloud providers that offer dedicated
+instances. LFH configurations require significant storage and are typically sourced from
+bare metal providers.
 
 ## Server Provisioning
 
