@@ -186,7 +186,9 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
         }
         return nodeClientMap.computeIfAbsent(
-                node, n -> new BlockNodeClient(n, globalGrpcTimeoutMs, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
+                node,
+                n -> new BlockNodeClient(
+                        n, globalGrpcTimeoutMs, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
     }
 
     /**
