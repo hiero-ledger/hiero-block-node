@@ -216,7 +216,7 @@ function check_prerequisites {
   end_task "FOUND ($(command -v solo))"
 
   # Enforce minimum Solo version (required for TSS support)
-  local solo_min_version="0.59.1"
+  local solo_min_version="0.61.0"
   local solo_version
   solo_version=$(solo --version 2>&1 | grep 'Version' | sed 's/.*: *//' | tr -d '[:space:]')
   if [[ -n "${solo_version}" ]]; then
