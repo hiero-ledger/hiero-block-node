@@ -66,7 +66,7 @@ on:
         type: string
         default: "none"
     outputs:
-      result:ß
+      result:
         description: "Test result (success or failure)"
         value: ${{ jobs.solo-test-deploy.outputs.result }}
       resolved-versions:
