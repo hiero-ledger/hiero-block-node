@@ -8,7 +8,8 @@ targets for running a Block Node (BN) in a production mainnet environment.
 1. [Minimum Server Specifications](#minimum-tier-1-server-specifications)
 2. [Storage Benchmark Targets](#storage-benchmark-targets)
 3. [Network Requirements](#network-requirements)
-4. [Additional Considerations](#additional-considerations)
+4. [Network Throughput and Storage Growth Estimates](#network-throughput-and-storage-growth-estimates)
+5. [Additional Considerations](#additional-considerations)
 
 ---
 
@@ -96,6 +97,98 @@ IOPS, and latency targets that storage must meet to avoid becoming a bottleneck.
   center. Same-rack placement is strongly preferred to keep round-trip latency within
   the < 100 µs budget, which assumes traffic crosses only a Top-of-Rack (TOR) switch.
 - Higher inter-node latency risks stream backpressure and increased buffering requirements.
+
+---
+
+## Network Throughput and Storage Growth Estimates
+
+This section provides capacity planning estimates for operators sizing storage and network links.
+All figures are derived from a linear block-size model fitted to 13 real mainnet blocks from an
+~11K TPS mixed-workload test (R² = 0.9996). The model constants are:
+
+```
+Block_gz(T)   =   88,963 + 372.8 × T   bytes   (on-disk, gzip-compressed)
+Block_ungz(T) = -245,737 + 910.5 × T   bytes   (wire, uncompressed)
+
+T = transactions per block = TPS × block_interval
+```
+
+**Assumptions used in the tables below:**
+- Block interval: 1 second (1 block/sec)
+- Compression ratio: 2.39× (gzip, from v3 mixed-workload model)
+- Worst-case egress subscribers: 33 (13 Block Nodes backfilling + 10 Mirror Nodes + 10 DApps)
+- Worst-case ingress: 8× parallel catch-up streams from Consensus Nodes
+
+### Block Size by TPS
+
+| TPS    | Tx/block | On-disk / block (gz) | Wire size / block (ungz) |
+|-------:|---------:|---------------------:|-------------------------:|
+|  2,000 |    2,000 |               0.83 MB |                  1.58 MB |
+| 10,000 |   10,000 |               3.64 MB |                  8.69 MB |
+| 20,000 |   20,000 |               7.20 MB |                 17.13 MB |
+
+### Daily and Monthly On-Disk Storage (local block files, gz)
+
+> These figures cover raw block storage only. Allow additional headroom for OS, JVM,
+> indexes, and recent (uncompressed) working files (~1.5–2× the gz figures).
+
+| TPS    | Per day (gz) | Per month (gz) |
+|-------:|-------------:|---------------:|
+|  2,000 |      69 GB   |       2.1 TB   |
+| 10,000 |     314 GB   |       9.4 TB   |
+| 20,000 |     622 GB   |      18.7 TB   |
+
+**Planning target (20% headroom over model):**
+
+| TPS    | Per day (planned) | Per month (planned) |
+|-------:|------------------:|--------------------:|
+|  2,000 |         83 GB     |         2.5 TB      |
+| 10,000 |        377 GB     |        11.3 TB      |
+| 20,000 |        747 GB     |        22.4 TB      |
+
+### Ingress Bandwidth (Consensus Node → Block Node)
+
+Steady-state ingress carries one uncompressed block stream per second.
+Worst-case reflects 8 Consensus Nodes simultaneously streaming to catch up.
+
+| TPS    | Steady-state ingress | Worst-case ingress (8× catch-up) |
+|-------:|---------------------:|---------------------------------:|
+|  2,000 |            ~60 Mbps  |                      ~480 Mbps   |
+| 20,000 |           ~600 Mbps  |                    ~4,800 Mbps   |
+
+> At 20K TPS worst-case, ingress alone approaches the 10 Gbps NIC minimum.
+> A 20 Gbps NIC (or bonded pair) is **strongly recommended** for any deployment
+> expected to operate at ≥ 10K TPS or to backfill aggressively.
+
+### Egress Bandwidth (Block Node → Subscribers)
+
+Each downstream subscriber (Mirror Node, Block Node, DApp) receives its own uncompressed stream.
+
+| TPS    | Per subscriber / day | Per subscriber / month | 33 subscribers / day | 33 subscribers / month |
+|-------:|---------------------:|-----------------------:|---------------------:|-----------------------:|
+|  2,000 |             6.5 TB   |             196 TB     |            215 TB    |              6.5 PB    |
+| 20,000 |            65 TB     |             1.9 PB     |           2,145 TB   |             64.4 PB    |
+
+**Worst-case bandwidth peaks:**
+
+| TPS    | Worst-case egress (33 subscribers) |
+|-------:|------------------------------------:|
+|  2,000 |                        ~2,000 Mbps  |
+| 20,000 |                       ~20,000 Mbps  |
+
+> At 20K TPS with 33 subscribers, egress at ~20 Gbps saturates the 10 Gbps minimum NIC.
+> Block Nodes serving many live subscribers at high TPS **require** at least a 20 Gbps NIC
+> and may need 40 Gbps or bonded links for headroom.
+
+### Sizing Summary
+
+| Scenario | On-disk (1 year, gz, no headroom) | Peak ingress | Peak egress (33 sub) | NIC minimum |
+|----------|----------------------------------:|-------------:|---------------------:|------------:|
+| 2K TPS   |                            25 TB  |    480 Mbps  |            ~2 Gbps   |   10 Gbps   |
+| 20K TPS  |                           227 TB  |  4,800 Mbps  |           ~20 Gbps   |   20+ Gbps  |
+
+> The 100 TB bulk disk minimum (LFH) covers approximately 4 years at 2K TPS or ~5 months at 20K TPS
+> (gz only). The recommended 500 TB covers ~4 years at 10K TPS.
 
 ---
 
