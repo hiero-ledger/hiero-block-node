@@ -62,11 +62,11 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transitionß"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition"
         type: string
         default: "none"
     outputs:
-      result:
+      result:ß
         description: "Test result (success or failure)"
         value: ${{ jobs.solo-test-deploy.outputs.result }}
       resolved-versions:
