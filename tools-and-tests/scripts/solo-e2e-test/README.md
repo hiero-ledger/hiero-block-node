@@ -31,7 +31,7 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) deploys Hiero networks f
 |  +-- scripts/                                                       |
 |  |   +-- resolve-versions.sh    (resolve 'latest' -> actual tags)   |
 |  |   +-- solo-setup-cluster.sh  (create cluster, init Solo)         |
-|  |   +-- solo-deploy-network.sh (deploy BN, CN, MN, Relay)          |
+|  |   +-- solo-deploy-network.sh (deploy BN, CN, MN, Relay, Explorer)|
 |  |   +-- solo-load-generate.sh  (NLG load generation)               |
 |  |   +-- solo-port-forward.sh   (kubectl port forwards)             |
 |  |   +-- solo-network-status.sh (network health summary)            |
@@ -94,6 +94,7 @@ task down
 | Kind               | [kind.sigs.k8s.io](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)        |
 | Solo CLI           | `npm i @hashgraph/solo -g`                                                              |
 | Task               | [taskfile.dev](https://taskfile.dev/installation/)                                      |
+| yq                 | [github.com/mikefarah/yq](https://github.com/mikefarah/yq#install)                      |
 | grpcurl (optional) | [github.com/fullstorydev/grpcurl](https://github.com/fullstorydev/grpcurl#installation) |
 
 ```bash
@@ -212,24 +213,27 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-|         Variable         |         Default          |                        Description                        |
-|--------------------------|--------------------------|-----------------------------------------------------------|
-| `TOPOLOGY`               | `single`                 | Network topology to deploy                                |
-| `CLUSTER_NAME`           | `solo-cluster`           | Kind cluster name                                         |
-| `NAMESPACE`              | `solo-network`           | Kubernetes namespace                                      |
-| `DEPLOYMENT`             | `deployment-solo`        | Solo deployment name                                      |
-| `SOLO_VERSION`           | `0.54.0`                 | Solo CLI version (CI default)                             |
-| `CN_VERSION`             | `latest`                 | Consensus Node version                                    |
-| `MN_VERSION`             | `latest`                 | Mirror Node version                                       |
-| `BN_VERSION`             | `latest`                 | Block Node version                                        |
-| `NLG_TEST_TYPE`          | `CryptoTransferLoadTest` | NLG test class                                            |
-| `NLG_ARGS`               | `-c 5 -a 10 -tt 300`     | NLG arguments (-c concurrency, -a accounts, -tt duration) |
-| `NLG_MAX_TPS`            | (empty)                  | Optional max transactions per second                      |
-| `MIRROR_NODE_PINGER_TPS` | `5`                      | Mirror Node pinger TPS (0 to disable, CI only)            |
-| `ENABLE_LOCAL_METRICS`   | `false`                  | Enable Prometheus+Grafana stack locally                   |
-| `TEST_FILE`              | `none`                   | Test definition file for `task test:run`                  |
-| `TCK_SDK_DIR`            | `sdk-tck`                | Directory for TCK-SDK repositories                        |
-| `TCK_TEST_FILE`          | (crypto transfer test)   | TCK test file to run                                      |
+|         Variable         |         Default          |                             Description                              |
+|--------------------------|--------------------------|----------------------------------------------------------------------|
+| `TOPOLOGY`               | `single`                 | Network topology to deploy                                           |
+| `CLUSTER_NAME`           | `solo-cluster`           | Kind cluster name                                                    |
+| `NAMESPACE`              | `solo-network`           | Kubernetes namespace                                                 |
+| `DEPLOYMENT`             | `deployment-solo`        | Solo deployment name                                                 |
+| `SOLO_VERSION`           | `latest`                 | Solo CLI version (CI pins to `0.61.0`)                               |
+| `CN_VERSION`             | `latest`                 | Consensus Node version                                               |
+| `MN_VERSION`             | `latest`                 | Mirror Node version                                                  |
+| `BN_VERSION`             | `latest`                 | Block Node version                                                   |
+| `RELAY_VERSION`          | `latest`                 | Relay version                                                        |
+| `TCK_VERSION`            | `latest`                 | TCK-SDK version                                                      |
+| `TSS_ENABLED`            | `true`                   | Enable TSS (hinTS) on consensus nodes (requires CN ≥ v0.72.0)        |
+| `NLG_TEST_TYPE`          | `CryptoTransferLoadTest` | NLG test class                                                       |
+| `NLG_ARGS`               | `-c 5 -a 10 -tt 300`     | NLG arguments (-c concurrency, -a accounts, -tt duration)            |
+| `NLG_MAX_TPS`            | (empty)                  | Optional max transactions per second                                 |
+| `MIRROR_NODE_PINGER_TPS` | `5`                      | Mirror Node pinger TPS (0 to disable, CI only)                       |
+| `ENABLE_LOCAL_METRICS`   | `false`                  | Enable Prometheus+Grafana stack locally                              |
+| `TEST_FILE`              | `none`                   | Test definition file for `task test:run`                             |
+| `TCK_SDK_DIR`            | `sdk-tck`                | Directory for TCK-SDK repositories                                   |
+| `TCK_TEST_FILE`          | (transfer + contract)    | TCK test file(s) to run (space-separated, verifies CN + Mirror Node) |
 
 ### Version Keywords
 
@@ -240,7 +244,7 @@ cp .env.example .env
 | `rc`     | Latest Release Candidate (tag containing `-rc`) | All components      |
 | `v0.x.y` | Specific version tag                            | All components      |
 
-> **Note:** The `main` keyword only works for Block Node. Consensus Node and Mirror Node do not publish `main` snapshots.
+> **Note:** The `main` keyword only works for Block Node. Other components (CN, MN, Relay, TCK) do not publish `main` snapshots.
 
 ### Command-Line Overrides
 
@@ -339,10 +343,10 @@ Run TCK-SDK regression tests against the deployed network. These tests validate 
 
 ### Configuration
 
-|    Variable     |                         Default                         |            Description             |
-|-----------------|---------------------------------------------------------|------------------------------------|
-| `TCK_SDK_DIR`   | `sdk-tck`                                               | Directory for TCK/SDK repositories |
-| `TCK_TEST_FILE` | `src/tests/crypto-service/test-transfer-transaction.ts` | Test file to run                   |
+|    Variable     |              Default              |              Description              |
+|-----------------|-----------------------------------|---------------------------------------|
+| `TCK_SDK_DIR`   | `sdk-tck`                         | Directory for TCK/SDK repositories    |
+| `TCK_TEST_FILE` | (transfer-HBAR + contract-delete) | Test file(s) to run (space-separated) |
 
 ### Usage
 
@@ -388,15 +392,15 @@ and node2 has priority 2 (fallback).
 
 Topologies define network configuration. Located in `./topologies/`.
 
-|         Name          | CN | BN |                      Use Case                       |
-|-----------------------|----|----|-----------------------------------------------------|
-| `single`              | 1  | 1  | Basic testing, fastest startup                      |
-| `paired-3`            | 3  | 3  | Multi-node testing, each CN->BN pair                |
-| `fan-out-3cn-2bn`     | 3  | 2  | Redundancy testing, all CNs->all BNs                |
-| `3cn-1bn`             | 3  | 1  | Single BN receiving from multiple CNs               |
-| `minimal`             | 1  | 1  | CN+BN only, no mirror/relay/explorer                |
-| `2cn-2bn-backfill`    | 2  | 2  | Backfill testing, BN recovery after data loss       |
-| `7cn-3bn-distributed` | 7  | 3  | Distributed streaming, grouped CN->BN with backfill |
+|         Name          | CN | BN | MN | Relay | Explorer |                      Use Case                       |
+|-----------------------|----|----|:--:|:-----:|:--------:|-----------------------------------------------------|
+| `single`              | 1  | 1  | 1  |   1   |    1     | Basic testing, fastest startup                      |
+| `paired-3`            | 3  | 3  | 1  |   1   |    1     | Multi-node testing, each CN->BN pair                |
+| `fan-out-3cn-2bn`     | 3  | 2  | 1  |   1   |    1     | Redundancy testing, all CNs->all BNs                |
+| `3cn-1bn`             | 3  | 1  | 1  |   1   |    1     | Single BN receiving from multiple CNs               |
+| `minimal`             | 1  | 1  | -  |   -   |    -     | CN+BN only, no mirror/relay/explorer                |
+| `2cn-2bn-backfill`    | 2  | 2  | 1  |   1   |    1     | Backfill testing, BN recovery after data loss       |
+| `7cn-3bn-distributed` | 7  | 3  | 1  |   1   |    1     | Distributed streaming, grouped CN->BN with backfill |
 
 See `../network-topology-tool/README.md` for topology schema details.
 
@@ -412,7 +416,10 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) uses the same scripts as
 | `block-node-version`       | `latest`                 | BN version (`latest`, `main`, `rc`, or specific tag) |
 | `consensus-node-version`   | `latest`                 | CN version (`latest`, `rc`, or specific tag)         |
 | `mirror-node-version`      | `latest`                 | MN version (`latest`, `rc`, or specific tag)         |
-| `solo-version`             | `0.54.0`                 | Solo CLI version                                     |
+| `relay-version`            | `latest`                 | Relay version (`latest`, `rc`, or specific tag)      |
+| `tck-version`              | `latest`                 | TCK-SDK version (`latest`, `rc`, or specific tag)    |
+| `solo-version`             | `0.61.0`                 | Solo CLI version                                     |
+| `tss-enabled`              | `true`                   | Enable TSS on consensus nodes                        |
 | `nlg-enabled`              | `false`                  | Enable NLG load generation                           |
 | `nlg-test-type`            | `CryptoTransferLoadTest` | NLG test class                                       |
 | `nlg-args`                 | `-c 5 -a 10 -tt 300`     | NLG arguments (combined `-c`, `-a`, `-tt`)           |
@@ -485,6 +492,7 @@ After deployment with port-forwards active:
 | Mirror Monitor      | 5600      | -                              |
 | Mirror REST Java    | 8084      | -                              |
 | Relay JSON-RPC      | 7546      | +1 per node (7547, 7548..)     |
+| Explorer            | 8080      | -                              |
 | Grafana             | 3000      | If `ENABLE_LOCAL_METRICS=true` |
 
 **Multi-node example:**
@@ -628,7 +636,7 @@ solo cluster-ref config disconnect -c kind-solo-cluster -q
 |------------------------------------|----------------------|-----------------------------------------------|
 | Mirror Importer `CrashLoopBackOff` | Waiting for Postgres | Wait 2-3 minutes, recovers automatically      |
 | "context deadline exceeded"        | Helm repo timeout    | Retry: `task network:deploy`                  |
-| Solo CLI errors                    | Version mismatch     | `npm i @hashgraph/solo@0.54.0 -g`             |
+| Solo CLI errors                    | Version mismatch     | `npm i @hashgraph/solo@0.61.0 -g`             |
 | Port already in use                | Stale port-forwards  | `task port-forward:stop && task port-forward` |
 
 ### Debugging

@@ -43,6 +43,22 @@ on:
         description: "Mirror Node version (use 'rc' for latest RC)"
         type: string
         default: ""
+      relay-version:
+        description: "Relay version (leave empty for 'latest')"
+        type: string
+        default: ""
+      tck-version:
+        description: "TCK-SDK version (leave empty for 'latest')"
+        type: string
+        default: ""
+      solo-version:
+        description: "Solo CLI version (leave empty to use run-type default)"
+        type: string
+        default: ""
+      tss-enabled:
+        description: "Enable TSS (Threshold Signature Scheme) on consensus nodes"
+        type: boolean
+        default: true
 
 defaults:
   run:
@@ -69,6 +85,9 @@ jobs:
       cn-version: ${{ steps.config.outputs.cn_version }}
       mn-version: ${{ steps.config.outputs.mn_version }}
       solo-version: ${{ steps.config.outputs.solo_version }}
+      relay-version: ${{ steps.config.outputs.relay_version }}
+      tck-version: ${{ steps.config.outputs.tck_version }}
+      tss-enabled: ${{ steps.config.outputs.tss_enabled }}
       notify-slack: ${{ steps.config.outputs.notify_slack }}
       matrix-count: ${{ steps.config.outputs.matrix_count }}
     steps:
@@ -170,17 +189,32 @@ jobs:
             MN_VERSION="latest"
           fi
 
-          # Solo CLI version: use latest for RC runs to test with newest Solo features
-          if [[ "${RUN_TYPE}" == "rc" ]]; then
-            SOLO_VERSION="latest"
+          # Solo CLI version: use input if provided, otherwise default to 0.60.0
+          if [[ -n "${{ inputs.solo-version }}" ]]; then
+            SOLO_VERSION="${{ inputs.solo-version }}"
           else
-            SOLO_VERSION="0.54.0"
+            SOLO_VERSION="0.61.0"
           fi
+
+          # Relay version: use input if provided, otherwise default to latest
+          RELAY_VERSION="${{ inputs.relay-version }}"
+          RELAY_VERSION="${RELAY_VERSION:-latest}"
+
+          # TCK version: use input if provided, otherwise default to latest
+          TCK_VERSION="${{ inputs.tck-version }}"
+          TCK_VERSION="${TCK_VERSION:-latest}"
+
+          # TSS: use input value (defaults to true)
+          TSS_ENABLED="${{ inputs.tss-enabled }}"
+          TSS_ENABLED="${TSS_ENABLED:-true}"
 
           echo "bn_version=${BN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "cn_version=${CN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "mn_version=${MN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "solo_version=${SOLO_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "relay_version=${RELAY_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tck_version=${TCK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tss_enabled=${TSS_ENABLED}" >> "$GITHUB_OUTPUT"
 
           # Summary
           {
@@ -194,6 +228,9 @@ jobs:
             echo "| CN Version | ${CN_VERSION} |"
             echo "| MN Version | ${MN_VERSION} |"
             echo "| Solo Version | ${SOLO_VERSION} |"
+            echo "| Relay Version | ${RELAY_VERSION} |"
+            echo "| TCK Version | ${TCK_VERSION} |"
+            echo "| TSS Enabled | ${TSS_ENABLED} |"
             echo "| Slack Notify | ${NOTIFY_SLACK} |"
             echo ""
             echo "### Test Matrix"
@@ -221,6 +258,9 @@ jobs:
       consensus-node-version: ${{ needs.configure.outputs.cn-version }}
       mirror-node-version: ${{ needs.configure.outputs.mn-version }}
       solo-version: ${{ needs.configure.outputs.solo-version }}
+      relay-version: ${{ needs.configure.outputs.relay-version }}
+      tck-version: ${{ needs.configure.outputs.tck-version }}
+      tss-enabled: ${{ needs.configure.outputs.tss-enabled == 'true' }}
     secrets: inherit
 
   # ============================================================================
@@ -240,7 +280,7 @@ jobs:
         uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
         continue-on-error: true
         with:
-          webhook: ${{ secrets.SOLO_E2E_SLACK_WEBHOOK }}
+          webhook: ${{ secrets.SLACK_BLOCK_NODE_TEST_STATUS_REPORTS_WEBHOOK }}
           webhook-type: incoming-webhook
           payload: |
             {
@@ -314,7 +354,7 @@ jobs:
         uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
         continue-on-error: true
         with:
-          webhook: ${{ secrets.SOLO_E2E_SLACK_WEBHOOK }}
+          webhook: ${{ secrets.SLACK_BLOCK_NODE_TEST_STATUS_REPORTS_WEBHOOK }}
           webhook-type: incoming-webhook
           payload: |
             {

@@ -16,6 +16,8 @@
 #   --cn-version VERSION       Consensus Node version
 #   --mn-version VERSION       Mirror Node version
 #   --bn-version VERSION       Block Node version (used for Helm chart version)
+#   --relay-version VERSION    Relay version (default: Solo's built-in default)
+#   --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
 #   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
 #   --help                     Show this help message
 
@@ -75,6 +77,8 @@ Options:
   --cn-version VERSION       Consensus Node version
   --mn-version VERSION       Mirror Node version
   --bn-version VERSION       Block Node version (used for Helm chart version)
+  --relay-version VERSION    Relay version (default: Solo's built-in default)
+  --tss-enabled true|false   Enable TSS on consensus nodes (default: true)
   --enable-metrics           Enable observability stack (Prometheus+Grafana) on last block node
   --verbose, -v              Print detailed output including generated overlay file contents
   --help                     Show this help message
@@ -107,6 +111,8 @@ TOPOLOGIES_DIR="${SCRIPT_DIR}/topologies"
 CN_VERSION=""
 MN_VERSION=""
 BN_VERSION=""
+RELAY_VERSION=""
+TSS_ENABLED="true"
 ENABLE_METRICS="false"
 VERBOSE="false"
 
@@ -153,6 +159,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --bn-version)
       BN_VERSION="$2"
+      shift 2
+      ;;
+    --relay-version)
+      RELAY_VERSION="$2"
+      shift 2
+      ;;
+    --tss-enabled)
+      TSS_ENABLED="$2"
       shift 2
       ;;
     --enable-metrics)
@@ -280,13 +294,57 @@ function deploy_block_nodes {
   [[ ! -x "${generator_script}" ]] && fail "ERROR: Generator script not found: ${generator_script}" 1
   [[ ! -f "${topology_file}" ]] && fail "ERROR: Topology file not found: ${topology_file}" 1
 
+  # Clean output directory to avoid stale overlays from previous topology runs
+  rm -f "${overlay_dir}"/bn-*.yaml "${overlay_dir}"/mn-*.yaml \
+        "${overlay_dir}"/bn-*-priority-mapping.txt 2>/dev/null
+
   start_task "Generating Helm overlays from topology"
-  "${generator_script}" "${topology_file}" \
+  local generator_output
+  generator_output=$("${generator_script}" "${topology_file}" \
     --namespace "${NAMESPACE}" \
-    --output-dir "${overlay_dir}" || fail "ERROR: Failed to generate Helm overlays" 1
+    --output-dir "${overlay_dir}" 2>&1)
+  local generator_exit_code=$?
+
+  if [[ ${generator_exit_code} -ne 0 ]]; then
+    end_task "FAILED"
+    log_line ""
+    log_line "Overlay generator failed (exit code ${generator_exit_code}):"
+    log_line "${generator_output}"
+    log_line ""
+    log_line "Diagnostics:"
+    log_line "  Generator script: %s" "${generator_script}"
+    log_line "  Topology file:    %s" "${topology_file}"
+    log_line "  Output directory:  %s" "${overlay_dir}"
+    log_line "  yq available:     %s" "$(command -v yq >/dev/null 2>&1 && echo "yes ($(yq --version 2>&1))" || echo "NO - yq is required")"
+    log_line ""
+    log_line "Try running the generator manually:"
+    log_line "  %s %s --namespace %s --output-dir %s" "${generator_script}" "${topology_file}" "${NAMESPACE}" "${overlay_dir}"
+    fail "ERROR: Failed to generate Helm overlays" 1
+  fi
   end_task
 
-  # Print all generated overlay files for troubleshooting (verbose mode only)
+  # Count and validate generated overlay files
+  local overlay_count
+  overlay_count=$(find "${overlay_dir}" -maxdepth 1 \( -name "*.yaml" -o -name "*.json" -o -name "*.txt" \) -type f 2>/dev/null | wc -l | tr -d ' ')
+
+  if [[ "${overlay_count}" -eq 0 ]]; then
+    log_line ""
+    log_line "ERROR: Overlay generator succeeded but produced 0 files."
+    log_line ""
+    log_line "Generator output:"
+    log_line "${generator_output}"
+    log_line ""
+    log_line "Diagnostics:"
+    log_line "  Generator script: %s" "${generator_script}"
+    log_line "  Topology file:    %s" "${topology_file}"
+    log_line "  Output directory:  %s" "$(cd "${overlay_dir}" 2>/dev/null && pwd || echo "${overlay_dir} (does not exist)")"
+    log_line "  yq version:       %s" "$(yq --version 2>&1 || echo 'NOT FOUND')"
+    log_line "  Topology content:"
+    sed 's/^/    /' "${topology_file}" 2>/dev/null
+    fail "ERROR: No overlay files generated. Check topology file structure and yq installation." 1
+  fi
+
+  # Print overlay details
   if [[ "${VERBOSE}" == "true" ]]; then
     log_line ""
     log_line "Generated overlay files:"
@@ -299,10 +357,12 @@ function deploy_block_nodes {
       fi
     done
   else
-    local overlay_count
-    overlay_count=$(find "${overlay_dir}" -maxdepth 1 \( -name "*.yaml" -o -name "*.json" -o -name "*.txt" \) -type f 2>/dev/null | wc -l | tr -d ' ')
     log_line "  Generated ${overlay_count} overlay files (use --verbose to see contents)"
   fi
+
+  # Path to resource overlay (relative to scripts dir) — mini.yaml provides adequate
+  # memory (8Gi) instead of the default nano profile (128M) which causes OOMKills.
+  local resource_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/mini.yaml"
 
   # Path to observability overlay (relative to scripts dir)
   local observability_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/enable-observability.yaml"
@@ -311,8 +371,16 @@ function deploy_block_nodes {
     local bn_overlay="${overlay_dir}/bn-block-node-${i}-values.yaml"
     local overlay_args=""
 
+    # Apply mini resource overlay to all block nodes
+    if [[ -f "${resource_overlay}" ]]; then
+      overlay_args="-f ${resource_overlay}"
+      log_line "  Using resource overlay (mini) for block-node-${i}"
+    else
+      log_line "  WARNING: Resource overlay not found: ${resource_overlay}"
+    fi
+
     if [[ -f "${bn_overlay}" ]]; then
-      overlay_args="-f ${bn_overlay}"
+      overlay_args="${overlay_args} -f ${bn_overlay}"
       log_line "  Using backfill overlay for block-node-${i}"
     fi
 
@@ -375,12 +443,19 @@ function deploy_consensus_nodes {
   end_task
 
   start_task "Deploying consensus network"
+  local wraps_arg=""
+  if [[ "${TSS_ENABLED}" == "true" ]]; then
+    wraps_arg="--wraps true"
+  fi
+
   # shellcheck disable=SC2086
   eval solo consensus network deploy \
     --deployment "${DEPLOYMENT}" \
     --pvcs true \
+    --tss "${TSS_ENABLED}" \
+    ${wraps_arg} \
     --node-aliases "${NODE_ALIASES}" \
-    ${cn_args} || fail "ERROR: Failed to deploy consensus network" 1
+    ${cn_args} --dev || fail "ERROR: Failed to deploy consensus network" 1
   end_task
 
   start_task "Setting up consensus nodes"
@@ -390,6 +465,52 @@ function deploy_consensus_nodes {
     --deployment "${DEPLOYMENT}" \
     ${cn_args} || fail "ERROR: Failed to setup consensus nodes" 1
   end_task
+
+  # Patch block-nodes.json on each CN to increase message size limits.
+  # The default hard limit (6 MB) is too small for the genesis WRAPS proof (~30 MB).
+  # See: https://github.com/hiero-ledger/hiero-consensus-node BlockNodeConfiguration
+  if [[ "${TSS_ENABLED}" == "true" ]]; then
+    start_task "Patching block-nodes.json message size limits for WRAPS support"
+    local remote_path="/opt/hgcapp/services-hedera/HapiApp2.0/data/config/block-nodes.json"
+    local hard_limit=37748736   # 36 MB
+    local soft_limit=4194304    # 4 MB
+    local tmp_file
+    tmp_file=$(mktemp)
+
+    IFS=',' read -ra cn_nodes <<< "${NODE_ALIASES}"
+    for node_alias in "${cn_nodes[@]}"; do
+      local pod_name="network-${node_alias}-0"
+      log_line "  Patching ${pod_name}: messageSizeHardLimitBytes=${hard_limit}, messageSizeSoftLimitBytes=${soft_limit}"
+
+      # Copy block-nodes.json from pod to local temp file, patch with yq, copy back
+      kubectl cp "${NAMESPACE}/${pod_name}:${remote_path}" "${tmp_file}" -c root-container 2>/dev/null || {
+        log_line "  WARNING: Failed to copy block-nodes.json from ${pod_name}"
+        continue
+      }
+
+      # Use yq to add message size limits to each node entry
+      yq -i -o=json '(.nodes[] | select(.)) += {"messageSizeSoftLimitBytes": '"${soft_limit}"', "messageSizeHardLimitBytes": '"${hard_limit}"'}' "${tmp_file}" || {
+        log_line "  WARNING: Failed to patch block-nodes.json for ${pod_name}"
+        continue
+      }
+
+      # Copy patched file back to pod
+      kubectl cp "${tmp_file}" "${NAMESPACE}/${pod_name}:${remote_path}" -c root-container 2>/dev/null || {
+        log_line "  WARNING: Failed to copy patched block-nodes.json to ${pod_name}"
+        continue
+      }
+
+      # Fix ownership and permissions (kubectl cp writes as root, CN process runs as hedera)
+      kubectl exec "${pod_name}" -n "${NAMESPACE}" -c root-container -- chown hedera:hedera "${remote_path}" 2>/dev/null
+      kubectl exec "${pod_name}" -n "${NAMESPACE}" -c root-container -- chmod 755 "${remote_path}" 2>/dev/null
+
+      # Verify
+      log_line "  Patched block-nodes.json on ${pod_name}:"
+      kubectl exec "${pod_name}" -n "${NAMESPACE}" -c root-container -- cat "${remote_path}" 2>/dev/null
+    done
+    rm -f "${tmp_file}"
+    end_task
+  fi
 
   start_task "Starting consensus nodes"
   solo consensus node start \
@@ -444,11 +565,18 @@ function deploy_relay {
   log_line "Deploying Relay"
   log_line "---------------"
 
+  local relay_args=""
+  if [[ -n "${RELAY_VERSION}" && "${RELAY_VERSION}" != "latest" ]]; then
+    relay_args="--relay-release ${RELAY_VERSION}"
+  fi
+
   start_task "Deploying Relay Node"
+  # shellcheck disable=SC2086
   solo relay node add \
     --deployment "${DEPLOYMENT}" \
     --node-aliases "${NODE_ALIASES}" \
-    --cluster-ref "${CLUSTER_REF}" || fail "ERROR: Failed to deploy Relay" 1
+    --cluster-ref "${CLUSTER_REF}" \
+    ${relay_args} || fail "ERROR: Failed to deploy Relay" 1
   end_task
 }
 
@@ -519,11 +647,44 @@ function print_summary {
   echo "node_aliases=${NODE_ALIASES}"
 }
 
+readonly SOLO_MIN_VERSION="0.61.0"
+
+function check_prerequisites {
+  if ! command -v yq &> /dev/null; then
+    fail "ERROR: yq not found. Install from: https://github.com/mikefarah/yq" 1
+  fi
+  if ! command -v kubectl &> /dev/null; then
+    fail "ERROR: kubectl not found. Please install kubectl." 1
+  fi
+  if ! command -v solo &> /dev/null; then
+    fail "ERROR: solo CLI not found. Install with: npm i @hashgraph/solo -g" 1
+  fi
+
+  # Enforce minimum Solo version (required for TSS support)
+  local solo_version
+  solo_version=$(solo --version 2>&1 | grep 'Version' | sed 's/.*: *//' | tr -d '[:space:]')
+  if [[ -n "${solo_version}" ]]; then
+    # Simple semver comparison: split into major.minor.patch and compare numerically
+    IFS='.' read -r cur_major cur_minor cur_patch <<< "${solo_version}"
+    IFS='.' read -r min_major min_minor min_patch <<< "${SOLO_MIN_VERSION}"
+    local is_outdated="false"
+    if (( cur_major < min_major )); then is_outdated="true"
+    elif (( cur_major == min_major && cur_minor < min_minor )); then is_outdated="true"
+    elif (( cur_major == min_major && cur_minor == min_minor && cur_patch < min_patch )); then is_outdated="true"
+    fi
+    if [[ "${is_outdated}" == "true" ]]; then
+      fail "ERROR: Solo CLI version ${solo_version} is outdated. Minimum supported version is ${SOLO_MIN_VERSION} (required for TSS support). Upgrade with: npm i @hashgraph/solo@${SOLO_MIN_VERSION} -g" 1
+    fi
+  fi
+}
+
 # Main execution
 function main {
   log_line "Solo Network Deployment"
   log_line "======================="
   log_line ""
+
+  check_prerequisites
 
   # Load topology first
   load_topology "${TOPOLOGY}"
