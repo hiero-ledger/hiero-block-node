@@ -646,7 +646,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 final long currentBlockNumber = determineCurrentBlockNumber();
                 final Deque<BlockItemSetUnparsed> queueToForward =
                         publisherManager.queueByBlockMap.get(currentBlockNumber);
-                if (queueToForward != null) {
+                if (queueToForward != null && !publisherManager.blockProofs.containsKey(currentBlockNumber)) {
                     boolean moreToSend = queueToForward.peek() != null;
                     while (moreToSend) {
                         // We MUST remove each batch from the queue before sending, otherwise we end
@@ -655,15 +655,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         // runtime exception if the queue is empty.
                         final BlockItemSetUnparsed currentBatch = queueToForward.poll();
                         if (currentBatch != null) {
-                            // log the batch being forwarded to messaging facility from publisher plugin
-                            LOGGER.log(
-                                    TRACE,
-                                    "Forwarding batch for block={0} with blockItemSize={1}",
-                                    currentBlockNumber,
-                                    currentBatch.blockItems().size());
-                            // send the batch to the messaging facility
-                            // @todo(2200) when we add support for the end of block message we might change
-                            //    the way we send the block items
+                            // @todo(2347) as an improvement we can opt in to possibly change the
+                            //    way we send the last batch of BlockItems
                             final boolean hasBlockProof =
                                     currentBatch.blockItems().getLast().hasBlockProof();
                             final int itemsSent;
@@ -682,9 +675,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                                 } else {
                                     itemsSent = 0;
                                 }
-                                // If the last item in the batch is a block proof,
-                                // we need to remove the queue from the queueByBlockMap.
-                                publisherManager.queueByBlockMap.remove(currentBlockNumber);
                                 // exit this while loop so we do not accidentally
                                 // send a block out of order.
                                 moreToSend = false;
@@ -719,15 +709,20 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             final BlockItemSetUnparsed itemSet = BlockItemSetUnparsed.newBuilder()
                                     .blockItems(proof)
                                     .build();
+                            // Remove the queue of the block, this will now mark the block as no longer active
+                            publisherManager.queueByBlockMap.remove(currentBlockNumber);
+                            // Send the last item set to internal messaging
                             sendBlockItems(itemSet, currentBlockNumber, true);
+                            // Now potentially increment  the current streaming block
+                            publisherManager.currentStreamingBlockNumber.compareAndSet(
+                                    currentBlockNumber, currentBlockNumber + 1);
+                            // Finally, update metrics
                             publisherManager
                                     .metrics
                                     .blockItemsMessaged()
                                     .add(itemSet.blockItems().size());
                             // Then potentially increment the current streaming
                             // block number.
-                            publisherManager.currentStreamingBlockNumber.compareAndSet(
-                                    currentBlockNumber, currentBlockNumber + 1);
                         } else {
                             // @todo(2200) if we have received the end of block message, but we do not have the proof,
                             //    should we take any action? In theory the end of block message should arrive after the

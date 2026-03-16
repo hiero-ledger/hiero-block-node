@@ -49,6 +49,14 @@ public final class TestBlock {
         return block;
     }
 
+    public BlockItem getHeader() {
+        return block.items().getFirst();
+    }
+
+    public BlockItemUnparsed getHeaderUnparsed() {
+        return blockUnparsed.blockItems().getFirst();
+    }
+
     public BlockUnparsed blockUnparsed() {
         return blockUnparsed;
     }
