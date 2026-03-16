@@ -82,6 +82,7 @@ Each plugin has its own properties, but this focuses on core options and core pl
 | BACKFILL_INITIAL_DELAY                | Initial delay (ms) before starting backfill.            |   15000 |
 | BACKFILL_PER_BLOCK_PROCESSING_TIMEOUT | Timeout (ms) to wait for a block batch.                 |    1000 |
 | BACKFILL_GRPC_OVERALL_TIMEOUT         | Overall gRPC timeout (connect, read, poll) in ms.       |   60000 |
+| BACKFILL_MAX_INCOMING_BUFFER_SIZE     | Max gRPC incoming buffer size in bytes (min 10 MB, max 300 MB). | 104857600 |
 | BACKFILL_ENABLE_TLS                   | Enable TLS if supported by block-node client.           |   false |
 
 **Note:** The following can be configured in the JSON file at `BACKFILL_BLOCK_NODE_SOURCES_PATH`:
