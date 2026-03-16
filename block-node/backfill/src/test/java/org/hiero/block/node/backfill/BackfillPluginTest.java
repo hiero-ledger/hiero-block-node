@@ -41,7 +41,6 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -613,9 +612,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     @Test
-    @Disabled("PBJ bug: PbjGrpcDatagramReader.MAX_BUFFER_SIZE is hardcoded to 10 MB and ignores "
-            + "PbjGrpcClientConfig.maxSize, so receiving a ~30 MB block overflows the client buffer. "
-            + "Re-enable once the PBJ team fixes the datagram reader to respect the configured maxSize.")
     @DisplayName("On-Demand Backfill - TSS Wraps Block (1319)")
     void testBackfillOnDemandTssWrapsBlock() throws InterruptedException, IOException, ParseException {
         final BlockUtils.SampleBlockInfo tssBlockInfo =
@@ -1557,6 +1553,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                     initialDelay,
                     perBlockProcessingTimeout,
                     60000, // grpcOverallTimeout - default
+                    104_857_600, // maxIncomingBufferSize - default (100 MB)
                     false, // enableTLS - default
                     greedy,
                     20, // historicalQueueCapacity - default

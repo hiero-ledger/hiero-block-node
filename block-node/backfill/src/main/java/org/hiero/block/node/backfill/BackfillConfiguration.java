@@ -27,6 +27,7 @@ import org.hiero.block.node.base.Loggable;
  * @param perBlockProcessingTimeout Timeout in milliseconds for processing each block, to avoid blocking the backfill
  *                                  process indefinitely in case something unexpected happens, this would allow for self-recovery
  * @param grpcOverallTimeout single timeout configuration for gRPC Client construction, connectTimeout, readTimeout and pollWaitTime
+ * @param maxIncomingBufferSize maximum incoming buffer size in bytes for the gRPC client, must be larger than max block size to account for protobuf metadata and streaming
  * @param enableTLS if enabled will assume block-node client supports tls connection.
  * @param greedy if enabled will search and retrieve blocks beyond latestAcknowledged to ensure BN doesn't fall too far behind.
  */
@@ -43,6 +44,7 @@ public record BackfillConfiguration(
         @Loggable @ConfigProperty(defaultValue = "15000") @Min(5) int initialDelay,
         @Loggable @ConfigProperty(defaultValue = "1000") @Min(500) int perBlockProcessingTimeout,
         @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int grpcOverallTimeout,
+        @Loggable @ConfigProperty(defaultValue = "104857600") @Min(10_485_760) @Max(314_572_800) int maxIncomingBufferSize,
         @Loggable @ConfigProperty(defaultValue = "false") boolean enableTLS,
         @Loggable @ConfigProperty(defaultValue = "false") boolean greedy,
         // Queue capacity settings for bounded queues

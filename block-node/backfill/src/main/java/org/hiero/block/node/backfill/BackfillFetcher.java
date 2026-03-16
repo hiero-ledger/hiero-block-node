@@ -55,6 +55,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
     private final int globalGrpcTimeoutMs;
     /** Enable TLS for secure connections to block nodes. */
     private final boolean enableTls;
+    /** Maximum incoming buffer size in bytes for the gRPC client. */
+    private final int maxIncomingBufferSize;
     /** Maximum backoff duration in milliseconds (configurable). */
     private final long maxBackoffMs;
     /** Health penalty per failure for scoring (configurable). */
@@ -90,6 +92,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
         this.backfillRetries = metrics.backfillRetries();
         this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
         this.enableTls = config.enableTLS();
+        this.maxIncomingBufferSize = config.maxIncomingBufferSize();
         this.maxBackoffMs = config.maxBackoffMs();
         this.healthPenaltyPerFailure = config.healthPenaltyPerFailure();
         this.selectionStrategy = new PriorityHealthBasedStrategy(this);
@@ -183,7 +186,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
             LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
         }
         return nodeClientMap.computeIfAbsent(
-                node, n -> new BlockNodeClient(n, globalGrpcTimeoutMs, enableTls, n.grpcWebclientTuning()));
+                node, n -> new BlockNodeClient(n, globalGrpcTimeoutMs, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
     }
 
     /**
