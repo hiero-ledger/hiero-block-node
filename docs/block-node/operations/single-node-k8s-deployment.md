@@ -13,11 +13,11 @@ for both deployment profiles, storage I/O benchmark targets, and network latency
 requirements — see the
 **[Block Node Hardware Specifications](./block-node-hardware-specifications.md)** document.
 
-Quick reference for mainnet deployments:
+Quick reference for minimum mainnet deployments:
 
 | Profile | CPU | RAM | Fast NVMe | Bulk Storage | NICs |
 |---------|-----|-----|-----------|--------------|------|
-| Local Full History (LFH) | 24c / 48t, ≥ 2.0 GHz, PCIe 4+ | 256 GB | 8 TB | 300 TB | 2 × 10 Gbps |
+| Local Full History (LFH) | 24c / 48t, ≥ 2.0 GHz, PCIe 4+ | 256 GB | 8 TB | 100 TB | 2 × 10 Gbps |
 | Remote Full History (RFH) | 24c / 48t, ≥ 2.0 GHz, PCIe 4+ | 256 GB | 8 TB | — | 2 × 10 Gbps |
 
 Note: Servers may be acquired from bare metal or cloud providers that offer dedicated

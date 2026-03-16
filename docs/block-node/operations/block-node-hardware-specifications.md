@@ -5,29 +5,33 @@ targets for running a Block Node (BN) in a production mainnet environment.
 
 ## Table of Contents
 
-1. [Minimum Server Specifications](#minimum-server-specifications)
+1. [Minimum Server Specifications](#minimum-tier-1-server-specifications)
 2. [Storage Benchmark Targets](#storage-benchmark-targets)
 3. [Network Requirements](#network-requirements)
 4. [Additional Considerations](#additional-considerations)
 
 ---
 
-## Minimum Server Specifications
+## Minimum Tier 1 Server Specifications
 
-Two deployment profiles are supported based on how block history is stored:
+Two deployment profiles are supported based on how block history is stored at the Tier 1 level:
+
+> Note: Tier 2 operators have the flexibility of choice. Here we recommend they adopt the Remote
+> Full History specs and customize their HDD storage size based on their business needs and
+> deployed plugins.
 
 ### 1. Local Full History (LFH)
 
 All block history is stored locally on the server.
 
-| Component | Minimum Specification |
-|-----------|----------------------|
+| Component | Minimum Specification                                     |
+|-----------|-----------------------------------------------------------|
 | CPU       | 24 cores / 48 threads, 2024 or newer (PCIe 4+), ≥ 2.0 GHz |
-| RAM       | 256 GB |
-| Fast NVMe Disk | 8 TB NVMe SSD |
-| Bulk Storage Disk | 300 TB |
-| Network   | 2 × 10 Gbps NICs |
-| OS        | Linux (Ubuntu 22.04 LTS or Debian 11 LTS recommended) |
+| RAM       | 256 GB                                                    |
+| Fast NVMe Disk | 8 TB NVMe SSD                                             |
+| Bulk Storage Disk | 100 TB                                                    |
+| Network   | 2 × 10 Gbps NICs                                          |
+| OS        | Linux (Ubuntu 22.04 LTS or Debian 11 LTS recommended)     |
 
 ### 2. Remote Full History (RFH)
 
@@ -46,7 +50,7 @@ Block history is stored remotely (e.g. cloud object store).
 - NICs: 20 Gbps or higher are recommended for better throughput and future-proofing,
   even though 10 Gbps is the stated minimum.
 - Bulk storage: 500 TB is recommended for LFH to accommodate long-term block history
-  and state growth beyond the 300 TB minimum.
+  and state growth. 300 Tb would be the next preferred and 100 TB the minimum for Tier 1.
 - Servers may be sourced from bare metal providers or cloud providers offering dedicated
   instances. LFH configurations require significant storage capacity and are typically
   sourced from bare metal providers.
@@ -97,7 +101,7 @@ IOPS, and latency targets that storage must meet to avoid becoming a bottleneck.
 
 ## Additional Considerations
 
-- **Clock speed**: CPU clock speed must be ≥ 2.0 GHz. Higher clock speeds reduce
+- **Clock speed**: Base CPU clock speed must be ≥ 2.0 GHz. Higher clock speeds reduce
   per-block processing latency, which is important for keeping up with mainnet block
   production rates.
 - **PCIe generation**: PCIe 4.0 or higher is required to sustain the NVMe throughput
