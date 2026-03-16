@@ -189,11 +189,11 @@ jobs:
             MN_VERSION="latest"
           fi
 
-          # Solo CLI version: use input if provided, otherwise default to 0.59.1
+          # Solo CLI version: use input if provided, otherwise default to 0.60.0
           if [[ -n "${{ inputs.solo-version }}" ]]; then
             SOLO_VERSION="${{ inputs.solo-version }}"
           else
-            SOLO_VERSION="0.59.1"
+            SOLO_VERSION="0.61.0"
           fi
 
           # Relay version: use input if provided, otherwise default to latest
@@ -280,7 +280,7 @@ jobs:
         uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
         continue-on-error: true
         with:
-          webhook: ${{ secrets.SOLO_E2E_SLACK_WEBHOOK }}
+          webhook: ${{ secrets.SLACK_BLOCK_NODE_TEST_STATUS_REPORTS_WEBHOOK }}
           webhook-type: incoming-webhook
           payload: |
             {
@@ -354,7 +354,7 @@ jobs:
         uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
         continue-on-error: true
         with:
-          webhook: ${{ secrets.SOLO_E2E_SLACK_WEBHOOK }}
+          webhook: ${{ secrets.SLACK_BLOCK_NODE_TEST_STATUS_REPORTS_WEBHOOK }}
           webhook-type: incoming-webhook
           payload: |
             {

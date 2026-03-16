@@ -240,6 +240,12 @@ tasks:
         echo "Block Node {{.NODE}} Status:"
         echo "$STATUS" | grep -E "(firstAvailableBlock|lastAvailableBlock)" || echo "$STATUS"
 
+  check:signature:
+    desc: "Find Schnorr→WRAPS signature transition on Block Node 1"
+    deps: [proto:extract]
+    cmds:
+      - '"{{.SCRIPTS_DIR}}/../../../scripts/monitor-block-proofs.sh" "{{.PROTO_PATH}}" "localhost:40840"'
+
   status:
     desc: Show network status for all nodes in the topology
     deps: [proto:extract]

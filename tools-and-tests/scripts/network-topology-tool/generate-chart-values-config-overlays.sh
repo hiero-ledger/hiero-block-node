@@ -303,6 +303,8 @@ importer:
             enabled: true
             nodes:${nodes_config}
             sourceType: BLOCK_NODE
+            stream:
+                maxStreamResponseSize: 36MB
           downloader:
             record:
               enabled: false

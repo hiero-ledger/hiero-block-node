@@ -360,6 +360,10 @@ function deploy_block_nodes {
     log_line "  Generated ${overlay_count} overlay files (use --verbose to see contents)"
   fi
 
+  # Path to resource overlay (relative to scripts dir) — mini.yaml provides adequate
+  # memory (8Gi) instead of the default nano profile (128M) which causes OOMKills.
+  local resource_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/mini.yaml"
+
   # Path to observability overlay (relative to scripts dir)
   local observability_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/enable-observability.yaml"
 
@@ -367,8 +371,16 @@ function deploy_block_nodes {
     local bn_overlay="${overlay_dir}/bn-block-node-${i}-values.yaml"
     local overlay_args=""
 
+    # Apply mini resource overlay to all block nodes
+    if [[ -f "${resource_overlay}" ]]; then
+      overlay_args="-f ${resource_overlay}"
+      log_line "  Using resource overlay (mini) for block-node-${i}"
+    else
+      log_line "  WARNING: Resource overlay not found: ${resource_overlay}"
+    fi
+
     if [[ -f "${bn_overlay}" ]]; then
-      overlay_args="-f ${bn_overlay}"
+      overlay_args="${overlay_args} -f ${bn_overlay}"
       log_line "  Using backfill overlay for block-node-${i}"
     fi
 
@@ -431,13 +443,19 @@ function deploy_consensus_nodes {
   end_task
 
   start_task "Deploying consensus network"
+  local wraps_arg=""
+  if [[ "${TSS_ENABLED}" == "true" ]]; then
+    wraps_arg="--wraps true"
+  fi
+
   # shellcheck disable=SC2086
   eval solo consensus network deploy \
     --deployment "${DEPLOYMENT}" \
     --pvcs true \
     --tss "${TSS_ENABLED}" \
+    ${wraps_arg} \
     --node-aliases "${NODE_ALIASES}" \
-    ${cn_args} || fail "ERROR: Failed to deploy consensus network" 1
+    ${cn_args} --dev || fail "ERROR: Failed to deploy consensus network" 1
   end_task
 
   start_task "Setting up consensus nodes"
@@ -447,6 +465,52 @@ function deploy_consensus_nodes {
     --deployment "${DEPLOYMENT}" \
     ${cn_args} || fail "ERROR: Failed to setup consensus nodes" 1
   end_task
+
+  # Patch block-nodes.json on each CN to increase message size limits.
+  # The default hard limit (6 MB) is too small for the genesis WRAPS proof (~30 MB).
+  # See: https://github.com/hiero-ledger/hiero-consensus-node BlockNodeConfiguration
+  if [[ "${TSS_ENABLED}" == "true" ]]; then
+    start_task "Patching block-nodes.json message size limits for WRAPS support"
+    local remote_path="/opt/hgcapp/services-hedera/HapiApp2.0/data/config/block-nodes.json"
+    local hard_limit=37748736   # 36 MB
+    local soft_limit=4194304    # 4 MB
+    local tmp_file
+    tmp_file=$(mktemp)
+
+    IFS=',' read -ra cn_nodes <<< "${NODE_ALIASES}"
+    for node_alias in "${cn_nodes[@]}"; do
+      local pod_name="network-${node_alias}-0"
+      log_line "  Patching ${pod_name}: messageSizeHardLimitBytes=${hard_limit}, messageSizeSoftLimitBytes=${soft_limit}"
+
+      # Copy block-nodes.json from pod to local temp file, patch with yq, copy back
+      kubectl cp "${NAMESPACE}/${pod_name}:${remote_path}" "${tmp_file}" -c root-container 2>/dev/null || {
+        log_line "  WARNING: Failed to copy block-nodes.json from ${pod_name}"
+        continue
+      }
+
+      # Use yq to add message size limits to each node entry
+      yq -i -o=json '(.nodes[] | select(.)) += {"messageSizeSoftLimitBytes": '"${soft_limit}"', "messageSizeHardLimitBytes": '"${hard_limit}"'}' "${tmp_file}" || {
+        log_line "  WARNING: Failed to patch block-nodes.json for ${pod_name}"
+        continue
+      }
+
+      # Copy patched file back to pod
+      kubectl cp "${tmp_file}" "${NAMESPACE}/${pod_name}:${remote_path}" -c root-container 2>/dev/null || {
+        log_line "  WARNING: Failed to copy patched block-nodes.json to ${pod_name}"
+        continue
+      }
+
+      # Fix ownership and permissions (kubectl cp writes as root, CN process runs as hedera)
+      kubectl exec "${pod_name}" -n "${NAMESPACE}" -c root-container -- chown hedera:hedera "${remote_path}" 2>/dev/null
+      kubectl exec "${pod_name}" -n "${NAMESPACE}" -c root-container -- chmod 755 "${remote_path}" 2>/dev/null
+
+      # Verify
+      log_line "  Patched block-nodes.json on ${pod_name}:"
+      kubectl exec "${pod_name}" -n "${NAMESPACE}" -c root-container -- cat "${remote_path}" 2>/dev/null
+    done
+    rm -f "${tmp_file}"
+    end_task
+  fi
 
   start_task "Starting consensus nodes"
   solo consensus node start \
@@ -583,7 +647,7 @@ function print_summary {
   echo "node_aliases=${NODE_ALIASES}"
 }
 
-readonly SOLO_MIN_VERSION="0.59.1"
+readonly SOLO_MIN_VERSION="0.61.0"
 
 function check_prerequisites {
   if ! command -v yq &> /dev/null; then

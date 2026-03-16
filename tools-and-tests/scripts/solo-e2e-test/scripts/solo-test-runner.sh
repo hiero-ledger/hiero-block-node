@@ -53,6 +53,11 @@ EVENTS_FAILED=0
 ASSERTIONS_PASSED=0
 ASSERTIONS_FAILED=0
 
+# Extra details collected by assertions (printed in summary)
+# Uses a temp file because assertions run in subshells via $()
+ASSERTION_DETAILS_FILE="/tmp/solo-test-details-$$"
+: > "${ASSERTION_DETAILS_FILE}"
+
 
 # ============================================================================
 # Argument Parsing
@@ -872,6 +877,41 @@ function assert_blocks_increasing {
     fi
 }
 
+# Assert that block signatures transition from Schnorr to WRAPS.
+# Delegates to monitor-block-proofs.sh and captures its output.
+function assert_signature_transition {
+    local target="$1"
+    local max_block="${2:-1000}"
+    local port
+    port=$(get_bn_grpc_port "$target")
+
+    if ! validate_proto_path "${target}"; then
+        return 1
+    fi
+
+    local script="${SCRIPT_DIR}/../../../scripts/monitor-block-proofs.sh"
+    if [[ ! -x "$script" ]]; then
+        echo "${target}: monitor-block-proofs.sh not found at ${script}"
+        return 1
+    fi
+
+    local output
+    if output=$("$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" 2>&1); then
+        echo "${output}"
+        # Append the transition details section to the details file
+        echo "${output}" | sed -n '/^=== Signature Transition ===/,$ p' >> "${ASSERTION_DETAILS_FILE}"
+        local transition_block
+        transition_block=$(echo "${output}" | grep "First WRAPS block:" | awk '{print $NF}')
+        echo "${target}: Schnorr -> WRAPS transition at block ${transition_block:-unknown}"
+        return 0
+    else
+        echo "${output}"
+        echo "${output}" | sed -n '/^=== Signature Transition ===/,$ p' >> "${ASSERTION_DETAILS_FILE}"
+        echo "${target}: WRAPS not detected within ${max_block} blocks"
+        return 1
+    fi
+}
+
 function run_assertion {
     local assert_type="$1"
     local target="$2"
@@ -899,6 +939,16 @@ function run_assertion {
             wait_seconds=$(echo "$args" | yq '.wait_seconds // 60')
             max_attempts=$(echo "$args" | yq '.max_attempts // 3')
             assert_blocks_increasing "$target" "$wait_seconds" "$max_attempts"
+            ;;
+        signature-transition)
+            if [[ "${TSS_ENABLED:-true}" != "true" ]]; then
+                echo "Skipped (TSS not enabled)"
+                return 0
+            fi
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "block-node-1"')
+            local sig_max_block
+            sig_max_block=$(echo "$args" | yq '.max_block // 1000')
+            assert_signature_transition "$target" "$sig_max_block"
             ;;
         *)
             echo "Unknown assertion type: $assert_type"
@@ -1033,6 +1083,7 @@ function run_assertions {
     local assert_count
     assert_count=$(yq '.assertions | length' "$TEST_FILE")
     [[ "$assert_count" == "null" ]] && assert_count=0
+
     [[ $assert_count -eq 0 ]] && return 0
 
     log INFO "Running $assert_count assertions"
@@ -1058,6 +1109,7 @@ function run_assertions {
 
         ((i++))
     done
+
 }
 
 function print_summary {
@@ -1071,6 +1123,15 @@ function print_summary {
     echo "Events:     ${EVENTS_COMPLETED}/${event_count} completed"
     [[ $EVENTS_FAILED -gt 0 ]] && echo "            ${EVENTS_FAILED} failed"
     echo "Assertions: ${ASSERTIONS_PASSED}/$((ASSERTIONS_PASSED + ASSERTIONS_FAILED)) passed"
+
+    # Print extra details collected by assertions (e.g. signature transition info)
+    if [[ -s "${ASSERTION_DETAILS_FILE}" ]]; then
+        echo ""
+        cat "${ASSERTION_DETAILS_FILE}"
+        rm -f "${ASSERTION_DETAILS_FILE}"
+    else
+        rm -f "${ASSERTION_DETAILS_FILE}"
+    fi
     echo ""
 
     if [[ $EVENTS_FAILED -eq 0 && $ASSERTIONS_FAILED -eq 0 ]]; then
