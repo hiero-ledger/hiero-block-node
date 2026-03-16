@@ -2,6 +2,7 @@
 package org.hiero.block.node.app.fixtures.blocks;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -15,6 +16,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /*
  * Utility class for getting test blocks.
@@ -60,7 +62,12 @@ public final class BlockUtils {
             // Read the bytes from the GZIPInputStream
             byte[] bytes = gzipInputStream.readAllBytes();
             // Parse the bytes into a BlockUnparsed object
-            blockUnparsed = BlockUnparsed.PROTOBUF.parse(Bytes.wrap(bytes));
+            blockUnparsed = BlockUnparsed.PROTOBUF.parse(
+                    Bytes.wrap(bytes).toReadableSequentialData(),
+                    false,
+                    false,
+                    Codec.DEFAULT_MAX_DEPTH,
+                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
         }
 
         // Get the block root hash and block number
@@ -107,7 +114,11 @@ public final class BlockUtils {
         HAPI_0_72_0_BLOCK_21(
                 "HAPI_0_72_0/21.blk.gz",
                 "0c0f22c10c89e44d237efaacc6f52506868ef635331b4d1b7430be2735d684f9dc1fef723084033a15232c97a5897e38",
-                21);
+                21),
+        TSS_WRAPS_BLOCK_1319(
+                "tss/TssWraps/1319.blk.gz",
+                "26384696281b4e479b98e8c7dbd4942c4466314bc0637727a35a7df0b74d47fc3b374e73ba61075e1a740ca203772df2", // dummy hash
+                1319);
 
         private final String blockName;
         private final Bytes blockHash;

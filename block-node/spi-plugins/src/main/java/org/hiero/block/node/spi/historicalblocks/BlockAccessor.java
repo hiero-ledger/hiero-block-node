@@ -3,6 +3,7 @@ package org.hiero.block.node.spi.historicalblocks;
 
 import static java.lang.System.Logger.Level.WARNING;
 
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import org.hiero.block.internal.BlockUnparsed;
@@ -14,6 +15,11 @@ import org.hiero.block.internal.BlockUnparsed;
  * but that attempt is unsuccessful.
  */
 public interface BlockAccessor extends AutoCloseable {
+    /**
+     * Maximum protobuf parse size in bytes (36 MB). This accommodates the largest known
+     * block items (TSS Wraps) which can exceed PBJ's default 2 MB limit.
+     */
+    int MAX_BLOCK_SIZE_BYTES = 37_748_736;
     /**
      * The format of the block data. The consumer can choose the format that is most efficient for them.
      */
@@ -39,7 +45,11 @@ public interface BlockAccessor extends AutoCloseable {
     default BlockUnparsed blockUnparsed() {
         try {
             final Bytes rawData = blockBytes(Format.PROTOBUF);
-            return rawData == null ? null : BlockUnparsed.PROTOBUF.parse(rawData);
+            if (rawData == null) {
+                return null;
+            }
+            return BlockUnparsed.PROTOBUF.parse(
+                    rawData.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_BLOCK_SIZE_BYTES);
         } catch (final ParseException e) {
             final System.Logger LOGGER = System.getLogger(getClass().getName());
             LOGGER.log(WARNING, "Failed to parse block", e);

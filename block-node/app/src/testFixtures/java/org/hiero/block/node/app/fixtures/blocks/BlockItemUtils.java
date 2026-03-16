@@ -2,11 +2,14 @@
 package org.hiero.block.node.app.fixtures.blocks;
 
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 /**
  * Utility class for testing block items.
@@ -30,8 +33,13 @@ public final class BlockItemUtils {
      */
     public static String toBlockItemJson(BlockItemUnparsed blockItemUnparsed) {
         try {
-            return BlockItem.JSON.toJSON(
-                    BlockItem.PROTOBUF.parse(BlockItemUnparsed.PROTOBUF.toBytes(blockItemUnparsed)));
+            final Bytes bytes = BlockItemUnparsed.PROTOBUF.toBytes(blockItemUnparsed);
+            return BlockItem.JSON.toJSON(BlockItem.PROTOBUF.parse(
+                    bytes.toReadableSequentialData(),
+                    false,
+                    false,
+                    Codec.DEFAULT_MAX_DEPTH,
+                    BlockAccessor.MAX_BLOCK_SIZE_BYTES));
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -45,7 +53,13 @@ public final class BlockItemUtils {
      */
     public static BlockItemUnparsed toBlockItemUnparsed(BlockItem blockItem) {
         try {
-            return BlockItemUnparsed.PROTOBUF.parse(BlockItem.PROTOBUF.toBytes(blockItem));
+            final Bytes bytes = BlockItem.PROTOBUF.toBytes(blockItem);
+            return BlockItemUnparsed.PROTOBUF.parse(
+                    bytes.toReadableSequentialData(),
+                    false,
+                    false,
+                    Codec.DEFAULT_MAX_DEPTH,
+                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -69,7 +83,13 @@ public final class BlockItemUtils {
      */
     public static BlockItem toBlockItem(BlockItemUnparsed blockItem) {
         try {
-            return BlockItem.PROTOBUF.parse(BlockItemUnparsed.PROTOBUF.toBytes(blockItem));
+            final Bytes bytes = BlockItemUnparsed.PROTOBUF.toBytes(blockItem);
+            return BlockItem.PROTOBUF.parse(
+                    bytes.toReadableSequentialData(),
+                    false,
+                    false,
+                    Codec.DEFAULT_MAX_DEPTH,
+                    BlockAccessor.MAX_BLOCK_SIZE_BYTES);
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
