@@ -55,8 +55,6 @@ ASSERTIONS_FAILED=0
 
 # Extra details collected by assertions (printed in summary)
 # Uses a temp file because assertions run in subshells via $()
-ASSERTION_DETAILS_FILE="/tmp/solo-test-details-$$"
-: > "${ASSERTION_DETAILS_FILE}"
 
 
 # ============================================================================
@@ -898,15 +896,12 @@ function assert_signature_transition {
     local output
     if output=$("$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" 2>&1); then
         echo "${output}"
-        # Append the transition details section to the details file
-        echo "${output}" | sed -n '/^=== Signature Transition ===/,$ p' >> "${ASSERTION_DETAILS_FILE}"
         local transition_block
         transition_block=$(echo "${output}" | grep "First WRAPS block:" | awk '{print $NF}')
         echo "${target}: Schnorr -> WRAPS transition at block ${transition_block:-unknown}"
         return 0
     else
         echo "${output}"
-        echo "${output}" | sed -n '/^=== Signature Transition ===/,$ p' >> "${ASSERTION_DETAILS_FILE}"
         echo "${target}: WRAPS not detected within ${max_block} blocks"
         return 1
     fi
@@ -1124,14 +1119,6 @@ function print_summary {
     [[ $EVENTS_FAILED -gt 0 ]] && echo "            ${EVENTS_FAILED} failed"
     echo "Assertions: ${ASSERTIONS_PASSED}/$((ASSERTIONS_PASSED + ASSERTIONS_FAILED)) passed"
 
-    # Print extra details collected by assertions (e.g. signature transition info)
-    if [[ -s "${ASSERTION_DETAILS_FILE}" ]]; then
-        echo ""
-        cat "${ASSERTION_DETAILS_FILE}"
-        rm -f "${ASSERTION_DETAILS_FILE}"
-    else
-        rm -f "${ASSERTION_DETAILS_FILE}"
-    fi
     echo ""
 
     if [[ $EVENTS_FAILED -eq 0 && $ASSERTIONS_FAILED -eq 0 ]]; then

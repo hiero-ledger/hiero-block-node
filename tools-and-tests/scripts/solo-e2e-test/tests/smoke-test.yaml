@@ -57,10 +57,3 @@ assertions:
     type: blocks-increasing
     description: "All Block Nodes are receiving new blocks"
     target: all
-
-  - id: wraps-transition
-    type: signature-transition
-    description: "Block signatures transition from Schnorr to WRAPS"
-    target: block-node-1
-    args:
-      max_block: 1000

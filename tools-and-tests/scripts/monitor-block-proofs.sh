@@ -119,10 +119,13 @@ function binary_search_transition {
     local mid=$(( (low + high) / 2 ))
     local result
     result=$(get_sig_type "$mid")
-    if [[ "${result%% *}" == "WRAPS" ]]; then
-      high=$mid
-    else
+    local sig_type="${result%% *}"
+    if [[ "$sig_type" == "SCHNORR" ]]; then
       low=$mid
+    else
+      # WRAPS, UNKNOWN, or NOT_AVAILABLE — treat conservatively as potential WRAPS
+      # (the ~99MB genesis WRAPS block may fail to fetch on resource-constrained CI)
+      high=$mid
     fi
   done
 
@@ -146,6 +149,21 @@ function find_schnorr_lower_bound {
   echo "$low"
 }
 
+function format_block_line {
+  local block_number="$1"
+  local result="$2"
+  local sig_type="${result%% *}"
+
+  if [[ "$sig_type" == "NOT_AVAILABLE" || "$sig_type" == "UNKNOWN" ]]; then
+    echo "  Block ${block_number}: ${sig_type} (archived or not yet available)"
+  else
+    local sig_bytes block_size
+    sig_bytes=$(echo "$result" | awk '{print $2}')
+    block_size=$(echo "$result" | awk '{print $3}')
+    echo "  Block ${block_number}: ${sig_type} (sig: ${sig_bytes} bytes, block: $(format_size "$block_size"))"
+  fi
+}
+
 function print_result {
   local transition_block="$1"
 
@@ -158,9 +176,9 @@ function print_result {
   echo "=== Signature Transition ==="
   echo "  First WRAPS block: ${transition_block}"
   echo "  Last Schnorr block: $((transition_block - 1))"
-  echo "  Block $((transition_block - 1)): ${pre_result%% *} (sig: $(echo "$pre_result" | awk '{print $2}') bytes, block: $(format_size "$(echo "$pre_result" | awk '{print $3}')"))"
-  echo "  Block ${transition_block}: ${post_result%% *} (sig: $(echo "$post_result" | awk '{print $2}') bytes, block: $(format_size "$(echo "$post_result" | awk '{print $3}')"))"
-  echo "  Block $((transition_block + 1)): ${next_result%% *} (sig: $(echo "$next_result" | awk '{print $2}') bytes, block: $(format_size "$(echo "$next_result" | awk '{print $3}')"))"
+  format_block_line "$((transition_block - 1))" "$pre_result"
+  format_block_line "$transition_block" "$post_result"
+  format_block_line "$((transition_block + 1))" "$next_result"
 }
 
 # Main: scan every STEP blocks
@@ -184,10 +202,22 @@ while true; do
   block_size=$(echo "$result" | awk '{print $3}')
 
   if [[ "$sig_type" == "NOT_AVAILABLE" ]]; then
-    echo "  Block ${block}: waiting..."
+    if [[ "${waiting_for:-0}" -ne "$block" ]]; then
+      waiting_for=$block
+      wait_count=0
+      printf "  Block %d: waiting" "$block"
+    fi
+    ((wait_count++))
+    printf "."
     sleep 5
     block=$(( block - STEP ))
     continue
+  fi
+
+  # End the waiting dots line if we were waiting
+  if [[ "${waiting_for:-0}" -gt 0 ]]; then
+    printf " (%ds)\n" $((wait_count * 5))
+    waiting_for=0
   fi
 
   echo "  Block ${block}: ${sig_type} (sig: ${sig_bytes} bytes, block: $(format_size "$block_size"))"

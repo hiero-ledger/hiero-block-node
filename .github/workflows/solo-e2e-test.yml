@@ -62,7 +62,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transitionß"
         type: string
         default: "none"
     outputs:
