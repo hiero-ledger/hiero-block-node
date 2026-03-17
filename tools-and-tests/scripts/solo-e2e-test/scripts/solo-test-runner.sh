@@ -896,12 +896,14 @@ function assert_signature_transition {
 
     local output
     if output=$("$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" 2>&1); then
-        local transition_block before_size wraps_size after_size
-        transition_block=$(echo "${output}" | grep "First WRAPS block:" | awk '{print $NF}')
-        before_size=$(echo "${output}" | grep "Schnorr" | grep -oE "block: [^)]*" | awk '{print $2}' | head -1)
-        wraps_size=$(echo "${output}" | grep "WRAPS" | grep -oE "block: [^)]*" | awk '{print $2}' | head -1)
-        after_size=$(echo "${output}" | grep "WRAPS" | grep -oE "block: [^)]*" | awk '{print $2}' | tail -1)
-        echo "${target}: Schnorr -> WRAPS at block ${transition_block:-unknown} | before: ${before_size:-?} | WRAPS: ${wraps_size:-?} | after: ${after_size:-?}"
+        local transition_block before_size wraps_size after_size transition_summary
+        transition_summary=$(echo "${output}" | grep -A 10 "=== Signature Transition ===")
+        transition_block=$(echo "${transition_summary}" | grep "First WRAPS block:" | awk '{print $NF}')
+        before_size=$(echo "${transition_summary}" | grep -E "Block [0-9]+: SCHNORR" | grep -oE "block: [^)]*" | awk '{print $2}' | head -1)
+        wraps_size=$(echo "${transition_summary}" | grep -E "Block [0-9]+: WRAPS" | grep -oE "block: [^)]*" | awk '{print $2}' | head -1)
+        after_size=$(echo "${transition_summary}" | grep -E "Block [0-9]+: WRAPS" | grep -oE "block: [^)]*" | awk '{print $2}' | tail -1)
+        echo "${target}: Schnorr -> WRAPS at block ${transition_block:-unknown}"
+        echo "${transition_summary}"
         return 0
     else
         echo "${output}" >&2
@@ -1121,7 +1123,7 @@ function write_github_summary {
     local result_badge="$2"
 
     {
-        echo "## Test: ${TEST_NAME}"
+        echo "<h2>Test: ${TEST_NAME}</h2>"
         echo ""
         echo "| Metric | Value |"
         echo "|--------|-------|"
@@ -1142,8 +1144,10 @@ function write_github_summary {
                 [[ "$status" == "PASS" ]] && icon=":white_check_mark:" || icon=":x:"
                 # Extract key info from details (keep it short for the table)
                 local short_details
-                short_details=$(echo "$details" | grep -oE "(Schnorr -> WRAPS at block [0-9]+[^|]*(\|[^|]*)*|Skipped|[0-9]+ errors|Blocks [0-9]+-[0-9]+|[0-9]+ -> [0-9]+)" | head -1)
+                short_details=$(echo "$details" | grep -oE "(Schnorr -> WRAPS at block [0-9]+)|(Skipped)|([0-9]+ errors)|(Blocks [0-9]+-[0-9]+)|([0-9]+ -> [0-9]+)" | head -1)
                 [[ -z "$short_details" ]] && short_details=$(echo "$details" | head -1 | cut -c1-80)
+                # Escape pipe chars so they don't break the markdown table
+                short_details=$(echo "$short_details" | sed 's/|/\\|/g')
                 echo "| ${icon} | ${id} | ${desc} | ${short_details} |"
             done < "${ASSERTION_RESULTS_FILE}"
             echo ""

@@ -21,14 +21,14 @@ block_nodes:
     address: block-node-1
     port: 40840
     peers: [block-node-2]
-    greedy: true
+    greedy: false  # greedy=true blocks live streaming from CN after restart (BN bug workaround)
     grpc_tuning:
       max_frame_size: 8388608  # 8MB to match server.http2.maxFrameSize and handle larger blocks
   block-node-2:
     address: block-node-2
     port: 40840
     peers: [block-node-1]
-    greedy: true
+    greedy: false  # greedy=true blocks live streaming from CN after restart (BN bug workaround)
     grpc_tuning:
       max_frame_size: 8388608
 
