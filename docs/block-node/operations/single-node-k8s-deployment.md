@@ -15,10 +15,10 @@ requirements — see the
 
 Quick reference for minimum mainnet deployments:
 
-| Profile | CPU | RAM | Fast NVMe | Bulk Storage | NICs |
-|---------|-----|-----|-----------|--------------|------|
-| Local Full History (LFH) | 24c / 48t, ≥ 2.0 GHz, PCIe 4+ | 256 GB | 8 TB | 100 TB | 2 × 10 Gbps |
-| Remote Full History (RFH) | 24c / 48t, ≥ 2.0 GHz, PCIe 4+ | 256 GB | 8 TB | — | 2 × 10 Gbps |
+|          Profile          |              CPU              |  RAM   | Fast NVMe | Bulk Storage |    NICs     |
+|---------------------------|-------------------------------|--------|-----------|--------------|-------------|
+| Local Full History (LFH)  | 24c / 48t, ≥ 2.0 GHz, PCIe 4+ | 256 GB | 8 TB      | 100 TB       | 2 × 10 Gbps |
+| Remote Full History (RFH) | 24c / 48t, ≥ 2.0 GHz, PCIe 4+ | 256 GB | 8 TB      | —            | 2 × 10 Gbps |
 
 Note: Servers may be acquired from bare metal or cloud providers that offer dedicated
 instances. LFH configurations require significant storage and are typically sourced from

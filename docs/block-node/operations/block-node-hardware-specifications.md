@@ -25,26 +25,26 @@ Two deployment profiles are supported based on how block history is stored at th
 
 All block history is stored locally on the server.
 
-| Component | Minimum Specification                                     |
-|-----------|-----------------------------------------------------------|
-| CPU       | 24 cores / 48 threads, 2024 or newer (PCIe 4+), ≥ 2.0 GHz |
-| RAM       | 256 GB                                                    |
-| Fast NVMe Disk | 8 TB NVMe SSD                                             |
+|     Component     |                   Minimum Specification                   |
+|-------------------|-----------------------------------------------------------|
+| CPU               | 24 cores / 48 threads, 2024 or newer (PCIe 4+), ≥ 2.0 GHz |
+| RAM               | 256 GB                                                    |
+| Fast NVMe Disk    | 8 TB NVMe SSD                                             |
 | Bulk Storage Disk | 100 TB                                                    |
-| Network   | 2 × 10 Gbps NICs                                          |
-| OS        | Linux (Ubuntu 22.04 LTS or Debian 11 LTS recommended)     |
+| Network           | 2 × 10 Gbps NICs                                          |
+| OS                | Linux (Ubuntu 22.04 LTS or Debian 11 LTS recommended)     |
 
 ### 2. Remote Full History (RFH)
 
 Block history is stored remotely (e.g. cloud object store).
 
-| Component | Minimum Specification |
-|-----------|----------------------|
-| CPU       | 24 cores / 48 threads, 2024 or newer (PCIe 4+), ≥ 2.0 GHz |
-| RAM       | 256 GB |
-| Fast NVMe Disk | 8 TB NVMe SSD |
-| Network   | 2 × 10 Gbps NICs |
-| OS        | Linux (Ubuntu 22.04 LTS or Debian 11 LTS recommended) |
+|   Component    |                   Minimum Specification                   |
+|----------------|-----------------------------------------------------------|
+| CPU            | 24 cores / 48 threads, 2024 or newer (PCIe 4+), ≥ 2.0 GHz |
+| RAM            | 256 GB                                                    |
+| Fast NVMe Disk | 8 TB NVMe SSD                                             |
+| Network        | 2 × 10 Gbps NICs                                          |
+| OS             | Linux (Ubuntu 22.04 LTS or Debian 11 LTS recommended)     |
 
 **Recommendations:**
 
@@ -67,10 +67,10 @@ IOPS, and latency targets that storage must meet to avoid becoming a bottleneck.
 
 ### Disk Performance Targets
 
-| Disk Type  | Sustained Write | Sustained Read | Required Write IOPS | Required Read IOPS | P99 Write Latency | P99 Read Latency |
-|------------|-----------------|----------------|---------------------|--------------------|-------------------|------------------|
-| Fast NVMe  | 4.8 Gbps        | 19.8 Gbps      | 250k                | 800k               | < 300 µs          | < 200 µs         |
-| Bulk Disk  | 2 Gbps          | 10 Gbps        | 150k                | 500k               | —                 | —                |
+| Disk Type | Sustained Write | Sustained Read | Required Write IOPS | Required Read IOPS | P99 Write Latency | P99 Read Latency |
+|-----------|-----------------|----------------|---------------------|--------------------|-------------------|------------------|
+| Fast NVMe | 4.8 Gbps        | 19.8 Gbps      | 250k                | 800k               | < 300 µs          | < 200 µs         |
+| Bulk Disk | 2 Gbps          | 10 Gbps        | 150k                | 500k               | —                 | —                |
 
 **Notes:**
 
@@ -85,11 +85,11 @@ IOPS, and latency targets that storage must meet to avoid becoming a bottleneck.
 
 ## Network Requirements
 
-| Requirement | Target |
-|-------------|--------|
-| Minimum NIC throughput | 10 Gbps (20 Gbps recommended) |
-| CN ↔ BN latency | < 100 µs (TOR switch crossing only) |
-| Colocation | CNs and BNs should be in the same data center, ideally the same rack |
+|      Requirement       |                                Target                                |
+|------------------------|----------------------------------------------------------------------|
+| Minimum NIC throughput | 10 Gbps (20 Gbps recommended)                                        |
+| CN ↔ BN latency        | < 100 µs (TOR switch crossing only)                                  |
+| Colocation             | CNs and BNs should be in the same data center, ideally the same rack |
 
 **Notes:**
 
@@ -121,40 +121,40 @@ T = transactions per block = TPS × block_interval
 
 ### Block Size by TPS
 
-| TPS    | Tx/block | On-disk / block (gz) | Wire size / block (ungz) |
+|    TPS | Tx/block | On-disk / block (gz) | Wire size / block (ungz) |
 |-------:|---------:|---------------------:|-------------------------:|
-|  2,000 |    2,000 |               0.83 MB |                  1.58 MB |
-| 10,000 |   10,000 |               3.64 MB |                  8.69 MB |
-| 20,000 |   20,000 |               7.20 MB |                 17.13 MB |
+|  2,000 |    2,000 |              0.83 MB |                  1.58 MB |
+| 10,000 |   10,000 |              3.64 MB |                  8.69 MB |
+| 20,000 |   20,000 |              7.20 MB |                 17.13 MB |
 
 ### Daily and Monthly On-Disk Storage (local block files, gz)
 
 > These figures cover raw block storage only. Allow additional headroom for OS, JVM,
 > indexes, and recent (uncompressed) working files (~1.5–2× the gz figures).
 
-| TPS    | Per day (gz) | Per month (gz) |
+|    TPS | Per day (gz) | Per month (gz) |
 |-------:|-------------:|---------------:|
-|  2,000 |      69 GB   |       2.1 TB   |
-| 10,000 |     314 GB   |       9.4 TB   |
-| 20,000 |     622 GB   |      18.7 TB   |
+|  2,000 |        69 GB |         2.1 TB |
+| 10,000 |       314 GB |         9.4 TB |
+| 20,000 |       622 GB |        18.7 TB |
 
 **Planning target (20% headroom over model):**
 
-| TPS    | Per day (planned) | Per month (planned) |
+|    TPS | Per day (planned) | Per month (planned) |
 |-------:|------------------:|--------------------:|
-|  2,000 |         83 GB     |         2.5 TB      |
-| 10,000 |        377 GB     |        11.3 TB      |
-| 20,000 |        747 GB     |        22.4 TB      |
+|  2,000 |             83 GB |              2.5 TB |
+| 10,000 |            377 GB |             11.3 TB |
+| 20,000 |            747 GB |             22.4 TB |
 
 ### Ingress Bandwidth (Consensus Node → Block Node)
 
 Steady-state ingress carries one uncompressed block stream per second.
 Worst-case reflects 8 Consensus Nodes simultaneously streaming to a single BN.
 
-| TPS    | Steady-state ingress | Worst-case ingress (8× catch-up) |
+|    TPS | Steady-state ingress | Worst-case ingress (8× catch-up) |
 |-------:|---------------------:|---------------------------------:|
-|  2,000 |            ~60 Mbps  |                      ~480 Mbps   |
-| 20,000 |           ~600 Mbps  |                    ~4,800 Mbps   |
+|  2,000 |             ~60 Mbps |                        ~480 Mbps |
+| 20,000 |            ~600 Mbps |                      ~4,800 Mbps |
 
 > At 20K TPS worst-case, ingress alone approaches the 10 Gbps NIC minimum.
 > A 20 Gbps NIC (or bonded pair) is **strongly recommended** for any deployment
@@ -164,17 +164,17 @@ Worst-case reflects 8 Consensus Nodes simultaneously streaming to a single BN.
 
 Each downstream subscriber (Mirror Node, Block Node, DApp) receives its own uncompressed stream.
 
-| TPS    | Per subscriber / day | Per subscriber / month | 33 subscribers / day | 33 subscribers / month |
+|    TPS | Per subscriber / day | Per subscriber / month | 33 subscribers / day | 33 subscribers / month |
 |-------:|---------------------:|-----------------------:|---------------------:|-----------------------:|
-|  2,000 |             6.5 TB   |             196 TB     |            215 TB    |              6.5 PB    |
-| 20,000 |            65 TB     |             1.9 PB     |           2,145 TB   |             64.4 PB    |
+|  2,000 |               6.5 TB |                 196 TB |               215 TB |                 6.5 PB |
+| 20,000 |                65 TB |                 1.9 PB |             2,145 TB |                64.4 PB |
 
 **Worst-case bandwidth peaks:**
 
-| TPS    | Worst-case egress (33 subscribers) |
-|-------:|------------------------------------:|
-|  2,000 |                        ~2,000 Mbps  |
-| 20,000 |                       ~20,000 Mbps  |
+|    TPS | Worst-case egress (33 subscribers) |
+|-------:|-----------------------------------:|
+|  2,000 |                        ~2,000 Mbps |
+| 20,000 |                       ~20,000 Mbps |
 
 > At 20K TPS with 33 subscribers (1/3 of max BNs (13) backfilling, 10 MNs and 10 DApps subscribed),
 > egress at ~20 Gbps saturates the 10 Gbps minimum NIC.
@@ -185,8 +185,8 @@ Each downstream subscriber (Mirror Node, Block Node, DApp) receives its own unco
 
 | Scenario | On-disk (1 year, gz, no headroom) | Peak ingress | Peak egress (33 sub) | NIC minimum |
 |----------|----------------------------------:|-------------:|---------------------:|------------:|
-| 2K TPS   |                            25 TB  |    480 Mbps  |            ~2 Gbps   |   10 Gbps   |
-| 20K TPS  |                           227 TB  |  4,800 Mbps  |           ~20 Gbps   |   20+ Gbps  |
+| 2K TPS   |                             25 TB |     480 Mbps |              ~2 Gbps |     10 Gbps |
+| 20K TPS  |                            227 TB |   4,800 Mbps |             ~20 Gbps |    20+ Gbps |
 
 > The 100 TB bulk disk minimum (LFH) covers approximately 4 years at 2K TPS or ~5 months at 20K TPS
 > (gz only). The recommended 500 TB covers ~4 years at 10K TPS.
