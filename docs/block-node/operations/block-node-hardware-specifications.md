@@ -114,7 +114,7 @@ T = transactions per block = TPS × block_interval
 ```
 
 **Assumptions used in the tables below:**
-- Block interval: 1 second (1 block/sec)
+- Block interval: 1 second (1 block/sec - double that of the network in early 2026 but good for scaling)
 - Compression ratio: 2.39× (gzip, from v3 mixed-workload model)
 - Worst-case egress subscribers: 33 (13 Block Nodes backfilling + 10 Mirror Nodes + 10 DApps)
 - Worst-case ingress: 8× parallel catch-up streams from Consensus Nodes
@@ -149,7 +149,7 @@ T = transactions per block = TPS × block_interval
 ### Ingress Bandwidth (Consensus Node → Block Node)
 
 Steady-state ingress carries one uncompressed block stream per second.
-Worst-case reflects 8 Consensus Nodes simultaneously streaming to catch up.
+Worst-case reflects 8 Consensus Nodes simultaneously streaming to a single BN.
 
 | TPS    | Steady-state ingress | Worst-case ingress (8× catch-up) |
 |-------:|---------------------:|---------------------------------:|
@@ -176,7 +176,8 @@ Each downstream subscriber (Mirror Node, Block Node, DApp) receives its own unco
 |  2,000 |                        ~2,000 Mbps  |
 | 20,000 |                       ~20,000 Mbps  |
 
-> At 20K TPS with 33 subscribers, egress at ~20 Gbps saturates the 10 Gbps minimum NIC.
+> At 20K TPS with 33 subscribers (1/3 of max BNs (13) backfilling, 10 MNs and 10 DApps subscribed),
+> egress at ~20 Gbps saturates the 10 Gbps minimum NIC.
 > Block Nodes serving many live subscribers at high TPS **require** at least a 20 Gbps NIC
 > and may need 40 Gbps or bonded links for headroom.
 
