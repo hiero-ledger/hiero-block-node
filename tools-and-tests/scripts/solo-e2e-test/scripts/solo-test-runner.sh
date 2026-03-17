@@ -896,13 +896,12 @@ function assert_signature_transition {
 
     local output
     if output=$("$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" 2>&1); then
-        echo "${output}"
         local transition_block
         transition_block=$(echo "${output}" | grep "First WRAPS block:" | awk '{print $NF}')
         echo "${target}: Schnorr -> WRAPS transition at block ${transition_block:-unknown}"
         return 0
     else
-        echo "${output}"
+        echo "${output}" >&2
         echo "${target}: WRAPS not detected within ${max_block} blocks"
         return 1
     fi
@@ -1097,11 +1096,15 @@ function run_assertions {
 
         if result=$(run_assertion "$assert_type" "$target" "$args"); then
             log PASS "$id: $desc ($result)"
-            echo "PASS|${id}|${desc}|${result}" >> "${ASSERTION_RESULTS_FILE}"
+            local single_line_result
+            single_line_result=$(echo "$result" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+            echo "PASS|${id}|${desc}|${single_line_result}" >> "${ASSERTION_RESULTS_FILE}"
             ((ASSERTIONS_PASSED++))
         else
             log FAIL "$id: $desc ($result)"
-            echo "FAIL|${id}|${desc}|${result}" >> "${ASSERTION_RESULTS_FILE}"
+            local single_line_result
+            single_line_result=$(echo "$result" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+            echo "FAIL|${id}|${desc}|${single_line_result}" >> "${ASSERTION_RESULTS_FILE}"
             ((ASSERTIONS_FAILED++))
         fi
 
