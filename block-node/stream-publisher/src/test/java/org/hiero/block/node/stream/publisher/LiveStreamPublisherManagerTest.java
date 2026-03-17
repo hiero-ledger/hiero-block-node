@@ -1149,16 +1149,21 @@ class LiveStreamPublisherManagerTest {
             /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
             /// will send acknowledgement to registered publisher handlers
             /// with the latest block number, i.e.
-            /// [PersistedNotification#blockNumber()].
-            @Test
-            @DisplayName("handlePersisted() sends acknowledgement with latest block number to all registered handlers")
-            void testHandlePersistedValidNotification() {
-                // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet).
+            /// [PersistedNotification#blockNumber()]. This test is when we have no active blocks.
+            /// Active blocks are ones that are currently being published or awaiting,
+            /// or in the process of being streamed to the live items messaging pipeline.
+            @ParameterizedTest
+            @ValueSource(longs = {0L, 1L, 10L, 100L, 1000L})
+            @DisplayName(
+                    "handlePersisted() sends acknowledgement with latest block number to all registered handlers - no active block")
+            void testHandlePersistedValidNotificationNoActiveBlock(final long blockNumber) {
+                // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet)
+                // Also as a precondition establish the last acknowledged block metric's value
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
-                // Build the notification with end block number 10L.
-                final long expectedLatestBlockNumber = 10L;
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(0L);
+                // Build the notification with end block number.
                 final PersistedNotification notification =
-                        new PersistedNotification(10L, true, 0, BlockSource.PUBLISHER);
+                        new PersistedNotification(blockNumber, true, 0, BlockSource.PUBLISHER);
                 // Call
                 toTest.handlePersisted(notification);
                 // Assert that the response pipeline has received a response with the expected latest block number.
@@ -1167,8 +1172,8 @@ class LiveStreamPublisherManagerTest {
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                        .returns(expectedLatestBlockNumber, acknowledgementBlockNumberExtractor);
-                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(expectedLatestBlockNumber);
+                        .returns(blockNumber, acknowledgementBlockNumberExtractor);
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(blockNumber);
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1178,20 +1183,189 @@ class LiveStreamPublisherManagerTest {
 
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
-            /// will set the latest known block number to the
-            /// [PersistedNotification#blockNumber()].
+            /// will send acknowledgement to registered publisher handlers
+            /// with the latest block number, i.e.
+            /// [PersistedNotification#blockNumber()]. This test is when we have active blocks.
+            /// Active blocks are ones that are currently being published or awaiting,
+            /// or in the process of being streamed to the live items messaging pipeline.
+            /// For this test, we will stream the next expected block, which is 0L, then we will
+            /// start streaming block 1L but will not finish it (will remain active) and we
+            /// expect that when we send the persisted notification for block 0L it will be
+            /// acknowledged.
             @Test
-            @DisplayName("handlePersisted() sets latest known block number to notification's endBlockNumber")
-            void testHandlePersistedSetsLatestKnownBlockNumber() {
+            @DisplayName(
+                    "handlePersisted() sends acknowledgement with latest block number to all registered handlers - with active block")
+            void testHandlePersistedValidNotificationWithActiveBlock() {
+                // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet)
+                // Also as a precondition establish the last acknowledged block metric's value
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(0L);
+                // Then we need to stream the next expected block, which is 0L now, but do not end it.
+                // It must remain active when we send the notification.
+                final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
+                final PublishStreamRequestUnparsed request0 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block0.asItemSetUnparsed())
+                        .build();
+                publisherHandler.onNext(request0);
+                // Then end the block
+                endThisBlock(publisherHandler, block0.number());
+                // Now we need to actually stream the block to messaging
+                threadPoolManager.executor().executeAsync(1_000L, false);
+                // Now start streaming block 1L
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1L);
+                final PublishStreamRequestUnparsed request1 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block1.asItemSetUnparsed())
+                        .build();
+                publisherHandler.onNext(request1);
+                // Now send the notification for block 0
+                final PersistedNotification notification =
+                        new PersistedNotification(block0.number(), true, 0, BlockSource.PUBLISHER);
+                // Call
+                toTest.handlePersisted(notification);
+                // Assert that the response pipeline has received a response with the expected latest block number.
+                // We have one handler, so we expect one response.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                        .returns(block0.number(), acknowledgementBlockNumberExtractor);
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(block0.number());
+                // Assert no other responses sent
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
+            /// will not send any acknowledgements and update any metrics when the notification is
+            /// for a block that is higher than or equal to the current lowest active block.
+            /// The current lowest active block is the block that is currently being published or
+            /// awaiting, or in the process of being streamed to the live items messaging
+            /// pipeline.
+            @ParameterizedTest
+            @ValueSource(longs = {0L, 1L, 10L, 100L, 1000L})
+            @DisplayName(
+                    "handlePersisted() - no acknowledgement for future block before acknowledgement for lowest active block")
+            void testNoAcknowledgementForBlocksGreaterOrEqualToLowestActive(long blockNumber) {
+                // As a precondition, assert that the responses pipeline is empty (nothing has been sent yet)
+                // Also as a precondition establish the last acknowledged block metric's value
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(0L);
+                // Then we need to stream the next expected block, which is 0L now, but do not end it.
+                // It must remain active when we send the notification.
+                final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block0.asItemSetUnparsed())
+                        .build();
+                publisherHandler.onNext(request);
+                final PersistedNotification notification =
+                        new PersistedNotification(blockNumber, true, 0, BlockSource.PUBLISHER);
+                // Call
+                toTest.handlePersisted(notification);
+                // Assert no metrics for last acknowledged are updated
+                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(0L);
+                // Assert no responses
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
+                assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
+            /// will set the latest known block number to the
+            /// [PersistedNotification#blockNumber()] when there are no active blocks.
+            /// Active blocks are ones that are currently being published or awaiting,
+            /// or in the process of being streamed to the live items messaging pipeline.
+            @ParameterizedTest
+            @ValueSource(longs = {0L, 1L, 10L, 100L, 1000L})
+            @DisplayName(
+                    "handlePersisted() sets latest known block number to notification's blockNumber when acknowledged - no active block")
+            void testHandlePersistedSetsLatestKnownBlockNumberNoActiveBlock(final long blockNumber) {
                 // As a precondition, assert that the latest known block number is -1L (nothing has been persisted yet).
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1L);
                 // Build the notification with end block number 10L.
-                final long expectedLatestBlockNumber = 10L;
                 final PersistedNotification notification =
-                        new PersistedNotification(10L, true, 0, BlockSource.PUBLISHER);
+                        new PersistedNotification(blockNumber, true, 0, BlockSource.PUBLISHER);
                 // Call
                 toTest.handlePersisted(notification);
-                assertThat(managerMetrics.latestBlockNumberAcknowledged().get()).isEqualTo(expectedLatestBlockNumber);
+                // Assert that the latest known block number is now set to the notification's end block number.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(blockNumber);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
+            /// will set the latest known block number to the
+            /// [PersistedNotification#blockNumber()] when there are active blocks.
+            /// Active blocks are ones that are currently being published or awaiting,
+            /// or in the process of being streamed to the live items messaging pipeline.
+            /// Here we stream block 0 in full, it is then sent to internal messaging.
+            /// Then we start streaming block 1, but we do not finish it, we must remain
+            /// in the middle of streaming it so it is active. We expect that when we
+            /// send successful persistence for block 0, it will be acknowledged and the
+            /// [LiveStreamPublisherManager#getLatestBlockNumber()] will be updated to
+            /// match the block we received successful persistence for.
+            @Test
+            @DisplayName(
+                    "handlePersisted() sets latest known block number to notification's blockNumber when acknowledged - with active block")
+            void testHandlePersistedSetsLatestKnownBlockNumberWithActiveBlock() {
+                // As a precondition, assert that the latest known block number is -1L (nothing has been persisted yet).
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(-1L);
+                // Then we need to stream the next expected block, which is 0L now, but do not end it.
+                // It must remain active when we send the notification.
+                final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
+                final PublishStreamRequestUnparsed request0 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block0.asItemSetUnparsed())
+                        .build();
+                publisherHandler.onNext(request0);
+                // Then end the block
+                endThisBlock(publisherHandler, block0.number());
+                // Now we need to actually stream the block to messaging
+                threadPoolManager.executor().executeAsync(1_000L, false);
+                // Now start streaming block 1L
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1L);
+                final PublishStreamRequestUnparsed request1 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block1.asItemSetUnparsed())
+                        .build();
+                publisherHandler.onNext(request1);
+                // Now send the notification for block 0
+                final PersistedNotification notification =
+                        new PersistedNotification(block0.number(), true, 0, BlockSource.PUBLISHER);
+                // Call
+                toTest.handlePersisted(notification);
+                // Assert that the latest known block number is now set to the notification's end block number.
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(block0.number());
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
+            /// will not set the latest known block number to the
+            /// [PersistedNotification#blockNumber()] when that value is lower than the lowest active block.
+            /// Active blocks are ones that are currently being published or awaiting,
+            /// or in the process of being streamed to the live items messaging pipeline.
+            @ParameterizedTest
+            @ValueSource(longs = {0L, 1L, 10L, 100L, 1000L})
+            @DisplayName(
+                    "handlePersisted() does not change latest known block number to notification's blockNumber when it is lower that lowest active")
+            void testHandlePersistedDoesNotSetLatestKnownBlockNumberWhenLowerThanLowestActive(final long blockNumber) {
+                // As a precondition, assert that the latest known block number is -1L (nothing has been persisted yet).
+                final long expectedLatestBlockNumber = -1L;
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestBlockNumber);
+                // Then we need to stream the next expected block, which is 0L now, but do not end it.
+                // It must remain active when we send the notification.
+                final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
+                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block0.asItemSetUnparsed())
+                        .build();
+                publisherHandler.onNext(request);
+                // Build the notification.
+                final PersistedNotification notification =
+                        new PersistedNotification(blockNumber, true, 0, BlockSource.PUBLISHER);
+                // Call
+                toTest.handlePersisted(notification);
                 // Assert that the latest known block number is now set to the notification's end block number.
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestBlockNumber);
             }

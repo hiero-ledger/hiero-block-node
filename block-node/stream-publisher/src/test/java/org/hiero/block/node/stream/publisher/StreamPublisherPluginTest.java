@@ -197,7 +197,7 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
             endThisBlock(toPluginPipe, blockNumber);
             // Await to ensure async execution and assert response
-            parkNanos(500_000_000L);
+            awaitPluginResponses(1);
             assertThat(fromPluginBytes)
                     .hasSize(1)
                     .first()
@@ -221,7 +221,7 @@ class StreamPublisherPluginTest {
                     .build();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             endThisBlock(toPluginPipe, block0.number());
-            parkNanos(500_000_000L);
+            awaitPluginResponses(1);
             assertThat(fromPluginBytes)
                     .hasSize(1)
                     .first()
@@ -278,7 +278,7 @@ class StreamPublisherPluginTest {
                     .build();
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(retryProofRequest));
             endThisBlock(toPluginPipe, block1.number());
-            parkNanos(500_000_000L);
+            awaitPluginResponses(1);
             assertThat(fromPluginBytes).isNotEmpty();
             final PublishStreamResponse response = bytesToPublishStreamResponseMapper.apply(fromPluginBytes.getLast());
             assertThat(response)
