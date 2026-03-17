@@ -18,7 +18,7 @@ spotless {
         leadingTabsToSpaces()
         endWithNewline()
 
-        // additional newline after header in 'rs' files
+        // additional newline after header in 'js' files
         licenseHeader(LicenseHeader.HEADER_STYLE_C + "\n", LicenseHeader.FIRST_LINE_REGEX_STYLE_C)
     }
 }
