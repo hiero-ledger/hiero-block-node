@@ -211,10 +211,10 @@ Same as `download-days-v2`.
 
 ```bash
 # Download testnet days for February 2024 (testnet genesis month)
---network testnet days download-days-v3 2024 2 1 2024 2 28
+days download-days-v3 2024 2 1 2024 2 28 --network testnet
 
 # Download all available testnet days
---network testnet days download-days-v3 2024 2 1 2026 3 16
+days download-days-v3 2024 2 1 2026 3 16 --network testnet
 ```
 
 > **Testnet notes:** The testnet GCS bucket is `hedera-testnet-streams`. Testnet has 7 nodes (account IDs 0.0.3 through 0.0.9) compared to mainnet's 35 nodes (0.0.3 through 0.0.37). The `--network testnet` flag configures the bucket and node range automatically.
@@ -259,10 +259,10 @@ days download-live [options]
 
 ```bash
 # Follow testnet live blocks
---network testnet days download-live -o /path/to/testnetCompressedDays
+days download-live -o /path/to/testnetCompressedDays --network testnet
 
 # Backfill testnet from genesis and then follow live
---network testnet days download-live --start-day 2024-02-01 -o /path/to/testnetCompressedDays
+days download-live --start-day 2024-02-01 -o /path/to/testnetCompressedDays --network testnet
 ```
 
 ---
@@ -435,10 +435,10 @@ days updateDayListings [options]
 
 ```bash
 # Update testnet day listings
---network testnet days updateDayListings
+days updateDayListings --network testnet
 
 # Update testnet listings for a specific date range
---network testnet days updateDayListings --start-date 2024-02-01 --end-date 2024-03-01
+days updateDayListings --start-date 2024-02-01 --end-date 2024-03-01 --network testnet
 ```
 
 ---

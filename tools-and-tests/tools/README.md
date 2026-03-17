@@ -147,13 +147,13 @@ java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar days
 
 ```bash
 # Update mirror metadata for testnet
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar --network testnet mirror update
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar mirror update --network testnet
 
 # Download testnet day archives
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar --network testnet days download-days-v3 2024 2 1 2024 3 1
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar days download-days-v3 2024 2 1 2024 3 1 --network testnet
 
 # Wrap testnet record files into blocks
-java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar --network testnet blocks wrap
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar blocks wrap --network testnet
 ```
 
 > See the [Testnet Pipeline Guide](docs/testnet-guide.md) for a full end-to-end walkthrough.
@@ -176,16 +176,16 @@ The tools support multiple Hedera networks via the `--network` flag:
 | `mainnet` | Hedera mainnet (default). Genesis: 2019-09-13, nodes 3-37.         |
 | `testnet` | Hedera testnet (current instance). Genesis: 2024-02-01, nodes 3-9. |
 
-The `--network` flag is a **top-level option** that goes before the subcommand. It is inherited by all subcommands, so you only need to specify it once.
+The `--network` flag is a **top-level inherited option** — it can be placed anywhere on the command line (before, between, or after subcommands). You only need to specify it once.
 
 ```bash
-# Syntax: java -jar tools.jar --network <network> <command> <subcommand> [options]
-
 # Mainnet (default — --network can be omitted)
 java -jar tools.jar mirror update
 
-# Testnet
+# Testnet — all of these are equivalent:
+java -jar tools.jar mirror update --network testnet
 java -jar tools.jar --network testnet mirror update
+java -jar tools.jar mirror --network testnet update
 ```
 
 When `--network testnet` is specified, the tools automatically use:

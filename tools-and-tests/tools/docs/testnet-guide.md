@@ -34,7 +34,7 @@ End-to-end guide for running the record-to-block conversion pipeline against the
 
 ## Step-by-Step Pipeline
 
-All commands use the `--network testnet` flag, which must appear **before** the subcommand. For brevity, the examples below use `TOOLS_JAR` as a shorthand:
+All commands use the `--network testnet` flag, which can be placed anywhere on the command line. For brevity, the examples below use `TOOLS_JAR` as a shorthand:
 
 ```bash
 export TOOLS_JAR="java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar"
@@ -51,13 +51,13 @@ export TOOLS_JAR="java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNA
 Generate `block_times.bin` and `day_blocks.json` from the testnet Mirror Node REST API. This does **not** require GCP credentials.
 
 ```bash
-$TOOLS_JAR --network testnet mirror update
+$TOOLS_JAR mirror update --network testnet
 ```
 
 To limit the fetch to a specific date range:
 
 ```bash
-$TOOLS_JAR --network testnet mirror update --end-date 2024-03-01
+$TOOLS_JAR mirror update --network testnet --end-date 2024-03-01
 ```
 
 ### 3. Generate Day Listings
@@ -65,7 +65,7 @@ $TOOLS_JAR --network testnet mirror update --end-date 2024-03-01
 Download file listing metadata from the testnet GCS bucket. This tells the download commands which files exist for each day.
 
 ```bash
-$TOOLS_JAR --network testnet days updateDayListings
+$TOOLS_JAR days updateDayListings --network testnet
 ```
 
 ### 4. Download Days
@@ -74,10 +74,10 @@ Download compressed daily record file archives from the testnet GCS bucket.
 
 ```bash
 # Download all available testnet days
-$TOOLS_JAR --network testnet days download-days-v3 2024 2 1 2026 3 16
+$TOOLS_JAR days download-days-v3 2024 2 1 2026 3 16 --network testnet
 
 # Or download a smaller range to test
-$TOOLS_JAR --network testnet days download-days-v3 2024 2 1 2024 2 28
+$TOOLS_JAR days download-days-v3 2024 2 1 2024 2 28 --network testnet
 ```
 
 ### 5. Wrap Record Files into Blocks
@@ -85,9 +85,10 @@ $TOOLS_JAR --network testnet days download-days-v3 2024 2 1 2024 2 28
 Convert the downloaded record file day archives into wrapped Block Stream blocks.
 
 ```bash
-$TOOLS_JAR --network testnet blocks wrap \
+$TOOLS_JAR blocks wrap \
   -i compressedDays \
-  -o testnetWrappedBlocks
+  -o testnetWrappedBlocks \
+  --network testnet
 ```
 
 The testnet genesis address book is bundled and will be loaded automatically.
@@ -97,15 +98,16 @@ The testnet genesis address book is bundled and will be loaded automatically.
 Validate the hash chain, signatures, and structure of the wrapped blocks.
 
 ```bash
-$TOOLS_JAR --network testnet blocks validate testnetWrappedBlocks
+$TOOLS_JAR blocks validate testnetWrappedBlocks --network testnet
 ```
 
 To skip balance validation (balance checkpoints are not yet available for testnet):
 
 ```bash
-$TOOLS_JAR --network testnet blocks validate \
+$TOOLS_JAR blocks validate \
   --no-validate-balances \
-  testnetWrappedBlocks
+  testnetWrappedBlocks \
+  --network testnet
 ```
 
 > **Note:** Balance checkpoint files are not yet available for testnet. Use `--no-validate-balances` to skip balance validation.
@@ -118,5 +120,5 @@ $TOOLS_JAR --network testnet blocks validate \
 | GCP authentication errors                                | Run `gcloud auth application-default login` and ensure a billing-enabled project is set with `gcloud config set project YOUR_PROJECT_ID`. |
 | "Requester pays" access denied                           | Ensure your GCP project has billing enabled and is set as the active project.                                                             |
 | Edge-day sync problems (missing files at day boundaries) | Some days near the genesis boundary may have incomplete data. Use `days clean` to remove bad record sets, then re-download.               |
-| `IndexOutOfBoundsException` during download              | The `block_times.bin` may be out of date. Re-run `--network testnet mirror update` to refresh it.                                         |
+| `IndexOutOfBoundsException` during download              | The `block_times.bin` may be out of date. Re-run `mirror update --network testnet` to refresh it.                                         |
 | Validation fails on first block                          | Ensure you are starting from block 0 for full validation, or use `--skip-signatures` for partial runs.                                    |
