@@ -113,7 +113,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_files_recent_blocks_written_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:files_recent_blocks_written_total[$__rate_interval])",
           "interval": "1m",
           "range": true,
           "refId": "A"
@@ -201,7 +201,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_files_recent_blocks_read_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:files_recent_blocks_read_total[$__rate_interval])",
           "interval": "1m",
           "range": true,
           "refId": "A"
@@ -289,7 +289,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_files_recent_blocks_deleted_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:files_recent_blocks_deleted_total[$__rate_interval])",
           "interval": "1m",
           "range": true,
           "refId": "A"
@@ -346,7 +346,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_files_recent_blocks_written_total[$__range])",
+          "expr": "increase(hiero_block_node:files_recent_blocks_written_total[$__range])",
           "instant": true,
           "interval": "1m",
           "range": false,
@@ -405,7 +405,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_files_recent_blocks_read_total[$__range])",
+          "expr": "increase(hiero_block_node:files_recent_blocks_read_total[$__range])",
           "instant": true,
           "interval": "1m",
           "range": false,
@@ -463,7 +463,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_files_recent_blocks_deleted_total[$__range])",
+          "expr": "increase(hiero_block_node:files_recent_blocks_deleted_total[$__range])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -551,7 +551,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_files_recent_blocks_deleted_failed_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:files_recent_blocks_deleted_failed_total[$__rate_interval])",
           "interval": "1m",
           "range": true,
           "refId": "A"
@@ -608,7 +608,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_files_recent_blocks_deleted_failed_total[$__range])",
+          "expr": "increase(hiero_block_node:files_recent_blocks_deleted_failed_total[$__range])",
           "instant": true,
           "interval": "1m",
           "range": false,
@@ -679,7 +679,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "hiero_block_node_files_recent_blocks_stored",
+          "expr": "hiero_block_node:files_recent_blocks_stored",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -767,7 +767,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hiero_block_node_files_recent_blocks_stored",
+          "expr": "hiero_block_node:files_recent_blocks_stored",
           "interval": "1m",
           "range": true,
           "refId": "A"
@@ -824,7 +824,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "hiero_block_node_files_recent_total_bytes_stored",
+          "expr": "hiero_block_node:files_recent_total_bytes_stored",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -912,7 +912,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(increase(hiero_block_node_files_recent_total_bytes_stored[$__range]))",
+          "expr": "sum(increase(hiero_block_node:files_recent_total_bytes_stored[$__range]))",
           "interval": "1m",
           "range": true,
           "refId": "A"

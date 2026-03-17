@@ -117,7 +117,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_get_block_requests_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:get_block_requests_total[$__rate_interval])",
           "legendFormat": "Requests Rate",
           "range": true,
           "refId": "A"
@@ -209,7 +209,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_get_block_requests_success_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:get_block_requests_success_total[$__rate_interval])",
           "legendFormat": "Success Rate",
           "range": true,
           "refId": "A"
@@ -297,7 +297,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_get_block_requests_not_available_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:get_block_requests_not_available_total[$__rate_interval])",
           "legendFormat": "Not Available Rate",
           "range": true,
           "refId": "A"
@@ -385,7 +385,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_get_block_requests_not_found_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:get_block_requests_not_found_total[$__rate_interval])",
           "legendFormat": "Not Found Rate",
           "range": true,
           "refId": "A"
@@ -454,7 +454,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_get_block_requests_total",
+          "expr": "hiero_block_node:get_block_requests_total",
           "refId": "A"
         }
       ],
@@ -508,7 +508,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_get_block_requests_success_total",
+          "expr": "hiero_block_node:get_block_requests_success_total",
           "refId": "A"
         }
       ],
@@ -562,7 +562,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_get_block_requests_not_available_total",
+          "expr": "hiero_block_node:get_block_requests_not_available_total",
           "refId": "A"
         }
       ],
@@ -616,7 +616,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_get_block_requests_not_found_total",
+          "expr": "hiero_block_node:get_block_requests_not_found_total",
           "refId": "A"
         }
       ],
@@ -719,7 +719,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hiero_block_node_get_block_requests_success_total / hiero_block_node_get_block_requests_total * 100",
+          "expr": "hiero_block_node:get_block_requests_success_total / hiero_block_node:get_block_requests_total * 100",
           "legendFormat": "Success Percentage",
           "range": true,
           "refId": "A"
@@ -807,7 +807,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hiero_block_node_get_block_requests_not_available_total / hiero_block_node_get_block_requests_total * 100",
+          "expr": "hiero_block_node:get_block_requests_not_available_total / hiero_block_node:get_block_requests_total * 100",
           "legendFormat": "Not Available Percentage",
           "range": true,
           "refId": "A"
@@ -895,7 +895,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hiero_block_node_get_block_requests_not_found_total / hiero_block_node_get_block_requests_total * 100",
+          "expr": "hiero_block_node:get_block_requests_not_found_total / hiero_block_node:get_block_requests_total * 100",
           "legendFormat": "Not Found Percentage",
           "range": true,
           "refId": "A"

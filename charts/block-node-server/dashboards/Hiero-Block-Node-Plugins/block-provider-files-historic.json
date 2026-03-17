@@ -80,7 +80,7 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "expr": "hiero_block_node_files_historic_blocks_stored",
+          "expr": "hiero_block_node:files_historic_blocks_stored",
           "refId": "A"
         }
       ],
@@ -165,7 +165,7 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "expr": "hiero_block_node_files_historic_blocks_stored",
+          "expr": "hiero_block_node:files_historic_blocks_stored",
           "refId": "A"
         }
       ],
@@ -218,7 +218,7 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "expr": "hiero_block_node_files_historic_total_bytes_stored",
+          "expr": "hiero_block_node:files_historic_total_bytes_stored",
           "refId": "A"
         }
       ],
@@ -303,7 +303,7 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "expr": "hiero_block_node_files_historic_total_bytes_stored",
+          "expr": "hiero_block_node:files_historic_total_bytes_stored",
           "refId": "A"
         }
       ],
@@ -370,7 +370,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "increase(hiero_block_node_files_historic_blocks_written_total[$__range])",
+          "expr": "increase(hiero_block_node:files_historic_blocks_written_total[$__range])",
           "range": true,
           "refId": "A"
         }
@@ -456,7 +456,7 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_files_historic_blocks_written_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:files_historic_blocks_written_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -523,7 +523,7 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "expr": "increase(hiero_block_node_files_historic_blocks_read_total[$__range])",
+          "expr": "increase(hiero_block_node:files_historic_blocks_read_total[$__range])",
           "refId": "A"
         }
       ],
@@ -608,7 +608,7 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_files_historic_blocks_read_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:files_historic_blocks_read_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -676,7 +676,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "increase(hiero_block_node_files_historic_zips_deleted_failed_total[$__range])",
+          "expr": "increase(hiero_block_node:files_historic_zips_deleted_failed_total[$__range])",
           "range": true,
           "refId": "A"
         }
@@ -763,7 +763,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_files_historic_zips_deleted_failed_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:files_historic_zips_deleted_failed_total[$__rate_interval])",
           "range": true,
           "refId": "A"
         }
