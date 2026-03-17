@@ -5,7 +5,7 @@ This directory contains performance tests for the application using [k6](https:/
 ## Prerequisites
 
 - Ensure you have [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) installed on your machine.
-- Make sure the application you want to test is running and accessible.
+- Make sure have solo installed on your machine.
 
 ## Setup
 
@@ -66,15 +66,9 @@ protobuf files.
 
 ## Running the Tests
 
-1. Navigate to the desired directory `tools-and-tests/k6/<testTypeDir>`:
+1. From the project root directory run: `./gradlew runK6Tests`
 
-   ```bash
-   cd tools-and-tests/k6/<testTypeDir>
-   ```
-2. Run the desired k6 test script using the following command:
-
-   ```bash
-   k6 run <script-name>.js
-   ```
-
-   Replace `<script-name>.js` with the k6 test script you want to execute.
+This gradle task calls `run-k6-tests.sh` script which runs all the tests. This script then performs the following steps:
+1. `task up` from solo-e2e-test which uses the default config and starts a 1 CN, 1 BN, 1MN environment for testing
+2. runs the tests
+3. `task down` from solo-e2e-test which tears down the solo environment
