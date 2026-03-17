@@ -1291,46 +1291,111 @@ class PublisherHandlerTest {
 
             /// This test aims to assert that the [PublisherHandler] correctly
             /// handles a received request
-            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when a
             /// premature header is received, i.e. the request contains a block
             /// header, but the current block is not yet streamed in full. A header
-            /// indicates that the current requests initiates the streaming of a new
+            /// indicates that the current request initiates the streaming of a new
             /// block. When a header is sent prematurely, the handler is expected to
-            /// respond with an [org.hiero.block.api.PublishStreamResponse.EndOfStream]
-            /// with [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#INVALID_REQUEST].
+            /// start streaming the new block.
             @Test
-            @DisplayName("Test onNext() with premature header received, response EndOfStream, Code INVALID_REQUEST")
-            void testOnNextPrematureHeaderResponse() {
+            @DisplayName("Test onNext() with premature header received, start streaming new block")
+            void testOnNextPrematureHeaderNewBlockStreamed() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
-                // Send the first half of the items, header included
-                final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 0, blockItems.length / 2);
-                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
-                        .blockItems(blockItemsToSend)
-                        .build();
-                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1L);
+                final BlockItemSetUnparsed block1ItemSet = block1.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed requestBlock1 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block1ItemSet)
                         .build();
                 // Train the manager to expect return ACCEPT
                 manager.setBlockActionForBlock(BlockAction.ACCEPT);
-                // Call, we expect that everything is well when we've first sent this valid request
-                toTest.onNext(request);
-                // Assert items were propagated (first request was valid and passed)
-                assertThat(manager.getQueueForBlock(block.number())).hasSize(1).containsExactly(blockItemSet);
-                // Call again, now we expect that the handler will not propagate any items
-                // because the request would be invalid, we are sending a header, but the
-                // current block is not yet streamed in full as we sent only half of the items.
-                toTest.onNext(request);
-                // Assert single response is EndOfStream with Code INVALID_REQUEST and onComplete is called (shutdown)
-                assertThat(repliesPipeline.getOnNextCalls())
-                        .hasSize(1)
-                        .first()
-                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                        .returns(Code.INVALID_REQUEST, endStreamResponseCodeExtractor)
-                        .returns(manager.getLatestBlockNumber(), endStreamBlockNumberExtractor);
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                // Call; we expect that everything is well when we've first sent this valid request
+                // We do not end the block here, it must remain active and currently streaming
+                toTest.onNext(requestBlock1);
+                // Assert items were propagated (the first request was valid and passed)
+                assertThat(manager.getQueueForBlock(block1.number())).hasSize(1).containsExactly(block1ItemSet);
+                // Now start streaming another block, say block 0
+                final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemSetUnparsed block0ItemSet = block0.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed requestBlock0 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block0ItemSet)
+                        .build();
+                toTest.onNext(requestBlock0);
+                // Assert items were propagated
+                assertThat(manager.getQueueForBlock(block0.number())).hasSize(1).containsExactly(block0ItemSet);
+            }
+
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when a
+            /// premature header is received, i.e. the request contains a block
+            /// header, but the current block is not yet streamed in full. A header
+            /// indicates that the current request initiates the streaming of a new
+            /// block. When a header is sent prematurely, the handler is expected to
+            /// end the current one mid-block.
+            @Test
+            @DisplayName("Test onNext() with premature header received, end current block mid-block")
+            void testOnNextPrematureHeaderNewBlockEndCurrentOne() {
+                // Setup request to send, in this case a single complete valid block
+                // as items, starting with header and ending with proof
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1L);
+                final BlockItemSetUnparsed block1ItemSet = block1.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed requestBlock1 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block1ItemSet)
+                        .build();
+                // Train the manager to expect return ACCEPT
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                // Call; we expect that everything is well when we've first sent this valid request
+                // We do not end the block here, it must remain active and currently streaming
+                toTest.onNext(requestBlock1);
+                // Assert that no blocks have ended mid-block yet
+                assertThat(manager.getBlocksEndedMidBlock()).isEmpty();
+                // Now start streaming another block, say block 0
+                final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemSetUnparsed block0ItemSet = block0.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed requestBlock0 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block0ItemSet)
+                        .build();
+                toTest.onNext(requestBlock0);
+                // Assert that block 1 has ended mid-block
+                assertThat(manager.getBlocksEndedMidBlock()).containsExactly(block1.number());
+            }
+
+            /// This test aims to assert that the [PublisherHandler] correctly
+            /// handles a received request
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when a
+            /// premature header is received, i.e. the request contains a block
+            /// header, but the current block is not yet streamed in full. A header
+            /// indicates that the current request initiates the streaming of a new
+            /// block. When a header is sent prematurely, the handler is expected to
+            /// not send any responses in case the new block that starts streaming is
+            /// accepted.
+            @Test
+            @DisplayName("Test onNext() with premature header received, no responses sent when new block is accepted")
+            void testOnNextPrematureHeaderNewBlockNoResponsesSent() {
+                // Setup request to send, in this case a single complete valid block
+                // as items, starting with header and ending with proof
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1L);
+                final BlockItemSetUnparsed block1ItemSet = block1.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed requestBlock1 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block1ItemSet)
+                        .build();
+                // Train the manager to expect return ACCEPT
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                // Call; we expect that everything is well when we've first sent this valid request
+                // We do not end the block here, it must remain active and currently streaming
+                toTest.onNext(requestBlock1);
+                // Now start streaming another block, say block 0
+                final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemSetUnparsed block0ItemSet = block0.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed requestBlock0 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block0ItemSet)
+                        .build();
+                toTest.onNext(requestBlock0);
+                // Assert no responses on the pipeline are made, but also that no calls of onComplete are called
+                // indicating the handler is still active
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -1339,44 +1404,38 @@ class PublisherHandlerTest {
 
             /// This test aims to assert that the [PublisherHandler] correctly
             /// handles a received request
-            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when
+            /// [PublisherHandler#onNext(PublishStreamRequestUnparsed)] when a
             /// premature header is received, i.e. the request contains a block
             /// header, but the current block is not yet streamed in full. A header
-            /// indicates that the current requests initiates the streaming of a new
+            /// indicates that the current request initiates the streaming of a new
             /// block. When a header is sent prematurely, the handler is expected to
             /// update metrics accordingly.
             @Test
-            @DisplayName(
-                    "Test onNext() with premature header received, metrics updated - EndOfStream, Code INVALID_REQUEST")
-            void testOnNextPrematureHeaderMetrics() {
+            @DisplayName("Test onNext() with premature header received, metrics updated")
+            void testOnNextPrematureHeaderMetricsUpdated() {
                 // Setup request to send, in this case a single complete valid block
                 // as items, starting with header and ending with proof
-                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
-                final BlockItemUnparsed[] blockItems = block.asBlockItemUnparsedArray();
-                // Send the first half of the items, header included
-                final BlockItemUnparsed[] blockItemsToSend = Arrays.copyOfRange(blockItems, 0, blockItems.length / 2);
-                final BlockItemSetUnparsed blockItemSet = BlockItemSetUnparsed.newBuilder()
-                        .blockItems(blockItemsToSend)
-                        .build();
-                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(blockItemSet)
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(1L);
+                final BlockItemSetUnparsed block1ItemSet = block1.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed requestBlock1 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block1ItemSet)
                         .build();
                 // Train the manager to expect return ACCEPT
                 manager.setBlockActionForBlock(BlockAction.ACCEPT);
-                // Call, we expect that everything is well when we've first sent this valid request
-                toTest.onNext(request);
-                // Assert items were propagated (first request was valid and passed)
-                assertThat(manager.getQueueForBlock(block.number())).hasSize(1).containsExactly(blockItemSet);
-                // Assert metrics updated for the successful request
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItemsToSend.length);
-                // Call again, now we expect that the handler will not propagate any items
-                // because the request would be invalid, we are sending a header, but the
-                // current block is not yet streamed in full as we sent only half of the items.
-                toTest.onNext(request);
+                // Call; we expect that everything is well when we've first sent this valid request
+                // We do not end the block here, it must remain active and currently streaming
+                toTest.onNext(requestBlock1);
+                // Now start streaming another block, say block 0
+                final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
+                final BlockItemSetUnparsed block0ItemSet = block0.asItemSetUnparsed();
+                final PublishStreamRequestUnparsed requestBlock0 = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block0ItemSet)
+                        .build();
+                toTest.onNext(requestBlock0);
                 // Assert metrics updated
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
+                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(block1.blockSize() + block0.blockSize());
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItemsToSend.length);
+                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
                 assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
                 assertThat(metrics.streamErrors().get()).isEqualTo(0);
                 assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);

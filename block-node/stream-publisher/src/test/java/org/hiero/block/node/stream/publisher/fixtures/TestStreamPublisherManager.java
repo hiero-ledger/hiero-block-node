@@ -48,6 +48,7 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     private long latestBlockNumber = -1L;
 
     private final NavigableSet<Long> endOfBlocksReceived = new ConcurrentSkipListSet<>();
+    private final NavigableSet<Long> blocksEndedMidBlock = new ConcurrentSkipListSet<>();
     private final ConcurrentMap<Long, Deque<BlockItemSetUnparsed>> queueByBlockMap = new ConcurrentSkipListMap<>();
 
     public TestStreamPublisherManager(final TestBlockMessagingFacility testBlockMessagingFacility) {
@@ -119,7 +120,11 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
 
     @Override
     public void blockIsEnding(final long blockNumber, final long handlerId) {
-        // @todo(2349) we can add a counter here to aid asserts
+        blocksEndedMidBlock.add(blockNumber);
+    }
+
+    public NavigableSet<Long> getBlocksEndedMidBlock() {
+        return blocksEndedMidBlock;
     }
 
     @Override

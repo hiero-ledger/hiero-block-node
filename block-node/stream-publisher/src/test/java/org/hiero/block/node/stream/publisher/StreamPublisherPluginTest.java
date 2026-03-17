@@ -42,6 +42,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 /// Tests for the [StreamPublisherPlugin].
@@ -692,7 +693,7 @@ class StreamPublisherPluginTest {
         /// This test aims to asser that if a block fails verification, it will be scheduled to be resent.
         /// When an active publisher finishes the current block it streams, it must receive the ResendBlock
         /// message for the block that failed verification.
-        @Test
+        @RepeatedTest(value = 100, failureThreshold = 1)
         @DisplayName(
                 "Test receive the ResendBlock message on block that failed verification when a publisher ends it's current block")
         void testResendBlockReceived() {

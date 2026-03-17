@@ -171,9 +171,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final long handlerId, final Deque<BlockItemSetUnparsed> queue, final long blockNumber) {
         final Deque<BlockItemSetUnparsed> previousValue = queueByBlockMap.put(blockNumber, queue);
         if (previousValue != null) {
-            // This is not expected to happen
-            final String message = "Handler {0} registered a queue for block {1}, but it was already registered";
-            LOGGER.log(INFO, message, handlerId, blockNumber);
+            // If there is a previous value, this means that the publisher that streamed this block is now
+            // re-starting it mid-block. We need to remove a potentially collected block proof.
+            blockProofs.remove(blockNumber);
         }
     }
 
