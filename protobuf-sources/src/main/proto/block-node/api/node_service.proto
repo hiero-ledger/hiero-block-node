@@ -16,7 +16,7 @@ message ServerStatusRequest {}
 
 /**
  * A response to a server status detail request.
- *
+ * <p>
  * This message SHALL provide a client with extended detail information needed
  * to successfully query this Block-Node for a block, stream of blocks, or
  * state snapshot.<br/>
@@ -41,11 +41,17 @@ message ServerStatusDetailResponse {
      * A list of available block ranges.
      */
     repeated BlockRange available_ranges = 2;
+
+    /**
+     * TSS Data from the block node server.
+     * Ledger Id, wraps validation key, and TssRoster information
+     */
+    TssData tss_data = 3;
 }
 
 /**
  * A response to a server status request.
- *
+ * <p>
  * This message SHALL provide a client with information needed to successfully
  * query this Block-Node for a block, stream of blocks, or
  * state snapshot.<br/>
@@ -81,7 +87,7 @@ message ServerStatusResponse {
 
 /**
  * Version information for a Block-Node.
- *
+ * <p>
  * The `stream_proto_version` SHOULD be an officially released Block Stream
  * version.<br/>
  * The `software_version` SHALL be determined by the implementation of this
@@ -170,6 +176,59 @@ message BlockRange {
      * The greatest numbered block in this range of available blocks.
      */
     uint64 range_end = 2;
+}
+
+/**
+ * TSS information for a Block-Node.
+ *
+ * `TssData` contains the Ledger Id, wraps validation key, and TssRoster information
+ */
+message TssData {
+    /**
+     * The ledger id
+     */
+    bytes ledger_id = 1;
+    /**
+     * The wraps verification key
+     */
+    bytes wraps_verification_key = 2;
+    /**
+     * The current TSS roster
+     */
+    TssRoster current_roster = 3;
+}
+
+/**
+ * TSS Roster information for TSS Data.
+ *
+ * `TssRoster` contains a list of roster entry
+ */
+message TssRoster {
+    /**
+     * The list of `RosterEntry`
+     */
+    repeated RosterEntry roster_entry = 1;
+}
+
+/**
+ * Roster information for a TSS Roster
+ *
+ * `RosterEntry` contains a node id, weight, and schnorr public key for the Roster
+ */
+message RosterEntry {
+    /**
+     * The node id
+     */
+    uint64 node_id = 1;
+    /**
+     * The node weight
+     */
+    uint64 weight = 2;
+    /**
+     * The schnorr public key
+     */
+    bytes schnorr_public_key = 3;
+
 }
 
 /**
