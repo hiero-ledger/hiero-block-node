@@ -5,12 +5,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 
 /**
- * Utility methods for reliably saving and loading {@link StreamingHasher} and
- * {@link InMemoryTreeHasher} state files.
+ * Utility methods for reliably saving and loading {@link StreamingHasher} state files.
  *
  * <h2>Atomic save pattern</h2>
  *
@@ -109,28 +107,16 @@ public final class HasherStateFiles {
     }
 
     /**
-     * Saves both hashers atomically via {@link #saveAtomically}. Each save is independent:
-     * an error on one is logged as a warning and does not prevent the other from being attempted.
+     * Saves the streaming hasher atomically via {@link #saveAtomically}.
      *
      * @param streamingFile path for the streaming hasher state
      * @param streamingHasher the streaming hasher to save
-     * @param inMemoryFile path for the in-memory tree hasher state
-     * @param inMemoryTreeHasher the in-memory tree hasher to save
      */
-    public static void saveStateCheckpoint(
-            Path streamingFile,
-            StreamingHasher streamingHasher,
-            Path inMemoryFile,
-            InMemoryTreeHasher inMemoryTreeHasher) {
+    public static void saveStateCheckpoint(Path streamingFile, StreamingHasher streamingHasher) {
         try {
             saveAtomically(streamingFile, streamingHasher::save);
         } catch (Exception e) {
             System.err.println("Warning: could not save " + streamingFile + ": " + e.getMessage());
-        }
-        try {
-            saveAtomically(inMemoryFile, inMemoryTreeHasher::save);
-        } catch (Exception e) {
-            System.err.println("Warning: could not save " + inMemoryFile + ": " + e.getMessage());
         }
     }
 

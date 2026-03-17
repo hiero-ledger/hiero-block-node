@@ -38,7 +38,6 @@ import org.hiero.block.tools.blocks.validation.BalanceCheckpointValidation;
 import org.hiero.block.tools.blocks.validation.BlockChainValidation;
 import org.hiero.block.tools.blocks.validation.BlockStructureValidation;
 import org.hiero.block.tools.blocks.validation.BlockValidation;
-import org.hiero.block.tools.blocks.validation.CompleteMerkleTreeValidation;
 import org.hiero.block.tools.blocks.validation.HashRegistryValidation;
 import org.hiero.block.tools.blocks.validation.HbarSupplyValidation;
 import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
@@ -286,30 +285,29 @@ public class ValidateBlocksCommand implements Runnable {
             }
         }
 
-        final long resumeFrom = checkpoint != null ? checkpoint.lastValidatedBlockNumber() : -1L;
+        long resumeFrom = checkpoint != null ? checkpoint.lastValidatedBlockNumber() : -1L;
         // Filter sources: for whole-zip sources, keep if the zip might contain blocks > resumeFrom
-        final List<BlockSource> pendingSources = (checkpoint == null)
+        final long initialResumeFrom = resumeFrom;
+        List<BlockSource> pendingSources = (checkpoint == null)
                 ? sources
                 : sources.stream()
                         .filter(s -> {
                             if (s.isWholeZip()) {
-                                return s.blockNumber() + BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP > resumeFrom;
+                                return s.blockNumber() + BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP > initialResumeFrom;
                             }
-                            return s.blockNumber() > resumeFrom;
+                            return s.blockNumber() > initialResumeFrom;
                         })
                         .toList();
 
         // Detect binary state files in any input directory
         Path hashRegistryPath = null;
         Path streamingMerkleTreePath = null;
-        Path completeMerkleTreePath = null;
         Path jumpstartPath = null;
         for (Path file : files) {
             if (Files.isDirectory(file)) {
                 if (Files.exists(file.resolve("blockStreamBlockHashes.bin"))) {
                     hashRegistryPath = file.resolve("blockStreamBlockHashes.bin");
                     streamingMerkleTreePath = file.resolve("streamingMerkleTree.bin");
-                    completeMerkleTreePath = file.resolve("completeMerkleTree.bin");
                     jumpstartPath = file.resolve("jumpstart.bin");
                     break;
                 }
@@ -336,7 +334,7 @@ public class ValidateBlocksCommand implements Runnable {
                         estimatedTotalBlocks, sources.size(), firstDisplayBlock, lastDisplayBlock, threads, prefetch)));
         if (hasStateFiles) {
             System.out.println(Ansi.AUTO.string("@|yellow State files found:|@ blockStreamBlockHashes.bin, "
-                    + "streamingMerkleTree.bin, completeMerkleTree.bin, jumpstart.bin"));
+                    + "streamingMerkleTree.bin, jumpstart.bin"));
         }
         if (checkpoint != null) {
             System.out.println(Ansi.AUTO.string("@|yellow Pending sources:|@ " + pendingSources.size()
@@ -370,9 +368,6 @@ public class ValidateBlocksCommand implements Runnable {
         BlockChainValidation chainValidation = new BlockChainValidation();
         HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chainValidation);
         HbarSupplyValidation supplyValidation = new HbarSupplyValidation();
-        CompleteMerkleTreeValidation completeMerkleTreeValidation =
-                hasStateFiles ? new CompleteMerkleTreeValidation(completeMerkleTreePath, chainValidation) : null;
-
         // Parallel validations (stateless, run in decompPool threads)
         final AddressBookRegistry abRegistry = addressBookRegistry;
         List<BlockValidation> parallelValidations = new ArrayList<>();
@@ -393,7 +388,6 @@ public class ValidateBlocksCommand implements Runnable {
             sequentialValidations.add(new HashRegistryValidation(registry, chainValidation));
         }
         if (hasStateFiles) {
-            sequentialValidations.add(completeMerkleTreeValidation);
             sequentialValidations.add(new StreamingMerkleTreeValidation(streamingMerkleTreePath, treeValidation));
             sequentialValidations.add(new JumpstartValidation(jumpstartPath, treeValidation, registry));
         }
@@ -451,13 +445,32 @@ public class ValidateBlocksCommand implements Runnable {
                 Files.createDirectories(checkpointDir);
             } catch (IOException ignored) {
             }
-            chainValidation.setPreviousBlockHash(checkpoint.previousBlockHash());
+            List<BlockValidation> failedLoads = new ArrayList<>();
             for (BlockValidation v : validations) {
                 try {
                     v.load(checkpointDir);
                 } catch (Exception e) {
-                    System.err.println("Warning: could not load " + v.name() + " state: " + e.getMessage());
+                    System.err.println(Ansi.AUTO.string(
+                            "@|yellow Warning:|@ could not load " + v.name() + " state: " + e.getMessage()));
+                    if (v.requiresGenesisStart()) {
+                        failedLoads.add(v);
+                    }
                 }
+            }
+            // The progress JSON is authoritative for the previous block hash — override
+            // whatever chainValidation.bin may have loaded (it could be stale or from a
+            // different run).
+            chainValidation.setPreviousBlockHash(checkpoint.previousBlockHash());
+            // If a genesis-required validation's state is lost, we cannot continue —
+            // silently skipping it would undermine the completeness guarantee of the validation.
+            if (!failedLoads.isEmpty()) {
+                for (BlockValidation failed : failedLoads) {
+                    System.err.println(Ansi.AUTO.string("@|red Error:|@ " + failed.name()
+                            + " checkpoint state is corrupt or missing and cannot be rebuilt without "
+                            + "starting from block 0. Delete the checkpoint directory and re-run "
+                            + "validation from the beginning, or use --no-resume to ignore the checkpoint."));
+                }
+                return;
             }
             if (treeValidation.getStreamingHasher().leafCount() > 0) {
                 System.out.println(Ansi.AUTO.string("@|yellow Restored streaming hasher:|@ leafCount = "
@@ -465,12 +478,38 @@ public class ValidateBlocksCommand implements Runnable {
             }
         }
 
-        // Rebuild CompleteMerkleTreeValidation by replaying already-validated block hashes from registry
+        // Cross-validate checkpoint vs registry and adjust if registry is behind
         if (checkpoint != null && registry != null && checkpoint.lastValidatedBlockNumber() >= 0) {
-            long replayTo = checkpoint.lastValidatedBlockNumber();
-            System.out.println(Ansi.AUTO.string("@|yellow Replaying |@" + (replayTo - firstDisplayBlock + 1)
-                    + " block hashes into in-memory hasher (blocks " + firstDisplayBlock + ".." + replayTo + ")"));
-            completeMerkleTreeValidation.replayFromRegistry(registry, firstDisplayBlock, replayTo);
+            long checkpointBlock = checkpoint.lastValidatedBlockNumber();
+            long registryBlock = registry.highestBlockNumberStored();
+            if (registryBlock < checkpointBlock) {
+                System.out.println(Ansi.AUTO.string("@|yellow Warning:|@ Registry has blocks up to "
+                        + registryBlock + " but checkpoint says " + checkpointBlock
+                        + ". Truncating resume point to registry."));
+                // Adjust checkpoint so validation re-processes the gap
+                checkpoint = new CheckpointState(
+                        registryBlock, registryBlock - firstDisplayBlock + 1, registry.mostRecentBlockHash());
+                chainValidation.setPreviousBlockHash(checkpoint.previousBlockHash());
+                // Recompute resume point and pending sources for the adjusted checkpoint
+                resumeFrom = registryBlock;
+                final long adjustedResumeFrom = resumeFrom;
+                pendingSources = sources.stream()
+                        .filter(s -> {
+                            if (s.isWholeZip()) {
+                                return s.blockNumber() + BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP > adjustedResumeFrom;
+                            }
+                            return s.blockNumber() > adjustedResumeFrom;
+                        })
+                        .toList();
+            }
+            // Clean up old completeMerkleTreeValidation checkpoint files (no longer needed)
+            for (String suffix : List.of("", ".bak", ".tmp")) {
+                Path oldFile = checkpointDir.resolve("completeMerkleTreeValidation.bin" + suffix);
+                try {
+                    Files.deleteIfExists(oldFile);
+                } catch (IOException ignored) {
+                }
+            }
         }
 
         // Track validation progress
@@ -533,19 +572,25 @@ public class ValidateBlocksCommand implements Runnable {
         final Future<PreValidatedBlock> endOfStream = sentinelHolder[0];
 
         BlockingQueue<Future<PreValidatedBlock>> blockQueue = new ArrayBlockingQueue<>(prefetch);
+        final long effectiveResumeFrom = resumeFrom;
+        final List<BlockSource> effectivePendingSources = pendingSources;
 
         // I/O thread — streams zips sequentially, enqueues decompression futures
         Thread readerThread = new Thread(
                 () -> {
                     try {
                         int i = 0;
-                        while (i < pendingSources.size()) {
-                            BlockSource first = pendingSources.get(i);
+                        while (i < effectivePendingSources.size()) {
+                            BlockSource first = effectivePendingSources.get(i);
                             if (first.isWholeZip()) {
                                 // Whole-zip source: stream all entries, discover blocks on the fly
                                 try {
                                     readAllZipEntries(
-                                            first.filePath(), resumeFrom, parallelValidations, blockQueue, decompPool);
+                                            first.filePath(),
+                                            effectiveResumeFrom,
+                                            parallelValidations,
+                                            blockQueue,
+                                            decompPool);
                                 } catch (IOException e) {
                                     corruptZipCount.incrementAndGet();
                                     System.out.println(Ansi.AUTO.string("@|yellow Warning:|@ error streaming zip: "
@@ -574,10 +619,14 @@ public class ValidateBlocksCommand implements Runnable {
                                 Path zipPath = first.filePath();
                                 int runEnd = i;
                                 Set<String> wanted = new HashSet<>();
-                                while (runEnd < pendingSources.size()
-                                        && pendingSources.get(runEnd).isZipEntry()
-                                        && pendingSources.get(runEnd).filePath().equals(zipPath)) {
-                                    String en = pendingSources.get(runEnd).zipEntryName();
+                                while (runEnd < effectivePendingSources.size()
+                                        && effectivePendingSources.get(runEnd).isZipEntry()
+                                        && effectivePendingSources
+                                                .get(runEnd)
+                                                .filePath()
+                                                .equals(zipPath)) {
+                                    String en =
+                                            effectivePendingSources.get(runEnd).zipEntryName();
                                     if (en.startsWith("/")) en = en.substring(1);
                                     wanted.add(en);
                                     runEnd++;
@@ -691,6 +740,11 @@ public class ValidateBlocksCommand implements Runnable {
                         lastValidatedRef[0] = blockNum;
                         blocksValidated++;
                         blocksValidatedRef[0] = blocksValidated;
+                    }
+
+                    // Periodic registry sync for crash safety (~every 100 blocks)
+                    if (registry != null && blocksValidated % 100 == 0) {
+                        registry.sync();
                     }
 
                     // Periodic checkpoint save

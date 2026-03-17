@@ -59,6 +59,7 @@ class BlockValidationJimfsTest {
             BlockItem.newBuilder().blockProof(BlockProof.DEFAULT).build();
     private static final Block VALID_BLOCK = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, FOOTER_ITEM, PROOF_ITEM));
 
+    @SuppressWarnings("SameParameterValue")
     private static BlockUnparsed toUnparsed(Block block) {
         try {
             return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
@@ -82,45 +83,6 @@ class BlockValidationJimfsTest {
         if (fs != null) {
             fs.close();
         }
-    }
-
-    // ── CompleteMerkleTreeValidation on jimfs ──
-
-    @Test
-    void completeMerkleTree_saveAndLoad_onJimfs() throws Exception {
-        BlockChainValidation chain = new BlockChainValidation();
-        chain.validate(toUnparsed(VALID_BLOCK), 0);
-        chain.commitState(toUnparsed(VALID_BLOCK), 0);
-
-        CompleteMerkleTreeValidation validation = new CompleteMerkleTreeValidation(fs.getPath("/dummy"), chain);
-        validation.commitState(toUnparsed(VALID_BLOCK), 0);
-
-        // Save to jimfs
-        validation.save(root);
-
-        // Load into fresh instance
-        CompleteMerkleTreeValidation loaded = new CompleteMerkleTreeValidation(fs.getPath("/dummy"), chain);
-        loaded.load(root);
-
-        // Build expected file for finalize comparison
-        InMemoryTreeHasher expected = new InMemoryTreeHasher();
-        expected.addNodeByHash(chain.getPreviousBlockHash());
-        Path stateFile = root.resolve("completeMerkleTree.bin");
-        expected.save(stateFile);
-
-        CompleteMerkleTreeValidation withFile = new CompleteMerkleTreeValidation(stateFile, chain);
-        withFile.load(root);
-        assertDoesNotThrow(() -> withFile.finalize(1, 0));
-    }
-
-    @Test
-    void completeMerkleTree_missingFile_onJimfs() {
-        BlockChainValidation chain = new BlockChainValidation();
-        Path nonExistent = root.resolve("completeMerkleTree.bin");
-        CompleteMerkleTreeValidation validation = new CompleteMerkleTreeValidation(nonExistent, chain);
-
-        ValidationException ex = assertThrows(ValidationException.class, () -> validation.finalize(0, -1));
-        assertTrue(ex.getMessage().contains("not found"));
     }
 
     // ── StreamingMerkleTreeValidation on jimfs ──

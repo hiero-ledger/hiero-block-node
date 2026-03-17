@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -30,7 +31,6 @@ import org.hiero.block.tools.blocks.model.BlockWriter.BlockPath;
 import org.hiero.block.tools.blocks.model.BlockWriter.BlockZipAppender;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher;
-import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -253,28 +253,22 @@ class ToWrappedBlocksCommandTest {
             // Create a chain and compute hashes
             final List<Block> chain = TestBlockFactory.createValidChain(20);
             final StreamingHasher originalStreaming = new StreamingHasher();
-            final InMemoryTreeHasher originalInMemory = new InMemoryTreeHasher();
             final byte[][] blockHashes = new byte[20][];
 
             for (int i = 0; i < chain.size(); i++) {
                 blockHashes[i] = BlockStreamBlockHasher.hashBlock(chain.get(i));
                 originalStreaming.addNodeByHash(blockHashes[i]);
-                originalInMemory.addNodeByHash(blockHashes[i]);
             }
 
-            // Now simulate resume: create fresh hashers and replay from registry
+            // Now simulate resume: create fresh hasher and replay from registry
             final StreamingHasher replayedStreaming = new StreamingHasher();
-            final InMemoryTreeHasher replayedInMemory = new InMemoryTreeHasher();
             for (byte[] blockHash : blockHashes) {
                 replayedStreaming.addNodeByHash(blockHash);
-                replayedInMemory.addNodeByHash(blockHash);
             }
 
             // Root hashes must match
             assertArrayEquals(originalStreaming.computeRootHash(), replayedStreaming.computeRootHash());
-            assertArrayEquals(originalInMemory.computeRootHash(), replayedInMemory.computeRootHash());
             assertEquals(originalStreaming.leafCount(), replayedStreaming.leafCount());
-            assertEquals(originalInMemory.leafCount(), replayedInMemory.leafCount());
         }
 
         @Test
@@ -296,16 +290,14 @@ class ToWrappedBlocksCommandTest {
                 // Simulate watermark at block 9 — truncate registry
                 registry.truncateTo(9);
 
-                // Replay into fresh hashers
+                // Replay into fresh hasher
                 final StreamingHasher streamingHasher = new StreamingHasher();
-                final InMemoryTreeHasher inMemoryHasher = new InMemoryTreeHasher();
                 for (long bn = 0; bn <= 9; bn++) {
                     final byte[] hash = registry.getBlockHash(bn);
                     streamingHasher.addNodeByHash(hash);
-                    inMemoryHasher.addNodeByHash(hash);
                 }
 
-                // Build expected hashers with just 10 blocks
+                // Build expected hasher with just 10 blocks
                 final StreamingHasher expected = new StreamingHasher();
                 for (int i = 0; i < 10; i++) {
                     expected.addNodeByHash(blockHashes[i]);
@@ -313,7 +305,6 @@ class ToWrappedBlocksCommandTest {
 
                 assertArrayEquals(expected.computeRootHash(), streamingHasher.computeRootHash());
                 assertEquals(10, streamingHasher.leafCount());
-                assertEquals(10, inMemoryHasher.leafCount());
             }
         }
 
@@ -325,11 +316,9 @@ class ToWrappedBlocksCommandTest {
                 assertEquals(-1, registry.highestBlockNumberStored());
 
                 final StreamingHasher streamingHasher = new StreamingHasher();
-                final InMemoryTreeHasher inMemoryHasher = new InMemoryTreeHasher();
 
                 // No replay needed when registry is empty
                 assertEquals(0, streamingHasher.leafCount());
-                assertEquals(0, inMemoryHasher.leafCount());
             }
         }
     }
@@ -415,25 +404,6 @@ class ToWrappedBlocksCommandTest {
             original.save(file);
 
             final StreamingHasher loaded = new StreamingHasher();
-            loaded.load(file);
-
-            assertArrayEquals(original.computeRootHash(), loaded.computeRootHash());
-            assertEquals(original.leafCount(), loaded.leafCount());
-        }
-
-        @Test
-        @DisplayName("InMemoryTreeHasher save + load round-trips correctly")
-        void testInMemoryHasherRoundTrip() throws Exception {
-            final InMemoryTreeHasher original = new InMemoryTreeHasher();
-            final List<Block> chain = TestBlockFactory.createValidChain(10);
-            for (Block block : chain) {
-                original.addNodeByHash(BlockStreamBlockHasher.hashBlock(block));
-            }
-
-            final Path file = tempDir.resolve("inmemory.bin");
-            original.save(file);
-
-            final InMemoryTreeHasher loaded = new InMemoryTreeHasher();
             loaded.load(file);
 
             assertArrayEquals(original.computeRootHash(), loaded.computeRootHash());
@@ -569,7 +539,6 @@ class ToWrappedBlocksCommandTest {
             assertTrue(Files.exists(outputDir.resolve("addressBookHistory.json")));
             assertTrue(Files.exists(outputDir.resolve("blockStreamBlockHashes.bin")));
             assertTrue(Files.exists(outputDir.resolve("streamingMerkleTree.bin")));
-            assertTrue(Files.exists(outputDir.resolve("completeMerkleTree.bin")));
             assertTrue(Files.exists(outputDir.resolve("wrap-commit.bin")));
             assertTrue(Files.exists(outputDir.resolve("jumpstart.bin")));
 
@@ -604,7 +573,6 @@ class ToWrappedBlocksCommandTest {
             assertTrue(Files.exists(outputDir.resolve("addressBookHistory.json")));
             assertTrue(Files.exists(outputDir.resolve("blockStreamBlockHashes.bin")));
             assertTrue(Files.exists(outputDir.resolve("streamingMerkleTree.bin")));
-            assertTrue(Files.exists(outputDir.resolve("completeMerkleTree.bin")));
             assertTrue(Files.exists(outputDir.resolve("wrap-commit.bin")));
             assertTrue(Files.exists(outputDir.resolve("jumpstart.bin")));
 
@@ -760,18 +728,9 @@ class ToWrappedBlocksCommandTest {
             final Path inputDir = setupInputDir(tarZstdFiles);
             final Path outputDir = runWrap(inputDir, false);
 
-            // Load both hasher state files
+            // Load streaming hasher state file
             final StreamingHasher streamingHasher = new StreamingHasher();
             streamingHasher.load(outputDir.resolve("streamingMerkleTree.bin"));
-
-            final InMemoryTreeHasher inMemoryHasher = new InMemoryTreeHasher();
-            inMemoryHasher.load(outputDir.resolve("completeMerkleTree.bin"));
-
-            // Both should have same leaf count
-            assertEquals(
-                    streamingHasher.leafCount(),
-                    inMemoryHasher.leafCount(),
-                    "Streaming and in-memory hashers should have the same leaf count");
 
             // Leaf count should match registry block count
             try (BlockStreamBlockHashRegistry registry =
@@ -782,11 +741,9 @@ class ToWrappedBlocksCommandTest {
                         "Hasher leaf count should equal number of blocks in registry");
             }
 
-            // Root hashes should be non-empty
+            // Root hash should be non-empty
             final byte[] streamingRoot = streamingHasher.computeRootHash();
-            final byte[] inMemoryRoot = inMemoryHasher.computeRootHash();
             assertTrue(streamingRoot.length > 0, "Streaming root hash should be non-empty");
-            assertTrue(inMemoryRoot.length > 0, "In-memory root hash should be non-empty");
         }
     }
 
@@ -1009,10 +966,10 @@ class ToWrappedBlocksCommandTest {
             assertNull(pathRef.get());
 
             // Attempt open on a non-writable path (directory itself)
-            try {
-                final Path badPath = zipDir.resolve("nonexistent-dir/bad.zip");
-                BlockWriter.openZipForAppend(badPath);
+            final Path badPath = zipDir.resolve("nonexistent-dir/bad.zip");
+            try (var w = BlockWriter.openZipForAppend(badPath)) {
                 // If it doesn't throw, that's ok too — the point is refs should still be null
+                assertNotNull(w, "openZipForAppend should return non-null appender even on bad path");
             } catch (IOException expected) {
                 // Expected — the point is that refs were cleared before the attempt
             }
@@ -1091,13 +1048,11 @@ class ToWrappedBlocksCommandTest {
                 registry.truncateTo(9);
                 assertEquals(9, registry.highestBlockNumberStored());
 
-                // Replay hashers 0..9
+                // Replay hasher 0..9
                 final StreamingHasher streamingHasher = new StreamingHasher();
-                final InMemoryTreeHasher inMemoryHasher = new InMemoryTreeHasher();
                 for (long bn = 0; bn <= 9; bn++) {
                     final byte[] hash = registry.getBlockHash(bn);
                     streamingHasher.addNodeByHash(hash);
-                    inMemoryHasher.addNodeByHash(hash);
                 }
                 assertEquals(10, streamingHasher.leafCount());
 
@@ -1105,19 +1060,15 @@ class ToWrappedBlocksCommandTest {
                 for (int i = 10; i < 15; i++) {
                     registry.addBlock(i, blockHashes[i]);
                     streamingHasher.addNodeByHash(blockHashes[i]);
-                    inMemoryHasher.addNodeByHash(blockHashes[i]);
                 }
 
                 // Build reference from all 15 blocks
                 final StreamingHasher reference = new StreamingHasher();
-                final InMemoryTreeHasher referenceInMemory = new InMemoryTreeHasher();
                 for (int i = 0; i < 15; i++) {
                     reference.addNodeByHash(blockHashes[i]);
-                    referenceInMemory.addNodeByHash(blockHashes[i]);
                 }
 
                 assertArrayEquals(reference.computeRootHash(), streamingHasher.computeRootHash());
-                assertArrayEquals(referenceInMemory.computeRootHash(), inMemoryHasher.computeRootHash());
                 assertEquals(15, streamingHasher.leafCount());
             }
         }
@@ -1303,11 +1254,9 @@ class ToWrappedBlocksCommandTest {
             // Cycle 1: blocks 0..9
             try (BlockStreamBlockHashRegistry registry = new BlockStreamBlockHashRegistry(regFile)) {
                 final StreamingHasher streaming = new StreamingHasher();
-                final InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
                 for (int i = 0; i < 10; i++) {
                     registry.addBlock(i, blockHashes[i]);
                     streaming.addNodeByHash(blockHashes[i]);
-                    inMemory.addNodeByHash(blockHashes[i]);
                 }
                 ToWrappedBlocksCommand.saveWatermark(wf, 9L);
             }
@@ -1319,16 +1268,13 @@ class ToWrappedBlocksCommandTest {
                 assertEquals(9, registry.highestBlockNumberStored());
 
                 final StreamingHasher streaming = new StreamingHasher();
-                final InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
                 for (long bn = 0; bn <= watermark; bn++) {
                     streaming.addNodeByHash(registry.getBlockHash(bn));
-                    inMemory.addNodeByHash(registry.getBlockHash(bn));
                 }
 
                 for (int i = 10; i < 20; i++) {
                     registry.addBlock(i, blockHashes[i]);
                     streaming.addNodeByHash(blockHashes[i]);
-                    inMemory.addNodeByHash(blockHashes[i]);
                 }
                 ToWrappedBlocksCommand.saveWatermark(wf, 19L);
             }
@@ -1340,29 +1286,23 @@ class ToWrappedBlocksCommandTest {
                 assertEquals(19, registry.highestBlockNumberStored());
 
                 final StreamingHasher streaming = new StreamingHasher();
-                final InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
                 for (long bn = 0; bn <= watermark; bn++) {
                     streaming.addNodeByHash(registry.getBlockHash(bn));
-                    inMemory.addNodeByHash(registry.getBlockHash(bn));
                 }
 
                 for (int i = 20; i < 30; i++) {
                     registry.addBlock(i, blockHashes[i]);
                     streaming.addNodeByHash(blockHashes[i]);
-                    inMemory.addNodeByHash(blockHashes[i]);
                 }
                 ToWrappedBlocksCommand.saveWatermark(wf, 29L);
 
                 // Verify final state matches reference built from all 30 blocks
                 final StreamingHasher reference = new StreamingHasher();
-                final InMemoryTreeHasher referenceInMemory = new InMemoryTreeHasher();
                 for (int i = 0; i < 30; i++) {
                     reference.addNodeByHash(blockHashes[i]);
-                    referenceInMemory.addNodeByHash(blockHashes[i]);
                 }
 
                 assertArrayEquals(reference.computeRootHash(), streaming.computeRootHash());
-                assertArrayEquals(referenceInMemory.computeRootHash(), inMemory.computeRootHash());
                 assertEquals(30, streaming.leafCount());
                 assertEquals(29, registry.highestBlockNumberStored());
                 assertEquals(29L, ToWrappedBlocksCommand.loadWatermark(wf));
@@ -1493,6 +1433,7 @@ class ToWrappedBlocksCommandTest {
                         .execute("--parse-threads", "0", "-i", tempDir.toString(), "-o", tempDir.toString());
                 final String output = errOut.toString();
                 assertTrue(output.contains("must be >= 1"), "Expected error about parse-threads, got: " + output);
+                assertEquals(1, exitCode, "Expected non-zero exit code for invalid parse-threads");
             } finally {
                 System.setErr(originalErr);
             }
@@ -1509,6 +1450,7 @@ class ToWrappedBlocksCommandTest {
                         .execute("--serialize-threads", "0", "-i", tempDir.toString(), "-o", tempDir.toString());
                 final String output = errOut.toString();
                 assertTrue(output.contains("must be >= 1"), "Expected error about serialize-threads, got: " + output);
+                assertEquals(1, exitCode, "Expected non-zero exit code for invalid parse-threads");
             } finally {
                 System.setErr(originalErr);
             }

@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.tools.blocks.HasherStateFiles;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.jspecify.annotations.Nullable;
 
@@ -127,20 +128,27 @@ public final class BlockChainValidation implements BlockValidation {
     public void save(final Path directory) throws IOException {
         if (previousBlockHash == null) return;
         Path file = directory.resolve(SAVE_FILE_NAME);
-        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(file))) {
-            out.writeInt(previousBlockHash.length);
-            out.write(previousBlockHash);
+        try {
+            HasherStateFiles.saveAtomically(file, path -> {
+                try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(path))) {
+                    out.writeInt(previousBlockHash.length);
+                    out.write(previousBlockHash);
+                }
+            });
+        } catch (Exception e) {
+            throw new IOException("Failed to save chain validation state", e);
         }
     }
 
     @Override
     public void load(final Path directory) throws IOException {
         Path file = directory.resolve(SAVE_FILE_NAME);
-        if (!Files.exists(file)) return;
-        try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
-            int len = in.readInt();
-            previousBlockHash = new byte[len];
-            in.readFully(previousBlockHash);
-        }
+        HasherStateFiles.loadWithFallback(file, path -> {
+            try (DataInputStream in = new DataInputStream(Files.newInputStream(path))) {
+                int len = in.readInt();
+                previousBlockHash = new byte[len];
+                in.readFully(previousBlockHash);
+            }
+        });
     }
 }

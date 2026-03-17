@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.tools.blocks.HasherStateFiles;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
@@ -82,11 +83,11 @@ public final class HistoricalBlockTreeValidation implements BlockValidation {
                     "Block: " + blockNumber + " - Block footer with historical block tree root not found");
         }
         final var treeRootBytes = footer.rootHashOfAllBlockHashesTree();
-        final byte[] readHash = treeRootBytes != null ? treeRootBytes.toByteArray() : null;
+        final byte[] readHash = treeRootBytes.toByteArray();
         if (!Arrays.equals(expectedHash, readHash)) {
             throw new ValidationException("Block: " + blockNumber + " - Historical block tree root hash mismatch. "
                     + "expectedHash= " + (expectedHash != null ? simpleHash(expectedHash) : "null")
-                    + " readHash= " + (readHash != null ? simpleHash(readHash) : "null"));
+                    + " readHash= " + simpleHash(readHash));
         }
         // Capture the block hash now (before chain validation's commitState nulls it)
         capturedBlockHash = chainValidation.getStagedBlockHash();
@@ -112,7 +113,7 @@ public final class HistoricalBlockTreeValidation implements BlockValidation {
     @Override
     public void save(final Path directory) throws IOException {
         try {
-            streamingHasher.save(directory.resolve(SAVE_FILE_NAME));
+            HasherStateFiles.saveAtomically(directory.resolve(SAVE_FILE_NAME), streamingHasher::save);
         } catch (Exception e) {
             throw new IOException("Failed to save streaming hasher", e);
         }
@@ -121,11 +122,6 @@ public final class HistoricalBlockTreeValidation implements BlockValidation {
     @Override
     public void load(final Path directory) throws IOException {
         Path file = directory.resolve(SAVE_FILE_NAME);
-        if (!java.nio.file.Files.exists(file)) return;
-        try {
-            streamingHasher.load(file);
-        } catch (Exception e) {
-            throw new IOException("Failed to load streaming hasher", e);
-        }
+        HasherStateFiles.loadWithFallback(file, streamingHasher::load);
     }
 }

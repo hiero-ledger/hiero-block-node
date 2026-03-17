@@ -30,6 +30,7 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -43,7 +44,6 @@ import org.hiero.block.tools.blocks.model.BlockWriter.BlockPath;
 import org.hiero.block.tools.blocks.model.BlockWriter.BlockZipAppender;
 import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
-import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
@@ -93,7 +93,6 @@ import picocli.CommandLine.Option;
  *   RecordBlockConverter.toBlock(preVerified, blockNum, prevHash, treeRoot, amendments)
  *   hashBlock(wrapped)  -&gt;  blockStreamBlockHash
  *   streamingHasher.addNodeByHash(hash)       // NOT thread-safe; stays on main thread
- *   inMemoryTreeHasher.addNodeByHash(hash)    // NOT thread-safe; stays on main thread
  *   blockRegistry.addBlock(blockNum, hash)    // NOT thread-safe; stays on main thread
  *   BlockWriter.computeBlockPath(...)         // pre-compute path + createDirectories
  *     |
@@ -129,8 +128,8 @@ import picocli.CommandLine.Option;
  *
  * <h2>Thread-Safety Constraints</h2>
  * <ul>
- *   <li>{@link StreamingHasher}, {@link InMemoryTreeHasher}, and
- *       {@link BlockStreamBlockHashRegistry} are <em>not</em> thread-safe — all updates
+ *   <li>{@link StreamingHasher} and {@link BlockStreamBlockHashRegistry} are
+ *       <em>not</em> thread-safe — all updates
  *       are performed on the Stage 2 (main) thread only.</li>
  *   <li>The single zip appender held by Stage 4 is never shared across threads;
  *       only {@code zipWritePool}'s single thread accesses it.</li>
@@ -151,7 +150,7 @@ import picocli.CommandLine.Option;
         name = "wrap",
         description = "Convert record file blocks in day files to wrapped block stream blocks",
         mixinStandardHelpOptions = true)
-public class ToWrappedBlocksCommand implements Runnable {
+public class ToWrappedBlocksCommand implements Callable<Integer> {
 
     /** Name of the durable commit watermark file inside the output directory. */
     private static final String WATERMARK_FILE_NAME = "wrap-commit.bin";
@@ -211,17 +210,18 @@ public class ToWrappedBlocksCommand implements Runnable {
 
     /**
      * Run the ToWrappedBlocksCommand to convert record file blocks in day files to wrapped block stream blocks.
+     * @return exit code
      */
     @Override
-    public void run() {
+    public Integer call() throws Exception {
         // ---- Validate thread options ----
         if (parseThreads < 1) {
             System.err.println("Error: --parse-threads must be >= 1, got " + parseThreads);
-            return;
+            return 1;
         }
         if (serializeThreads < 1) {
             System.err.println("Error: --serialize-threads must be >= 1, got " + serializeThreads);
-            return;
+            return 1;
         }
         // create an output directory if it does not exist
         try {
@@ -263,7 +263,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                    mirror extractBlockTimes
                    mirror extractDayBlock
                 """);
-            return;
+            return 1;
         }
         // load day block info map
         final Map<LocalDate, DayBlockInfo> dayMap = loadDayBlockInfoMap(dayBlocksFile);
@@ -365,25 +365,29 @@ public class ToWrappedBlocksCommand implements Runnable {
             final LocalDate startBlockDate = startBlockDateTime.toLocalDate();
             System.out.println(Ansi.AUTO.string("@|yellow Starting from day:|@ " + startBlockDate));
 
-            // Create fresh hashers and replay all hashes from registry.
-            // StreamingHasher and InMemoryTreeHasher cannot go backwards, so on resume we
-            // always rebuild from the authoritative registry rather than loading stale state files.
+            // Create fresh hasher and replay all hashes from registry.
+            // StreamingHasher cannot go backwards, so on resume we always rebuild from
+            // the authoritative registry rather than loading stale state files.
             final Path streamingMerkleTreeFile = outputBlocksDir.resolve("streamingMerkleTree.bin");
             final StreamingHasher streamingHasher = new StreamingHasher();
 
-            final Path inMemoryMerkleTreeFile = outputBlocksDir.resolve("completeMerkleTree.bin");
-            final InMemoryTreeHasher inMemoryTreeHasher = new InMemoryTreeHasher();
-
             if (effectiveHighest >= 0) {
-                System.out.println("Replaying " + (effectiveHighest + 1) + " block hashes into hashers (blocks 0.."
+                System.out.println("Replaying " + (effectiveHighest + 1) + " block hashes into hasher (blocks 0.."
                         + effectiveHighest + ")");
                 for (long bn = 0; bn <= effectiveHighest; bn++) {
                     final byte[] hash = blockRegistry.getBlockHash(bn);
                     streamingHasher.addNodeByHash(hash);
-                    inMemoryTreeHasher.addNodeByHash(hash);
                 }
-                System.out.println("Hasher replay complete. Streaming leafCount=" + streamingHasher.leafCount()
-                        + ", inMemory leafCount=" + inMemoryTreeHasher.leafCount());
+                System.out.println("Hasher replay complete. Streaming leafCount=" + streamingHasher.leafCount());
+            }
+
+            // Clean up stale completeMerkleTree files (no longer used since InMemoryTreeHasher was removed)
+            for (String suffix : List.of("", ".bak", ".tmp")) {
+                Path staleFile = outputBlocksDir.resolve("completeMerkleTree.bin" + suffix);
+                try {
+                    Files.deleteIfExists(staleFile);
+                } catch (IOException ignored) {
+                }
             }
 
             // load day paths from the input directory, filtering to just ones newer than the startBlockDate and sorting
@@ -397,7 +401,7 @@ public class ToWrappedBlocksCommand implements Runnable {
             // print range of days to be processed
             if (dayPaths.isEmpty()) {
                 System.out.println(Ansi.AUTO.string("@|yellow No day files to process after:|@ " + startBlockDate));
-                return;
+                return 1;
             } else {
                 System.out.println(Ansi.AUTO.string("@|yellow Processing day files from|@ "
                         + dayPathToLocalDate(dayPaths.getFirst())
@@ -480,11 +484,8 @@ public class ToWrappedBlocksCommand implements Runnable {
                             System.err.println("Shutdown: could not save address book: " + e.getMessage());
                         }
                         synchronized (chainStateLock) {
-                            saveStateCheckpoint(
-                                    streamingMerkleTreeFile, streamingHasher,
-                                    inMemoryMerkleTreeFile, inMemoryTreeHasher);
-                            System.err.println("Shutdown: saved merkle tree states to " + streamingMerkleTreeFile
-                                    + " and " + inMemoryMerkleTreeFile);
+                            saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
+                            System.err.println("Shutdown: saved merkle tree state to " + streamingMerkleTreeFile);
                             // Save jumpstart data if we processed any blocks
                             if (jumpstartBlockHash.get() != null) {
                                 saveJumpstartData(
@@ -607,9 +608,7 @@ public class ToWrappedBlocksCommand implements Runnable {
                         if (lastSavedBlockMonth >= 0 && blockMonth != lastSavedBlockMonth) {
                             // Wait for all preceding zip writes before snapshotting state.
                             lastWriteFuture.join();
-                            saveStateCheckpoint(
-                                    streamingMerkleTreeFile, streamingHasher,
-                                    inMemoryMerkleTreeFile, inMemoryTreeHasher);
+                            saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
                             System.out.println("Monthly checkpoint saved before block " + blockNum);
                         }
                         lastSavedBlockMonth = blockMonth;
@@ -627,7 +626,6 @@ public class ToWrappedBlocksCommand implements Runnable {
                         final byte[] blockStreamBlockHash = hashBlock(wrapped);
                         synchronized (chainStateLock) {
                             streamingHasher.addNodeByHash(blockStreamBlockHash);
-                            inMemoryTreeHasher.addNodeByHash(blockStreamBlockHash);
                             blockRegistry.addBlock(blockNum, blockStreamBlockHash);
                             jumpstartBlockNumber.set(blockNum);
                             jumpstartBlockHash.set(blockStreamBlockHash);
@@ -773,10 +771,8 @@ public class ToWrappedBlocksCommand implements Runnable {
                 // JVM is already shutting down — hook is running or has run
             }
 
-            // Save hasher states atomically now that all writes are complete.
-            saveStateCheckpoint(
-                    streamingMerkleTreeFile, streamingHasher,
-                    inMemoryMerkleTreeFile, inMemoryTreeHasher);
+            // Save hasher state atomically now that all writes are complete.
+            saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
 
             // Save jumpstart data once at the end
             if (jumpstartBlockHash.get() != null) {
@@ -809,6 +805,8 @@ public class ToWrappedBlocksCommand implements Runnable {
                 Thread.currentThread().interrupt();
             }
         }
+        // Success
+        return 0;
     }
 
     /**
