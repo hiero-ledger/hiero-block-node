@@ -9,6 +9,8 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
 import java.io.IOException;
+import java.nio.file.FileSystem;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -96,19 +98,30 @@ public abstract class PluginTestBase<
         start(plugin, historicalBlockFacility, additionalPlugins, null);
     }
 
-    /**
-     * Start the test fixture with the given plugin, historical block facility, and configuration overrides.
-     *
-     * @param plugin the plugin to be tested
-     * @param historicalBlockFacility the historical block facility to be used
-     * @param additionalPlugins additional test plugins to be initialized and started
-     * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
-     */
     public void start(
             @NonNull final P plugin,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides) {
+        start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, null);
+    }
+
+    /**
+     * Start the test fixture with the given plugin, historical block facility, additional plugins,
+     * configuration overrides and a filesystem.
+     *
+     * @param plugin the plugin to be tested
+     * @param historicalBlockFacility the historical block facility to be used
+     * @param additionalPlugins additional test plugins to be initialized and started
+     * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
+     * @param fileSystem an optional {@link FileSystem} to use for resolving {@link Path} values in configuration
+     */
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final List<BlockNodePlugin> additionalPlugins,
+            @Nullable final Map<String, String> configOverrides,
+            @Nullable final FileSystem fileSystem) {
         this.plugin = plugin;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
@@ -121,6 +134,9 @@ public abstract class PluginTestBase<
             for (Entry<String, String> override : configOverrides.entrySet()) {
                 configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
             }
+        }
+        if (fileSystem != null) {
+            configurationBuilder = configurationBuilder.withConverter(Path.class, fileSystem::getPath);
         }
         final Configuration configuration = configurationBuilder.build();
         // create metrics

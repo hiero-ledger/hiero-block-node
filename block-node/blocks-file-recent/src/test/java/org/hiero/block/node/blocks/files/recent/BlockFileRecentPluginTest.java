@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.internal.BlockUnparsed;
@@ -58,7 +59,7 @@ class BlockFileRecentPluginTest {
         this.blocksRootPath = fileSystem.getPath("/live");
         this.linksRootPath = blocksRootPath.resolve("links");
         this.filesRecentConfig = new FilesRecentConfig(blocksRootPath, CompressionType.ZSTD, 3, 100);
-        this.blockFileRecentPlugin = new BlockFileRecentPlugin(this.filesRecentConfig);
+        this.blockFileRecentPlugin = new BlockFileRecentPlugin();
         this.historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
     }
 
@@ -88,7 +89,14 @@ class BlockFileRecentPluginTest {
             assertThat(linksRootPath).doesNotExist();
             assertThat(blocksRootPath).doesNotExist();
             // Now start the plugin
-            start(blockFileRecentPlugin, historicalBlockFacility);
+            start(
+                    blockFileRecentPlugin,
+                    historicalBlockFacility,
+                    null,
+                    Map.of(
+                            "files.recent.liveRootPath",
+                            filesRecentConfig.liveRootPath().toString()),
+                    fileSystem);
             // Assert that the roots are created
             assertThat(linksRootPath).exists().isDirectory().isEmptyDirectory();
             assertThat(blocksRootPath).exists().isDirectory().isNotEmptyDirectory();
@@ -118,7 +126,14 @@ class BlockFileRecentPluginTest {
             // Assert that the links root directory is not empty
             assertThat(linksRootPath).isDirectory().isNotEmptyDirectory();
             // Now start the plugin
-            start(blockFileRecentPlugin, historicalBlockFacility);
+            start(
+                    blockFileRecentPlugin,
+                    historicalBlockFacility,
+                    null,
+                    Map.of(
+                            "files.recent.liveRootPath",
+                            filesRecentConfig.liveRootPath().toString()),
+                    fileSystem);
             // Assert that the links root directory exists and is empty
             assertThat(linksRootPath).isDirectory().isEmptyDirectory();
         }
@@ -138,7 +153,16 @@ class BlockFileRecentPluginTest {
             super(
                     new BlockingExecutor(new LinkedBlockingQueue<>()),
                     new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-            start(blockFileRecentPlugin, historicalBlockFacility);
+            start(
+                    blockFileRecentPlugin,
+                    historicalBlockFacility,
+                    null,
+                    Map.of(
+                            "files.recent.liveRootPath",
+                                    filesRecentConfig.liveRootPath().toString(),
+                            "files.recent.blockRetentionThreshold",
+                                    String.valueOf(filesRecentConfig.blockRetentionThreshold())),
+                    fileSystem);
         }
 
         /**
@@ -292,12 +316,21 @@ class BlockFileRecentPluginTest {
             // override the plugin under test to disable the retention policy
             final FilesRecentConfig filesRecentConfigOverride =
                     new FilesRecentConfig(blocksRootPath, CompressionType.ZSTD, 3, 0L);
-            final BlockFileRecentPlugin toTest = new BlockFileRecentPlugin(filesRecentConfigOverride);
+            final BlockFileRecentPlugin toTest = new BlockFileRecentPlugin();
             final HistoricalBlockFacility localHistoricalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             // unregister the original plugin from the messaging queue
             blockMessaging.unregisterBlockNotificationHandler(blockFileRecentPlugin);
             // start the plugin with the overridden config
-            start(toTest, localHistoricalBlockFacility);
+            start(
+                    toTest,
+                    localHistoricalBlockFacility,
+                    null,
+                    Map.of(
+                            "files.recent.liveRootPath",
+                                    filesRecentConfigOverride.liveRootPath().toString(),
+                            "files.recent.blockRetentionThreshold",
+                                    String.valueOf(filesRecentConfigOverride.blockRetentionThreshold())),
+                    fileSystem);
             // pre-check that there are no blocks stored
             assertThat(toTest.availableBlocks().min()).isEqualTo(UNKNOWN_BLOCK_NUMBER);
             assertThat(toTest.availableBlocks().max()).isEqualTo(UNKNOWN_BLOCK_NUMBER);
