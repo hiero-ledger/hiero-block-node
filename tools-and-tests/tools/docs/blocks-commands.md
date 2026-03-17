@@ -119,6 +119,18 @@ blocks validate -a /path/to/addressBookHistory.json /path/to/blocks/
 blocks validate --skip-signatures /path/to/blocks/
 ```
 
+#### Testnet Example
+
+```bash
+# Validate testnet blocks (uses testnet address book automatically)
+--network testnet blocks validate /path/to/testnetWrappedBlocks
+
+# Testnet without balance validation (balance checkpoints not yet available for testnet)
+--network testnet blocks validate --no-validate-balances /path/to/testnetWrappedBlocks
+```
+
+> **Note:** Balance checkpoint files are not yet available for testnet. Use `--no-validate-balances` to skip balance validation when running against testnet data.
+
 ---
 
 ### The `validate-wrapped` Subcommand
@@ -256,12 +268,21 @@ The command writes:
 #### Example
 
 ```bash
-# Basic conversion
+# Basic conversion (mainnet default)
 blocks wrap -i /path/to/compressedDays -o /path/to/wrappedBlocks
 
 # Output as individual unzipped files
 blocks wrap -u -i /path/to/compressedDays -o /path/to/wrappedBlocks
 ```
+
+#### Testnet Example
+
+```bash
+# Wrap testnet record files into blocks
+--network testnet blocks wrap -i /path/to/testnetCompressedDays -o /path/to/testnetWrappedBlocks
+```
+
+> **Testnet prerequisites:** The testnet genesis address book is bundled as a classpath resource and will be used automatically. You still need `block_times.bin` and `day_blocks.json` generated via `--network testnet mirror update`.
 
 ---
 
