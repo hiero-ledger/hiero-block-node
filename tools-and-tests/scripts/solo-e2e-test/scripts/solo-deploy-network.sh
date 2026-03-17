@@ -361,7 +361,7 @@ function deploy_block_nodes {
   fi
 
   # Path to resource overlay (relative to scripts dir) — mini.yaml provides adequate
-  # memory (8Gi) instead of the default nano profile (128M) which causes OOMKills.
+  # memory (1Gi) instead of the default nano profile (128M) which causes OOMKills.
   local resource_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/mini.yaml"
 
   # Path to observability overlay (relative to scripts dir)
@@ -466,6 +466,8 @@ function deploy_consensus_nodes {
     ${cn_args} || fail "ERROR: Failed to setup consensus nodes" 1
   end_task
 
+  # TODO(https://github.com/hiero-ledger/solo/pull/3602): Once either solo or the CN defaults to a bigger message size limit, this patching step can be removed.
+  # this might be expected in solo 0.61.0 as the earliest.
   # Patch block-nodes.json on each CN to increase message size limits.
   # The default hard limit (6 MB) is too small for the genesis WRAPS proof (~30 MB).
   # See: https://github.com/hiero-ledger/hiero-consensus-node BlockNodeConfiguration

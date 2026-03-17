@@ -394,13 +394,13 @@ Topologies define network configuration. Located in `./topologies/`.
 
 |         Name          | CN | BN | MN | Relay | Explorer |                      Use Case                       |
 |-----------------------|----|----|:--:|:-----:|:--------:|-----------------------------------------------------|
-| `single`              | 1  | 1  | 1  |   1   |    1     | Basic testing, fastest startup                      |
-| `paired-3`            | 3  | 3  | 1  |   1   |    1     | Multi-node testing, each CN->BN pair                |
-| `fan-out-3cn-2bn`     | 3  | 2  | 1  |   1   |    1     | Redundancy testing, all CNs->all BNs                |
-| `3cn-1bn`             | 3  | 1  | 1  |   1   |    1     | Single BN receiving from multiple CNs               |
-| `minimal`             | 1  | 1  | -  |   -   |    -     | CN+BN only, no mirror/relay/explorer                |
-| `2cn-2bn-backfill`    | 2  | 2  | 1  |   1   |    1     | Backfill testing, BN recovery after data loss       |
-| `7cn-3bn-distributed` | 7  | 3  | 1  |   1   |    1     | Distributed streaming, grouped CN->BN with backfill |
+| `single`              | 1  | 1  | 1  |   1   |    0     | Basic testing, fastest startup                      |
+| `paired-3`            | 3  | 3  | 1  |   1   |    0     | Multi-node testing, each CN->BN pair                |
+| `fan-out-3cn-2bn`     | 3  | 2  | 1  |   1   |    0     | Redundancy testing, all CNs->all BNs                |
+| `3cn-1bn`             | 3  | 1  | 1  |   1   |    0     | Single BN receiving from multiple CNs               |
+| `minimal`             | 1  | 1  | 0  |   0   |    0     | CN+BN only, no mirror/relay/explorer                |
+| `2cn-2bn-backfill`    | 2  | 2  | 1  |   1   |    0     | Backfill testing, BN recovery after data loss       |
+| `7cn-3bn-distributed` | 7  | 3  | 1  |   1   |    0     | Distributed streaming, grouped CN->BN with backfill |
 
 See `../network-topology-tool/README.md` for topology schema details.
 
@@ -410,23 +410,23 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) uses the same scripts as
 
 ### Workflow Inputs
 
-|           Input            |         Default          |                     Description                      |
-|----------------------------|--------------------------|------------------------------------------------------|
-| `topology`                 | `single`                 | Network topology to deploy                           |
-| `block-node-version`       | `latest`                 | BN version (`latest`, `main`, `rc`, or specific tag) |
-| `consensus-node-version`   | `latest`                 | CN version (`latest`, `rc`, or specific tag)         |
-| `mirror-node-version`      | `latest`                 | MN version (`latest`, `rc`, or specific tag)         |
-| `relay-version`            | `latest`                 | Relay version (`latest`, `rc`, or specific tag)      |
-| `tck-version`              | `latest`                 | TCK-SDK version (`latest`, `rc`, or specific tag)    |
-| `solo-version`             | `0.61.0`                 | Solo CLI version                                     |
-| `tss-enabled`              | `true`                   | Enable TSS on consensus nodes                        |
-| `nlg-enabled`              | `false`                  | Enable NLG load generation                           |
-| `nlg-test-type`            | `CryptoTransferLoadTest` | NLG test class                                       |
-| `nlg-args`                 | `-c 5 -a 10 -tt 300`     | NLG arguments (combined `-c`, `-a`, `-tt`)           |
-| `nlg-max-tps`              | (empty)                  | Optional TPS rate limit                              |
-| `mirror-node-pinger-tps`   | `5`                      | Mirror Node pinger TPS (0 to disable)                |
-| `test-definition`          | `none`                   | Test definitions (comma-separated)                   |
-| `run-tck-regression-tests` | `false`                  | Run TCK-SDK regression tests                         |
+|           Input            |         Default          |                     Description                     |
+|----------------------------|--------------------------|-----------------------------------------------------|
+| `topology`                 | `single`                 | Network topology to deploy                          |
+| `block-node-version`       | `latest`                 | BN version (`latest`, `main`, `rc` or specific tag) |
+| `consensus-node-version`   | `latest`                 | CN version (`latest`, `rc` or specific tag)         |
+| `mirror-node-version`      | `latest`                 | MN version (`latest`, `rc` or specific tag)         |
+| `relay-version`            | `latest`                 | Relay version (`latest` or specific tag)            |
+| `tck-version`              | `latest`                 | TCK-SDK version (`latest` or specific tag)          |
+| `solo-version`             | `0.61.0`                 | Solo CLI version                                    |
+| `tss-enabled`              | `true`                   | Enable TSS on consensus nodes                       |
+| `nlg-enabled`              | `false`                  | Enable NLG load generation                          |
+| `nlg-test-type`            | `CryptoTransferLoadTest` | NLG test class                                      |
+| `nlg-args`                 | `-c 5 -a 10 -tt 300`     | NLG arguments (combined `-c`, `-a`, `-tt`)          |
+| `nlg-max-tps`              | (empty)                  | Optional TPS rate limit                             |
+| `mirror-node-pinger-tps`   | `5`                      | Mirror Node pinger TPS (0 to disable)               |
+| `test-definition`          | `none`                   | Test definitions (comma-separated)                  |
+| `run-tck-regression-tests` | `false`                  | Run TCK-SDK regression tests                        |
 
 ### Script Flow
 

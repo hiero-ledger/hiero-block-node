@@ -45,5 +45,5 @@ mirror_nodes:
 relay_nodes:
   relay-1: {}
 
-explorer_nodes:
-  explorer-1: {}
+# explorer_nodes:           # Uncomment to enable Explorer
+#   explorer-1: {}

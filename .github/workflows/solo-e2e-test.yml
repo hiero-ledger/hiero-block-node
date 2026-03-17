@@ -34,7 +34,7 @@ on:
         type: string
         default: "0.61.0"
       tss-enabled:
-        description: "Enable TSS (Threshold Signature Scheme) on consensus nodes"
+        description: "Enable TSS/WRAPS on consensus nodes"
         type: boolean
         default: true
       run-tck-regression-tests:
@@ -90,15 +90,15 @@ on:
           - 7cn-3bn-distributed # 7 CN, 3 BN distributed
           - minimal # like single but without MN, Relay and Explorer
       block-node-version:
-        description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')"
+        description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.29.0')"
         required: false
         default: "latest"
       consensus-node-version:
-        description: "Consensus Node version ('latest', 'rc', 'main', or tag like 'v0.68.6')"
+        description: "Consensus Node version ('latest', 'rc' or tag like 'v0.73.0-rc3')"
         required: false
         default: "latest"
       mirror-node-version:
-        description: "Mirror Node version ('latest', 'rc', 'main', or tag like 'v0.146.0')"
+        description: "Mirror Node version ('latest', 'rc' or tag like 'v0.150.0')"
         required: false
         default: "latest"
       relay-version:

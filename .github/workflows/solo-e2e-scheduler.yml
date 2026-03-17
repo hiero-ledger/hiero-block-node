@@ -189,7 +189,7 @@ jobs:
             MN_VERSION="latest"
           fi
 
-          # Solo CLI version: use input if provided, otherwise default to 0.60.0
+          # Solo CLI version: use input if provided, otherwise default to 0.61.0 (as latest stable tested)
           if [[ -n "${{ inputs.solo-version }}" ]]; then
             SOLO_VERSION="${{ inputs.solo-version }}"
           else

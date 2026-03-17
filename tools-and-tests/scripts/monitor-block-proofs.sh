@@ -57,6 +57,12 @@ function get_sig_type {
     return
   fi
 
+  # If grpcurl returned an error (not valid JSON), report as NOT_AVAILABLE
+  if ! echo "${raw}" | python3 -c "import sys,json; json.loads(sys.stdin.read())" 2>/dev/null; then
+    echo "NOT_AVAILABLE 0 0"
+    return
+  fi
+
   local parsed
   parsed=$(echo "${raw}" | python3 -c "
 import sys, json, base64, re
@@ -155,7 +161,7 @@ function format_block_line {
   local sig_type="${result%% *}"
 
   if [[ "$sig_type" == "NOT_AVAILABLE" || "$sig_type" == "UNKNOWN" ]]; then
-    echo "  Block ${block_number}: ${sig_type} (archived or not yet available)"
+    echo "  Block ${block_number}: NOT_AVAILABLE (BN unable to serve — likely oversized WRAPS genesis block)"
   else
     local sig_bytes block_size
     sig_bytes=$(echo "$result" | awk '{print $2}')

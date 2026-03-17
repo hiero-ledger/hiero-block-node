@@ -32,11 +32,11 @@ readonly RELAY_REPO="hiero-ledger/hiero-json-rpc-relay"
 readonly TCK_REPO="hiero-ledger/hiero-sdk-tck"
 
 # Minimum supported versions — versions below these are rejected.
-# TSS (hinTS) requires CN >= v0.72.0, and the corresponding MN/BN versions
+# TSS/WRAPS requires CN >= v0.72.0, and the corresponding MN/BN versions
 # that support the TSS-enabled network.
 readonly CN_MIN_VERSION="0.72.0-rc.3"
 readonly MN_MIN_VERSION="0.150.0-rc1"
-readonly BN_MIN_VERSION="0.29.0-rc1"
+readonly BN_MIN_VERSION="0.29.0-rc3"
 
 function fail {
     printf '%s\n' "$1" >&2

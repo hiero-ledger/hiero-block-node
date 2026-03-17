@@ -53,8 +53,9 @@ EVENTS_FAILED=0
 ASSERTIONS_PASSED=0
 ASSERTIONS_FAILED=0
 
-# Extra details collected by assertions (printed in summary)
-# Uses a temp file because assertions run in subshells via $()
+# Assertion results for GitHub summary (temp file because assertions run in subshells)
+ASSERTION_RESULTS_FILE="/tmp/solo-test-assert-results-$$"
+: > "${ASSERTION_RESULTS_FILE}"
 
 
 # ============================================================================
@@ -1096,15 +1097,54 @@ function run_assertions {
 
         if result=$(run_assertion "$assert_type" "$target" "$args"); then
             log PASS "$id: $desc ($result)"
+            echo "PASS|${id}|${desc}|${result}" >> "${ASSERTION_RESULTS_FILE}"
             ((ASSERTIONS_PASSED++))
         else
             log FAIL "$id: $desc ($result)"
+            echo "FAIL|${id}|${desc}|${result}" >> "${ASSERTION_RESULTS_FILE}"
             ((ASSERTIONS_FAILED++))
         fi
 
         ((i++))
     done
 
+}
+
+function write_github_summary {
+    local event_count="$1"
+    local result_badge="$2"
+
+    {
+        echo "## Test: ${TEST_NAME}"
+        echo ""
+        echo "| Metric | Value |"
+        echo "|--------|-------|"
+        echo "| Events | ${EVENTS_COMPLETED}/${event_count} |"
+        echo "| Assertions | ${ASSERTIONS_PASSED}/$((ASSERTIONS_PASSED + ASSERTIONS_FAILED)) |"
+        echo "| Result | ${result_badge} |"
+
+        # Include assertion details if available
+        if [[ -s "${ASSERTION_RESULTS_FILE}" ]]; then
+            echo ""
+            echo "<details>"
+            echo "<summary>Assertion Details</summary>"
+            echo ""
+            echo "| Status | ID | Description | Details |"
+            echo "|--------|-----|-------------|---------|"
+            while IFS='|' read -r status id desc details; do
+                local icon
+                [[ "$status" == "PASS" ]] && icon=":white_check_mark:" || icon=":x:"
+                # Extract key info from details (keep it short for the table)
+                local short_details
+                short_details=$(echo "$details" | grep -oE "(Schnorr -> WRAPS transition at block [0-9]+|Skipped|[0-9]+ errors|Blocks [0-9]+-[0-9]+|[0-9]+ -> [0-9]+)" | head -1)
+                [[ -z "$short_details" ]] && short_details=$(echo "$details" | head -1 | cut -c1-80)
+                echo "| ${icon} | ${id} | ${desc} | ${short_details} |"
+            done < "${ASSERTION_RESULTS_FILE}"
+            echo ""
+            echo "</details>"
+        fi
+    } >> "${GITHUB_STEP_SUMMARY}"
+    rm -f "${ASSERTION_RESULTS_FILE}"
 }
 
 function print_summary {
@@ -1125,30 +1165,14 @@ function print_summary {
         echo -e "Result: ${GREEN}PASS${NC}"
 
         if [[ "${OUTPUT_MODE}" == "github-summary" && -n "${GITHUB_STEP_SUMMARY}" ]]; then
-            {
-                echo "## Test: ${TEST_NAME}"
-                echo ""
-                echo "| Metric | Value |"
-                echo "|--------|-------|"
-                echo "| Events | ${EVENTS_COMPLETED}/${event_count} |"
-                echo "| Assertions | ${ASSERTIONS_PASSED}/$((ASSERTIONS_PASSED + ASSERTIONS_FAILED)) |"
-                echo "| Result | :white_check_mark: PASS |"
-            } >> "${GITHUB_STEP_SUMMARY}"
+            write_github_summary "${event_count}" ":white_check_mark: PASS"
         fi
         return 0
     else
         echo -e "Result: ${RED}FAIL${NC}"
 
         if [[ "${OUTPUT_MODE}" == "github-summary" && -n "${GITHUB_STEP_SUMMARY}" ]]; then
-            {
-                echo "## Test: ${TEST_NAME}"
-                echo ""
-                echo "| Metric | Value |"
-                echo "|--------|-------|"
-                echo "| Events | ${EVENTS_COMPLETED}/${event_count} |"
-                echo "| Assertions | ${ASSERTIONS_PASSED}/$((ASSERTIONS_PASSED + ASSERTIONS_FAILED)) |"
-                echo "| Result | :x: FAIL |"
-            } >> "${GITHUB_STEP_SUMMARY}"
+            write_github_summary "${event_count}" ":x: FAIL"
         fi
         return 1
     fi
