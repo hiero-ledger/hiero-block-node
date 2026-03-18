@@ -3,41 +3,39 @@ package org.hiero.block.tools.mirrornode;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.URI;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HexFormat;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 /**
- * Generates the testnet genesis address book protobuf binary file from the testnet mirror node API.
+ * Generates the testnet genesis address book protobuf binary file from a mirror node database
+ * CSV export.
  *
- * <p>This command fetches the <b>current</b> node information from the testnet mirror node and
- * serializes it as a {@link NodeAddressBook} protobuf binary file. This is valid for the genesis
- * address book as long as testnet nodes have not changed since the February 2024 reset
- * (7 nodes: 0.0.3 through 0.0.9).
- *
- * <p><b>Note:</b> The mirror node {@code /api/v1/network/nodes} endpoint does not support a
- * {@code timestamp} parameter, so historical node data cannot be queried. If testnet undergoes
- * a node change in the future, this command's output will no longer match genesis and the
- * bundled {@code testnet-genesis-address-book.proto.bin} should not be regenerated.
+ * <p>The CSV file is an export of the {@code address_book} table from the mirror node database.
+ * It must have columns {@code start_consensus_timestamp} and {@code file_data}. The genesis
+ * entry has {@code start_consensus_timestamp = 1} and {@code file_data} contains the
+ * hex-encoded {@link NodeAddressBook} protobuf (prefixed with {@code \x}).
  *
  * <p>Usage example:
  * <pre>
- *   subcommands mirror generateTestnetAddressBook -o testnet-genesis-address-book.proto.bin
+ *   subcommands mirror generateTestnetAddressBook --csv addressbook.csv -o testnet-genesis-address-book.proto.bin
  * </pre>
  */
 @Command(
         name = "generateTestnetAddressBook",
-        description = "Generate testnet genesis address book proto binary from mirror node API")
+        description = "Generate testnet genesis address book proto binary from mirror node CSV export")
 public class GenerateTestnetGenesisAddressBook implements Runnable {
 
-    private static final String TESTNET_NODES_URL =
-            "https://testnet.mirrornode.hedera.com/api/v1/network/nodes?limit=25&order=asc";
+    private static final HexFormat HEX_FORMAT = HexFormat.of();
 
     @Option(
             names = {"-o", "--output"},
@@ -45,12 +43,17 @@ public class GenerateTestnetGenesisAddressBook implements Runnable {
             defaultValue = "testnet-genesis-address-book.proto.bin")
     private Path outputFile;
 
+    @Option(
+            names = {"--csv"},
+            required = true,
+            description = "Path to mirror node address book CSV export (columns: start_consensus_timestamp,file_data)")
+    private Path csvFile;
+
     @Override
     @SuppressWarnings("DataFlowIssue")
     public void run() {
         try {
-            URL url = URI.create(TESTNET_NODES_URL).toURL();
-            NodeAddressBook addressBook = MirrorNodeAddressBook.loadJsonAddressBook(url);
+            NodeAddressBook addressBook = loadFromCsv(csvFile);
 
             System.out.println(
                     "Loaded address book with " + addressBook.nodeAddress().size() + " nodes:");
@@ -77,6 +80,69 @@ public class GenerateTestnetGenesisAddressBook implements Runnable {
             throw new UncheckedIOException("Failed to generate testnet genesis address book", e);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to generate testnet genesis address book", e);
+        }
+    }
+
+    /**
+     * Load the genesis address book from a mirror node database CSV export.
+     *
+     * <p>The CSV is expected to have columns {@code start_consensus_timestamp,file_data}.
+     * The genesis entry has {@code start_consensus_timestamp = 1} and {@code file_data} is
+     * hex-encoded protobuf prefixed with {@code \x}.
+     *
+     * @param csvPath path to the CSV file
+     * @return the parsed genesis {@link NodeAddressBook}
+     */
+    static NodeAddressBook loadFromCsv(Path csvPath) throws IOException, ParseException {
+        System.out.println("Reading genesis address book from CSV: " + csvPath);
+
+        try (BufferedReader reader = Files.newBufferedReader(csvPath)) {
+            String header = reader.readLine();
+            if (header == null) {
+                throw new IOException("CSV file is empty");
+            }
+
+            // Find column indices
+            String[] columns = header.split(",", -1);
+            int timestampIdx = -1;
+            int fileDataIdx = -1;
+            for (int i = 0; i < columns.length; i++) {
+                if ("start_consensus_timestamp".equals(columns[i])) {
+                    timestampIdx = i;
+                } else if ("file_data".equals(columns[i])) {
+                    fileDataIdx = i;
+                }
+            }
+            if (timestampIdx < 0 || fileDataIdx < 0) {
+                throw new IOException(
+                        "CSV must have 'start_consensus_timestamp' and 'file_data' columns, found: " + header);
+            }
+
+            // Find the genesis row (timestamp = 1)
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] fields = line.split(",", 2);
+                if (fields.length <= Math.max(timestampIdx, fileDataIdx)) {
+                    continue;
+                }
+
+                String timestamp = fields[timestampIdx].trim();
+                if ("1".equals(timestamp)) {
+                    String hexData = fields[fileDataIdx];
+                    // Strip \x prefix if present
+                    if (hexData.startsWith("\\x")) {
+                        hexData = hexData.substring(2);
+                    }
+                    byte[] protoBytes = HEX_FORMAT.parseHex(hexData);
+
+                    System.out.println(
+                            "Found genesis entry (timestamp=1), " + protoBytes.length + " bytes of protobuf");
+                    return NodeAddressBook.PROTOBUF.parse(
+                            new ReadableStreamingData(new ByteArrayInputStream(protoBytes)));
+                }
+            }
+
+            throw new IOException("No genesis entry (start_consensus_timestamp=1) found in CSV");
         }
     }
 }
