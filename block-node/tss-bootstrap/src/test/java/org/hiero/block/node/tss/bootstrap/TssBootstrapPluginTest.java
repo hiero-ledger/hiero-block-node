@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.tss.bootstrap;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -26,6 +26,6 @@ public class TssBootstrapPluginTest
     @Test
     @DisplayName("should always succeed")
     void shouldAlwaysSucceed() {
-        assertTrue(true);
+        assertNotNull(tssBootstrapPlugin);
     }
 }
