@@ -5,18 +5,22 @@
 # Supports: 'latest' (GA release), 'rc' (Release Candidate), 'main' (SNAPSHOT from main branch), or specific version tags.
 #
 # Usage:
-#   ./resolve-versions.sh [cn_version] [mn_version] [bn_version]
+#   ./resolve-versions.sh [cn_version] [mn_version] [bn_version] [relay_version] [tck_version]
 #
 # Arguments:
-#   cn_version - Consensus Node version ('latest', 'rc', 'main' for SNAPSHOT, or tag like 'v0.68.6')
-#   mn_version - Mirror Node version ('latest', 'rc', 'main' for SNAPSHOT, or tag like 'v0.146.0')
-#   bn_version - Block Node version ('latest', 'rc', 'main' for SNAPSHOT, or tag like 'v0.21.2')
+#   cn_version    - Consensus Node version ('latest', 'rc', 'main' for SNAPSHOT, or tag like 'v0.68.6')
+#   mn_version    - Mirror Node version ('latest', 'rc', 'main' for SNAPSHOT, or tag like 'v0.146.0')
+#   bn_version    - Block Node version ('latest', 'rc', 'main' for SNAPSHOT, or tag like 'v0.21.2')
+#   relay_version - Relay version ('latest', 'rc', or tag like 'v0.75.0')
+#   tck_version   - TCK-SDK version ('latest', 'rc', or tag like 'v1.2.3')
 #
 # Output:
 #   Outputs key=value pairs to stdout that can be captured by the caller:
 #     cn_version=<resolved_version>
 #     mn_version=<resolved_version>
 #     bn_version=<resolved_version>
+#     relay_version=<resolved_version>
+#     tck_version=<resolved_version>
 
 set -o pipefail
 set +e
@@ -24,13 +28,15 @@ set +e
 readonly CN_REPO="hiero-ledger/hiero-consensus-node"
 readonly MN_REPO="hiero-ledger/hiero-mirror-node"
 readonly BN_REPO="hiero-ledger/hiero-block-node"
+readonly RELAY_REPO="hiero-ledger/hiero-json-rpc-relay"
+readonly TCK_REPO="hiero-ledger/hiero-sdk-tck"
 
-# WORKAROUND: CN v0.68.x and v0.69.x have compatibility issues with Block Node.
-# When these versions are resolved, we override with the latest v0.70.x RC.
-# TODO(#1890): Remove this workaround once v0.70.0 GA or higher is available.
-# Tracking: https://github.com/hiero-ledger/hiero-block-node/issues/1890
-readonly CN_BROKEN_VERSION_PATTERN="^v?0\.(68|69)\."
-readonly CN_FALLBACK_VERSION_PATTERN="v0\.70\."
+# Minimum supported versions — versions below these are rejected.
+# TSS/WRAPS requires CN >= v0.72.0, and the corresponding MN/BN versions
+# that support the TSS-enabled network.
+readonly CN_MIN_VERSION="0.72.0-rc.3"
+readonly MN_MIN_VERSION="0.150.0-rc1"
+readonly BN_MIN_VERSION="0.29.0-rc5"
 
 function fail {
     printf '%s\n' "$1" >&2
@@ -68,29 +74,88 @@ function end_task {
   printf "%s\n" "${1:-DONE}" >&2
 }
 
-# Checks if a version matches the broken CN version pattern (v0.68.x or v0.69.x)
+# Compares two semver strings (with optional pre-release suffix).
+# Strips leading 'v', compares major.minor.patch numerically,
+# then treats pre-release (e.g., -rc1, -rc.2) as lower than GA.
 # Arguments:
-#   $1 - Version string to check
-# Returns:
-#   0 if version is broken, 1 otherwise
-function is_broken_cn_version {
-  local version="${1}"
-  [[ "${version}" =~ ${CN_BROKEN_VERSION_PATTERN} ]]
+#   $1 - Version A
+#   $2 - Version B
+# Returns (via stdout):
+#   -1 if A < B, 0 if A == B, 1 if A > B
+function compare_semver {
+  local ver_a="${1#v}"
+  local ver_b="${2#v}"
+
+  # Split into base version and pre-release suffix
+  local base_a="${ver_a%%-*}"
+  local base_b="${ver_b%%-*}"
+  local pre_a="" pre_b=""
+  [[ "${ver_a}" == *-* ]] && pre_a="${ver_a#*-}"
+  [[ "${ver_b}" == *-* ]] && pre_b="${ver_b#*-}"
+
+  # Compare major.minor.patch
+  IFS='.' read -r a_major a_minor a_patch <<< "${base_a}"
+  IFS='.' read -r b_major b_minor b_patch <<< "${base_b}"
+
+  for pair in "${a_major:-0}:${b_major:-0}" "${a_minor:-0}:${b_minor:-0}" "${a_patch:-0}:${b_patch:-0}"; do
+    local left="${pair%%:*}" right="${pair##*:}"
+    if (( left < right )); then echo "-1"; return; fi
+    if (( left > right )); then echo "1"; return; fi
+  done
+
+  # Base versions are equal — compare pre-release.
+  # No pre-release (GA) is higher than any pre-release.
+  if [[ -z "${pre_a}" && -n "${pre_b}" ]]; then echo "1"; return; fi
+  if [[ -n "${pre_a}" && -z "${pre_b}" ]]; then echo "-1"; return; fi
+  if [[ -z "${pre_a}" && -z "${pre_b}" ]]; then echo "0"; return; fi
+
+  # Both have pre-release — lexicographic with numeric awareness.
+  # Extract numeric suffix from pre-release (e.g., rc1 -> 1, rc.2 -> 2)
+  local pre_a_label="${pre_a%%[0-9]*}" pre_b_label="${pre_b%%[0-9]*}"
+  local pre_a_num pre_b_num
+  pre_a_num=$(echo "${pre_a}" | grep -o '[0-9]\+$') || pre_a_num="0"
+  pre_b_num=$(echo "${pre_b}" | grep -o '[0-9]\+$') || pre_b_num="0"
+
+  # Compare labels first (alpha < beta < rc)
+  if [[ "${pre_a_label}" < "${pre_b_label}" ]]; then echo "-1"; return; fi
+  if [[ "${pre_a_label}" > "${pre_b_label}" ]]; then echo "1"; return; fi
+
+  # Same label, compare numeric suffix
+  if (( pre_a_num < pre_b_num )); then echo "-1"; return; fi
+  if (( pre_a_num > pre_b_num )); then echo "1"; return; fi
+
+  echo "0"
 }
 
-# Fetches the latest v0.70.x RC tag from consensus node repository
-# Returns:
-#   The latest v0.70.x RC tag, or empty string if not found
-function get_cn_fallback_version {
-  local tags_url="https://api.github.com/repos/${CN_REPO}/tags?per_page=100"
-  local response
-  response=$(curl -s -H "Accept: application/vnd.github+json" "${tags_url}") || return 1
+# Enforces a minimum version floor for a component.
+# If the resolved version is below the minimum, logs a warning and returns the minimum version.
+# If the resolved version meets the minimum, returns the resolved version unchanged.
+# Arguments:
+#   $1 - Resolved version string
+#   $2 - Minimum version string (without 'v' prefix)
+#   $3 - Component name for log messages
+# Returns (via stdout):
+#   The effective version to use (either resolved or minimum floor)
+function enforce_minimum_version {
+  local resolved="${1}"
+  local minimum="${2}"
+  local component="${3}"
 
-  # Find the first (most recent) v0.70.x tag (RC or GA)
-  local fallback_tag
-  fallback_tag=$(echo "${response}" | grep -o '"name": *"[^"]*"' | sed 's/"name": *"\([^"]*\)"/\1/' | grep -E "${CN_FALLBACK_VERSION_PATTERN}" | head -1)
+  # Skip enforcement for SNAPSHOT versions (from 'main' keyword)
+  if [[ "${resolved}" == *-SNAPSHOT ]]; then
+    echo "${resolved}"
+    return 0
+  fi
 
-  echo "${fallback_tag}"
+  local cmp
+  cmp=$(compare_semver "${resolved}" "${minimum}")
+
+  if [[ "${cmp}" == "-1" ]]; then
+    log_line "WARNING: ${component} resolved to ${resolved}, below minimum ${minimum} (required for TSS/hinTS support). Using ${minimum} instead."
+    echo "${minimum}"
+  else
+    echo "${resolved}"
+  fi
 }
 
 # Fetches the version from the main branch of a GitHub repository.
@@ -242,6 +307,8 @@ function main {
   local cn_input="${1:-latest}"
   local mn_input="${2:-latest}"
   local bn_input="${3:-latest}"
+  local relay_input="${4:-latest}"
+  local tck_input="${5:-latest}"
 
   log_line "Resolving Component Versions"
   log_line "============================"
@@ -250,29 +317,24 @@ function main {
   log_line "  Consensus Node: %s" "${cn_input}"
   log_line "  Mirror Node:    %s" "${mn_input}"
   log_line "  Block Node:     %s" "${bn_input}"
+  log_line "  Relay:          %s" "${relay_input}"
+  log_line "  TCK-SDK:        %s" "${tck_input}"
   log_line ""
 
   # Resolve each version
-  local cn_resolved mn_resolved bn_resolved
+  local cn_resolved mn_resolved bn_resolved relay_resolved tck_resolved
 
   cn_resolved=$(resolve_version "${cn_input}" "${CN_REPO}" "Consensus Node")
-
-  # WORKAROUND: CN v0.69.x is broken, override with v0.70.x RC if needed
-  if is_broken_cn_version "${cn_resolved}"; then
-    log_line ""
-    log_line "WARNING: CN %s is broken (incompatible with Block Node)" "${cn_resolved}"
-    local fallback_version
-    fallback_version=$(get_cn_fallback_version)
-    if [[ -n "${fallback_version}" ]]; then
-      log_line "WARNING: Overriding CN version to %s" "${fallback_version}"
-      cn_resolved="${fallback_version}"
-    else
-      fail "ERROR: Could not find fallback CN version (v0.70.x)" 1
-    fi
-  fi
-
   mn_resolved=$(resolve_version "${mn_input}" "${MN_REPO}" "Mirror Node")
   bn_resolved=$(resolve_version "${bn_input}" "${BN_REPO}" "Block Node")
+
+  # Enforce minimum version floors (TSS/hinTS compatibility) — upgrades to floor if latest is lower
+  cn_resolved=$(enforce_minimum_version "${cn_resolved}" "${CN_MIN_VERSION}" "Consensus Node")
+  mn_resolved=$(enforce_minimum_version "${mn_resolved}" "${MN_MIN_VERSION}" "Mirror Node")
+  bn_resolved=$(enforce_minimum_version "${bn_resolved}" "${BN_MIN_VERSION}" "Block Node")
+
+  relay_resolved=$(resolve_version "${relay_input}" "${RELAY_REPO}" "Relay")
+  tck_resolved=$(resolve_version "${tck_input}" "${TCK_REPO}" "TCK-SDK")
 
   log_line ""
   log_line "Resolved versions:"
@@ -280,6 +342,8 @@ function main {
   echo "cn_version=${cn_resolved}"
   echo "mn_version=${mn_resolved}"
   echo "bn_version=${bn_resolved}"
+  echo "relay_version=${relay_resolved}"
+  echo "tck_version=${tck_resolved}"
 }
 
 main "$@"

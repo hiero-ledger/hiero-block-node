@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# TSS Signature Transition Test
+#
+# Verifies that the network correctly transitions from Schnorr signatures
+# (pre-settled TSS) to WRAPS signatures (post-settled TSS). With TSS enabled,
+# the network produces Schnorr signatures initially while building WRAPS keys,
+# then transitions to WRAPS signatures (typically around block ~500).
+#
+# This test polls the Block Node for WRAPS signatures. If the network has
+# already transitioned, it passes immediately and reports the transition block.
+# If not, it polls until max_block is reached.
+#
+# Prerequisites:
+#   - Any topology deployed with TSS_ENABLED=true (task up)
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/tss-signature-transition.yaml
+
+name: tss-signature-transition
+description: "Verify TSS signature transition from Schnorr to WRAPS"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Network status before signature check"
+    delay: 5
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: wraps-transition
+    type: signature-transition
+    description: "Block signatures transition from Schnorr to WRAPS"
+    target: block-node-1
+    args:
+      max_block: 1000

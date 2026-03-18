@@ -215,6 +215,29 @@ function check_prerequisites {
   fi
   end_task "FOUND ($(command -v solo))"
 
+  # Enforce minimum Solo version (required for TSS support)
+  local solo_min_version="0.61.0"
+  local solo_version
+  solo_version=$(solo --version 2>&1 | grep 'Version' | sed 's/.*: *//' | tr -d '[:space:]')
+  if [[ -n "${solo_version}" ]]; then
+    IFS='.' read -r cur_major cur_minor cur_patch <<< "${solo_version}"
+    IFS='.' read -r min_major min_minor min_patch <<< "${solo_min_version}"
+    local is_outdated="false"
+    if (( cur_major < min_major )); then is_outdated="true"
+    elif (( cur_major == min_major && cur_minor < min_minor )); then is_outdated="true"
+    elif (( cur_major == min_major && cur_minor == min_minor && cur_patch < min_patch )); then is_outdated="true"
+    fi
+    if [[ "${is_outdated}" == "true" ]]; then
+      fail "ERROR: Solo CLI version ${solo_version} is outdated. Minimum supported version is ${solo_min_version} (required for TSS support). Upgrade with: npm i @hashgraph/solo@${solo_min_version} -g" 1
+    fi
+  fi
+
+  start_task "Checking for yq"
+  if ! command -v yq &> /dev/null; then
+    fail "ERROR: yq not found. Install from: https://github.com/mikefarah/yq" 1
+  fi
+  end_task "FOUND ($(command -v yq))"
+
   if [[ "${SKIP_KIND}" != "true" ]]; then
     start_task "Checking for kind"
     if ! command -v kind &> /dev/null; then

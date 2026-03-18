@@ -50,6 +50,9 @@ vars:
   CN_VERSION: '{{.CN_VERSION | default "latest"}}'
   MN_VERSION: '{{.MN_VERSION | default "latest"}}'
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
+  RELAY_VERSION: '{{.RELAY_VERSION | default "latest"}}'
+  TCK_VERSION: '{{.TCK_VERSION | default "latest"}}'
+  TSS_ENABLED: '{{.TSS_ENABLED | default "true"}}'
 
   # NLG load generation parameters
   NLG_TEST_TYPE: '{{.NLG_TEST_TYPE | default "CryptoTransferLoadTest"}}'
@@ -61,7 +64,7 @@ vars:
 
   # TCK-SDK test configuration
   TCK_SDK_DIR: '{{.TCK_SDK_DIR | default "sdk-tck"}}'
-  TCK_TEST_FILE: '{{.TCK_TEST_FILE | default "src/tests/crypto-service/test-transfer-transaction.ts"}}'
+  TCK_TEST_FILE: '{{.TCK_TEST_FILE | default "src/tests/crypto-service/test-transfer-hbar-transaction.ts src/tests/contract-service/test-contract-delete-transaction.ts"}}'
 
 tasks:
   # ============================================================================
@@ -77,6 +80,7 @@ tasks:
         command -v helm >/dev/null 2>&1 || { echo "ERROR: helm not found"; exit 1; }
         command -v kind >/dev/null 2>&1 || { echo "ERROR: kind not found"; exit 1; }
         command -v solo >/dev/null 2>&1 || { echo "ERROR: solo not found. Install with: npm i @hashgraph/solo -g"; exit 1; }
+        command -v yq >/dev/null 2>&1 || { echo "ERROR: yq not found. Install from: https://github.com/mikefarah/yq"; exit 1; }
         echo "All prerequisites found!"
         echo ""
         echo "Versions:"
@@ -85,6 +89,7 @@ tasks:
         echo "  Helm: $(helm version --short)"
         echo "  Kind: $(kind --version)"
         echo "  Solo: $(solo --version)"
+        echo "  yq: $(yq --version)"
     silent: true
 
   # ============================================================================
@@ -159,13 +164,19 @@ tasks:
     silent: true
     cmds:
       - |
-        # Resolve versions (latest -> actual GA versions)
-        VERSIONS=$("{{.SCRIPTS_DIR}}/resolve-versions.sh" "{{.CN_VERSION}}" "{{.MN_VERSION}}" "{{.BN_VERSION}}")
+        # Resolve versions (latest/rc/main -> actual release versions)
+        VERSIONS=$("{{.SCRIPTS_DIR}}/resolve-versions.sh" \
+          "{{.CN_VERSION}}" "{{.MN_VERSION}}" "{{.BN_VERSION}}" \
+          "{{.RELAY_VERSION}}" "{{.TCK_VERSION}}")
 
         # Parse resolved versions
         CN_RESOLVED=$(echo "$VERSIONS" | grep "^cn_version=" | cut -d= -f2)
         MN_RESOLVED=$(echo "$VERSIONS" | grep "^mn_version=" | cut -d= -f2)
         BN_RESOLVED=$(echo "$VERSIONS" | grep "^bn_version=" | cut -d= -f2)
+        RELAY_RESOLVED=$(echo "$VERSIONS" | grep "^relay_version=" | cut -d= -f2)
+
+        # Export resolved RELAY_VERSION so Solo CLI reads the correct semver (not 'latest')
+        export RELAY_VERSION="$RELAY_RESOLVED"
 
         "{{.SCRIPTS_DIR}}/solo-deploy-network.sh" \
           --deployment "{{.DEPLOYMENT}}" \
@@ -176,6 +187,8 @@ tasks:
           --cn-version "$CN_RESOLVED" \
           --mn-version "$MN_RESOLVED" \
           --bn-version "$BN_RESOLVED" \
+          --relay-version "$RELAY_RESOLVED" \
+          --tss-enabled "{{.TSS_ENABLED}}" \
           {{if eq .ENABLE_LOCAL_METRICS "true"}}--enable-metrics{{end}}
 
   # ============================================================================
@@ -226,6 +239,12 @@ tasks:
 
         echo "Block Node {{.NODE}} Status:"
         echo "$STATUS" | grep -E "(firstAvailableBlock|lastAvailableBlock)" || echo "$STATUS"
+
+  check:signature:
+    desc: "Find Schnorr→WRAPS signature transition on Block Node 1"
+    deps: [proto:extract]
+    cmds:
+      - '"{{.SCRIPTS_DIR}}/../../../scripts/monitor-block-proofs.sh" "{{.PROTO_PATH}}" "localhost:40840"'
 
   status:
     desc: Show network status for all nodes in the topology
@@ -411,10 +430,24 @@ tasks:
   # TCK-SDK Tests (matches consensus-node approach: uses latest tags)
   # ============================================================================
   tck:clone:
-    desc: Clone TCK and JS-SDK repositories and checkout latest tags
+    desc: Clone TCK and JS-SDK repositories and checkout configured versions (TCK_VERSION, default latest)
     cmds:
       - |
-        # Clone and checkout latest tag for TCK
+        # Resolve TCK version
+        TCK_VERSION="{{.TCK_VERSION}}"
+        if [[ "$TCK_VERSION" == "latest" ]]; then
+          TCK_RESOLVED=$(curl -s https://api.github.com/repos/hiero-ledger/hiero-sdk-tck/releases/latest \
+            | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/"tag_name": *"\([^"]*\)"/\1/')
+          if [[ -z "$TCK_RESOLVED" ]]; then
+            echo "ERROR: Could not resolve latest TCK version from GitHub"
+            exit 1
+          fi
+          echo "Resolved TCK latest → $TCK_RESOLVED"
+        else
+          TCK_RESOLVED="$TCK_VERSION"
+        fi
+
+        # Clone and checkout TCK at the resolved version
         if [[ ! -d "{{.TCK_SDK_DIR}}/regression" ]]; then
           echo "Cloning TCK repository..."
           git clone https://github.com/hiero-ledger/hiero-sdk-tck.git \
@@ -422,9 +455,8 @@ tasks:
         fi
         cd "{{.TCK_SDK_DIR}}/regression"
         git fetch --tags
-        LATEST_TAG=$(git describe --tags --abbrev=0)
-        echo "Checking out TCK latest tag: $LATEST_TAG"
-        git checkout "$LATEST_TAG"
+        echo "Checking out TCK version: $TCK_RESOLVED"
+        git checkout "$TCK_RESOLVED"
 
         # Clone and checkout latest tag for JS-SDK
         cd - > /dev/null

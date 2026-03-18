@@ -53,6 +53,10 @@ EVENTS_FAILED=0
 ASSERTIONS_PASSED=0
 ASSERTIONS_FAILED=0
 
+# Assertion results for GitHub summary (temp file because assertions run in subshells)
+ASSERTION_RESULTS_FILE="/tmp/solo-test-assert-results-$$"
+: > "${ASSERTION_RESULTS_FILE}"
+
 
 # ============================================================================
 # Argument Parsing
@@ -872,6 +876,39 @@ function assert_blocks_increasing {
     fi
 }
 
+# Assert that block signatures transition from Schnorr to WRAPS.
+# Delegates to monitor-block-proofs.sh and captures its output.
+function assert_signature_transition {
+    local target="$1"
+    local max_block="${2:-1000}"
+    local port
+    port=$(get_bn_grpc_port "$target")
+
+    if ! validate_proto_path "${target}"; then
+        return 1
+    fi
+
+    local script="${SCRIPT_DIR}/../../../scripts/monitor-block-proofs.sh"
+    if [[ ! -x "$script" ]]; then
+        echo "${target}: monitor-block-proofs.sh not found at ${script}"
+        return 1
+    fi
+
+    local output
+    if output=$("$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" 2>&1); then
+        local transition_block transition_summary
+        transition_summary=$(echo "${output}" | grep -A 10 "=== Signature Transition ===")
+        transition_block=$(echo "${transition_summary}" | grep "First WRAPS block:" | awk '{print $NF}')
+        echo "${target}: Schnorr -> WRAPS at block ${transition_block:-unknown}"
+        echo "${transition_summary}"
+        return 0
+    else
+        echo "${output}" >&2
+        echo "${target}: WRAPS not detected within ${max_block} blocks"
+        return 1
+    fi
+}
+
 function run_assertion {
     local assert_type="$1"
     local target="$2"
@@ -899,6 +936,16 @@ function run_assertion {
             wait_seconds=$(echo "$args" | yq '.wait_seconds // 60')
             max_attempts=$(echo "$args" | yq '.max_attempts // 3')
             assert_blocks_increasing "$target" "$wait_seconds" "$max_attempts"
+            ;;
+        signature-transition)
+            if [[ "${TSS_ENABLED:-true}" != "true" ]]; then
+                echo "Skipped (TSS not enabled)"
+                return 0
+            fi
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "block-node-1"')
+            local sig_max_block
+            sig_max_block=$(echo "$args" | yq '.max_block // 1000')
+            assert_signature_transition "$target" "$sig_max_block"
             ;;
         *)
             echo "Unknown assertion type: $assert_type"
@@ -1033,6 +1080,7 @@ function run_assertions {
     local assert_count
     assert_count=$(yq '.assertions | length' "$TEST_FILE")
     [[ "$assert_count" == "null" ]] && assert_count=0
+
     [[ $assert_count -eq 0 ]] && return 0
 
     log INFO "Running $assert_count assertions"
@@ -1050,14 +1098,61 @@ function run_assertions {
 
         if result=$(run_assertion "$assert_type" "$target" "$args"); then
             log PASS "$id: $desc ($result)"
+            local single_line_result
+            single_line_result=$(echo "$result" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+            echo "PASS|${id}|${desc}|${single_line_result}" >> "${ASSERTION_RESULTS_FILE}"
             ((ASSERTIONS_PASSED++))
         else
             log FAIL "$id: $desc ($result)"
+            local single_line_result
+            single_line_result=$(echo "$result" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+            echo "FAIL|${id}|${desc}|${single_line_result}" >> "${ASSERTION_RESULTS_FILE}"
             ((ASSERTIONS_FAILED++))
         fi
 
         ((i++))
     done
+
+}
+
+function write_github_summary {
+    local event_count="$1"
+    local result_badge="$2"
+
+    {
+        echo "<h2>Test: ${TEST_NAME}</h2>"
+        echo ""
+        echo "| Metric | Value |"
+        echo "|--------|-------|"
+        echo "| Events | ${EVENTS_COMPLETED}/${event_count} |"
+        echo "| Assertions | ${ASSERTIONS_PASSED}/$((ASSERTIONS_PASSED + ASSERTIONS_FAILED)) |"
+        echo "| Result | ${result_badge} |"
+
+        # Include assertion details if available
+        if [[ -s "${ASSERTION_RESULTS_FILE}" ]]; then
+            echo ""
+            echo "<details>"
+            echo "<summary>Assertion Details</summary>"
+            echo ""
+            echo "| Status | ID | Description | Details |"
+            echo "|--------|-----|-------------|---------|"
+            while IFS='|' read -r status id desc details; do
+                local icon
+                [[ "$status" == "PASS" ]] && icon=":white_check_mark:" || icon=":x:"
+                # Extract key info from details (keep it short for the table)
+                local short_details
+                short_details=$(echo "$details" | grep -oE "(Schnorr -> WRAPS at block [0-9]+)|(Skipped)|([0-9]+ errors)|(Blocks [0-9]+-[0-9]+)|([0-9]+ -> [0-9]+)" | head -1)
+                [[ -z "$short_details" ]] && short_details=$(echo "$details" | head -1 | cut -c1-80)
+                # Escape pipe chars so they don't break the markdown table
+                short_details="${short_details//|/\\|}"
+                echo "| ${icon} | ${id} | ${desc} | ${short_details} |"
+            done < "${ASSERTION_RESULTS_FILE}"
+            echo ""
+            echo "</details>"
+            echo ""
+        fi
+    } >> "${GITHUB_STEP_SUMMARY}"
+    rm -f "${ASSERTION_RESULTS_FILE}"
 }
 
 function print_summary {
@@ -1071,36 +1166,21 @@ function print_summary {
     echo "Events:     ${EVENTS_COMPLETED}/${event_count} completed"
     [[ $EVENTS_FAILED -gt 0 ]] && echo "            ${EVENTS_FAILED} failed"
     echo "Assertions: ${ASSERTIONS_PASSED}/$((ASSERTIONS_PASSED + ASSERTIONS_FAILED)) passed"
+
     echo ""
 
     if [[ $EVENTS_FAILED -eq 0 && $ASSERTIONS_FAILED -eq 0 ]]; then
         echo -e "Result: ${GREEN}PASS${NC}"
 
         if [[ "${OUTPUT_MODE}" == "github-summary" && -n "${GITHUB_STEP_SUMMARY}" ]]; then
-            {
-                echo "## Test: ${TEST_NAME}"
-                echo ""
-                echo "| Metric | Value |"
-                echo "|--------|-------|"
-                echo "| Events | ${EVENTS_COMPLETED}/${event_count} |"
-                echo "| Assertions | ${ASSERTIONS_PASSED}/$((ASSERTIONS_PASSED + ASSERTIONS_FAILED)) |"
-                echo "| Result | :white_check_mark: PASS |"
-            } >> "${GITHUB_STEP_SUMMARY}"
+            write_github_summary "${event_count}" ":white_check_mark: PASS"
         fi
         return 0
     else
         echo -e "Result: ${RED}FAIL${NC}"
 
         if [[ "${OUTPUT_MODE}" == "github-summary" && -n "${GITHUB_STEP_SUMMARY}" ]]; then
-            {
-                echo "## Test: ${TEST_NAME}"
-                echo ""
-                echo "| Metric | Value |"
-                echo "|--------|-------|"
-                echo "| Events | ${EVENTS_COMPLETED}/${event_count} |"
-                echo "| Assertions | ${ASSERTIONS_PASSED}/$((ASSERTIONS_PASSED + ASSERTIONS_FAILED)) |"
-                echo "| Result | :x: FAIL |"
-            } >> "${GITHUB_STEP_SUMMARY}"
+            write_github_summary "${event_count}" ":x: FAIL"
         fi
         return 1
     fi

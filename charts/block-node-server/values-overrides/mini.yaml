@@ -6,12 +6,15 @@
 
 resources:
   requests:
+    cpu: "1"
+    memory: "1Gi"
+  limits:
     cpu: "4"
-    memory: "8Gi"
+    memory: "2Gi"
 
 blockNode:
   config:
-    JAVA_OPTS: '-Xms4G -Xmx4G  -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
+    JAVA_OPTS: '-Xms1G -Xmx1G  -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
     MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "512"
     MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "32"
     BACKFILL_FETCH_BATCH_SIZE: "10"
