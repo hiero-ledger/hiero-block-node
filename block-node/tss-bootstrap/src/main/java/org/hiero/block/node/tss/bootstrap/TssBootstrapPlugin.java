@@ -50,11 +50,11 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
             // todo: query a peer bn for the TSS info
             // then persist the results
             TssData tssData = new TssData.Builder().build();
-            persistTssParameters(tssData);
+            persistTssData(tssData);
         }
     }
 
-    private void persistTssParameters(TssData tssData) {
+    protected void persistTssData(TssData tssData) {
         final var tssParametersFile = nodeConfig.tssParametersFilePath();
         try {
             Files.createDirectories(tssParametersFile.getParent());

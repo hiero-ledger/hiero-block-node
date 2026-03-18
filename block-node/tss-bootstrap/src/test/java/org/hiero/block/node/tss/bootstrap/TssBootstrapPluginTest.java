@@ -14,18 +14,25 @@ import org.junit.jupiter.api.Test;
 
 public class TssBootstrapPluginTest
         extends GrpcPluginTestBase<TssBootstrapPlugin, BlockingExecutor, ScheduledExecutorService> {
-    private final TssBootstrapPlugin tssBootstrapPlugin = new TssBootstrapPlugin();
-
     public TssBootstrapPluginTest() {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-        start(tssBootstrapPlugin, new NoBlocksHistoricalBlockFacility());
     }
 
     @Test
-    @DisplayName("should always succeed")
-    void shouldAlwaysSucceed() {
+    @DisplayName("start without persisted data")
+    void startWithoutPersistedData() {
+        final TssBootstrapPlugin tssBootstrapPlugin = new TssBootstrapPlugin();
+        start(tssBootstrapPlugin, new NoBlocksHistoricalBlockFacility());
+        assertNotNull(tssBootstrapPlugin);
+    }
+
+    @Test
+    @DisplayName("start with persisted data")
+    void startWithPersistedData() {
+        final TssBootstrapPlugin tssBootstrapPlugin = new TssBootstrapPlugin();
+        start(tssBootstrapPlugin, new NoBlocksHistoricalBlockFacility());
         assertNotNull(tssBootstrapPlugin);
     }
 }
