@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 public class TssBootstrapPluginTest
         extends GrpcPluginTestBase<TssBootstrapPlugin, BlockingExecutor, ScheduledExecutorService> {
     private final TssBootstrapPlugin tssBootstrapPlugin = new TssBootstrapPlugin();
+
     public TssBootstrapPluginTest() {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
