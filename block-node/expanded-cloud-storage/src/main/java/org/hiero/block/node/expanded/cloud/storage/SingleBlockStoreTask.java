@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -119,9 +118,6 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             LOGGER.log(TRACE, "Block {0}: uploaded to {1}", blockNumber, objectKey);
             return new UploadResult(blockNumber, true, blockSource);
 
-        } catch (final TimeoutException e) {
-            LOGGER.log(WARNING, "Block {0}: upload timed out after {1}s: {2}", blockNumber, uploadTimeoutSeconds, e.getMessage());
-            return new UploadResult(blockNumber, false, blockSource);
         } catch (final S3ClientException | IOException e) {
             LOGGER.log(WARNING, "Block {0}: upload failed: {1}", blockNumber, e.getMessage());
             return new UploadResult(blockNumber, false, blockSource);

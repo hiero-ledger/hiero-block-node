@@ -197,7 +197,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 objectKey,
                 config.storageClass(),
                 config.uploadTimeoutSeconds(),
-                notification.blockSource()));
+                notification.source()));
     }
 
     // ---- Private helpers ----------------------------------------------------
@@ -219,7 +219,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 blockMessaging.sendBlockPersisted(new PersistedNotification(
                         result.blockNumber(),
                         result.succeeded(),
-                        defaultPriority(),
+                        0,
                         result.blockSource()));
                 if (!result.succeeded()) {
                     LOGGER.log(WARNING, "Block {0}: upload failed; PersistedNotification sent with succeeded=false.",
@@ -278,7 +278,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 final SingleBlockStoreTask.UploadResult result = f.get();
                 if (blockMessaging != null) {
                     blockMessaging.sendBlockPersisted(new PersistedNotification(
-                            result.blockNumber(), result.succeeded(), defaultPriority(), result.blockSource()));
+                            result.blockNumber(), result.succeeded(), 0, result.blockSource()));
                 }
             } catch (final ExecutionException e) {
                 LOGGER.log(WARNING, "Unexpected exception in upload task: {0}", e.getCause().getMessage());
