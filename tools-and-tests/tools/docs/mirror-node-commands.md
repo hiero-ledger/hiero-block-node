@@ -135,14 +135,14 @@ mirror update --block-times /path/to/block_times.bin --day-blocks /path/to/day_b
 
 #### Testnet Usage
 
-Use the top-level `--network testnet` flag to fetch from the testnet Mirror Node instead of mainnet:
+Use the `--network testnet` flag to fetch from the testnet Mirror Node instead of mainnet:
 
 ```bash
 # Update metadata with all available testnet blocks
---network testnet mirror update
+mirror update --network testnet
 
 # Fetch only the first week of testnet
---network testnet mirror update --end-date 2024-02-07
+mirror update --network testnet --end-date 2024-02-07
 ```
 
 Notes:
