@@ -10,8 +10,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
 
 public class TssBootstrapPlugin implements BlockNodePlugin {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-    /** The configuration for all plugins */
-    private NodeConfig nodeConfig;
     /** True once TSS parameters have been persisted (file bootstrap or successful query peer BN). */
     public static boolean tssDataPersisted;
 
@@ -21,7 +19,8 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         // see if the statusDetail TSS Data file exists
-        nodeConfig = context.configuration().getConfigData(NodeConfig.class);
+        // The configuration for all plugins
+        NodeConfig nodeConfig = context.configuration().getConfigData(NodeConfig.class);
         // serialized TssData (ledger ID, WRAPS VK, and Rosters)
         final var tssParametersFile = nodeConfig.tssDataFilePath();
         if (!Files.exists(tssParametersFile)) {
@@ -30,8 +29,6 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
             // Use the same config as Backfill Plugin
             // How to get it to the statusDetailPlugin?
             LOGGER.log(Level.DEBUG, "No TssData file found, contacting peer BlockNode");
-        } else {
-            LOGGER.log(Level.DEBUG, "TssData file found, Nothing to do");
         }
     }
 }

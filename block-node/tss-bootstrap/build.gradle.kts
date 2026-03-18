@@ -20,8 +20,6 @@ mainModuleInfo {
 testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
-    requires("com.hedera.pbj.runtime")
-    requires("org.hiero.block.protobuf.pbj")
 }
 
 pbj { generateTestClasses = false }
