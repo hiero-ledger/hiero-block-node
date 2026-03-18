@@ -287,14 +287,20 @@ jobs:
           echo "mn_label=$(format_version "${{ steps.config.outputs.mn_version }}" "$MN_RESOLVED")" >> "${GITHUB_OUTPUT}"
           echo "bn_label=$(format_version "${{ steps.config.outputs.bn_version }}" "$BN_RESOLVED")" >> "${GITHUB_OUTPUT}"
 
-          # Format matrix details for Slack: list each topology with its tests
-          MATRIX_DETAIL=$(echo '${{ steps.config.outputs.matrix }}' | jq -r '.[] | "• \(.topology): \(.tests)"' | sed 's/,/, /g')
-          # Use delimiter for multiline output
-          {
-            echo "matrix_detail<<MATRIX_EOF"
-            echo "${MATRIX_DETAIL}"
-            echo "MATRIX_EOF"
-          } >> "${GITHUB_OUTPUT}"
+          # Format matrix details for Slack: each topology on its own line with tests
+          # Uses literal \n (not actual newlines) so it works inside JSON string interpolation
+          MATRIX_DETAIL=$(echo '${{ steps.config.outputs.matrix }}' | jq -r \
+            '[.[] | "• *\(.topology):* \(.tests | split(",") | join(", "))"] | join("\\n")')
+
+          # Append TCK regression status
+          TCK_STATUS="${{ steps.config.outputs.run_tck_regression_tests }}"
+          if [[ "$TCK_STATUS" == "true" ]]; then
+            MATRIX_DETAIL="${MATRIX_DETAIL}\n_TCK Regression: enabled_"
+          else
+            MATRIX_DETAIL="${MATRIX_DETAIL}\n_TCK Regression: disabled_"
+          fi
+
+          echo "matrix_detail=${MATRIX_DETAIL}" >> "${GITHUB_OUTPUT}"
 
   # ============================================================================
   # RUN-TESTS: Execute test matrix
@@ -374,7 +380,7 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n${{ needs.configure.outputs.matrix-detail }}\n*Status:* All passed"
+                    "text": "*Test Matrix:* ${{ needs.configure.outputs.matrix-count }} combinations\n${{ needs.configure.outputs.matrix-detail }}"
                   }
                 },
                 {
@@ -387,7 +393,8 @@ jobs:
                         "text": "View Run",
                         "emoji": true
                       },
-                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                      "style": "primary"
                     }
                   ]
                 }
@@ -448,7 +455,7 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n${{ needs.configure.outputs.matrix-detail }}\n*Status:* Some tests failed - check the run for details"
+                    "text": "*Test Matrix:* ${{ needs.configure.outputs.matrix-count }} combinations\n${{ needs.configure.outputs.matrix-detail }}"
                   }
                 },
                 {
