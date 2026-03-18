@@ -4,6 +4,7 @@ package org.hiero.block.tools.mirrornode;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.gson.JsonArray;
@@ -16,6 +17,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -466,5 +470,130 @@ class UpdateBlockDataTest {
         // block encountered in the new batch
         assertEquals(1, day.firstBlockNumber);
         assertEquals(2, day.lastBlockNumber);
+    }
+
+    // ===== Gap detection tests =====
+
+    @Nested
+    @DisplayName("Gap detection tests")
+    class GapDetectionTests {
+
+        @TempDir
+        Path gapTempDir;
+
+        @Test
+        @DisplayName("Detects gap when mirror node skips blocks")
+        void detectsGapInMiddleOfRange() {
+            Path timesFile = gapTempDir.resolve("block_times.bin");
+            Path dayBlocksFile = gapTempDir.resolve("day_blocks.json");
+
+            // First call returns blocks 0-2, second call returns blocks 50-52 (gap: 3-49)
+            AtomicInteger callCount = new AtomicInteger(0);
+            UpdateBlockData.BlockBatchFetcher fetcher = (start, limit) -> {
+                int call = callCount.getAndIncrement();
+                if (call == 0) {
+                    return batch(
+                            fakeBlock(0, "2019-09-13T21_53_51.396440Z.rcd", "aaa"),
+                            fakeBlock(1, "2019-09-13T21_53_53.524086Z.rcd", "bbb"),
+                            fakeBlock(2, "2019-09-13T21_53_55.657803Z.rcd", "ccc"));
+                } else {
+                    return batch(
+                            fakeBlock(50, "2019-09-13T22_00_00.000000Z.rcd", "ddd"),
+                            fakeBlock(51, "2019-09-13T22_00_02.000000Z.rcd", "eee"),
+                            fakeBlock(52, "2019-09-13T22_00_04.000000Z.rcd", "fff"));
+                }
+            };
+
+            RuntimeException ex = assertThrows(RuntimeException.class, () -> {
+                UpdateBlockData.updateMirrorNodeData(timesFile, dayBlocksFile, null, 52, fetcher);
+            });
+
+            assertTrue(ex.getMessage().contains("gap"), "Exception should mention gap");
+            assertTrue(ex.getMessage().contains("47 blocks"), "Exception should mention 47 missing blocks");
+
+            // day_blocks.json should NOT be written
+            assertFalse(Files.exists(dayBlocksFile), "day_blocks.json should not be written when gaps exist");
+        }
+
+        @Test
+        @DisplayName("Advances currentBlock based on last returned block, not pre-computed end")
+        void advancesBasedOnActualReturnedBlocks() {
+            Path timesFile = gapTempDir.resolve("block_times.bin");
+            Path dayBlocksFile = gapTempDir.resolve("day_blocks.json");
+
+            // First call returns only 2 blocks (0, 1). Second call should start from block 2, not 100.
+            AtomicInteger callCount = new AtomicInteger(0);
+            UpdateBlockData.BlockBatchFetcher fetcher = (start, limit) -> {
+                int call = callCount.getAndIncrement();
+                if (call == 0) {
+                    assertEquals(0, start, "First call should start at block 0");
+                    return batch(
+                            fakeBlock(0, "2019-09-13T21_53_51.396440Z.rcd", "aaa"),
+                            fakeBlock(1, "2019-09-13T21_53_53.524086Z.rcd", "bbb"));
+                } else if (call == 1) {
+                    assertEquals(2, start, "Second call should start at block 2, not 100");
+                    return batch(fakeBlock(2, "2019-09-13T21_53_55.657803Z.rcd", "ccc"));
+                }
+                return new JsonArray();
+            };
+
+            UpdateBlockData.updateMirrorNodeData(timesFile, dayBlocksFile, null, 2, fetcher);
+
+            assertEquals(2, callCount.get(), "Fetcher should be called exactly 2 times");
+        }
+
+        @Test
+        @DisplayName("Handles empty batch without infinite loop")
+        void handlesEmptyBatch() {
+            Path timesFile = gapTempDir.resolve("block_times.bin");
+            Path dayBlocksFile = gapTempDir.resolve("day_blocks.json");
+
+            // First call returns empty, second call returns blocks
+            AtomicInteger callCount = new AtomicInteger(0);
+            UpdateBlockData.BlockBatchFetcher fetcher = (start, limit) -> {
+                int call = callCount.getAndIncrement();
+                if (call == 0) {
+                    return new JsonArray(); // empty batch
+                } else {
+                    return batch(
+                            fakeBlock(100, "2019-09-13T22_00_00.000000Z.rcd", "aaa"),
+                            fakeBlock(101, "2019-09-13T22_00_02.000000Z.rcd", "bbb"));
+                }
+            };
+
+            // latestBlockNumber=101, so the loop should eventually get there
+            // First empty batch advances by BATCH_SIZE (100), second batch returns blocks 100-101
+            UpdateBlockData.updateMirrorNodeData(timesFile, dayBlocksFile, null, 101, fetcher);
+
+            assertEquals(2, callCount.get(), "Fetcher should be called exactly 2 times");
+            assertTrue(Files.exists(timesFile), "block_times.bin should be created");
+        }
+
+        @Test
+        @DisplayName("No gap — processes normally without error")
+        void noGapProcessesNormally() throws Exception {
+            Path timesFile = gapTempDir.resolve("block_times.bin");
+            Path dayBlocksFile = gapTempDir.resolve("day_blocks.json");
+
+            // Continuous blocks with no gaps
+            JsonArray fakeBatch = batch(
+                    fakeBlock(0, "2019-09-13T21_53_51.396440Z.rcd", "aaa"),
+                    fakeBlock(1, "2019-09-13T21_53_53.524086Z.rcd", "bbb"),
+                    fakeBlock(2, "2019-09-13T21_53_55.657803Z.rcd", "ccc"));
+
+            UpdateBlockData.updateMirrorNodeData(timesFile, dayBlocksFile, null, 2, (start, limit) -> fakeBatch);
+
+            // Verify files were written correctly
+            assertTrue(Files.exists(timesFile));
+            assertTrue(Files.exists(dayBlocksFile));
+            assertEquals(2, UpdateBlockData.readHighestBlockFromTimesFile(timesFile));
+
+            Map<LocalDate, DayBlockInfo> dayBlocks = UpdateBlockData.loadDayBlocksMap(dayBlocksFile);
+            assertEquals(1, dayBlocks.size());
+            DayBlockInfo day = dayBlocks.get(LocalDate.of(2019, 9, 13));
+            assertNotNull(day);
+            assertEquals(0, day.firstBlockNumber);
+            assertEquals(2, day.lastBlockNumber);
+        }
     }
 }
