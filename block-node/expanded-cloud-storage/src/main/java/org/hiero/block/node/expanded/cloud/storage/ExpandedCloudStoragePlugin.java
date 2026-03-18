@@ -4,19 +4,22 @@ package org.hiero.block.node.expanded.cloud.storage;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
-import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
@@ -32,15 +35,24 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  * The plugin reacts to {@code handleVerification()} rather than {@code handlePersisted()}.
  * This allows cloud upload and local file storage ({@code blocks-file-recent}) to run in
  * parallel — each registered handler gets its own virtual thread. Block bytes are taken
- * directly from {@code notification.block()}, avoiding any dependency on the local historical
- * block provider and eliminating the serialization race that would exist if we waited for
- * {@code PersistedNotification}.
+ * directly from {@code notification.block()}, eliminating any dependency on the local
+ * historical block provider.
+ *
+ * <h2>Async upload via CompletionService</h2>
+ * Each verified block is submitted as a {@link SingleBlockStoreTask} to a
+ * {@link CompletionService} backed by a virtual-thread executor. The plugin drains completed
+ * tasks immediately before each new notification, publishing a {@link PersistedNotification}
+ * for every completed upload (success or failure). This ensures callers waiting on
+ * {@code PersistedNotification} are notified even when uploads overlap block boundaries.
  *
  * <h2>Object key format</h2>
- * <pre>{objectKeyPrefix}/{zeroPaddedBlockNumber}.blk.zstd</pre>
- * where {@code zeroPaddedBlockNumber} is zero-padded to 19 digits (matching
- * {@link Long#MAX_VALUE} digit count) for correct lexicographic ordering.
- * Example: {@code blocks/0000000000001234567.blk.zstd}
+ * <pre>{objectKeyPrefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd</pre>
+ * The 19-digit zero-padded block number is split into 4-digit folder groups (4/4/4/4/3)
+ * for lexicographic ordering and S3 prefix partitioning. Example:
+ * <pre>
+ * Block          1 → blocks/0000/0000/0000/0000/001.blk.zstd
+ * Block  108273182 → blocks/0000/0000/0010/8273/182.blk.zstd
+ * </pre>
  *
  * <h2>Enable / disable</h2>
  * The plugin is disabled when {@code expanded.cloud.storage.endpointUrl} is blank (the
@@ -54,18 +66,22 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  */
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
 
-    private static final String CONTENT_TYPE = "application/octet-stream";
-
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
     /** Plugin configuration, set during {@link #init}. */
     private ExpandedCloudStorageConfig config;
+
+    /** Messaging facility used to publish {@link PersistedNotification} results. */
+    private BlockMessagingFacility blockMessaging;
 
     /**
      * The active S3 client. {@code null} when the plugin is disabled.
      * May be pre-set by the package-private test constructor.
      */
     private S3Client s3Client;
+
+    /** CompletionService for async block upload tasks. */
+    private CompletionService<SingleBlockStoreTask.UploadResult> completionService;
 
     /** Whether the plugin is enabled (endpoint URL is non-blank). */
     private boolean enabled;
@@ -98,6 +114,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.config = context.configuration().getConfigData(ExpandedCloudStorageConfig.class);
+        this.blockMessaging = context.blockMessaging();
 
         if (StringUtilities.isBlank(config.endpointUrl())) {
             LOGGER.log(INFO, "Expanded Cloud Storage plugin is disabled. No endpoint URL configured.");
@@ -105,7 +122,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
 
         enabled = true;
-        context.blockMessaging().registerBlockNotificationHandler(this, false, name());
+        blockMessaging.registerBlockNotificationHandler(this, false, name());
     }
 
     /** {@inheritDoc} */
@@ -114,21 +131,24 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         if (!enabled) {
             return;
         }
-        // Create the S3 client if not pre-injected (e.g. in tests).
         if (s3Client == null) {
             try {
                 s3Client = createS3Client(config);
             } catch (final S3ClientException e) {
                 LOGGER.log(WARNING, "Failed to create S3 client; plugin will be disabled.", e);
                 enabled = false;
+                return;
             }
         }
+        completionService = new ExecutorCompletionService<>(
+                Executors.newVirtualThreadPerTaskExecutor());
     }
 
     /** {@inheritDoc} */
     @Override
     public void stop() {
         BlockNodePlugin.super.stop();
+        drainCompletedTasks();
         if (s3Client != null) {
             s3Client.close();
             s3Client = null;
@@ -140,18 +160,22 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /**
      * {@inheritDoc}
      *
-     * <p>Reacts to {@link VerificationNotification} to upload the verified block directly to S3
-     * in parallel with local file storage. Block bytes are taken from the notification itself
-     * ({@code notification.block()}) so there is no dependency on the local historical block
-     * provider and no race with {@code blocks-file-recent}.
+     * <p>Drains any completed upload tasks (publishing {@link PersistedNotification} for each),
+     * then submits this block as a new {@link SingleBlockStoreTask} to the
+     * {@link CompletionService}.
      */
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        if (!enabled || s3Client == null) {
+        if (!enabled || s3Client == null || completionService == null) {
             return;
         }
+
+        // Drain results from previously submitted tasks before queuing new work.
+        drainCompletedTasks();
+
         if (!notification.success()) {
-            LOGGER.log(TRACE, "Skipping upload for block {0}: verification did not succeed.", notification.blockNumber());
+            LOGGER.log(TRACE, "Skipping upload for block {0}: verification did not succeed.",
+                    notification.blockNumber());
             return;
         }
         final long blockNumber = notification.blockNumber();
@@ -164,43 +188,102 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             LOGGER.log(WARNING, "Skipping upload for block {0}: block payload is null.", blockNumber);
             return;
         }
-        uploadBlock(blockNumber, block);
+
+        final String objectKey = buildObjectKey(blockNumber);
+        completionService.submit(new SingleBlockStoreTask(
+                blockNumber,
+                block,
+                s3Client,
+                objectKey,
+                config.storageClass(),
+                config.uploadTimeoutSeconds(),
+                notification.blockSource()));
     }
 
     // ---- Private helpers ----------------------------------------------------
 
     /**
-     * Serialises the block to ZSTD-compressed protobuf bytes and uploads to S3.
+     * Polls the {@link CompletionService} for all currently-completed upload tasks and
+     * publishes a {@link PersistedNotification} for each result.
      *
-     * @param blockNumber the block number (used for key generation and logging)
-     * @param block       the verified block payload from the notification
+     * <p>This is a non-blocking drain — it only collects tasks that have already finished.
      */
-    private void uploadBlock(final long blockNumber, @NonNull final BlockUnparsed block) {
-        try {
-            final byte[] protoBytes = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
-            final byte[] compressed = CompressionType.ZSTD.compress(protoBytes);
-            final String objectKey = buildObjectKey(blockNumber);
-            s3Client.uploadFile(
-                    objectKey,
-                    config.storageClass(),
-                    Collections.singletonList(compressed).iterator(),
-                    CONTENT_TYPE);
-            LOGGER.log(TRACE, "Uploaded block {0} to S3 object key: {1}", blockNumber, objectKey);
-        } catch (final S3ClientException | IOException e) {
-            LOGGER.log(WARNING, "Failed to upload block {0} to S3: {1}", blockNumber, e.getMessage());
+    private void drainCompletedTasks() {
+        if (completionService == null || blockMessaging == null) {
+            return;
+        }
+        Future<SingleBlockStoreTask.UploadResult> completed;
+        while ((completed = completionService.poll()) != null) {
+            try {
+                final SingleBlockStoreTask.UploadResult result = completed.get();
+                blockMessaging.sendBlockPersisted(new PersistedNotification(
+                        result.blockNumber(),
+                        result.succeeded(),
+                        defaultPriority(),
+                        result.blockSource()));
+                if (!result.succeeded()) {
+                    LOGGER.log(WARNING, "Block {0}: upload failed; PersistedNotification sent with succeeded=false.",
+                            result.blockNumber());
+                } else {
+                    LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
+                }
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
+            } catch (final ExecutionException e) {
+                LOGGER.log(WARNING, "Unexpected exception in upload task: {0}", e.getCause().getMessage());
+            }
         }
     }
 
     /**
-     * Builds the S3 object key for the given block number.
+     * Builds the S3 object key for the given block number using the 4-digit folder hierarchy.
      *
-     * <p>Format: {@code {prefix}/{zeroPaddedBlockNumber}.blk.zstd}
+     * <p>Format: {@code {prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd}
+     * <p>The 19-digit zero-padded block number is split as 4/4/4/4/3 characters:
+     * <ul>
+     *   <li>Block 1 → {@code blocks/0000/0000/0000/0000/001.blk.zstd}</li>
+     *   <li>Block 108273182 → {@code blocks/0000/0000/0010/8273/182.blk.zstd}</li>
+     * </ul>
      *
      * @param blockNumber the block number
      * @return the S3 object key
      */
     String buildObjectKey(final long blockNumber) {
-        return config.objectKeyPrefix() + "/" + blockNumberFormated(blockNumber) + ".blk.zstd";
+        final String padded = String.format("%019d", blockNumber);
+        final String folderPath = padded.substring(0, 4)
+                + "/" + padded.substring(4, 8)
+                + "/" + padded.substring(8, 12)
+                + "/" + padded.substring(12, 16)
+                + "/" + padded.substring(16);
+        final String prefix = config.objectKeyPrefix();
+        return (prefix == null || prefix.isEmpty()) ? folderPath + ".blk.zstd"
+                : prefix + "/" + folderPath + ".blk.zstd";
+    }
+
+    /**
+     * Blocks until all currently-submitted upload tasks have completed, then drains their results.
+     * Package-private for test use only.
+     *
+     * @param timeoutMillis maximum milliseconds to wait for all in-flight tasks
+     * @throws InterruptedException if the calling thread is interrupted while waiting
+     */
+    void awaitAndDrain(final long timeoutMillis) throws InterruptedException {
+        if (completionService == null) return;
+        final long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (System.currentTimeMillis() < deadline) {
+            final Future<SingleBlockStoreTask.UploadResult> f = completionService.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS);
+            if (f == null) break;
+            try {
+                final SingleBlockStoreTask.UploadResult result = f.get();
+                if (blockMessaging != null) {
+                    blockMessaging.sendBlockPersisted(new PersistedNotification(
+                            result.blockNumber(), result.succeeded(), defaultPriority(), result.blockSource()));
+                }
+            } catch (final ExecutionException e) {
+                LOGGER.log(WARNING, "Unexpected exception in upload task: {0}", e.getCause().getMessage());
+            }
+        }
     }
 
     /**
