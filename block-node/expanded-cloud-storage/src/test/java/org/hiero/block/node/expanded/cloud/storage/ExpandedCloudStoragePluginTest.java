@@ -3,6 +3,7 @@ package org.hiero.block.node.expanded.cloud.storage;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -34,6 +35,7 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -62,6 +64,8 @@ class ExpandedCloudStoragePluginTest
     private static final int MINIO_PORT = 9000;
     private static final String MINIO_USER = "minioadmin";
     private static final String MINIO_PASSWORD = "minioadmin";
+    /** Millis to wait for virtual-thread upload tasks to complete in unit tests. */
+    private static final long DRAIN_TIMEOUT_MS = 5_000L;
 
     // ---- Capturing S3 client for unit tests ---------------------------------
 
@@ -94,7 +98,6 @@ class ExpandedCloudStoragePluginTest
     public ExpandedCloudStoragePluginTest() throws GeneralSecurityException, IOException, MinioException {
         super(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
 
-        // Start MinIO container — shared across integration tests in this class.
         final GenericContainer<?> minioContainer = new GenericContainer<>("minio/minio:latest")
                 .withCommand("server /data")
                 .withExposedPorts(MINIO_PORT)
@@ -112,18 +115,15 @@ class ExpandedCloudStoragePluginTest
 
     // ---- Helpers ------------------------------------------------------------
 
-    /** Returns the first {@link TestBlock} for the given block number. */
     private TestBlock testBlock(final long blockNumber) {
         return TestBlockBuilder.generateBlocksInRange(blockNumber, blockNumber, START_TIME, ONE_DAY)
                 .getFirst();
     }
 
-    /** Builds a successful {@link VerificationNotification} carrying the given block. */
     private VerificationNotification verifiedNotification(final long blockNumber, final BlockUnparsed block) {
         return new VerificationNotification(true, blockNumber, Bytes.EMPTY, block, BlockSource.UNKNOWN);
     }
 
-    /** Builds a failed {@link VerificationNotification} with no block payload. */
     private VerificationNotification failedNotification(final long blockNumber) {
         return new VerificationNotification(false, blockNumber, Bytes.EMPTY, null, BlockSource.UNKNOWN);
     }
@@ -132,7 +132,7 @@ class ExpandedCloudStoragePluginTest
 
     @Test
     @DisplayName("Plugin is disabled when endpointUrl is blank — handleVerification is a no-op")
-    void pluginDisabledWhenNoEndpoint() {
+    void pluginDisabledWhenNoEndpoint() throws InterruptedException {
         final CapturingS3Client capturing = new CapturingS3Client();
         start(
                 new ExpandedCloudStoragePlugin(capturing),
@@ -140,13 +140,15 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", ""));
 
         plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
-        assertEquals(0, capturing.uploads.size(), "No uploads should occur when plugin is disabled");
+        assertEquals(0, capturing.uploads.size(), "No uploads when plugin is disabled");
+        assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty(), "No PersistedNotification when disabled");
     }
 
     @Test
     @DisplayName("Plugin skips upload for a failed VerificationNotification")
-    void skipsUploadOnFailedVerification() {
+    void skipsUploadOnFailedVerification() throws InterruptedException {
         final CapturingS3Client capturing = new CapturingS3Client();
         start(
                 new ExpandedCloudStoragePlugin(capturing),
@@ -157,13 +159,14 @@ class ExpandedCloudStoragePluginTest
                         "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
 
         plugin.handleVerification(failedNotification(0L));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
-        assertEquals(0, capturing.uploads.size(), "No upload should occur for a failed notification");
+        assertEquals(0, capturing.uploads.size(), "No upload for a failed notification");
     }
 
     @Test
-    @DisplayName("Plugin calls uploadFile with correct object key, storage class, and content type")
-    void uploadsBlockWithCorrectParameters() {
+    @DisplayName("Plugin calls uploadFile with correct folder-hierarchy key, storage class, and content type")
+    void uploadsBlockWithCorrectParameters() throws InterruptedException {
         final CapturingS3Client capturing = new CapturingS3Client();
         start(
                 new ExpandedCloudStoragePlugin(capturing),
@@ -176,17 +179,19 @@ class ExpandedCloudStoragePluginTest
                         "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
 
         plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
         assertEquals(1, capturing.uploads.size(), "Exactly one uploadFile call expected");
         final UploadCall call = capturing.uploads.getFirst();
-        assertEquals("myblocks/0000000000000000000.blk.zstd", call.objectKey());
+        // Block 0: 0000000000000000000 → 0000/0000/0000/0000/000
+        assertEquals("myblocks/0000/0000/0000/0000/000.blk.zstd", call.objectKey());
         assertEquals("STANDARD", call.storageClass());
         assertEquals("application/octet-stream", call.contentType());
     }
 
     @Test
-    @DisplayName("Object key uses 19-digit zero-padded block number for various block numbers")
-    void objectKeyZeroPadding() {
+    @DisplayName("Object key uses 4-digit folder hierarchy for various block numbers")
+    void objectKeyFolderHierarchy() throws InterruptedException {
         final CapturingS3Client capturing = new CapturingS3Client();
         start(
                 new ExpandedCloudStoragePlugin(capturing),
@@ -197,19 +202,65 @@ class ExpandedCloudStoragePluginTest
                         "expanded.cloud.storage.accessKey", MINIO_USER,
                         "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
 
-        plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed()));
+        // Block 1:         0000000000000000001 → blocks/0000/0000/0000/0000/001.blk.zstd
+        // Block 108273182: 0000000000108273182 → blocks/0000/0000/0010/8273/182.blk.zstd
+        // Block 1234567:   0000000000001234567 → blocks/0000/0000/0000/1234/567.blk.zstd
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        plugin.handleVerification(verifiedNotification(108273182L, testBlock(108273182L).blockUnparsed()));
         plugin.handleVerification(verifiedNotification(1234567L, testBlock(1234567L).blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
         assertEquals(3, capturing.uploads.size());
-        assertEquals("blocks/0000000000000000000.blk.zstd", capturing.uploads.get(0).objectKey());
-        assertEquals("blocks/0000000000000000001.blk.zstd", capturing.uploads.get(1).objectKey());
-        assertEquals("blocks/0000000000001234567.blk.zstd", capturing.uploads.get(2).objectKey());
+        final Set<String> keys = capturing.uploads.stream().map(UploadCall::objectKey).collect(Collectors.toSet());
+        assertTrue(keys.contains("blocks/0000/0000/0000/0000/001.blk.zstd"));
+        assertTrue(keys.contains("blocks/0000/0000/0010/8273/182.blk.zstd"));
+        assertTrue(keys.contains("blocks/0000/0000/0000/1234/567.blk.zstd"));
     }
 
     @Test
-    @DisplayName("S3ClientException thrown by uploadFile is swallowed — plugin does not rethrow")
-    void s3ExceptionSwallowed() {
+    @DisplayName("Object key with empty prefix omits the prefix segment")
+    void objectKeyNoPrefix() throws InterruptedException {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "expanded.cloud.storage.endpointUrl", "http://fake:9000",
+                        "expanded.cloud.storage.objectKeyPrefix", "",
+                        "expanded.cloud.storage.accessKey", MINIO_USER,
+                        "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
+
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+
+        assertEquals(1, capturing.uploads.size());
+        assertEquals("0000/0000/0000/0000/001.blk.zstd", capturing.uploads.getFirst().objectKey());
+    }
+
+    @Test
+    @DisplayName("Successful upload publishes PersistedNotification with succeeded=true")
+    void successPublishesPersistedNotification() throws InterruptedException {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "expanded.cloud.storage.endpointUrl", "http://fake:9000",
+                        "expanded.cloud.storage.accessKey", MINIO_USER,
+                        "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
+
+        plugin.handleVerification(verifiedNotification(42L, testBlock(42).blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "Exactly one PersistedNotification expected");
+        assertEquals(42L, notifications.getFirst().blockNumber());
+        assertTrue(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=true");
+    }
+
+    @Test
+    @DisplayName("Failed upload publishes PersistedNotification with succeeded=false")
+    void failurePublishesPersistedNotificationWithFalse() throws InterruptedException {
         final S3Client throwingClient = new NoOpS3Client() {
             @Override
             public void uploadFile(
@@ -221,7 +272,6 @@ class ExpandedCloudStoragePluginTest
                 throw new S3ClientException("Simulated S3 failure");
             }
         };
-
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
@@ -230,19 +280,58 @@ class ExpandedCloudStoragePluginTest
                         "expanded.cloud.storage.accessKey", MINIO_USER,
                         "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
 
-        final VerificationNotification notification = verifiedNotification(0L, testBlock(0).blockUnparsed());
+        plugin.handleVerification(verifiedNotification(7L, testBlock(7).blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
-        // start() is called before assertDoesNotThrow so only handleVerification is wrapped
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "PersistedNotification must be sent even on failure");
+        assertEquals(7L, notifications.getFirst().blockNumber());
+        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false");
+    }
+
+    @Test
+    @DisplayName("S3ClientException thrown by uploadFile is not rethrown by handleVerification")
+    void s3ExceptionNotRethrown() {
+        final S3Client throwingClient = new NoOpS3Client() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws S3ClientException, IOException {
+                throw new S3ClientException("Simulated S3 failure");
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "expanded.cloud.storage.endpointUrl", "http://fake:9000",
+                        "expanded.cloud.storage.accessKey", MINIO_USER,
+                        "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
+
         assertDoesNotThrow(
-                () -> plugin.handleVerification(notification),
-                "S3ClientException must be swallowed — plugin must never rethrow");
+                () -> plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed())),
+                "S3ClientException must never propagate out of handleVerification");
+    }
+
+    @Test
+    @DisplayName("Invalid storageClass is rejected at config construction time")
+    void invalidStorageClassRejected() {
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> new ExpandedCloudStorageConfig(
+                        "http://fake:9000", "bucket", "blocks", "INVALID_CLASS",
+                        "us-east-1", "", "", 60, 4),
+                "Invalid storageClass must throw IllegalArgumentException");
     }
 
     // ---- Integration tests (MinIO via Testcontainers) -----------------------
 
     @Test
-    @DisplayName("Integration: blocks are uploaded as individual .blk.zstd objects in MinIO")
-    void integrationUploadSingleBlocks() {
+    @DisplayName("Integration: blocks are uploaded using folder-hierarchy keys in MinIO")
+    void integrationUploadSingleBlocks() throws InterruptedException {
         start(
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
@@ -258,17 +347,22 @@ class ExpandedCloudStoragePluginTest
         for (final TestBlock block : blocks) {
             plugin.handleVerification(verifiedNotification(block.number(), block.blockUnparsed()));
         }
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
         final Set<String> objects = listAllObjects();
         for (long i = 100L; i <= 104L; i++) {
-            final String expectedKey = "blocks/" + String.format("%019d", i) + ".blk.zstd";
+            final String padded = String.format("%019d", i);
+            final String expectedKey = "blocks/"
+                    + padded.substring(0, 4) + "/" + padded.substring(4, 8) + "/"
+                    + padded.substring(8, 12) + "/" + padded.substring(12, 16) + "/"
+                    + padded.substring(16) + ".blk.zstd";
             assertTrue(objects.contains(expectedKey), "Expected object not found in MinIO: " + expectedKey);
         }
     }
 
     @Test
-    @DisplayName("Integration: each uploaded .blk.zstd object contains non-empty bytes")
-    void integrationUploadedObjectsAreNonEmpty() throws Exception {
+    @DisplayName("Integration: downloaded .blk.zstd is non-empty and PersistedNotification is published")
+    void integrationUploadedObjectsAreNonEmptyAndNotified() throws Exception {
         start(
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
@@ -281,15 +375,24 @@ class ExpandedCloudStoragePluginTest
 
         final TestBlock block = testBlock(200L);
         plugin.handleVerification(verifiedNotification(200L, block.blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
-        final String key = "intblocks/0000000000000000200.blk.zstd";
+        // Verify content is non-empty
+        final String padded = String.format("%019d", 200L);
+        final String key = "intblocks/"
+                + padded.substring(0, 4) + "/" + padded.substring(4, 8) + "/"
+                + padded.substring(8, 12) + "/" + padded.substring(12, 16) + "/"
+                + padded.substring(16) + ".blk.zstd";
         final byte[] downloaded = minioClient
-                .getObject(GetObjectArgs.builder()
-                        .bucket(BUCKET_NAME)
-                        .object(key)
-                        .build())
+                .getObject(GetObjectArgs.builder().bucket(BUCKET_NAME).object(key).build())
                 .readAllBytes();
         assertTrue(downloaded.length > 0, "Downloaded .blk.zstd must not be empty");
+
+        // Verify PersistedNotification was published
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "One PersistedNotification expected after integration upload");
+        assertEquals(200L, notifications.getFirst().blockNumber());
+        assertTrue(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=true");
     }
 
     // ---- Private helpers ----------------------------------------------------
