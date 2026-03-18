@@ -39,7 +39,7 @@ env:
   JAVA_DISTRIBUTION: "temurin"
   JAVA_VERSION: "25.0.2"
   DOCKER_MIRROR: "https://hub.mirror.docker.lat.ope.eng.hashgraph.io"
-  BUILDKIT_VERSION: "v0.22.0"
+  BUILDKIT_VERSION: "v0.32.1"
 
 jobs:
   package-protobuf-source:
@@ -126,14 +126,14 @@ jobs:
       - name: Set up Docker Qemu
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Setup Docker Buildx Support
+        uses: step-security/setup-buildx-action@f931205d68723ad9589fd2a7e2ece238bf9de341 # v4.0.0
         with:
-          driver-opts: network=host
+          version: ${{ env.BUILDKIT_VERSION }}
+          driver-opts: network=host,image=ghcr.io/hashgraph/runner-images/buildkit:buildx-stable-1
           buildkitd-config-inline: |
             [registry."docker.io"]
               mirrors = ["${{ env.DOCKER_MIRROR }}"]
-          version: ${{ env.BUILDKIT_VERSION }}
 
       - name: Extract version
         id: extract_version
@@ -258,14 +258,14 @@ jobs:
       - name: Set up Docker Qemu
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Setup Docker Buildx Support
+        uses: step-security/setup-buildx-action@f931205d68723ad9589fd2a7e2ece238bf9de341 # v4.0.0
         with:
-          driver-opts: network=host
+          version: ${{ env.BUILDKIT_VERSION }}
+          driver-opts: network=host,image=ghcr.io/hashgraph/runner-images/buildkit:buildx-stable-1
           buildkitd-config-inline: |
             [registry."docker.io"]
               mirrors = ["${{ env.DOCKER_MIRROR }}"]
-          version: ${{ env.BUILDKIT_VERSION }}
 
       - name: Extract version
         id: extract_version
