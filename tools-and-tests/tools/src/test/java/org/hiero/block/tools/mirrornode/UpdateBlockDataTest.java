@@ -504,7 +504,7 @@ class UpdateBlockDataTest {
                 }
             };
 
-            RuntimeException ex = assertThrows(RuntimeException.class, () -> {
+            IllegalStateException ex = assertThrows(IllegalStateException.class, () -> {
                 UpdateBlockData.updateMirrorNodeData(timesFile, dayBlocksFile, null, 52, fetcher);
             });
 

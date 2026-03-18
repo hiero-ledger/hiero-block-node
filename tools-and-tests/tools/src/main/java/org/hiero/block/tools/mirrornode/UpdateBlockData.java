@@ -266,7 +266,7 @@ public class UpdateBlockData implements Runnable {
                 sb.append(
                         "day_blocks.json was NOT updated to prevent corrupt metadata. block_times.bin may have partial writes but will be corrected on re-run.");
                 System.out.println(sb);
-                throw new RuntimeException(sb.toString());
+                throw new IllegalStateException(sb.toString());
             }
 
             // Write updated day_blocks.json only if no gaps
