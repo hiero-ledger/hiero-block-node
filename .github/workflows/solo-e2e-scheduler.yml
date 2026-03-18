@@ -90,11 +90,21 @@ jobs:
       tss-enabled: ${{ steps.config.outputs.tss_enabled }}
       notify-slack: ${{ steps.config.outputs.notify_slack }}
       matrix-count: ${{ steps.config.outputs.matrix_count }}
+      resolved-cn-label: ${{ steps.resolved.outputs.cn_label }}
+      resolved-mn-label: ${{ steps.resolved.outputs.mn_label }}
+      resolved-bn-label: ${{ steps.resolved.outputs.bn_label }}
+      matrix-detail: ${{ steps.resolved.outputs.matrix_detail }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
         with:
           egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh
+          sparse-checkout-cone-mode: false
 
       - name: Determine run configuration
         id: config
@@ -189,11 +199,11 @@ jobs:
             MN_VERSION="latest"
           fi
 
-          # Solo CLI version: use input if provided, otherwise default to 0.61.0 (as latest stable tested)
+          # Solo CLI version: use input if provided, otherwise default to 0.63.0 (as latest stable tested)
           if [[ -n "${{ inputs.solo-version }}" ]]; then
             SOLO_VERSION="${{ inputs.solo-version }}"
           else
-            SOLO_VERSION="0.61.0"
+            SOLO_VERSION="0.63.0"
           fi
 
           # Relay version: use input if provided, otherwise default to latest
@@ -239,6 +249,41 @@ jobs:
             echo "|----------|-------|"
             echo "${MATRIX_JSON}" | jq -r '.[] | "| \(.topology) | \(.tests) |"'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve versions
+        id: resolved
+        run: |
+          OUTPUT=$(./tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh \
+            "${{ steps.config.outputs.cn_version }}" \
+            "${{ steps.config.outputs.mn_version }}" \
+            "${{ steps.config.outputs.bn_version }}" \
+            "${{ steps.config.outputs.relay_version }}" \
+            "${{ steps.config.outputs.tck_version }}")
+          CN_RESOLVED=$(echo "$OUTPUT" | grep "^cn_version=" | cut -d= -f2)
+          MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
+          BN_RESOLVED=$(echo "$OUTPUT" | grep "^bn_version=" | cut -d= -f2)
+
+          # Format version labels: show "requested → resolved" when they differ
+          format_version() {
+            local requested="$1" resolved="$2"
+            if [[ "$requested" == "$resolved" ]]; then
+              echo "$resolved"
+            else
+              echo "$requested → $resolved"
+            fi
+          }
+          echo "cn_label=$(format_version "${{ steps.config.outputs.cn_version }}" "$CN_RESOLVED")" >> "${GITHUB_OUTPUT}"
+          echo "mn_label=$(format_version "${{ steps.config.outputs.mn_version }}" "$MN_RESOLVED")" >> "${GITHUB_OUTPUT}"
+          echo "bn_label=$(format_version "${{ steps.config.outputs.bn_version }}" "$BN_RESOLVED")" >> "${GITHUB_OUTPUT}"
+
+          # Format matrix details for Slack: list each topology with its tests
+          MATRIX_DETAIL=$(echo '${{ steps.config.outputs.matrix }}' | jq -r '.[] | "• \(.topology): \(.tests)"' | sed 's/,/, /g')
+          # Use delimiter for multiline output
+          {
+            echo "matrix_detail<<MATRIX_EOF"
+            echo "${MATRIX_DETAIL}"
+            echo "MATRIX_EOF"
+          } >> "${GITHUB_OUTPUT}"
 
   # ============================================================================
   # RUN-TESTS: Execute test matrix
@@ -310,14 +355,14 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
+                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.resolved-cn-label }}`\n- MN: `${{ needs.configure.outputs.resolved-mn-label }}`\n- BN: `${{ needs.configure.outputs.resolved-bn-label }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
                   }
                 },
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n*Status:* All passed"
+                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n${{ needs.configure.outputs.matrix-detail }}\n*Status:* All passed"
                   }
                 },
                 {
@@ -384,14 +429,14 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
+                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.resolved-cn-label }}`\n- MN: `${{ needs.configure.outputs.resolved-mn-label }}`\n- BN: `${{ needs.configure.outputs.resolved-bn-label }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
                   }
                 },
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n*Status:* Some tests failed - check the run for details"
+                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n${{ needs.configure.outputs.matrix-detail }}\n*Status:* Some tests failed - check the run for details"
                   }
                 },
                 {
