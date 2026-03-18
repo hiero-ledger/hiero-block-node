@@ -34,7 +34,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
         nodeConfig = context.configuration().getConfigData(NodeConfig.class);
         // Bootstrap TSS parameters from persisted file if available. The file contains a
         // serialized TssData (ledger ID, WRAPS VK, and Rosters)
-        final var tssParametersFile = nodeConfig.tssParametersFilePath();
+        final var tssParametersFile = nodeConfig.tssDataFilePath();
         if (Files.exists(tssParametersFile)) {
             try {
                 Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
@@ -55,7 +55,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     }
 
     protected void persistTssData(TssData tssData) {
-        final var tssParametersFile = nodeConfig.tssParametersFilePath();
+        final var tssParametersFile = nodeConfig.tssDataFilePath();
         try {
             Files.createDirectories(tssParametersFile.getParent());
             Bytes serialized = TssData.PROTOBUF.toBytes(tssData);

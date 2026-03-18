@@ -22,5 +22,5 @@ public record NodeConfig(
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0)
         long earliestManagedBlock,
 
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/config/node/tss-parameters.bin")
-        Path tssParametersFilePath) {}
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/config/node/tss-data.bin")
+        Path tssDataFilePath) {}
