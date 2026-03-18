@@ -59,6 +59,10 @@ on:
         description: "Enable TSS (Threshold Signature Scheme) on consensus nodes"
         type: boolean
         default: true
+      run-tck-regression-tests:
+        description: "Run TCK regression tests (enabled by default for daily/weekend/rc)"
+        type: boolean
+        default: true
 
 defaults:
   run:
@@ -88,6 +92,7 @@ jobs:
       relay-version: ${{ steps.config.outputs.relay_version }}
       tck-version: ${{ steps.config.outputs.tck_version }}
       tss-enabled: ${{ steps.config.outputs.tss_enabled }}
+      run-tck-regression-tests: ${{ steps.config.outputs.run_tck_regression_tests }}
       notify-slack: ${{ steps.config.outputs.notify_slack }}
       matrix-count: ${{ steps.config.outputs.matrix_count }}
       resolved-cn-label: ${{ steps.resolved.outputs.cn_label }}
@@ -218,6 +223,10 @@ jobs:
           TSS_ENABLED="${{ inputs.tss-enabled }}"
           TSS_ENABLED="${TSS_ENABLED:-true}"
 
+          # TCK regression tests: use input value (defaults to true for all run types)
+          RUN_TCK="${{ inputs.run-tck-regression-tests }}"
+          RUN_TCK="${RUN_TCK:-true}"
+
           echo "bn_version=${BN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "cn_version=${CN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "mn_version=${MN_VERSION}" >> "$GITHUB_OUTPUT"
@@ -225,6 +234,7 @@ jobs:
           echo "relay_version=${RELAY_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tck_version=${TCK_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tss_enabled=${TSS_ENABLED}" >> "$GITHUB_OUTPUT"
+          echo "run_tck_regression_tests=${RUN_TCK}" >> "$GITHUB_OUTPUT"
 
           # Summary
           {
@@ -241,6 +251,7 @@ jobs:
             echo "| Relay Version | ${RELAY_VERSION} |"
             echo "| TCK Version | ${TCK_VERSION} |"
             echo "| TSS Enabled | ${TSS_ENABLED} |"
+            echo "| TCK Regression | ${RUN_TCK} |"
             echo "| Slack Notify | ${NOTIFY_SLACK} |"
             echo ""
             echo "### Test Matrix"
@@ -306,6 +317,7 @@ jobs:
       relay-version: ${{ needs.configure.outputs.relay-version }}
       tck-version: ${{ needs.configure.outputs.tck-version }}
       tss-enabled: ${{ needs.configure.outputs.tss-enabled == 'true' }}
+      run-tck-regression-tests: ${{ needs.configure.outputs.run-tck-regression-tests == 'true' }}
     secrets: inherit
 
   # ============================================================================
