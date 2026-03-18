@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
     api(platform("io.netty:netty-bom:4.2.10.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.77.0"))
+    api(platform("com.google.cloud:libraries-bom:26.78.0"))
 }
 
 dependencies.constraints {
     val daggerVersion = "2.59.2"
     val grpcIoVersion = "1.79.0"
-    val hederaCryptographyVersion = "3.7.6"
+    val hederaCryptographyVersion = "3.7.7"
     val helidonVersion = "4.3.4"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.34.0"
     val swirldsVersion = "0.61.3"
-    val mockitoVersion = "5.22.0"
+    val mockitoVersion = "5.23.0"
     val testContainersVersion = "1.21.4"
 
     api("com.github.luben:zstd-jni:1.5.7-7") { because("com.github.luben.zstd_jni") }
@@ -95,7 +95,7 @@ dependencies.constraints {
     }
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
-    api("com.squareup.okio:okio-jvm:3.16.4") { because("okio") } // required by minio
+    api("com.squareup.okio:okio-jvm:3.17.0") { because("okio") } // required by minio
 
     // Versions of additional tools that are not part of the product or test module paths
     api("com.google.protobuf:protoc:${protobufVersion}")

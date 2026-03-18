@@ -3,15 +3,15 @@
 Top-level `mirror` command contains utilities for downloading Mirror Node CSV exports and producing the `block_times.bin` file used by the `record2block` pipeline.
 
 Available subcommands include:
-- `fetchRecordsCsv` - Download Mirror Node record table CSV dump from GCP bucket
+- `fetchRecordsCsv` - Download Mirror Node record table CSV dump from GCP bucket (**mainnet only**)
 - `extractBlockTimes` - Extract block times binary file from the Mirror Node record CSV
 - `validateBlockTimes` - Validate a `block_times.bin` file against the Mirror Node CSV
 - `addNewerBlockTimes` - Extend an existing `block_times.bin` with newer block times by listing GCP
 - `fixBlockTime` - Repair incorrect entries in `block_times.bin` by querying the Mirror Node
-- `fetchMissingTransactions` - Download and compile mainnet errata for missing transactions
+- `fetchMissingTransactions` - Download and compile mainnet errata for missing transactions (**mainnet only**)
 - `update` - Update `block_times.bin` and `day_blocks.json` with newer blocks from mirror node REST API
 - `extractDayBlocks` - (utility) Extract per-day block info from CSV/other sources
-- `generateAddressBook` - Generate address book history JSON from Mirror Node CSV export
+- `generateAddressBook` - Generate address book history JSON from Mirror Node CSV export (**mainnet only**)
 - `compareAddressBooks` - Compare two address book history JSON files
 
 > Important: many mirror commands download from public GCP buckets that are configured as Requester Pays. To access these you must have Google Cloud authentication configured locally. Typical steps:
@@ -27,6 +27,8 @@ Available subcommands include:
 ---
 
 ### `fetchRecordsCsv`
+
+> **Mainnet only.** There is no public CSV export bucket for testnet.
 
 Download Mirror Node record table CSV dump from the `mirrornode-db-export` GCP bucket. This bucket contains large gzipped CSVs (many GB) under a versioned directory.
 
@@ -121,7 +123,7 @@ Features:
 Example:
 
 ```bash
-# Update metadata files with all available blocks
+# Update metadata files with all available mainnet blocks (default)
 mirror update
 
 # Fetch only the first two days of mainnet (for testing)
@@ -131,10 +133,23 @@ mirror update --end-date 2019-09-14
 mirror update --block-times /path/to/block_times.bin --day-blocks /path/to/day_blocks.json
 ```
 
+#### Testnet Usage
+
+Use the `--network testnet` flag to fetch from the testnet Mirror Node instead of mainnet:
+
+```bash
+# Update metadata with all available testnet blocks
+mirror update --network testnet
+
+# Fetch only the first week of testnet
+mirror update --network testnet --end-date 2024-02-07
+```
+
 Notes:
 - Does not require GCP credentials — uses the public Mirror Node REST API.
 - Progress is printed every 1000 blocks and for the first few blocks.
 - The `block_times.bin` file is flushed to disk after each batch.
+- When using `--network testnet`, queries `https://testnet.mirrornode.hedera.com/api/v1/` instead of the mainnet API.
 
 ---
 
@@ -145,6 +160,8 @@ Utility for extracting per-day block information (used by other tooling). See co
 ---
 
 ### `generateAddressBook`
+
+> **Mainnet only.** For testnet, the genesis address book is bundled as a classpath resource (`testnet-genesis-address-book.proto.bin`) and is used automatically when `--network testnet` is specified with the `wrap` or `validate` commands.
 
 Generate an address book history JSON file from the Mirror Node `address_book` CSV export. This command downloads the latest CSV from the `mirrornode-db-export` GCP bucket, parses it, filters duplicates, and produces a JSON file compatible with `AddressBookHistory`.
 
@@ -287,6 +304,8 @@ Notes:
 ---
 
 ### `fetchMissingTransactions`
+
+> **Mainnet only.** There are no known missing-transaction errata for testnet.
 
 Download and compile mainnet errata for missing transactions. This command fetches information about transactions that are known to be missing from the blockchain record.
 

@@ -21,10 +21,22 @@ on:
         description: "Mirror Node version ('latest', 'rc', or tag like 'v0.146.0')"
         type: string
         default: "latest"
+      relay-version:
+        description: "Relay version ('latest' or tag like 'v0.75.0')"
+        type: string
+        default: "latest"
+      tck-version:
+        description: "TCK-SDK version ('latest' or tag like 'v1.2.3')"
+        type: string
+        default: "latest"
       solo-version:
         description: "Solo CLI Version"
         type: string
-        default: "0.54.0"
+        default: "0.61.0"
+      tss-enabled:
+        description: "Enable TSS/WRAPS on consensus nodes"
+        type: boolean
+        default: true
       run-tck-regression-tests:
         description: "Run TCK regression test"
         type: boolean
@@ -50,7 +62,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition"
         type: string
         default: "none"
     outputs:
@@ -78,21 +90,34 @@ on:
           - 7cn-3bn-distributed # 7 CN, 3 BN distributed
           - minimal # like single but without MN, Relay and Explorer
       block-node-version:
-        description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.21.2')"
+        description: "Block Node version ('latest', 'rc', 'main', or tag like 'v0.29.0')"
         required: false
         default: "latest"
       consensus-node-version:
-        description: "Consensus Node version ('latest', 'rc', 'main', or tag like 'v0.68.6')"
+        description: "Consensus Node version ('latest', 'rc' or tag like 'v0.73.0-rc3')"
         required: false
         default: "latest"
       mirror-node-version:
-        description: "Mirror Node version ('latest', 'rc', 'main', or tag like 'v0.146.0')"
+        description: "Mirror Node version ('latest', 'rc' or tag like 'v0.150.0')"
+        required: false
+        default: "latest"
+      relay-version:
+        description: "Relay version ('latest' or tag like 'v0.75.0')"
+        required: false
+        default: "latest"
+      tck-version:
+        description: "TCK-SDK version ('latest' or tag like 'v1.2.3')"
         required: false
         default: "latest"
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "0.54.0"
+        default: "0.61.0"
+      tss-enabled:
+        description: "Enable TSS (Threshold Signature Scheme) on consensus nodes"
+        required: false
+        default: true
+        type: boolean
       run-tck-regression-tests:
         description: "Run TCK regression test"
         required: false
@@ -126,7 +151,7 @@ on:
         required: false
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition"
         required: false
         default: "none"
 
@@ -149,7 +174,7 @@ env:
   CLUSTER_NAME: "solo-cluster"
   CONTEXT: "kind-solo-cluster"
   CLUSTER_REFERENCE: "kind-solo-cluster"
-  # Solo CLI environment variables
+  # Solo CLI environment variables (these are read directly by Solo from the process env)
   MIRROR_NODE_PINGER_TPS: ${{ inputs.mirror-node-pinger-tps }}
 
 jobs:
@@ -160,7 +185,7 @@ jobs:
       resolved-versions: ${{ steps.versions.outputs.cn_version }},${{ steps.versions.outputs.mn_version }},${{ steps.versions.outputs.bn_version }}
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@58077d3c7e43986b6b15fba718e8ea69e387dfcc # v2.15.1
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
         with:
           egress-policy: audit
 
@@ -206,12 +231,19 @@ jobs:
           OUTPUT=$(./tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh \
             "${{ inputs.consensus-node-version }}" \
             "${{ inputs.mirror-node-version }}" \
-            "${{ inputs.block-node-version }}")
+            "${{ inputs.block-node-version }}" \
+            "${{ inputs.relay-version }}" \
+            "${{ inputs.tck-version }}")
           echo "$OUTPUT"
           # Parse output and write to GITHUB_OUTPUT
           echo "$OUTPUT" | grep "^cn_version=" >> "${GITHUB_OUTPUT}"
           echo "$OUTPUT" | grep "^mn_version=" >> "${GITHUB_OUTPUT}"
           echo "$OUTPUT" | grep "^bn_version=" >> "${GITHUB_OUTPUT}"
+          echo "$OUTPUT" | grep "^relay_version=" >> "${GITHUB_OUTPUT}"
+          echo "$OUTPUT" | grep "^tck_version=" >> "${GITHUB_OUTPUT}"
+          # Export RELAY_VERSION so Solo CLI reads the resolved semver (not 'latest')
+          RELAY_RESOLVED=$(echo "$OUTPUT" | grep "^relay_version=" | cut -d= -f2)
+          echo "RELAY_VERSION=${RELAY_RESOLVED}" >> "${GITHUB_ENV}"
 
       # Install Solo CLI
       - name: Install Solo CLI via npm
@@ -297,7 +329,9 @@ jobs:
             --topologies-dir "${{ github.workspace }}/tools-and-tests/scripts/solo-e2e-test/topologies" \
             --cn-version "${{ steps.versions.outputs.cn_version }}" \
             --mn-version "${{ steps.versions.outputs.mn_version }}" \
-            --bn-version "${{ steps.versions.outputs.bn_version }}"
+            --bn-version "${{ steps.versions.outputs.bn_version }}" \
+            --relay-version "${{ steps.versions.outputs.relay_version }}" \
+            --tss-enabled "${{ inputs.tss-enabled }}"
 
           # Add to step summary - comprehensive version summary
           {
@@ -308,7 +342,9 @@ jobs:
             echo "| Consensus Node | \`${{ inputs.consensus-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.cn_version }}\` |"
             echo "| Mirror Node | \`${{ inputs.mirror-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.mn_version }}\` |"
             echo "| Block Node | \`${{ inputs.block-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.bn_version }}\` |"
+            echo "| Relay | \`${{ inputs.relay-version || 'latest' }}\` | \`${{ steps.versions.outputs.relay_version }}\` |"
             echo "| Solo CLI | \`${{ inputs.solo-version || 'latest' }}\` | \`${{ steps.solo.outputs.solo_version }}\` |"
+            echo "| TSS Enabled | | \`${{ inputs.tss-enabled }}\` |"
             echo ""
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -691,14 +727,14 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Checkout Latest Tag (TCK)
+      - name: Checkout TCK Version
         if: ${{ inputs.run-tck-regression-tests }}
         run: |
           cd sdk-tck/regression
           git fetch --tags
-          LATEST_TAG=$(git describe --tags --abbrev=0)
-          echo "Checking out TCK latest tag: $LATEST_TAG"
-          git checkout "$LATEST_TAG"
+          TCK_RESOLVED="${{ steps.versions.outputs.tck_version }}"
+          echo "Checking out TCK version: $TCK_RESOLVED"
+          git checkout "$TCK_RESOLVED"
 
       # Checkout JS-SDK and checkout latest tag
       - name: Checkout JS-SDK Server

@@ -13,12 +13,13 @@
    6. [The `networkCapacity` Subcommand](docs/network-capacity-commands.md)
    7. [The `states` Subcommand](docs/states-commands.md)
 4. [Running from Command Line](#running-from-command-line)
-5. [Help and Discovery](#help-and-discovery)
-6. [Requirements](#requirements)
-7. [Install & Build](#install--build)
-8. [Docker / Compose](#docker--compose)
-9. [Troubleshooting](#troubleshooting)
-10. [Development](#development)
+5. [Multi-Network Usage](#multi-network-usage)
+6. [Help and Discovery](#help-and-discovery)
+7. [Requirements](#requirements)
+8. [Install & Build](#install--build)
+9. [Docker / Compose](#docker--compose)
+10. [Troubleshooting](#troubleshooting)
+11. [Development](#development)
 
 ## Overview
 
@@ -49,7 +50,7 @@ Additional documentation for specific technical topics:
 - [Address Book Analysis](docs/address-book-analysis.md)
 - [Record Files Format Spec](docs/record-file-format.md)
 - [Record to Block Conversion](docs/record-to-block-conversion.md)
-  -
+- [Testnet Pipeline Guide](docs/testnet-guide.md)
 
 ## Command Reference
 
@@ -126,21 +127,36 @@ subcommands
 Typical invocation after building:
 
 ```bash
-java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar <command> <subcommand> [options]
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar <command> <subcommand> [options]
 ```
 
 For example:
 
 ```bash
 # Convert block files to JSON
-java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar blocks json path/to/blocks/
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar blocks json path/to/blocks/
 
 # List block file info
-java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar blocks ls path/to/blocks/
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar blocks ls path/to/blocks/
 
 # Validate day archives
-java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar days validate /path/to/compressedDays
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar days validate /path/to/compressedDays
 ```
+
+### Testnet Examples
+
+```bash
+# Update mirror metadata for testnet
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar mirror update --network testnet
+
+# Download testnet day archives
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar days download-days-v3 2024 2 1 2024 3 1 --network testnet
+
+# Wrap testnet record files into blocks
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar blocks wrap --network testnet
+```
+
+> See the [Testnet Pipeline Guide](docs/testnet-guide.md) for a full end-to-end walkthrough.
 
 ### Running via Gradle (Development)
 
@@ -151,19 +167,48 @@ java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar days va
 ./gradlew :tools:run --args="blocks ls path/to/blocks/"
 ```
 
+## Multi-Network Usage
+
+The tools support multiple Hedera networks via the `--network` flag:
+
+|  Network  |                            Description                             |
+|-----------|--------------------------------------------------------------------|
+| `mainnet` | Hedera mainnet (default). Genesis: 2019-09-13, nodes 3-37.         |
+| `testnet` | Hedera testnet (current instance). Genesis: 2024-02-01, nodes 3-9. |
+
+The `--network` flag is a **top-level inherited option** — it can be placed anywhere on the command line (before, between, or after subcommands). You only need to specify it once.
+
+```bash
+# Mainnet (default — --network can be omitted)
+java -jar tools.jar mirror update
+
+# Testnet — all of these are equivalent:
+java -jar tools.jar mirror update --network testnet
+java -jar tools.jar --network testnet mirror update
+java -jar tools.jar mirror --network testnet update
+```
+
+When `--network testnet` is specified, the tools automatically use:
+- **GCS bucket**: `hedera-testnet-streams`
+- **Mirror Node API**: `https://testnet.mirrornode.hedera.com/api/v1/`
+- **Node account IDs**: 0.0.3 through 0.0.9 (7 nodes)
+- **Genesis address book**: bundled as a classpath resource (no generation step needed)
+
+> For a complete end-to-end testnet walkthrough, see the [Testnet Pipeline Guide](docs/testnet-guide.md).
+
 ## Help and Discovery
 
 For full, authoritative usage and all options for any command, run the tool with `--help`:
 
 ```bash
 # Top-level help (lists all commands)
-java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar --help
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar --help
 
 # Help for a specific command
-java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar blocks --help
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar blocks --help
 
 # Help for a nested subcommand
-java -jar tools-and-tests/tools/build/libs/tools-0.21.0-SNAPSHOT-all.jar days download-days-v2 --help
+java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar days download-days-v2 --help
 ```
 
 ## Docker / Compose

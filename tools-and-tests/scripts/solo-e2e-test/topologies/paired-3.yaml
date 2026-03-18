@@ -21,7 +21,7 @@ block_nodes:
     address: block-node-1
     port: 40840
     peers: [block-node-2, block-node-3]
-    greedy: true
+    greedy: false
     grpc_tuning:
       max_frame_size: 8388608  # 8MB to match server.http2.maxFrameSize and handle larger blocks
   block-node-2:
@@ -35,7 +35,7 @@ block_nodes:
     address: block-node-3
     port: 40840
     peers: [block-node-1, block-node-2]
-    greedy: true
+    greedy: false
     grpc_tuning:
       max_frame_size: 8388608
 
@@ -51,6 +51,8 @@ mirror_nodes:
   mirror-1:
     block_nodes: [block-node-1, block-node-2, block-node-3]
 
-# Empty sections = skip deployment (relay chart readiness issues with Solo 0.54.0)
-relay_nodes: {}
-explorer_nodes: {}
+relay_nodes:
+  relay-1: {}
+
+# explorer_nodes:           # Uncomment to enable Explorer
+#   explorer-1: {}

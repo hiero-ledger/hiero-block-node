@@ -207,6 +207,18 @@ days download-days-v3 [-l <listingDir>] [-d <downloadedDaysDir>] [-t <threads>] 
 
 Same as `download-days-v2`.
 
+#### Testnet Example
+
+```bash
+# Download testnet days for February 2024 (testnet genesis month)
+days download-days-v3 2024 2 1 2024 2 28 --network testnet
+
+# Download all available testnet days
+days download-days-v3 2024 2 1 2026 3 16 --network testnet
+```
+
+> **Testnet notes:** The testnet GCS bucket is `hedera-testnet-streams`. Testnet has 7 nodes (account IDs 0.0.3 through 0.0.9) compared to mainnet's 35 nodes (0.0.3 through 0.0.37). The `--network testnet` flag configures the bucket and node range automatically.
+
 ---
 
 ### `download-live`
@@ -242,6 +254,16 @@ days download-live [options]
 1. **Start + end date (finite historical range)**: Specify both `--start-day` and `--end-day` for bounded historical backfill.
 2. **Start date only (catch-up then follow live)**: Specify `--start-day` but omit `--end-day` to bootstrap from a date and then stay live.
 3. **No start/end date (pure live mode)**: If neither is supplied, the poller starts from "today" and tracks new blocks as they appear.
+
+#### Testnet Example
+
+```bash
+# Follow testnet live blocks
+days download-live -o /path/to/testnetCompressedDays --network testnet
+
+# Backfill testnet from genesis and then follow live
+days download-live --start-day 2024-02-01 -o /path/to/testnetCompressedDays --network testnet
+```
 
 ---
 
@@ -408,6 +430,16 @@ days updateDayListings [options]
 | `-l`, `--listing-dir <dir>` | Directory where listing files are stored. |
 | `--start-date <YYYY-MM-DD>` | Start date for updating listings.         |
 | `--end-date <YYYY-MM-DD>`   | End date for updating listings.           |
+
+#### Testnet Example
+
+```bash
+# Update testnet day listings
+days updateDayListings --network testnet
+
+# Update testnet listings for a specific date range
+days updateDayListings --start-date 2024-02-01 --end-date 2024-03-01 --network testnet
+```
 
 ---
 

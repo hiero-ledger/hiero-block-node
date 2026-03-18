@@ -82,6 +82,7 @@ class BackfillFetcherTest {
                 15_000, // initialDelay
                 perBlockProcessingTimeout,
                 grpcOverallTimeout,
+                104_857_600, // maxIncomingBufferSize (100 MB default)
                 false, // enableTLS
                 false, // greedy
                 20, // historicalQueueCapacity
