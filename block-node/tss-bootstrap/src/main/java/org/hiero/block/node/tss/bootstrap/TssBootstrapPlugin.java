@@ -17,8 +17,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
 
 public class TssBootstrapPlugin implements BlockNodePlugin {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-    /** The block node context, for access to core facilities. */
-    private BlockNodeContext context;
     /** The configuration for all plugins */
     private NodeConfig nodeConfig;
     /** True once TSS parameters have been persisted (file bootstrap or successful query peer BN). */
@@ -30,7 +28,6 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         // setting context and config
-        this.context = context;
         nodeConfig = context.configuration().getConfigData(NodeConfig.class);
         // Bootstrap TSS parameters from persisted file if available. The file contains a
         // serialized TssData (ledger ID, WRAPS VK, and Rosters)
@@ -38,7 +35,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
         if (Files.exists(tssParametersFile)) {
             try {
                 Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
-                TssData tssData = TssData.PROTOBUF.parse(fileBytes);
+                TssData.PROTOBUF.parse(fileBytes);
                 tssDataPersisted = true;
                 LOGGER.log(INFO, "Loaded TSS data from file: {0}", tssParametersFile);
             } catch (IOException e) {
