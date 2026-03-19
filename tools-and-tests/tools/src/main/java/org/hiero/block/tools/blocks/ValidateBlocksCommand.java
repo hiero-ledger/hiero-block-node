@@ -124,6 +124,11 @@ public class ValidateBlocksCommand implements Runnable {
     private boolean skipSignatures = false;
 
     @Option(
+            names = {"--skip-supply"},
+            description = "Skip HBAR supply validation (useful for networks with known transfer list imbalances)")
+    private boolean skipSupply = false;
+
+    @Option(
             names = {"--validate-balances"},
             description = "Enable validation of account balances (enabled by default)",
             defaultValue = "true",
@@ -367,7 +372,7 @@ public class ValidateBlocksCommand implements Runnable {
 
         BlockChainValidation chainValidation = new BlockChainValidation();
         HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chainValidation);
-        HbarSupplyValidation supplyValidation = new HbarSupplyValidation();
+        HbarSupplyValidation supplyValidation = skipSupply ? null : new HbarSupplyValidation();
         // Parallel validations (stateless, run in decompPool threads)
         final AddressBookRegistry abRegistry = addressBookRegistry;
         List<BlockValidation> parallelValidations = new ArrayList<>();
@@ -378,12 +383,17 @@ public class ValidateBlocksCommand implements Runnable {
         } else {
             System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ Signature validation (--skip-signatures)"));
         }
+        if (skipSupply) {
+            System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ HBAR supply validation (--skip-supply)"));
+        }
 
         // Sequential validations (stateful, run on main thread)
         List<BlockValidation> sequentialValidations = new ArrayList<>();
         sequentialValidations.add(chainValidation);
         sequentialValidations.add(treeValidation);
-        sequentialValidations.add(supplyValidation);
+        if (supplyValidation != null) {
+            sequentialValidations.add(supplyValidation);
+        }
         if (registry != null) {
             sequentialValidations.add(new HashRegistryValidation(registry, chainValidation));
         }
@@ -392,8 +402,8 @@ public class ValidateBlocksCommand implements Runnable {
             sequentialValidations.add(new JumpstartValidation(jumpstartPath, treeValidation, registry));
         }
 
-        // Balance checkpoint validation (genesis-requiring, optional)
-        if (firstDisplayBlock == 0 && validateBalances) {
+        // Balance checkpoint validation (genesis-requiring, optional; requires supply validation)
+        if (firstDisplayBlock == 0 && validateBalances && supplyValidation != null) {
             try {
                 final BalanceCheckpointValidator checkpointValidator = new BalanceCheckpointValidator();
                 checkpointValidator.setCheckIntervalDays(balanceCheckIntervalDays);

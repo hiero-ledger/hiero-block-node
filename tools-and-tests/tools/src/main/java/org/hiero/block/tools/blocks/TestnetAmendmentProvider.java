@@ -3,22 +3,21 @@ package org.hiero.block.tools.blocks;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import java.util.List;
-import org.hiero.block.tools.states.TestnetBlockZeroState;
 
 /**
  * Amendment provider for Hedera testnet.
  *
- * <p>Provides genesis amendments for block 0 representing the initial network state at
- * testnet genesis (2024-02-01). The genesis state is fetched from the testnet mirror node
- * API, which returns account balances at the genesis timestamp.
+ * <p>Unlike mainnet (where record streams began after the network was already running and
+ * a genesis state snapshot is needed), testnet was freshly reset in February 2024 and its
+ * record streams are complete from the very first genesis round. Block 0's record file
+ * already contains the genesis minting transactions, so no genesis amendments are needed.
+ * Injecting mirror-node-sourced genesis state would double-count the initial HBAR supply
+ * (once from the amendments' STATE_CHANGES and once from block 0's transfer lists).
  *
- * <p>Unlike mainnet, testnet does not have missing transaction amendments since the testnet
- * was freshly reset and record streams are complete from genesis.
+ * <p>Testnet also does not have missing transaction amendments since the record streams
+ * are complete from genesis.
  */
 public class TestnetAmendmentProvider implements AmendmentProvider {
-
-    /** Genesis is always block 0 */
-    private static final long GENESIS_BLOCK = 0L;
 
     /**
      * Creates a TestnetAmendmentProvider.
@@ -34,14 +33,11 @@ public class TestnetAmendmentProvider implements AmendmentProvider {
 
     @Override
     public boolean hasGenesisAmendments(long blockNumber) {
-        return blockNumber == GENESIS_BLOCK;
+        return false;
     }
 
     @Override
     public List<BlockItem> getGenesisAmendments(long blockNumber) {
-        if (blockNumber == GENESIS_BLOCK) {
-            return TestnetBlockZeroState.loadStartBlockZeroStateChanges();
-        }
         return List.of();
     }
 }
