@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -162,17 +163,34 @@ public class UpdateBlockData implements Runnable {
 
             // Fetch and update blocks in batches
             long currentBlock = startBlockNumber;
+            List<long[]> gaps = new ArrayList<>();
             try (RandomAccessFile blockTimesRaf = new RandomAccessFile(blockTimesFile.toFile(), "rw")) {
                 while (currentBlock <= latestBlockNumber) {
-                    long batchEndBlock = Math.min(currentBlock + BATCH_SIZE - 1, latestBlockNumber);
-                    System.out.println(Ansi.AUTO.string(
-                            "@|cyan Fetching blocks |@" + currentBlock + " @|cyan to|@ " + batchEndBlock));
+                    System.out.println(Ansi.AUTO.string("@|cyan Fetching blocks starting from |@" + currentBlock));
 
                     // Fetch batch
                     JsonArray blocks = fetcher.fetch(currentBlock, BATCH_SIZE);
 
+                    if (blocks.isEmpty()) {
+                        // No blocks returned — skip forward to avoid infinite loop
+                        System.out.println("WARNING: No blocks returned starting from " + currentBlock);
+                        currentBlock += BATCH_SIZE;
+                        continue;
+                    }
+
+                    // Check for gap: first returned block vs expected
+                    long firstReturnedBlock =
+                            blocks.get(0).getAsJsonObject().get("number").getAsLong();
+                    if (firstReturnedBlock > currentBlock) {
+                        long missing = firstReturnedBlock - currentBlock;
+                        gaps.add(new long[] {currentBlock, firstReturnedBlock});
+                        System.out.println("WARNING: Gap detected — expected block " + currentBlock + ", got "
+                                + firstReturnedBlock + " (" + missing + " blocks missing)");
+                    }
+
                     // Process each block in the batch
                     boolean reachedEndDate = false;
+                    long lastProcessedBlock = currentBlock - 1;
                     for (int i = 0; i < blocks.size(); i++) {
                         JsonObject block = blocks.get(i).getAsJsonObject();
                         long blockNumber = block.get("number").getAsLong();
@@ -211,6 +229,8 @@ public class UpdateBlockData implements Runnable {
                                     + " @|yellow time:|@ " + blockInstant + " @|yellow file:|@ "
                                     + recordFileName));
                         }
+
+                        lastProcessedBlock = blockNumber;
                     }
 
                     // Flush the file periodically
@@ -220,11 +240,36 @@ public class UpdateBlockData implements Runnable {
                         break;
                     }
 
-                    currentBlock = batchEndBlock + 1;
+                    // Advance based on actual last returned block, not pre-computed end
+                    currentBlock = lastProcessedBlock + 1;
                 }
             }
 
-            // Write updated day_blocks.json
+            // Fail if gaps were detected
+            if (!gaps.isEmpty()) {
+                long totalMissing = gaps.stream().mapToLong(g -> g[1] - g[0]).sum();
+                StringBuilder sb = new StringBuilder();
+                sb.append("Mirror node has ")
+                        .append(gaps.size())
+                        .append(" gap(s) totaling ")
+                        .append(totalMissing)
+                        .append(" missing blocks:\n");
+                for (long[] gap : gaps) {
+                    sb.append("  Blocks ")
+                            .append(gap[0])
+                            .append(" to ")
+                            .append(gap[1] - 1)
+                            .append(" (")
+                            .append(gap[1] - gap[0])
+                            .append(" blocks)\n");
+                }
+                sb.append(
+                        "day_blocks.json was NOT updated to prevent corrupt metadata. block_times.bin may have partial writes but will be corrected on re-run.");
+                System.out.println(sb);
+                throw new IllegalStateException(sb.toString());
+            }
+
+            // Write updated day_blocks.json only if no gaps
             writeDayBlocksJson(dayBlocksMap, dayBlocksFile);
 
             System.out.println(Ansi.AUTO.string("@|bold,green Update complete! Updated blocks from |@"
