@@ -23,26 +23,28 @@ Two deployment profiles are supported based on how block history is stored at th
 
 ### 1. Local Full History (LFH)
 
-All block history is stored locally on the server.
+All block history is stored locally on the server. The NVMe holds recent/live blocks and live
+state; the bulk disk holds the long-term compressed block archive.
 
 |     Component     |                   Minimum Specification                   |
 |-------------------|-----------------------------------------------------------|
 | CPU               | 24 cores / 48 threads, 2024 or newer (PCIe 4+), ≥ 2.0 GHz |
 | RAM               | 256 GB                                                    |
-| Fast NVMe Disk    | 8 TB NVMe SSD                                             |
-| Bulk Storage Disk | 100 TB                                                    |
+| Fast NVMe Disk    | 8 TB NVMe SSD (recent blocks + live state)                |
+| Bulk Storage Disk | 100 TB HDD or equivalent (compressed block archive)       |
 | Network           | 2 × 10 Gbps NICs                                          |
 | OS                | Linux (Ubuntu 24.04 LTS or Debian 13.4 LTS recommended)   |
 
 ### 2. Remote Full History (RFH)
 
-Block history is stored remotely (e.g. cloud object store).
+Block history is stored remotely (e.g. cloud object store). The NVMe holds recent/live blocks
+and live state only; historical data is offloaded to object storage.
 
 |   Component    |                   Minimum Specification                   |
 |----------------|-----------------------------------------------------------|
 | CPU            | 24 cores / 48 threads, 2024 or newer (PCIe 4+), ≥ 2.0 GHz |
 | RAM            | 256 GB                                                    |
-| Fast NVMe Disk | 8 TB NVMe SSD                                             |
+| Fast NVMe Disk | 8 TB NVMe SSD (recent blocks + live state)                |
 | Network        | 2 × 10 Gbps NICs                                          |
 | OS             | Linux (Ubuntu 24.04 LTS or Debian 13.4 LTS recommended)   |
 
@@ -57,7 +59,8 @@ Block history is stored remotely (e.g. cloud object store).
   instances. LFH configurations require significant storage capacity and are typically
   sourced from bare metal providers or purchased outright for self hosting or colocation.
 - OS disk requirements are minimal; the OS disk sees little activity after start-up and
-  does not require explicit sizing beyond standard OS installation needs and at least 10GB for OCI image storage.
+  does not require explicit sizing beyond standard OS installation needs and at least 10 GB
+  for OCI image storage.
 
 ---
 
@@ -115,18 +118,20 @@ T = transactions per block = TPS × block_interval
 ```
 
 **Assumptions used in the tables below:**
-- Block interval: 1 second (1 block/sec - double that of the network in early 2026 but good for scaling)
+- Block interval: 1 second (1 block/sec — conservative; mainnet in early 2026 runs at ~0.5 blocks/sec)
 - Compression ratio: 2.39× (zstd, from v3 mixed-workload model)
 - Worst-case egress subscribers: 33 (13 Block Nodes backfilling + 10 Mirror Nodes + 10 DApps)
 - Worst-case ingress: 4 parallel catch-up streams from Consensus Nodes (flow-control limited)
 
 ### Block Size by TPS
 
+Derived directly from the model constants above.
+
 |    TPS | Tx/block | On-disk / block (zstd) | Wire size / block (raw) |
 |-------:|---------:|-----------------------:|------------------------:|
 |  2,000 |    2,000 |                0.83 MB |                 1.58 MB |
-| 10,000 |   10,000 |                3.64 MB |                 8.69 MB |
-| 20,000 |   20,000 |                7.20 MB |                17.13 MB |
+| 10,000 |   10,000 |                3.82 MB |                 8.86 MB |
+| 20,000 |   20,000 |                7.54 MB |                17.96 MB |
 
 ### Daily and Monthly On-Disk Storage (local block files, zstd)
 
@@ -135,17 +140,17 @@ T = transactions per block = TPS × block_interval
 
 |    TPS | Per day (zstd) | Per month (zstd) |
 |-------:|---------------:|-----------------:|
-|  2,000 |          69 GB |           2.1 TB |
-| 10,000 |         314 GB |           9.4 TB |
-| 20,000 |         622 GB |          18.7 TB |
+|  2,000 |          72 GB |           2.2 TB |
+| 10,000 |         330 GB |           9.9 TB |
+| 20,000 |         652 GB |          19.6 TB |
 
 #### Planning target (20% headroom over model)
 
 |    TPS | Per day (planned) | Per month (planned) |
 |-------:|------------------:|--------------------:|
-|  2,000 |             83 GB |              2.2 TB |
-| 10,000 |            377 GB |             10.0 TB |
-| 20,000 |            747 GB |             19.2 TB |
+|  2,000 |             86 GB |              2.6 TB |
+| 10,000 |            396 GB |             11.9 TB |
+| 20,000 |            782 GB |             23.5 TB |
 
 ### Ingress Bandwidth (Consensus Node → Block Node)
 
@@ -154,40 +159,45 @@ Worst-case reflects 4 Consensus Nodes simultaneously streaming to a single BN (f
 
 |    TPS | Steady-state ingress | Worst-case ingress (4× catch-up) |
 |-------:|---------------------:|---------------------------------:|
-|  2,000 |             ~60 Mbps |                        ~240 Mbps |
-| 20,000 |            ~600 Mbps |                      ~2,400 Mbps |
+|  2,000 |            ~2.5 MB/s |                         ~10 MB/s |
+| 20,000 |           ~17.5 MB/s |                         ~70 MB/s |
 
-> At 20K TPS worst-case, ingress alone approaches the 10 Gbps NIC minimum.
-> A 25 Gbps NIC (or 10 Gbps bonded pair) is **strongly recommended** for
-> deployments expected to operate at ≥ 10K TPS or to backfill aggressively.
+> NIC sizing is driven by egress (see below), not ingress.
+
+> Ingress values are all based assuming uncompressed data, with HTTP automatic compression a reasonable compression
+> value of 3x smaller may be used.
 
 ### Egress Bandwidth (Block Node → Subscribers)
 
-Each downstream subscriber (Mirror Node, Block Node, DApp) receives its own stream.
+Each downstream subscriber (Mirror Node, Block Node, DApp) receives its own uncompressed stream.
+All figures use the raw (uncompressed) wire size.
 
 |    TPS | Per subscriber / day | Per subscriber / month | 33 subscribers / day | 33 subscribers / month |
 |-------:|---------------------:|-----------------------:|---------------------:|-----------------------:|
-|  2,000 |                83 GB |                 2.5 TB |               2.7 TB |                  82 TB |
-| 20,000 |               747 GB |                22.4 TB |              24.6 TB |                 738 TB |
+|  2,000 |               216 GB |                 6.5 TB |               7.2 TB |                 214 TB |
+| 20,000 |               1.5 TB |                  45 TB |                50 TB |                 1.5 PB |
 
-**Worst-case bandwidth peaks:**
+**Worst-case peak bandwidth (burst — 4 in-flight blocks per subscriber):**
 
-|    TPS | Worst-case egress (33 subscribers) |
-|-------:|-----------------------------------:|
-|  2,000 |                        ~2,000 Mbps |
-| 20,000 |                       ~20,000 Mbps |
+|    TPS | Steady-state egress (33 sub) | Burst egress (33 sub, 4× in-flight) |
+|-------:|-----------------------------:|------------------------------------:|
+|  2,000 |                    ~825 Mbps |                           ~925 Mbps |
+| 20,000 |                    ~5.8 Gbps |                           ~6.5 Gbps |
 
-> At 20K TPS with 33 subscribers (1/3 of max BNs (13) backfilling, 10 MNs and 10 DApps subscribed),
-> egress at ~20 Gbps exceeds the 10 Gbps minimum NIC.
+> At 20K TPS with 33 active subscribers, burst egress approaches ~19 Gbps — nearly double
+> the 10 Gbps NIC minimum.
 > Block Nodes serving many live subscribers at high TPS **require** at least a 25 Gbps NIC
 > and may need 100 Gbps or multiple bonded 25 Gbps links for headroom.
 
+> Egress values are all based assuming uncompressed data, with HTTP automatic compression a reasonable compression
+> value of 3x smaller may be used.
+
 ### Sizing Summary
 
-| Scenario | On-disk (1 year, zstd, no headroom) | Peak ingress | Peak egress (33 sub) | NIC minimum |
-|----------|------------------------------------:|-------------:|---------------------:|------------:|
-| 2K TPS   |                               25 TB |     240 Mbps |              ~2 Gbps |     10 Gbps |
-| 20K TPS  |                              227 TB |   2,400 Mbps |             ~20 Gbps |    25+ Gbps |
+| Scenario | On-disk (1 year, zstd, no headroom) | Peak ingress | Burst egress (33 sub) | NIC minimum |
+|----------|------------------------------------:|-------------:|----------------------:|------------:|
+| 2K TPS   |                             34.2 TB |      51 Mbps |             ~1.7 Gbps |     10 Gbps |
+| 20K TPS  |                              237 TB |     575 Mbps |            ~18.9 Gbps |    25+ Gbps |
 
 > The 100 TB bulk disk minimum (LFH) covers approximately 4 years at 2K TPS or ~5 months at 20K TPS.
 > The recommended 500 TB covers ~4 years at 10K TPS.
