@@ -59,6 +59,10 @@ on:
         description: "Enable TSS (Threshold Signature Scheme) on consensus nodes"
         type: boolean
         default: true
+      run-tck-regression-tests:
+        description: "Run TCK regression tests (enabled by default for daily/weekend/rc)"
+        type: boolean
+        default: true
 
 defaults:
   run:
@@ -88,13 +92,24 @@ jobs:
       relay-version: ${{ steps.config.outputs.relay_version }}
       tck-version: ${{ steps.config.outputs.tck_version }}
       tss-enabled: ${{ steps.config.outputs.tss_enabled }}
+      run-tck-regression-tests: ${{ steps.config.outputs.run_tck_regression_tests }}
       notify-slack: ${{ steps.config.outputs.notify_slack }}
       matrix-count: ${{ steps.config.outputs.matrix_count }}
+      resolved-cn-label: ${{ steps.resolved.outputs.cn_label }}
+      resolved-mn-label: ${{ steps.resolved.outputs.mn_label }}
+      resolved-bn-label: ${{ steps.resolved.outputs.bn_label }}
+      matrix-detail: ${{ steps.resolved.outputs.matrix_detail }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
         with:
           egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh
+          sparse-checkout-cone-mode: false
 
       - name: Determine run configuration
         id: config
@@ -189,11 +204,11 @@ jobs:
             MN_VERSION="latest"
           fi
 
-          # Solo CLI version: use input if provided, otherwise default to 0.61.0 (as latest stable tested)
+          # Solo CLI version: use input if provided, otherwise default to 0.63.0 (as latest stable tested)
           if [[ -n "${{ inputs.solo-version }}" ]]; then
             SOLO_VERSION="${{ inputs.solo-version }}"
           else
-            SOLO_VERSION="0.61.0"
+            SOLO_VERSION="0.63.0"
           fi
 
           # Relay version: use input if provided, otherwise default to latest
@@ -208,6 +223,10 @@ jobs:
           TSS_ENABLED="${{ inputs.tss-enabled }}"
           TSS_ENABLED="${TSS_ENABLED:-true}"
 
+          # TCK regression tests: use input value (defaults to true for all run types)
+          RUN_TCK="${{ inputs.run-tck-regression-tests }}"
+          RUN_TCK="${RUN_TCK:-true}"
+
           echo "bn_version=${BN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "cn_version=${CN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "mn_version=${MN_VERSION}" >> "$GITHUB_OUTPUT"
@@ -215,6 +234,7 @@ jobs:
           echo "relay_version=${RELAY_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tck_version=${TCK_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tss_enabled=${TSS_ENABLED}" >> "$GITHUB_OUTPUT"
+          echo "run_tck_regression_tests=${RUN_TCK}" >> "$GITHUB_OUTPUT"
 
           # Summary
           {
@@ -231,6 +251,7 @@ jobs:
             echo "| Relay Version | ${RELAY_VERSION} |"
             echo "| TCK Version | ${TCK_VERSION} |"
             echo "| TSS Enabled | ${TSS_ENABLED} |"
+            echo "| TCK Regression | ${RUN_TCK} |"
             echo "| Slack Notify | ${NOTIFY_SLACK} |"
             echo ""
             echo "### Test Matrix"
@@ -239,6 +260,47 @@ jobs:
             echo "|----------|-------|"
             echo "${MATRIX_JSON}" | jq -r '.[] | "| \(.topology) | \(.tests) |"'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve versions
+        id: resolved
+        run: |
+          OUTPUT=$(./tools-and-tests/scripts/solo-e2e-test/scripts/resolve-versions.sh \
+            "${{ steps.config.outputs.cn_version }}" \
+            "${{ steps.config.outputs.mn_version }}" \
+            "${{ steps.config.outputs.bn_version }}" \
+            "${{ steps.config.outputs.relay_version }}" \
+            "${{ steps.config.outputs.tck_version }}")
+          CN_RESOLVED=$(echo "$OUTPUT" | grep "^cn_version=" | cut -d= -f2)
+          MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
+          BN_RESOLVED=$(echo "$OUTPUT" | grep "^bn_version=" | cut -d= -f2)
+
+          # Format version labels: show "requested -> resolved" when they differ
+          format_version() {
+            local requested="$1" resolved="$2"
+            if [[ "$requested" == "$resolved" ]]; then
+              echo "${resolved}"
+            else
+              echo "${requested} -> ${resolved}"
+            fi
+          }
+          echo "cn_label=$(format_version "${{ steps.config.outputs.cn_version }}" "${CN_RESOLVED}")" >> "${GITHUB_OUTPUT}"
+          echo "mn_label=$(format_version "${{ steps.config.outputs.mn_version }}" "${MN_RESOLVED}")" >> "${GITHUB_OUTPUT}"
+          echo "bn_label=$(format_version "${{ steps.config.outputs.bn_version }}" "${BN_RESOLVED}")" >> "${GITHUB_OUTPUT}"
+
+          # Format matrix details for Slack: each topology on its own line with tests
+          # Uses literal \n (not actual newlines) so it works inside JSON string interpolation
+          MATRIX_DETAIL=$(echo '${{ steps.config.outputs.matrix }}' | jq -r \
+            '[.[] | "• *\(.topology):* \(.tests | split(",") | join(", "))"] | join("\\n")')
+
+          # Append TCK regression status
+          TCK_STATUS="${{ steps.config.outputs.run_tck_regression_tests }}"
+          if [[ "$TCK_STATUS" == "true" ]]; then
+            MATRIX_DETAIL="${MATRIX_DETAIL}\n_TCK Regression: enabled_"
+          else
+            MATRIX_DETAIL="${MATRIX_DETAIL}\n_TCK Regression: disabled_"
+          fi
+
+          echo "matrix_detail=${MATRIX_DETAIL}" >> "${GITHUB_OUTPUT}"
 
   # ============================================================================
   # RUN-TESTS: Execute test matrix
@@ -261,6 +323,7 @@ jobs:
       relay-version: ${{ needs.configure.outputs.relay-version }}
       tck-version: ${{ needs.configure.outputs.tck-version }}
       tss-enabled: ${{ needs.configure.outputs.tss-enabled == 'true' }}
+      run-tck-regression-tests: ${{ needs.configure.outputs.run-tck-regression-tests == 'true' }}
     secrets: inherit
 
   # ============================================================================
@@ -310,14 +373,14 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
+                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.resolved-cn-label }}`\n- MN: `${{ needs.configure.outputs.resolved-mn-label }}`\n- BN: `${{ needs.configure.outputs.resolved-bn-label }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
                   }
                 },
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n*Status:* All passed"
+                    "text": "*Test Matrix:* ${{ needs.configure.outputs.matrix-count }} combinations\n${{ needs.configure.outputs.matrix-detail }}"
                   }
                 },
                 {
@@ -330,7 +393,8 @@ jobs:
                         "text": "View Run",
                         "emoji": true
                       },
-                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                      "style": "primary"
                     }
                   ]
                 }
@@ -384,14 +448,14 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.cn-version }}`\n- MN: `${{ needs.configure.outputs.mn-version }}`\n- BN: `${{ needs.configure.outputs.bn-version }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
+                    "text": "*Versions:*\n- CN: `${{ needs.configure.outputs.resolved-cn-label }}`\n- MN: `${{ needs.configure.outputs.resolved-mn-label }}`\n- BN: `${{ needs.configure.outputs.resolved-bn-label }}`\n- Solo: `${{ needs.configure.outputs.solo-version }}`"
                   }
                 },
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*Matrix:* ${{ needs.configure.outputs.matrix-count }} test combinations\n*Status:* Some tests failed - check the run for details"
+                    "text": "*Test Matrix:* ${{ needs.configure.outputs.matrix-count }} combinations\n${{ needs.configure.outputs.matrix-detail }}"
                   }
                 },
                 {
