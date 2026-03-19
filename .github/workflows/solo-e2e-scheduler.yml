@@ -274,18 +274,18 @@ jobs:
           MN_RESOLVED=$(echo "$OUTPUT" | grep "^mn_version=" | cut -d= -f2)
           BN_RESOLVED=$(echo "$OUTPUT" | grep "^bn_version=" | cut -d= -f2)
 
-          # Format version labels: show "requested → resolved" when they differ
+          # Format version labels: show "requested -> resolved" when they differ
           format_version() {
             local requested="$1" resolved="$2"
             if [[ "$requested" == "$resolved" ]]; then
-              echo "$resolved"
+              echo "${resolved}"
             else
-              echo "$requested → $resolved"
+              echo "${requested} -> ${resolved}"
             fi
           }
-          echo "cn_label=$(format_version "${{ steps.config.outputs.cn_version }}" "$CN_RESOLVED")" >> "${GITHUB_OUTPUT}"
-          echo "mn_label=$(format_version "${{ steps.config.outputs.mn_version }}" "$MN_RESOLVED")" >> "${GITHUB_OUTPUT}"
-          echo "bn_label=$(format_version "${{ steps.config.outputs.bn_version }}" "$BN_RESOLVED")" >> "${GITHUB_OUTPUT}"
+          echo "cn_label=$(format_version "${{ steps.config.outputs.cn_version }}" "${CN_RESOLVED}")" >> "${GITHUB_OUTPUT}"
+          echo "mn_label=$(format_version "${{ steps.config.outputs.mn_version }}" "${MN_RESOLVED}")" >> "${GITHUB_OUTPUT}"
+          echo "bn_label=$(format_version "${{ steps.config.outputs.bn_version }}" "${BN_RESOLVED}")" >> "${GITHUB_OUTPUT}"
 
           # Format matrix details for Slack: each topology on its own line with tests
           # Uses literal \n (not actual newlines) so it works inside JSON string interpolation
