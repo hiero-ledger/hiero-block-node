@@ -181,8 +181,8 @@ All figures use the raw (uncompressed) wire size.
 
 |    TPS | Steady-state egress (33 sub) | Burst egress (33 sub, 4× in-flight) |
 |-------:|-----------------------------:|------------------------------------:|
-|  2,000 |                    ~825 Mbps |                           ~925 Mbps |
-| 20,000 |                    ~5.8 Gbps |                           ~6.5 Gbps |
+|  2,000 |                    ~8.3 MB/s |                           ~9.3 MB/s |
+| 20,000 |                    ~0.6 GB/s |                           ~0.7 GB/s |
 
 > At 20K TPS with 33 active subscribers, burst egress approaches ~19 Gbps — nearly double
 > the 10 Gbps NIC minimum.
