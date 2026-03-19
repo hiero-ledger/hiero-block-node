@@ -8,6 +8,7 @@ import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Consumer;
 import org.hiero.block.tools.utils.Sha384;
 
 /**
@@ -37,10 +38,23 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
         try {
             randomAccessFile = new RandomAccessFile(blockHashesFilePath.toFile(), "rw");
             if (Files.exists(blockHashesFilePath) && randomAccessFile.length() > 0) {
-                // compute the highestBlockNumberStored based on file size
-                highestBlockNumberStored = (randomAccessFile.length() / Sha384.SHA_384_HASH_SIZE) - 1;
-                // read mostRecentBlockHash
-                mostRecentBlockHash = getBlockHash(highestBlockNumberStored);
+                long fileLength = randomAccessFile.length();
+                long remainder = fileLength % Sha384.SHA_384_HASH_SIZE;
+                if (remainder != 0) {
+                    // Partial write detected — truncate to last complete record
+                    long truncatedLength = fileLength - remainder;
+                    System.err.println("Warning: blockStreamBlockHashes.bin has partial write ("
+                            + fileLength + " bytes, remainder " + remainder
+                            + "). Truncating to " + truncatedLength + " bytes.");
+                    randomAccessFile.setLength(truncatedLength);
+                    fileLength = truncatedLength;
+                }
+                if (fileLength > 0) {
+                    // compute the highestBlockNumberStored based on file size
+                    highestBlockNumberStored = (fileLength / Sha384.SHA_384_HASH_SIZE) - 1;
+                    // read mostRecentBlockHash
+                    mostRecentBlockHash = getBlockHash(highestBlockNumberStored);
+                }
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -131,6 +145,64 @@ public class BlockStreamBlockHashRegistry implements AutoCloseable {
             randomAccessFile.setLength(newLength);
             highestBlockNumberStored = blockNumber;
             mostRecentBlockHash = blockNumber >= 0 ? getBlockHash(blockNumber) : EMPTY_TREE_HASH;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Flushes any buffered writes to the underlying storage device, ensuring durability.
+     */
+    public void sync() {
+        try {
+            randomAccessFile.getFD().sync();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Reads block hashes sequentially from {@code fromBlock} to {@code toBlock} (inclusive),
+     * passing each 48-byte hash to the given consumer. This is much faster than per-hash
+     * {@link #getBlockHash(long)} calls for bulk replay, especially on spinning disks,
+     * because it performs a single seek followed by sequential reads with a large buffer.
+     *
+     * @param fromBlock the first block number to read (inclusive)
+     * @param toBlock the last block number to read (inclusive)
+     * @param hashConsumer consumer that receives each 48-byte block hash
+     */
+    @SuppressWarnings("unused")
+    public void readSequential(long fromBlock, long toBlock, Consumer<byte[]> hashConsumer) {
+        if (fromBlock < 0 || toBlock > highestBlockNumberStored || fromBlock > toBlock) {
+            throw new IllegalArgumentException("Invalid range [" + fromBlock + ", " + toBlock + "]; highest stored is "
+                    + highestBlockNumberStored);
+        }
+        try {
+            randomAccessFile.seek(fromBlock * Sha384.SHA_384_HASH_SIZE);
+            // Use a 1 MiB read buffer (holds ~21,845 hashes) for efficient sequential I/O
+            final int bufferSize = 1 << 20;
+            final byte[] buffer = new byte[bufferSize];
+            long remaining = (toBlock - fromBlock + 1) * (long) Sha384.SHA_384_HASH_SIZE;
+            int leftover = 0;
+
+            while (remaining > 0) {
+                int toRead = (int) Math.min(bufferSize - leftover, remaining);
+                int bytesRead = randomAccessFile.read(buffer, leftover, toRead);
+                if (bytesRead <= 0) break;
+                int available = leftover + bytesRead;
+                int offset = 0;
+                while (offset + Sha384.SHA_384_HASH_SIZE <= available) {
+                    byte[] hash = new byte[Sha384.SHA_384_HASH_SIZE];
+                    System.arraycopy(buffer, offset, hash, 0, Sha384.SHA_384_HASH_SIZE);
+                    hashConsumer.accept(hash);
+                    offset += Sha384.SHA_384_HASH_SIZE;
+                }
+                leftover = available - offset;
+                if (leftover > 0) {
+                    System.arraycopy(buffer, offset, buffer, 0, leftover);
+                }
+                remaining -= bytesRead;
+            }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

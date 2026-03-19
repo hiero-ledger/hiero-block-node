@@ -10,13 +10,13 @@ import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.eclipse.collections.impl.map.mutable.primitive.LongLongHashMap;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.tools.blocks.HasherStateFiles;
 import org.hiero.block.tools.blocks.validation.TransferListExtractor.AccountTransfer;
 import org.hiero.block.tools.blocks.validation.TransferListExtractor.ExtractedTransfers;
 import org.hiero.block.tools.blocks.validation.TransferListExtractor.NftTransferInfo;
@@ -304,13 +304,16 @@ public final class HbarSupplyValidation implements BlockValidation {
 
     @Override
     public void save(final Path directory) throws IOException {
-        accounts.save(directory.resolve(SAVE_FILE_NAME));
+        try {
+            HasherStateFiles.saveAtomically(directory.resolve(SAVE_FILE_NAME), accounts::save);
+        } catch (Exception e) {
+            throw new IOException("Failed to save HBAR supply state", e);
+        }
     }
 
     @Override
     public void load(final Path directory) throws IOException {
         Path file = directory.resolve(SAVE_FILE_NAME);
-        if (!Files.exists(file)) return;
-        accounts.load(file);
+        HasherStateFiles.loadWithFallback(file, accounts::load);
     }
 }

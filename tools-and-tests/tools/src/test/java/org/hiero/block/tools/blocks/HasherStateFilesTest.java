@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
-import org.hiero.block.tools.blocks.model.hashing.InMemoryTreeHasher;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.utils.Sha384;
 import org.junit.jupiter.api.DisplayName;
@@ -228,7 +227,7 @@ class HasherStateFilesTest {
     }
 
     // -------------------------------------------------------------------------
-    // saveStateCheckpoint (both hashers together)
+    // saveStateCheckpoint (streaming hasher)
     // -------------------------------------------------------------------------
 
     @Nested
@@ -236,57 +235,44 @@ class HasherStateFilesTest {
     class SaveStateCheckpointTests {
 
         @Test
-        @DisplayName("Both hashers saved and reloadable with matching root hashes")
-        void bothHashersSavedAndReloaded() throws Exception {
+        @DisplayName("Hasher saved and reloadable with matching root hash")
+        void hasherSavedAndReloaded() throws Exception {
             StreamingHasher streaming = new StreamingHasher();
-            InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
             for (int i = 0; i < 5; i++) {
                 streaming.addNodeByHash(fakeHash(i));
-                inMemory.addNodeByHash(fakeHash(i));
             }
 
             Path streamingFile = tempDir.resolve("streaming.bin");
-            Path inMemoryFile = tempDir.resolve("inMemory.bin");
 
-            HasherStateFiles.saveStateCheckpoint(streamingFile, streaming, inMemoryFile, inMemory);
+            HasherStateFiles.saveStateCheckpoint(streamingFile, streaming);
 
             StreamingHasher restoredStreaming = new StreamingHasher();
             restoredStreaming.load(streamingFile);
-            InMemoryTreeHasher restoredInMemory = new InMemoryTreeHasher();
-            restoredInMemory.load(inMemoryFile);
 
             assertEquals(5, restoredStreaming.leafCount());
-            assertEquals(5, restoredInMemory.leafCount());
             assertArrayEquals(streaming.computeRootHash(), restoredStreaming.computeRootHash());
-            assertArrayEquals(inMemory.computeRootHash(), restoredInMemory.computeRootHash());
         }
 
         @Test
-        @DisplayName("Second checkpoint rotates both .bak files")
-        void secondCheckpoint_rotatesBothBaks() throws Exception {
+        @DisplayName("Second checkpoint rotates .bak file")
+        void secondCheckpoint_rotatesBak() throws Exception {
             Path streamingFile = tempDir.resolve("streaming.bin");
-            Path inMemoryFile = tempDir.resolve("inMemory.bin");
 
             // First checkpoint: 3 leaves
             StreamingHasher s1 = new StreamingHasher();
-            InMemoryTreeHasher m1 = new InMemoryTreeHasher();
             for (int i = 0; i < 3; i++) {
                 s1.addNodeByHash(fakeHash(i));
-                m1.addNodeByHash(fakeHash(i));
             }
-            HasherStateFiles.saveStateCheckpoint(streamingFile, s1, inMemoryFile, m1);
+            HasherStateFiles.saveStateCheckpoint(streamingFile, s1);
 
             // Second checkpoint: 6 leaves
             StreamingHasher s2 = new StreamingHasher();
-            InMemoryTreeHasher m2 = new InMemoryTreeHasher();
             for (int i = 0; i < 6; i++) {
                 s2.addNodeByHash(fakeHash(i));
-                m2.addNodeByHash(fakeHash(i));
             }
-            HasherStateFiles.saveStateCheckpoint(streamingFile, s2, inMemoryFile, m2);
+            HasherStateFiles.saveStateCheckpoint(streamingFile, s2);
 
             assertTrue(Files.exists(Path.of(streamingFile + ".bak")));
-            assertTrue(Files.exists(Path.of(inMemoryFile + ".bak")));
 
             // .bak holds the first checkpoint (3 leaves)
             StreamingHasher fromBak = new StreamingHasher();
@@ -304,8 +290,8 @@ class HasherStateFilesTest {
     class HasherReconciliationTests {
 
         @Test
-        @DisplayName("Stale hashers (checkpoint at block 4) catch up to registry (block 9)")
-        void staleHashers_catchUpFromRegistry() throws Exception {
+        @DisplayName("Stale hasher (checkpoint at block 4) catches up to registry (block 9)")
+        void staleHasher_catchesUpFromRegistry() throws Exception {
             // 10 fake block hashes (blocks 0..9)
             byte[][] hashes = new byte[10][];
             for (int i = 0; i < 10; i++) {
@@ -314,23 +300,17 @@ class HasherStateFilesTest {
 
             // Reference: all 10 blocks processed
             StreamingHasher refStreaming = new StreamingHasher();
-            InMemoryTreeHasher refInMemory = new InMemoryTreeHasher();
             for (byte[] h : hashes) {
                 refStreaming.addNodeByHash(h);
-                refInMemory.addNodeByHash(h);
             }
 
             // Checkpoint after 5 blocks (blocks 0..4)
             StreamingHasher checkpoint = new StreamingHasher();
-            InMemoryTreeHasher checkpointInMemory = new InMemoryTreeHasher();
             for (int i = 0; i < 5; i++) {
                 checkpoint.addNodeByHash(hashes[i]);
-                checkpointInMemory.addNodeByHash(hashes[i]);
             }
             Path streamingFile = tempDir.resolve("streaming.bin");
-            Path inMemoryFile = tempDir.resolve("inMemory.bin");
             checkpoint.save(streamingFile);
-            checkpointInMemory.save(inMemoryFile);
 
             // Registry contains all 10 blocks (written synchronously per block before checkpoint)
             Path registryFile = tempDir.resolve("registry.bin");
@@ -339,50 +319,37 @@ class HasherStateFilesTest {
                     registry.addBlock(i, hashes[i]);
                 }
 
-                // Load stale hashers from checkpoint
+                // Load stale hasher from checkpoint
                 StreamingHasher restored = new StreamingHasher();
                 restored.load(streamingFile);
-                InMemoryTreeHasher restoredInMemory = new InMemoryTreeHasher();
-                restoredInMemory.load(inMemoryFile);
 
                 // Replay missing blocks — same logic as in ToWrappedBlocksCommand.run()
                 final long registryHighest = registry.highestBlockNumberStored();
                 for (long bn = restored.leafCount(); bn <= registryHighest; bn++) {
                     restored.addNodeByHash(registry.getBlockHash(bn));
                 }
-                for (long bn = restoredInMemory.leafCount(); bn <= registryHighest; bn++) {
-                    restoredInMemory.addNodeByHash(registry.getBlockHash(bn));
-                }
 
                 assertEquals(10, restored.leafCount(), "Streaming hasher should have all 10 leaves");
-                assertEquals(10, restoredInMemory.leafCount(), "In-memory hasher should have all 10 leaves");
                 assertArrayEquals(
                         refStreaming.computeRootHash(),
                         restored.computeRootHash(),
                         "Streaming root should match fully-built reference");
-                assertArrayEquals(
-                        refInMemory.computeRootHash(),
-                        restoredInMemory.computeRootHash(),
-                        "In-memory root should match fully-built reference");
             }
         }
 
         @Test
-        @DisplayName("Hashers already in sync with registry: no replay needed, roots unchanged")
-        void hashersInSync_noReplayNeeded() throws Exception {
+        @DisplayName("Hasher already in sync with registry: no replay needed, root unchanged")
+        void hasherInSync_noReplayNeeded() throws Exception {
             byte[][] hashes = new byte[5][];
             for (int i = 0; i < 5; i++) {
                 hashes[i] = fakeHash(i);
             }
 
             StreamingHasher streaming = new StreamingHasher();
-            InMemoryTreeHasher inMemory = new InMemoryTreeHasher();
             for (byte[] h : hashes) {
                 streaming.addNodeByHash(h);
-                inMemory.addNodeByHash(h);
             }
             byte[] expectedStreamingRoot = streaming.computeRootHash();
-            byte[] expectedInMemoryRoot = inMemory.computeRootHash();
 
             Path registryFile = tempDir.resolve("registry.bin");
             try (var registry = new BlockStreamBlockHashRegistry(registryFile)) {
@@ -390,62 +357,14 @@ class HasherStateFilesTest {
                     registry.addBlock(i, hashes[i]);
                 }
 
-                // Replay with hashers already at leafCount == 5 == registryHighest + 1
+                // Replay with hasher already at leafCount == 5 == registryHighest + 1
                 final long registryHighest = registry.highestBlockNumberStored();
                 for (long bn = streaming.leafCount(); bn <= registryHighest; bn++) {
                     streaming.addNodeByHash(registry.getBlockHash(bn));
                 }
-                for (long bn = inMemory.leafCount(); bn <= registryHighest; bn++) {
-                    inMemory.addNodeByHash(registry.getBlockHash(bn));
-                }
 
                 assertEquals(5, streaming.leafCount(), "Leaf count should be unchanged");
                 assertArrayEquals(expectedStreamingRoot, streaming.computeRootHash(), "Root should be unchanged");
-                assertArrayEquals(expectedInMemoryRoot, inMemory.computeRootHash(), "Root should be unchanged");
-            }
-        }
-
-        @Test
-        @DisplayName("Hashers have different stale leaf counts: each replays independently")
-        void inconsistentHasherLeafCounts_eachCatchesUpIndependently() throws Exception {
-            // Simulates a crash that saved streaming.bin (at block 3) but not inMemory.bin
-            // so inMemory fell back to its .bak at block 1
-            byte[][] hashes = new byte[8][];
-            for (int i = 0; i < 8; i++) {
-                hashes[i] = fakeHash(i);
-            }
-
-            StreamingHasher refStreaming = new StreamingHasher();
-            InMemoryTreeHasher refInMemory = new InMemoryTreeHasher();
-            for (byte[] h : hashes) {
-                refStreaming.addNodeByHash(h);
-                refInMemory.addNodeByHash(h);
-            }
-
-            // streaming at block 3 (4 leaves), inMemory at block 1 (2 leaves)
-            StreamingHasher staleSt = new StreamingHasher();
-            for (int i = 0; i < 4; i++) staleSt.addNodeByHash(hashes[i]);
-            InMemoryTreeHasher staleIm = new InMemoryTreeHasher();
-            for (int i = 0; i < 2; i++) staleIm.addNodeByHash(hashes[i]);
-
-            Path registryFile = tempDir.resolve("registry.bin");
-            try (var registry = new BlockStreamBlockHashRegistry(registryFile)) {
-                for (int i = 0; i < 8; i++) {
-                    registry.addBlock(i, hashes[i]);
-                }
-
-                final long registryHighest = registry.highestBlockNumberStored();
-                for (long bn = staleSt.leafCount(); bn <= registryHighest; bn++) {
-                    staleSt.addNodeByHash(registry.getBlockHash(bn));
-                }
-                for (long bn = staleIm.leafCount(); bn <= registryHighest; bn++) {
-                    staleIm.addNodeByHash(registry.getBlockHash(bn));
-                }
-
-                assertEquals(8, staleSt.leafCount());
-                assertEquals(8, staleIm.leafCount());
-                assertArrayEquals(refStreaming.computeRootHash(), staleSt.computeRootHash(), "Streaming root correct");
-                assertArrayEquals(refInMemory.computeRootHash(), staleIm.computeRootHash(), "In-memory root correct");
             }
         }
     }
