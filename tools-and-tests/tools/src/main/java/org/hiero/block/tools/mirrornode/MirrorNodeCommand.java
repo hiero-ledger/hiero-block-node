@@ -23,6 +23,8 @@ import picocli.CommandLine.Spec;
             ExtractDayBlocksFromApi.class,
             UpdateBlockData.class,
             GenerateAddressBookFromMirrorNode.class,
+            GenerateTestnetGenesisAddressBook.class,
+            GenerateTestnetAddressBookHistory.class,
             CompareAddressBooks.class
         },
         mixinStandardHelpOptions = true)

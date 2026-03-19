@@ -86,7 +86,7 @@ public record NetworkConfig(
     public static NetworkConfig testnet() {
         return new NetworkConfig(
                 "testnet",
-                "hedera-testnet-streams",
+                "hedera-testnet-streams-2024-02",
                 "recordstreams/",
                 "https://testnet.mirrornode.hedera.com/api/v1/",
                 LocalDate.of(2024, 2, 1),
