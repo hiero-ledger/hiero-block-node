@@ -163,7 +163,7 @@ Worst-case reflects 4 Consensus Nodes simultaneously streaming to a single BN (f
 | 20,000 |           ~17.5 MB/s |                         ~70 MB/s |
 
 > NIC sizing is driven by egress (see below), not ingress.
-
+>
 > Ingress values are all based assuming uncompressed data, with HTTP automatic compression a reasonable compression
 > value of 3x smaller may be used.
 
@@ -188,7 +188,7 @@ All figures use the raw (uncompressed) wire size.
 > the 10 Gbps NIC minimum.
 > Block Nodes serving many live subscribers at high TPS **require** at least a 25 Gbps NIC
 > and may need 100 Gbps or multiple bonded 25 Gbps links for headroom.
-
+>
 > Egress values are all based assuming uncompressed data, with HTTP automatic compression a reasonable compression
 > value of 3x smaller may be used.
 
