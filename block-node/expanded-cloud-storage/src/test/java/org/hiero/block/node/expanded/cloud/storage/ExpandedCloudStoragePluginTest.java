@@ -4,12 +4,14 @@ package org.hiero.block.node.expanded.cloud.storage;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3ClientException;
 import com.hedera.bucky.S3ResponseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -329,11 +331,137 @@ class ExpandedCloudStoragePluginTest
     @Test
     @DisplayName("Invalid storageClass is rejected at config construction time")
     void invalidStorageClassRejected() {
-        org.junit.jupiter.api.Assertions.assertThrows(
+        assertThrows(
                 IllegalArgumentException.class,
                 () -> new ExpandedCloudStorageConfig(
                         "http://fake:9000", "bucket", "blocks", "INVALID_CLASS",
                         "us-east-1", "", "", 60, 4),
                 "Invalid storageClass must throw IllegalArgumentException");
+    }
+
+    @Test
+    @DisplayName("Config rejects uploadTimeoutSeconds < 1 and maxConcurrentUploads < 1")
+    void configBoundsValidation() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ExpandedCloudStorageConfig(
+                        "http://fake:9000", "bucket", "blocks", "STANDARD", "us-east-1", "", "", 0, 4),
+                "uploadTimeoutSeconds=0 must throw IllegalArgumentException");
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ExpandedCloudStorageConfig(
+                        "http://fake:9000", "bucket", "blocks", "STANDARD", "us-east-1", "", "", 60, 0),
+                "maxConcurrentUploads=0 must throw IllegalArgumentException");
+    }
+
+    @Test
+    @DisplayName("All valid S3 storage classes are accepted by config")
+    void allValidStorageClassesAccepted() {
+        for (final String storageClass : ExpandedCloudStorageConfig.VALID_STORAGE_CLASSES) {
+            assertDoesNotThrow(
+                    () -> new ExpandedCloudStorageConfig(
+                            "http://fake:9000", "bucket", "blocks", storageClass, "us-east-1", "", "", 60, 4),
+                    "Valid storageClass '" + storageClass + "' must not throw");
+        }
+    }
+
+    @Test
+    @DisplayName("handleVerification skips upload for null block body and negative block number")
+    void handleVerificationGuardsSkipUpload() throws InterruptedException {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
+
+        // verified=true but block payload is null
+        plugin.handleVerification(new VerificationNotification(true, 1L, Bytes.EMPTY, null, BlockSource.UNKNOWN));
+        // verified=true but block number is negative
+        plugin.handleVerification(
+                new VerificationNotification(true, -1L, Bytes.EMPTY, testBlock(0).blockUnparsed(), BlockSource.UNKNOWN));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+
+        assertEquals(0, capturing.uploads.size(), "No upload expected for null block or negative block number");
+        assertTrue(
+                blockMessaging.getSentPersistedNotifications().isEmpty(),
+                "No PersistedNotification expected when upload was skipped");
+    }
+
+    @Test
+    @DisplayName("IOException from uploadFile produces PersistedNotification with succeeded=false")
+    void ioExceptionProducesFailedNotification() throws InterruptedException {
+        final S3Client throwingClient = new NoOpS3Client() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws S3ClientException, IOException {
+                throw new IOException("Simulated I/O failure");
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
+
+        plugin.handleVerification(verifiedNotification(5L, testBlock(5).blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "PersistedNotification must be sent even on IOException");
+        assertEquals(5L, notifications.getFirst().blockNumber());
+        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false on IOException");
+    }
+
+    @Test
+    @DisplayName("Base S3ClientException from uploadFile produces PersistedNotification with succeeded=false")
+    void s3ClientExceptionProducesFailedNotification() throws InterruptedException {
+        final S3Client throwingClient = new NoOpS3Client() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws S3ClientException, IOException {
+                throw new S3ClientException("Simulated base S3 failure");
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
+
+        plugin.handleVerification(verifiedNotification(9L, testBlock(9).blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "PersistedNotification must be sent even on base S3ClientException");
+        assertEquals(9L, notifications.getFirst().blockNumber());
+        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false");
+    }
+
+    @Test
+    @DisplayName("stop() closes the injected S3 client")
+    void stopClosesS3Client() throws InterruptedException {
+        final AtomicBoolean closed = new AtomicBoolean(false);
+        final S3Client trackingClient = new NoOpS3Client() {
+            @Override
+            public void close() {
+                closed.set(true);
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(trackingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
+
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+
+        plugin.stop();
+        assertTrue(closed.get(), "plugin.stop() must call close() on the S3 client");
     }
 }
