@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.hedera.bucky.S3ClientException;
+import com.hedera.bucky.S3ResponseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
@@ -50,7 +52,7 @@ import org.testcontainers.containers.GenericContainer;
  *       package-private constructor and call {@link ExpandedCloudStoragePlugin#handleVerification}
  *       directly — no real S3 endpoint required.</li>
  *   <li>Integration tests spin up a MinIO container via Testcontainers and use the production
- *       {@link BaseS3ClientAdapter} via the no-arg constructor.</li>
+ *       {@link BuckyS3ClientAdapter} via the no-arg constructor.</li>
  * </ul>
  */
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
@@ -259,8 +261,10 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
-    @DisplayName("Failed upload publishes PersistedNotification with succeeded=false")
-    void failurePublishesPersistedNotificationWithFalse() throws InterruptedException {
+    @DisplayName("S3ResponseException (HTTP 503) produces PersistedNotification with succeeded=false")
+    void responseExceptionProducesFailedNotification() throws InterruptedException {
+        final int statusCode = 503;
+        final byte[] body = "Service Unavailable".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         final S3Client throwingClient = new NoOpS3Client() {
             @Override
             public void uploadFile(
@@ -269,7 +273,7 @@ class ExpandedCloudStoragePluginTest
                     final Iterator<byte[]> contentIterable,
                     final String contentType)
                     throws S3ClientException, IOException {
-                throw new S3ClientException("Simulated S3 failure");
+                throw new S3ResponseException(statusCode, body, null, "S3 returned 503");
             }
         };
         start(
@@ -284,9 +288,40 @@ class ExpandedCloudStoragePluginTest
         plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-        assertEquals(1, notifications.size(), "PersistedNotification must be sent even on failure");
+        assertEquals(1, notifications.size(), "PersistedNotification must be sent even on S3ResponseException");
         assertEquals(7L, notifications.getFirst().blockNumber());
-        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false");
+        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false on 503");
+    }
+
+    @Test
+    @DisplayName("S3ResponseException (HTTP 403 Forbidden) is not rethrown by handleVerification")
+    void responseExceptionForbiddenNotRethrown() {
+        final S3Client throwingClient = new NoOpS3Client() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws S3ClientException, IOException {
+                throw new S3ResponseException(
+                        403,
+                        "Forbidden".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        null,
+                        "Access denied");
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "expanded.cloud.storage.endpointUrl", "http://fake:9000",
+                        "expanded.cloud.storage.accessKey", MINIO_USER,
+                        "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
+
+        assertDoesNotThrow(
+                () -> plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed())),
+                "S3ResponseException (403) must never propagate out of handleVerification");
     }
 
     @Test
@@ -300,7 +335,7 @@ class ExpandedCloudStoragePluginTest
                     final Iterator<byte[]> contentIterable,
                     final String contentType)
                     throws S3ClientException, IOException {
-                throw new S3ClientException("Simulated S3 failure");
+                throw new S3ClientException("Simulated base S3 failure");
             }
         };
         start(
@@ -314,6 +349,43 @@ class ExpandedCloudStoragePluginTest
         assertDoesNotThrow(
                 () -> plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed())),
                 "S3ClientException must never propagate out of handleVerification");
+    }
+
+    @Test
+    @DisplayName("S3ResponseException carries HTTP status code, body, and is not rethrown")
+    void responseExceptionDetailsAreNotRethrown() {
+        // Verifies the richer S3ResponseException (from bucky) is fully swallowed regardless
+        // of which HTTP status code (4xx or 5xx) the server returned.
+        final int[] statusCodes = {400, 403, 404, 409, 500, 503};
+        for (final int code : statusCodes) {
+            final byte[] responseBody = ("Error " + code).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            final S3Client throwingClient = new NoOpS3Client() {
+                @Override
+                public void uploadFile(
+                        final String objectKey,
+                        final String storageClass,
+                        final Iterator<byte[]> contentIterable,
+                        final String contentType)
+                        throws S3ClientException, IOException {
+                    final S3ResponseException ex = new S3ResponseException(code, responseBody, null);
+                    // Verify the exception carries the expected details before throwing
+                    assertEquals(code, ex.getResponseStatusCode());
+                    assertTrue(ex.getResponseBody().length > 0);
+                    throw ex;
+                }
+            };
+            start(
+                    new ExpandedCloudStoragePlugin(throwingClient),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    Map.of(
+                            "expanded.cloud.storage.endpointUrl", "http://fake:9000",
+                            "expanded.cloud.storage.accessKey", MINIO_USER,
+                            "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
+
+            assertDoesNotThrow(
+                    () -> plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed())),
+                    "S3ResponseException (HTTP " + code + ") must not propagate from handleVerification");
+        }
     }
 
     @Test
