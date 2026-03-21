@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
+import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
@@ -658,6 +660,32 @@ public class BlockNodeAPITests {
 
         assertThat(responseObserver.getOnSubscriptionCalls()).isEmpty();
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
+    }
+
+    /**
+     * Smoke test: confirms that Swirlds Config does NOT auto-include system properties unless
+     * {@code SystemPropertiesConfigSource} is explicitly registered.
+     *
+     * <p>{@link BlockNodeApp} builds its config using only {@code AutomaticEnvironmentVariableConfigSource}
+     * (which reads {@code System::getenv}) and {@code ClasspathFileConfigSource}. This means calling
+     * {@link System#setProperty} before constructing a {@code BlockNodeApp} does NOT inject config values
+     * into the running node. The correct approach for E2E test config injection is to override the
+     * {@code envVarGetter} function passed to {@code AutomaticEnvironmentVariableConfigSource}.
+     */
+    @Test
+    void smokeTest_systemPropertiesNotPickedUpByBlockNodeAppConfigPattern() {
+        final String uniqueKey = "blocknode.test.probe." + System.nanoTime();
+        System.setProperty(uniqueKey, "should-not-appear");
+        try {
+            // ConfigurationBuilder.create() mirrors BlockNodeApp's config initialisation:
+            // no SystemPropertiesConfigSource is registered, so system properties are invisible.
+            final Configuration config = ConfigurationBuilder.create().build();
+            assertThat(config.getPropertyNames())
+                    .as("System properties must NOT appear in Swirlds Config without SystemPropertiesConfigSource")
+                    .doesNotContain(uniqueKey);
+        } finally {
+            System.clearProperty(uniqueKey);
+        }
     }
 
     private void endBlock(final long blockNumber, final Pipeline<? super PublishStreamRequest> requestStream) {
