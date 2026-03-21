@@ -179,6 +179,32 @@ class ExpandedCloudStoragePluginIntegrationTest
         assertTrue(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=true");
     }
 
+    @Test
+    @DisplayName("Integration: empty objectKeyPrefix produces bare hierarchy key in MinIO")
+    void integrationUploadWithNoPrefix() throws InterruptedException {
+        start(
+                new ExpandedCloudStoragePlugin(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "expanded.cloud.storage.endpointUrl", minioEndpoint,
+                        "expanded.cloud.storage.bucketName", BUCKET_NAME,
+                        "expanded.cloud.storage.objectKeyPrefix", "",
+                        "expanded.cloud.storage.accessKey", MINIO_USER,
+                        "expanded.cloud.storage.secretKey", MINIO_PASSWORD));
+
+        final TestBlock block = testBlock(300L);
+        plugin.handleVerification(verifiedNotification(300L, block.blockUnparsed()));
+        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+
+        final String padded = String.format("%019d", 300L);
+        final String expectedKey = padded.substring(0, 4) + "/" + padded.substring(4, 8) + "/"
+                + padded.substring(8, 12) + "/" + padded.substring(12, 16) + "/"
+                + padded.substring(16) + ".blk.zstd";
+        assertTrue(
+                listAllObjects().contains(expectedKey),
+                "Expected bare-hierarchy key (no prefix) not found in MinIO: " + expectedKey);
+    }
+
     // ---- Private helpers ----------------------------------------------------
 
     private Set<String> listAllObjects() {
