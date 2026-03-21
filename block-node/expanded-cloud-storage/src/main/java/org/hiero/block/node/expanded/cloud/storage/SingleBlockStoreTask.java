@@ -118,7 +118,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             LOGGER.log(TRACE, "Block {0}: uploaded to {1}", blockNumber, objectKey);
             return new UploadResult(blockNumber, true, blockSource);
 
-        } catch (final S3ClientException | IOException e) {
+        } catch (final com.hedera.bucky.S3ClientException | IOException e) {
             LOGGER.log(WARNING, "Block {0}: upload failed: {1}", blockNumber, e.getMessage());
             return new UploadResult(blockNumber, false, blockSource);
         }

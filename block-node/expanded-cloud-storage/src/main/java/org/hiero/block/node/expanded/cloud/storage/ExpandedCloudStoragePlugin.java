@@ -58,11 +58,9 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  * The plugin is disabled when {@code expanded.cloud.storage.endpointUrl} is blank (the
  * default). Set it to a non-empty URL to activate uploads.
  *
- * <h2>hedera-bucky swap path</h2>
- * The S3 client is abstracted behind the {@link S3Client} interface, currently backed by
- * {@link BaseS3ClientAdapter}. When hedera-bucky is available on Maven Central, replace
- * {@link #createS3Client} with a {@code HederaBuckyS3ClientAdapter} — no other changes
- * are required.
+ * <h2>S3 client implementation</h2>
+ * The S3 client is abstracted behind the {@link S3Client} interface, backed by
+ * {@link BuckyS3ClientAdapter} which wraps {@code com.hedera.bucky.S3Client}.
  */
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
 
@@ -134,7 +132,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         if (s3Client == null) {
             try {
                 s3Client = createS3Client(config);
-            } catch (final S3ClientException e) {
+            } catch (final com.hedera.bucky.S3ClientException e) {
                 LOGGER.log(WARNING, "Failed to create S3 client; plugin will be disabled.", e);
                 enabled = false;
                 return;
@@ -290,10 +288,11 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      * Factory method for the production S3 client.
      *
      * @param cfg the plugin configuration
-     * @return a new {@link S3Client} backed by {@link BaseS3ClientAdapter}
-     * @throws S3ClientException if the client cannot be initialised
+     * @return a new {@link S3Client} backed by {@link BuckyS3ClientAdapter}
+     * @throws com.hedera.bucky.S3ClientException if the client cannot be initialised
      */
-    private static S3Client createS3Client(final ExpandedCloudStorageConfig cfg) throws S3ClientException {
-        return new BaseS3ClientAdapter(cfg);
+    private static S3Client createS3Client(final ExpandedCloudStorageConfig cfg)
+            throws com.hedera.bucky.S3ClientException {
+        return new BuckyS3ClientAdapter(cfg);
     }
 }
