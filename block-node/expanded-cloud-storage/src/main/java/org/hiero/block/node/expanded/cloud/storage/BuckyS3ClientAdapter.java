@@ -5,32 +5,28 @@ import com.hedera.bucky.S3ClientInitializationException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 
 /**
- * Production implementation of {@link S3Client} that delegates to the
- * {@code com.hedera.bucky.S3Client} library ({@code bucky-client} on Maven Central).
+ * Production implementation of {@link S3Client} that delegates to
+ * {@code com.hedera.bucky.S3Client} ({@code bucky-client} on Maven Central).
  *
- * <p>This is a thin delegation wrapper around the {@code final} bucky client class. No exception
- * translation is performed — bucky throws {@link com.hedera.bucky.S3ResponseException} (a subtype
- * of {@link com.hedera.bucky.S3ClientException}), which satisfies the interface's declared throws
- * clause directly.
- *
- * <p>This replaces {@link BaseS3ClientAdapter} as the production S3 client factory used by
- * {@link ExpandedCloudStoragePlugin}.
+ * <p>Bucky's {@code S3Client} is {@code final}, so this adapter implements the local
+ * {@link S3Client} interface to provide a test seam. No exception translation is needed —
+ * bucky throws {@link com.hedera.bucky.S3ResponseException} (a subtype of
+ * {@link com.hedera.bucky.S3ClientException}), which satisfies the interface's declared
+ * throws clause directly.
  */
-public class BuckyS3ClientAdapter implements S3Client {
+class BuckyS3ClientAdapter implements S3Client {
 
     private final com.hedera.bucky.S3Client delegate;
 
     /**
-     * Constructs a new adapter using the given expanded cloud storage configuration.
+     * Constructs a new adapter from the given plugin configuration.
      *
-     * @param config the plugin configuration providing S3 credentials and endpoint
+     * @param config provides the S3 endpoint, bucket, region, and credentials
      * @throws S3ClientInitializationException if the bucky client cannot be initialised
      */
-    public BuckyS3ClientAdapter(@NonNull final ExpandedCloudStorageConfig config)
+    BuckyS3ClientAdapter(@NonNull final ExpandedCloudStorageConfig config)
             throws S3ClientInitializationException {
         this.delegate = new com.hedera.bucky.S3Client(
                 config.regionName(),
@@ -49,39 +45,6 @@ public class BuckyS3ClientAdapter implements S3Client {
             final String contentType)
             throws com.hedera.bucky.S3ClientException, IOException {
         delegate.uploadFile(objectKey, storageClass, contentIterable, contentType);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void uploadTextFile(final String objectKey, final String storageClass, final String content)
-            throws com.hedera.bucky.S3ClientException, IOException {
-        delegate.uploadTextFile(objectKey, storageClass, content);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public String downloadTextFile(final String key) throws com.hedera.bucky.S3ClientException, IOException {
-        return delegate.downloadTextFile(key);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public List<String> listObjects(final String prefix, final int maxResults)
-            throws com.hedera.bucky.S3ClientException, IOException {
-        return delegate.listObjects(prefix, maxResults);
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public Map<String, List<String>> listMultipartUploads() throws com.hedera.bucky.S3ClientException, IOException {
-        return delegate.listMultipartUploads();
-    }
-
-    /** {@inheritDoc} */
-    @Override
-    public void abortMultipartUpload(final String key, final String uploadId)
-            throws com.hedera.bucky.S3ClientException, IOException {
-        delegate.abortMultipartUpload(key, uploadId);
     }
 
     /** {@inheritDoc} */
