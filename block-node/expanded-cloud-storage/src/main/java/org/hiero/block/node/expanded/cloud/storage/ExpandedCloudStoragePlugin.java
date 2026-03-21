@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -80,6 +81,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
 
     /** CompletionService for async block upload tasks. */
     private CompletionService<SingleBlockStoreTask.UploadResult> completionService;
+
+    /** Count of tasks submitted but not yet drained; used by awaitAndDrain to know when to stop. */
+    private final AtomicInteger pendingTasks = new AtomicInteger(0);
 
     /** Whether the plugin is enabled (endpoint URL is non-blank). */
     private boolean enabled;
@@ -188,6 +192,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
 
         final String objectKey = buildObjectKey(blockNumber);
+        pendingTasks.incrementAndGet();
         completionService.submit(new SingleBlockStoreTask(
                 blockNumber,
                 block,
@@ -212,6 +217,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
         Future<SingleBlockStoreTask.UploadResult> completed;
         while ((completed = completionService.poll()) != null) {
+            pendingTasks.decrementAndGet();
             try {
                 final SingleBlockStoreTask.UploadResult result = completed.get();
                 blockMessaging.sendBlockPersisted(new PersistedNotification(
@@ -269,9 +275,11 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     void awaitAndDrain(final long timeoutMillis) throws InterruptedException {
         if (completionService == null) return;
         final long deadline = System.currentTimeMillis() + timeoutMillis;
-        while (System.currentTimeMillis() < deadline) {
-            final Future<SingleBlockStoreTask.UploadResult> f = completionService.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS);
-            if (f == null) break;
+        while (pendingTasks.get() > 0 && System.currentTimeMillis() < deadline) {
+            final Future<SingleBlockStoreTask.UploadResult> f =
+                    completionService.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS);
+            if (f == null) continue;
+            pendingTasks.decrementAndGet();
             try {
                 final SingleBlockStoreTask.UploadResult result = f.get();
                 if (blockMessaging != null) {

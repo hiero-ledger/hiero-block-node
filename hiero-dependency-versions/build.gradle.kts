@@ -15,6 +15,7 @@ dependencies.constraints {
     val eclipseCollectionsVersion = "13.0.0"
     val mockitoVersion = "5.23.0"
     val testContainersVersion = "1.21.4"
+    val buckyVersion = "0.1.0-rc1"
 
     api("com.github.luben:zstd-jni:1.5.7-7") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.8") {
@@ -69,6 +70,7 @@ dependencies.constraints {
     api("io.helidon.webclient:helidon-webclient:$helidonVersion") {
         because("io.helidon.webclient")
     }
+    api("com.hedera.bucky:bucky-client:${buckyVersion}") { because("com.hedera.bucky") }
     api("org.jetbrains:annotations:26.1.0") { because("org.jetbrains.annotations") }
 
     // gRPC dependencies
