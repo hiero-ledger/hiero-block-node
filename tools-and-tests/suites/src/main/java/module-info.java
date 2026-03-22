@@ -6,6 +6,7 @@ open module org.hiero.block.node.suites {
     requires com.swirlds.config.extensions;
     requires org.hiero.block.common;
     requires org.hiero.block.node.app;
+    requires org.hiero.block.node.base;
     requires org.hiero.block.node.spi;
     requires org.hiero.block.protobuf.protoc;
     requires org.hiero.block.simulator;
@@ -18,6 +19,7 @@ open module org.hiero.block.node.suites {
     requires org.junit.jupiter.api;
     requires org.junit.jupiter.params;
     requires org.testcontainers;
+    requires s3mock.testcontainers;
     requires static com.github.spotbugs.annotations;
     requires static dagger;
     requires static io.helidon.webclient.api;
