@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
@@ -87,6 +88,26 @@ public class BlockNodeApp implements HealthFacility {
      */
     public BlockNodeApp(final ServiceLoaderFunction serviceLoader, final boolean shouldExitJvmOnShutdown)
             throws IOException {
+        this(serviceLoader, shouldExitJvmOnShutdown, System::getenv);
+    }
+
+    /**
+     * Constructor for the BlockNodeApp class with a custom environment variable getter.
+     * This constructor is primarily intended for testing, allowing injection of configuration
+     * overrides via a custom {@code envVarGetter} without mutating JVM system properties or
+     * real environment variables.
+     *
+     * @param serviceLoader Optional function to load the service loader, if null then the default will be used
+     * @param shouldExitJvmOnShutdown if true, the JVM will exit on shutdown, otherwise it will not
+     * @param envVarGetter function to retrieve environment variable values; typically {@code System::getenv}
+     *                     in production, or a custom map lookup in tests
+     * @throws IOException if there is an error starting the server
+     */
+    public BlockNodeApp(
+            final ServiceLoaderFunction serviceLoader,
+            final boolean shouldExitJvmOnShutdown,
+            final Function<String, String> envVarGetter)
+            throws IOException {
         this.shouldExitJvmOnShutdown = shouldExitJvmOnShutdown;
         // ==== LOAD LOGGING CONFIG ====================================================================================
         final boolean externalLogging = System.getProperty("java.util.logging.config.file") != null;
@@ -149,7 +170,7 @@ public class BlockNodeApp implements HealthFacility {
         //noinspection unchecked
         final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .autoDiscoverExtensions()
-                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, System::getenv))
+                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, envVarGetter))
                 .withSource(SystemPropertiesConfigSource.getInstance())
                 .withSources(new ClasspathFileConfigSource(Path.of(appProperties)))
                 .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
