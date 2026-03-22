@@ -7,12 +7,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
-import com.swirlds.config.api.Configuration;
-import com.swirlds.config.api.ConfigurationBuilder;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import io.helidon.common.media.type.MediaType;
 import io.helidon.common.tls.Tls;
 import io.helidon.http.HttpMediaType;

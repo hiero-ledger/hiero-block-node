@@ -32,7 +32,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
  * Block  108273182 → {prefix}/0000/0000/0010/8273/182.blk.zstd
  * </pre>
  *
- * @param result if non-null, the upload outcome; populated by {@link #call()}
  */
 public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.UploadResult> {
 

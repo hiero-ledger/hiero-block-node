@@ -52,10 +52,16 @@ import org.hiero.block.node.base.Loggable;
 @ConfigData("expanded.cloud.storage")
 public record ExpandedCloudStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "") String endpointUrl,
-        @Loggable @ConfigProperty(defaultValue = "block-node-blocks") String bucketName,
+
+        @Loggable @ConfigProperty(defaultValue = "block-node-blocks")
+        String bucketName,
+
         @Loggable @ConfigProperty(defaultValue = "blocks") String objectKeyPrefix,
         @Loggable @ConfigProperty(defaultValue = "STANDARD") String storageClass,
-        @Loggable @ConfigProperty(defaultValue = "us-east-1") String regionName,
+
+        @Loggable @ConfigProperty(defaultValue = "us-east-1")
+        String regionName,
+
         @ConfigProperty(defaultValue = "") String accessKey,
         @ConfigProperty(defaultValue = "") String secretKey,
         @Loggable @ConfigProperty(defaultValue = "60") int uploadTimeoutSeconds,
@@ -63,13 +69,7 @@ public record ExpandedCloudStorageConfig(
 
     /** Valid S3 storage class values accepted by this plugin. */
     static final Set<String> VALID_STORAGE_CLASSES = Set.of(
-            "STANDARD",
-            "STANDARD_IA",
-            "ONEZONE_IA",
-            "INTELLIGENT_TIERING",
-            "GLACIER",
-            "GLACIER_IR",
-            "DEEP_ARCHIVE");
+            "STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING", "GLACIER", "GLACIER_IR", "DEEP_ARCHIVE");
 
     /**
      * Compact constructor that validates {@code storageClass} and numeric bounds at
@@ -77,9 +77,8 @@ public record ExpandedCloudStorageConfig(
      */
     public ExpandedCloudStorageConfig {
         if (!VALID_STORAGE_CLASSES.contains(storageClass)) {
-            throw new IllegalArgumentException(
-                    "Invalid expanded.cloud.storage.storageClass: '"
-                            + storageClass + "'. Must be one of: " + VALID_STORAGE_CLASSES);
+            throw new IllegalArgumentException("Invalid expanded.cloud.storage.storageClass: '" + storageClass
+                    + "'. Must be one of: " + VALID_STORAGE_CLASSES);
         }
         if (maxConcurrentUploads < 1) {
             throw new IllegalArgumentException(

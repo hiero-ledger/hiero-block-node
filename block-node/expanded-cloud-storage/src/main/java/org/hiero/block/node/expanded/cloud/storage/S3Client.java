@@ -24,11 +24,7 @@ public interface S3Client extends AutoCloseable {
      * @throws com.hedera.bucky.S3ClientException if the S3 service returns an error
      * @throws IOException                         if an I/O error occurs
      */
-    void uploadFile(
-            String objectKey,
-            String storageClass,
-            Iterator<byte[]> contentIterable,
-            String contentType)
+    void uploadFile(String objectKey, String storageClass, Iterator<byte[]> contentIterable, String contentType)
             throws com.hedera.bucky.S3ClientException, IOException;
 
     /** Releases resources held by this client. Must be idempotent. */
