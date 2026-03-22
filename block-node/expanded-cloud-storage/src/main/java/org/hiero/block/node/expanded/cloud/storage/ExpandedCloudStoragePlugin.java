@@ -142,8 +142,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 return;
             }
         }
-        completionService = new ExecutorCompletionService<>(
-                Executors.newVirtualThreadPerTaskExecutor());
+        completionService = new ExecutorCompletionService<>(Executors.newVirtualThreadPerTaskExecutor());
     }
 
     /** {@inheritDoc} */
@@ -176,8 +175,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         drainCompletedTasks();
 
         if (!notification.success()) {
-            LOGGER.log(TRACE, "Skipping upload for block {0}: verification did not succeed.",
-                    notification.blockNumber());
+            LOGGER.log(
+                    TRACE, "Skipping upload for block {0}: verification did not succeed.", notification.blockNumber());
             return;
         }
         final long blockNumber = notification.blockNumber();
@@ -220,13 +219,12 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             pendingTasks.decrementAndGet();
             try {
                 final SingleBlockStoreTask.UploadResult result = completed.get();
-                blockMessaging.sendBlockPersisted(new PersistedNotification(
-                        result.blockNumber(),
-                        result.succeeded(),
-                        0,
-                        result.blockSource()));
+                blockMessaging.sendBlockPersisted(
+                        new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
                 if (!result.succeeded()) {
-                    LOGGER.log(WARNING, "Block {0}: upload failed; PersistedNotification sent with succeeded=false.",
+                    LOGGER.log(
+                            WARNING,
+                            "Block {0}: upload failed; PersistedNotification sent with succeeded=false.",
                             result.blockNumber());
                 } else {
                     LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
@@ -235,7 +233,10 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 Thread.currentThread().interrupt();
                 LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
             } catch (final ExecutionException e) {
-                LOGGER.log(WARNING, "Unexpected exception in upload task: {0}", e.getCause().getMessage());
+                LOGGER.log(
+                        WARNING,
+                        "Unexpected exception in upload task: {0}",
+                        e.getCause().getMessage());
             }
         }
     }
@@ -261,7 +262,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 + "/" + padded.substring(12, 16)
                 + "/" + padded.substring(16);
         final String prefix = config.objectKeyPrefix();
-        return (prefix == null || prefix.isEmpty()) ? folderPath + ".blk.zstd"
+        return (prefix == null || prefix.isEmpty())
+                ? folderPath + ".blk.zstd"
                 : prefix + "/" + folderPath + ".blk.zstd";
     }
 
@@ -287,7 +289,10 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                             result.blockNumber(), result.succeeded(), 0, result.blockSource()));
                 }
             } catch (final ExecutionException e) {
-                LOGGER.log(WARNING, "Unexpected exception in upload task: {0}", e.getCause().getMessage());
+                LOGGER.log(
+                        WARNING,
+                        "Unexpected exception in upload task: {0}",
+                        e.getCause().getMessage());
             }
         }
     }

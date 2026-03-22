@@ -26,14 +26,9 @@ class BuckyS3ClientAdapter implements S3Client {
      * @param config provides the S3 endpoint, bucket, region, and credentials
      * @throws S3ClientInitializationException if the bucky client cannot be initialised
      */
-    BuckyS3ClientAdapter(@NonNull final ExpandedCloudStorageConfig config)
-            throws S3ClientInitializationException {
+    BuckyS3ClientAdapter(@NonNull final ExpandedCloudStorageConfig config) throws S3ClientInitializationException {
         this.delegate = new com.hedera.bucky.S3Client(
-                config.regionName(),
-                config.endpointUrl(),
-                config.bucketName(),
-                config.accessKey(),
-                config.secretKey());
+                config.regionName(), config.endpointUrl(), config.bucketName(), config.accessKey(), config.secretKey());
     }
 
     /** {@inheritDoc} */

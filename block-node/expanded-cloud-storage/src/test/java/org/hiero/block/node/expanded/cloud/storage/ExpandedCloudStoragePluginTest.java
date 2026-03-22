@@ -11,7 +11,6 @@ import com.hedera.bucky.S3ClientException;
 import com.hedera.bucky.S3ResponseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -25,6 +24,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
@@ -167,8 +167,10 @@ class ExpandedCloudStoragePluginTest
         // Block 108273182: 0000000000108273182 → blocks/0000/0000/0010/8273/182.blk.zstd
         // Block 1234567:   0000000000001234567 → blocks/0000/0000/0000/1234/567.blk.zstd
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
-        plugin.handleVerification(verifiedNotification(108273182L, testBlock(108273182L).blockUnparsed()));
-        plugin.handleVerification(verifiedNotification(1234567L, testBlock(1234567L).blockUnparsed()));
+        plugin.handleVerification(
+                verifiedNotification(108273182L, testBlock(108273182L).blockUnparsed()));
+        plugin.handleVerification(
+                verifiedNotification(1234567L, testBlock(1234567L).blockUnparsed()));
         plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
         assertEquals(3, capturing.uploads.size());
@@ -194,7 +196,8 @@ class ExpandedCloudStoragePluginTest
         plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
         assertEquals(1, capturing.uploads.size());
-        assertEquals("0000/0000/0000/0000/001.blk.zstd", capturing.uploads.getFirst().objectKey());
+        assertEquals(
+                "0000/0000/0000/0000/001.blk.zstd", capturing.uploads.getFirst().objectKey());
     }
 
     @Test
@@ -257,10 +260,7 @@ class ExpandedCloudStoragePluginTest
                     final String contentType)
                     throws S3ClientException, IOException {
                 throw new S3ResponseException(
-                        403,
-                        "Forbidden".getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                        null,
-                        "Access denied");
+                        403, "Forbidden".getBytes(java.nio.charset.StandardCharsets.UTF_8), null, "Access denied");
             }
         };
         start(
@@ -269,7 +269,8 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
 
         assertDoesNotThrow(
-                () -> plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed())),
+                () -> plugin.handleVerification(
+                        verifiedNotification(0L, testBlock(0).blockUnparsed())),
                 "S3ResponseException (403) must never propagate out of handleVerification");
     }
 
@@ -293,7 +294,8 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
 
         assertDoesNotThrow(
-                () -> plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed())),
+                () -> plugin.handleVerification(
+                        verifiedNotification(0L, testBlock(0).blockUnparsed())),
                 "S3ClientException must never propagate out of handleVerification");
     }
 
@@ -323,7 +325,8 @@ class ExpandedCloudStoragePluginTest
                     Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
 
             assertDoesNotThrow(
-                    () -> plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed())),
+                    () -> plugin.handleVerification(
+                            verifiedNotification(0L, testBlock(0).blockUnparsed())),
                     "S3ResponseException (HTTP " + code + ") must not propagate from handleVerification");
         }
     }
@@ -334,8 +337,7 @@ class ExpandedCloudStoragePluginTest
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000", "bucket", "blocks", "INVALID_CLASS",
-                        "us-east-1", "", "", 60, 4),
+                        "http://fake:9000", "bucket", "blocks", "INVALID_CLASS", "us-east-1", "", "", 60, 4),
                 "Invalid storageClass must throw IllegalArgumentException");
     }
 
@@ -377,8 +379,8 @@ class ExpandedCloudStoragePluginTest
         // verified=true but block payload is null
         plugin.handleVerification(new VerificationNotification(true, 1L, Bytes.EMPTY, null, BlockSource.UNKNOWN));
         // verified=true but block number is negative
-        plugin.handleVerification(
-                new VerificationNotification(true, -1L, Bytes.EMPTY, testBlock(0).blockUnparsed(), BlockSource.UNKNOWN));
+        plugin.handleVerification(new VerificationNotification(
+                true, -1L, Bytes.EMPTY, testBlock(0).blockUnparsed(), BlockSource.UNKNOWN));
         plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
 
         assertEquals(0, capturing.uploads.size(), "No upload expected for null block or negative block number");
@@ -412,7 +414,9 @@ class ExpandedCloudStoragePluginTest
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(1, notifications.size(), "PersistedNotification must be sent even on IOException");
         assertEquals(5L, notifications.getFirst().blockNumber());
-        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false on IOException");
+        assertFalse(
+                notifications.getFirst().succeeded(),
+                "PersistedNotification must report succeeded=false on IOException");
     }
 
     @Test
