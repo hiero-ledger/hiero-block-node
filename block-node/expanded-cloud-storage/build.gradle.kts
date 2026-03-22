@@ -18,6 +18,6 @@ testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
     requires("org.testcontainers")
-    requires("io.minio")
+    requires("s3mock.testcontainers")
     requires("java.logging")
 }
