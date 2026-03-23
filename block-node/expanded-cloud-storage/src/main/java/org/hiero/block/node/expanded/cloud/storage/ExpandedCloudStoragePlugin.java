@@ -60,8 +60,8 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  * default). Set it to a non-empty URL to activate uploads.
  *
  * <h2>S3 client implementation</h2>
- * Uploads are performed via {@link BuckyS3ClientAdapter}, which wraps
- * {@code com.hedera.bucky.S3Client} and implements the local {@link S3Client} test seam.
+ * Uploads are performed via {@link S3UploadClient}, a package-private abstract class whose
+ * production instance wraps {@code com.hedera.bucky.S3Client} directly.
  */
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
 
@@ -74,10 +74,10 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     private BlockMessagingFacility blockMessaging;
 
     /**
-     * The active S3 client. {@code null} when the plugin is disabled.
+     * The active S3 upload client. {@code null} when the plugin is disabled.
      * May be pre-set by the package-private test constructor.
      */
-    private S3Client s3Client;
+    private S3UploadClient s3Client;
 
     /** CompletionService for async block upload tasks. */
     private CompletionService<SingleBlockStoreTask.UploadResult> completionService;
@@ -91,12 +91,12 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     public ExpandedCloudStoragePlugin() {}
 
     /**
-     * Package-private constructor for unit tests. Injects a pre-built {@link S3Client} so tests
-     * do not need a real S3 endpoint.
+     * Package-private constructor for unit tests. Injects a pre-built {@link S3UploadClient}
+     * so tests do not need a real S3 endpoint.
      *
-     * @param s3Client the S3 client to use instead of creating one from config
+     * @param s3Client the upload client to use instead of creating one from config
      */
-    ExpandedCloudStoragePlugin(@NonNull final S3Client s3Client) {
+    ExpandedCloudStoragePlugin(@NonNull final S3UploadClient s3Client) {
         this.s3Client = s3Client;
     }
 
@@ -132,7 +132,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
         if (s3Client == null) {
             try {
-                s3Client = new BuckyS3ClientAdapter(config);
+                s3Client = S3UploadClient.forConfig(config);
             } catch (final com.hedera.bucky.S3ClientException e) {
                 LOGGER.log(WARNING, "Failed to create S3 client; plugin will be disabled.", e);
                 return;
