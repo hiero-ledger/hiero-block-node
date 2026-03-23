@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -88,6 +89,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** Whether the plugin is enabled (endpoint URL is non-blank). */
     private boolean enabled;
 
+    private ExecutorService virtualThreadExecutor;
+
     // ---- Constructors -------------------------------------------------------
 
     /** No-arg constructor used by the Java {@link java.util.ServiceLoader}. */
@@ -125,6 +128,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
 
         enabled = true;
         blockMessaging.registerBlockNotificationHandler(this, false, name());
+        virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
     }
 
     /** {@inheritDoc} */
@@ -142,7 +146,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 return;
             }
         }
-        completionService = new ExecutorCompletionService<>(Executors.newVirtualThreadPerTaskExecutor());
+        completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
     }
 
     /** {@inheritDoc} */
@@ -211,7 +215,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      * <p>This is a non-blocking drain — it only collects tasks that have already finished.
      */
     private void drainCompletedTasks() {
-        if (completionService == null || blockMessaging == null) {
+        if (completionService == null) {
             return;
         }
         Future<SingleBlockStoreTask.UploadResult> completed;
