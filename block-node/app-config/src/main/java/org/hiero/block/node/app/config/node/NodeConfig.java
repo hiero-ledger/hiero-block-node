@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.config.node;
 
+// spotless:off
+
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Min;
@@ -17,6 +19,6 @@ import org.hiero.block.node.base.Loggable;
  *     should not make any particular effort to obtain or store them.
  */
 @ConfigData("block.node")
-public record NodeConfig(
-        @Loggable @ConfigProperty(defaultValue = "0") @Min(0)
-        long earliestManagedBlock) {}
+public record NodeConfig(@Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock) {}
+
+// spotless:on
