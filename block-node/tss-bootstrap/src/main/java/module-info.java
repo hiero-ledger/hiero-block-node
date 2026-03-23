@@ -5,8 +5,6 @@ module org.hiero.block.node.tss.bootstrap {
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     requires transitive org.hiero.block.node.spi;
-    requires com.swirlds.config.api;
-    requires org.hiero.block.node.app.config;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             TssBootstrapPlugin;

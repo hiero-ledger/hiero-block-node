@@ -6,10 +6,6 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 
 public class TssBootstrapPlugin implements BlockNodePlugin {
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
-    /** True once TSS parameters have been persisted (file bootstrap or successful query peer BN). */
-    public static boolean tssDataPersisted;
-
     /**
      * {@inheritDoc}
      */
