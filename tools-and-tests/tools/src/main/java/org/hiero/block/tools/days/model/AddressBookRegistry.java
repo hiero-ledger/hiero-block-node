@@ -15,6 +15,7 @@ import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
 import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -23,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.hiero.block.internal.AddressBookHistory;
 import org.hiero.block.internal.DatedNodeAddressBook;
 import org.hiero.block.tools.config.NetworkConfig;
@@ -34,8 +36,10 @@ import picocli.CommandLine.Help.Ansi;
  * The current address book is the most recently added address book.
  */
 public class AddressBookRegistry {
-    /** List of dated address books, ordered by block timestamp, oldest first */
-    private final List<DatedNodeAddressBook> addressBooks = new ArrayList<>();
+    /** List of dated address books, ordered by block timestamp, oldest first.
+     * Uses CopyOnWriteArrayList for thread-safe reads during parallel signature validation
+     * while the main thread may append new entries discovered from block data. */
+    private final List<DatedNodeAddressBook> addressBooks = new CopyOnWriteArrayList<>();
     // Maintain partial payloads for file id 2 only. Only completed parses for 0.0.102 are appended to addressBooks to
     // keep getCurrentAddressBook() aligned with authoritative book semantics.
     private ByteArrayOutputStream partialFileUpload = null;
@@ -78,6 +82,24 @@ public class AddressBookRegistry {
             AddressBookHistory.JSON.write(history, out);
         } catch (IOException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Reload the address book registry from a JSON file, replacing all current entries.
+     * Used when restoring from a checkpoint that may contain address books discovered
+     * during a previous validation run.
+     *
+     * @param jsonFile the path to the JSON file
+     */
+    public void reloadFromFile(Path jsonFile) {
+        try (var in = new ReadableStreamingData(Files.newInputStream(jsonFile))) {
+            AddressBookHistory history = AddressBookHistory.JSON.parse(in);
+            addressBooks.clear();
+            addressBooks.addAll(history.addressBooks());
+        } catch (IOException | ParseException e) {
+            throw new UncheckedIOException(
+                    new IOException("Error reloading Address Book History JSON file " + jsonFile, e));
         }
     }
 

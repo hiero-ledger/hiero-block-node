@@ -163,6 +163,81 @@ class SignatureValidationTest {
     }
 
     @Test
+    void insufficientSignaturesErrorContainsDiagnostics(@TempDir Path tempDir) throws Exception {
+        // Create a valid chain (5 nodes, threshold = 2) but keep only 1 signature
+        List<Block> chain = TestBlockFactory.createValidChain(1);
+        Block block = chain.getFirst();
+        List<BlockItem> items = new ArrayList<>();
+        for (BlockItem item : block.items()) {
+            if (item.hasBlockProof()) {
+                SignedRecordFileProof orig = item.blockProofOrThrow().signedRecordFileProofOrThrow();
+                // Keep only 1 valid signature — below threshold of 2
+                List<RecordFileSignature> oneSig =
+                        List.of(orig.recordFileSignatures().getFirst());
+                SignedRecordFileProof newProof = SignedRecordFileProof.newBuilder()
+                        .version(orig.version())
+                        .recordFileSignatures(oneSig)
+                        .build();
+                items.add(BlockItem.newBuilder()
+                        .blockProof(BlockProof.newBuilder()
+                                .signedRecordFileProof(newProof)
+                                .build())
+                        .build());
+            } else {
+                items.add(item);
+            }
+        }
+        Block blockWith1Sig = new Block(items);
+        TestBlockFactory.writeAddressBookHistory(tempDir);
+        AddressBookRegistry registry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
+        SignatureValidation validation = new SignatureValidation(registry);
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(blockWith1Sig), 0));
+        String msg = ex.getMessage();
+        // Should contain per-signature diagnostics
+        assertTrue(msg.contains("blockTime="), "Should include blockTime in diagnostic");
+        assertTrue(msg.contains("Per-signature results:"), "Should include per-signature header");
+        assertTrue(msg.contains("VERIFIED key=..."), "Should include VERIFIED result for the valid signature");
+    }
+
+    @Test
+    void insufficientSignaturesErrorContainsErrorDiagnosticForUnknownNode(@TempDir Path tempDir) throws Exception {
+        // Create a block with only an unknown node signature
+        List<Block> chain = TestBlockFactory.createValidChain(1);
+        Block block = chain.getFirst();
+        List<BlockItem> items = new ArrayList<>();
+        for (BlockItem item : block.items()) {
+            if (item.hasBlockProof()) {
+                SignedRecordFileProof orig = item.blockProofOrThrow().signedRecordFileProofOrThrow();
+                // Only an unknown node signature
+                List<RecordFileSignature> unknownSig = List.of(RecordFileSignature.newBuilder()
+                        .nodeId(99)
+                        .signaturesBytes(Bytes.wrap(new byte[] {1, 2, 3}))
+                        .build());
+                SignedRecordFileProof newProof = SignedRecordFileProof.newBuilder()
+                        .version(orig.version())
+                        .recordFileSignatures(unknownSig)
+                        .build();
+                items.add(BlockItem.newBuilder()
+                        .blockProof(BlockProof.newBuilder()
+                                .signedRecordFileProof(newProof)
+                                .build())
+                        .build());
+            } else {
+                items.add(item);
+            }
+        }
+        Block blockWithUnknown = new Block(items);
+        TestBlockFactory.writeAddressBookHistory(tempDir);
+        AddressBookRegistry registry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
+        SignatureValidation validation = new SignatureValidation(registry);
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(blockWithUnknown), 0));
+        String msg = ex.getMessage();
+        assertTrue(msg.contains("ERROR"), "Should include ERROR diagnostic for unknown node");
+    }
+
+    @Test
     void unknownSignerMixedWithValid_thresholdStillMet(@TempDir Path tempDir) throws Exception {
         // Create a valid chain (5 nodes, threshold = 2)
         List<Block> chain = TestBlockFactory.createValidChain(1);

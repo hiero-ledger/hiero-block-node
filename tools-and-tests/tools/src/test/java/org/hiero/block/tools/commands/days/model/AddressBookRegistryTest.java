@@ -8,11 +8,15 @@ import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.hedera.pbj.runtime.io.stream.ReadableStreamingData;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class AddressBookRegistryTest {
 
@@ -228,5 +232,59 @@ public class AddressBookRegistryTest {
                     bookWayAfter.nodeAddress().size(),
                     "Block way after all entries should NOT fall back to genesis");
         }
+    }
+
+    /**
+     * Test that reloadFromFile replaces the registry contents with the saved file.
+     */
+    @Test
+    public void testReloadFromFile(@TempDir Path tempDir) throws Exception {
+        // Create a registry and add an address book update
+        try (var in = new ReadableStreamingData(AddressBookRegistryTest.class.getResourceAsStream(
+                "/2021-06-08T17_35_26.000831000Z-file-102-update-transaction-body.bin"))) {
+            int numOfTransactions = in.readInt();
+            List<TransactionBody> transactionBodies = new ArrayList<>(numOfTransactions);
+            for (int i = 0; i < numOfTransactions; i++) {
+                int len = in.readInt();
+                Bytes tbBytes = in.readBytes(len);
+                transactionBodies.add(TransactionBody.PROTOBUF.parse(tbBytes));
+            }
+
+            AddressBookRegistry registry1 = new AddressBookRegistry();
+            registry1.updateAddressBook(Instant.parse("2021-06-08T17:35:26.000831000Z"), transactionBodies);
+            assertEquals(2, registry1.getAddressBookCount(), "Registry should have 2 entries after update");
+
+            // Save to file
+            Path jsonFile = tempDir.resolve("addressBookHistory.json");
+            registry1.saveAddressBookRegistryToJsonFile(jsonFile);
+
+            // Create a fresh registry (only genesis) and reload from the saved file
+            AddressBookRegistry registry2 = new AddressBookRegistry();
+            assertEquals(1, registry2.getAddressBookCount(), "Fresh registry should have 1 entry");
+
+            registry2.reloadFromFile(jsonFile);
+            assertEquals(2, registry2.getAddressBookCount(), "Reloaded registry should have 2 entries");
+
+            // Verify the current address book matches
+            assertEquals(
+                    registry1.getCurrentAddressBook().nodeAddress().size(),
+                    registry2.getCurrentAddressBook().nodeAddress().size(),
+                    "Reloaded registry should have same node count as original");
+        }
+    }
+
+    @Test
+    public void testReloadFromNonExistentFileThrows(@TempDir Path tempDir) {
+        AddressBookRegistry registry = new AddressBookRegistry();
+        Path nonExistent = tempDir.resolve("does-not-exist.json");
+        assertThrows(UncheckedIOException.class, () -> registry.reloadFromFile(nonExistent));
+    }
+
+    @Test
+    public void testReloadFromCorruptFileThrows(@TempDir Path tempDir) throws Exception {
+        AddressBookRegistry registry = new AddressBookRegistry();
+        Path corruptFile = tempDir.resolve("corrupt.json");
+        Files.writeString(corruptFile, "this is not valid json");
+        assertThrows(UncheckedIOException.class, () -> registry.reloadFromFile(corruptFile));
     }
 }
