@@ -82,9 +82,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** CompletionService for async block upload tasks. */
     private CompletionService<SingleBlockStoreTask.UploadResult> completionService;
 
-    /** Whether the plugin is enabled (endpoint URL is non-blank). */
-    private boolean enabled;
-
+    /** Virtual-thread executor sourced from the thread-pool manager. Non-null only when enabled. */
     private ExecutorService virtualThreadExecutor;
 
     // ---- Constructors -------------------------------------------------------
@@ -122,7 +120,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             return;
         }
 
-        enabled = true;
         blockMessaging.registerBlockNotificationHandler(this, false, name());
         virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
     }
@@ -130,15 +127,14 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** {@inheritDoc} */
     @Override
     public void start() {
-        if (!enabled) {
-            return;
+        if (virtualThreadExecutor == null) {
+            return; // disabled — endpointUrl was blank in init()
         }
         if (s3Client == null) {
             try {
                 s3Client = createS3Client(config);
             } catch (final com.hedera.bucky.S3ClientException e) {
                 LOGGER.log(WARNING, "Failed to create S3 client; plugin will be disabled.", e);
-                enabled = false;
                 return;
             }
         }
@@ -167,7 +163,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      */
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        if (!enabled || s3Client == null || completionService == null) {
+        if (s3Client == null || completionService == null) {
             return;
         }
 
