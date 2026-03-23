@@ -48,7 +48,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
 
     private final long blockNumber;
     private final BlockUnparsed block;
-    private final S3Client s3Client;
+    private final S3UploadClient s3Client;
     private final String objectKey;
     private final String storageClass;
     private final int uploadTimeoutSeconds;
@@ -59,7 +59,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
      *
      * @param blockNumber          the block number being uploaded
      * @param block                the verified block payload
-     * @param s3Client             the S3 client to use for the upload
+     * @param s3Client             the upload client to use for the upload
      * @param objectKey            the fully-qualified S3 object key
      * @param storageClass         the S3 storage class
      * @param uploadTimeoutSeconds max seconds to allow before treating the upload as failed
@@ -68,7 +68,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     public SingleBlockStoreTask(
             final long blockNumber,
             @NonNull final BlockUnparsed block,
-            @NonNull final S3Client s3Client,
+            @NonNull final S3UploadClient s3Client,
             @NonNull final String objectKey,
             @NonNull final String storageClass,
             final int uploadTimeoutSeconds,

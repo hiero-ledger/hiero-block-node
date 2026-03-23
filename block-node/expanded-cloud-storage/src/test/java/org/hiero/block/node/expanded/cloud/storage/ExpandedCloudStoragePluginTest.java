@@ -41,8 +41,8 @@ import org.junit.jupiter.api.Timeout;
 /**
  * Unit tests for {@link ExpandedCloudStoragePlugin}.
  *
- * <p>All tests here inject a {@link CapturingS3Client} or {@link NoOpS3Client} via the
- * package-private constructor — no Docker or real S3 endpoint required.
+ * <p>All tests here inject a {@link CapturingS3Client} or an anonymous {@link S3UploadClient}
+ * subclass via the package-private constructor — no Docker or real S3 endpoint required.
  *
  * @see ExpandedCloudStoragePluginIntegrationTest for MinIO-backed integration tests
  */
@@ -60,13 +60,13 @@ class ExpandedCloudStoragePluginTest
 
     /**
      * Records {@code uploadFile} calls so tests can assert the exact arguments passed to the
-     * S3 client without hitting any real endpoint.
+     * upload client without hitting any real endpoint.
      */
-    private static class CapturingS3Client extends NoOpS3Client {
+    private static class CapturingS3Client extends S3UploadClient {
         final List<UploadCall> uploads = new java.util.ArrayList<>();
 
         @Override
-        public void uploadFile(
+        void uploadFile(
                 final String objectKey,
                 final String storageClass,
                 final Iterator<byte[]> contentIterable,
@@ -74,6 +74,9 @@ class ExpandedCloudStoragePluginTest
                 throws S3ClientException, IOException {
             uploads.add(new UploadCall(objectKey, storageClass, contentType));
         }
+
+        @Override
+        public void close() {}
     }
 
     public ExpandedCloudStoragePluginTest() {
@@ -237,16 +240,16 @@ class ExpandedCloudStoragePluginTest
     void responseExceptionProducesFailedNotification() throws InterruptedException {
         final int statusCode = 503;
         final byte[] body = "Service Unavailable".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        final S3Client throwingClient = new NoOpS3Client() {
+        final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            public void uploadFile(
-                    final String objectKey,
-                    final String storageClass,
-                    final Iterator<byte[]> contentIterable,
-                    final String contentType)
+            void uploadFile(final String objectKey, final String storageClass,
+                    final Iterator<byte[]> contentIterable, final String contentType)
                     throws S3ClientException, IOException {
                 throw new S3ResponseException(statusCode, body, null, "S3 returned 503");
             }
+
+            @Override
+            public void close() {}
         };
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
@@ -265,17 +268,17 @@ class ExpandedCloudStoragePluginTest
     @Test
     @DisplayName("S3ResponseException (HTTP 403 Forbidden) is not rethrown by handleVerification")
     void responseExceptionForbiddenNotRethrown() {
-        final S3Client throwingClient = new NoOpS3Client() {
+        final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            public void uploadFile(
-                    final String objectKey,
-                    final String storageClass,
-                    final Iterator<byte[]> contentIterable,
-                    final String contentType)
+            void uploadFile(final String objectKey, final String storageClass,
+                    final Iterator<byte[]> contentIterable, final String contentType)
                     throws S3ClientException, IOException {
                 throw new S3ResponseException(
                         403, "Forbidden".getBytes(java.nio.charset.StandardCharsets.UTF_8), null, "Access denied");
             }
+
+            @Override
+            public void close() {}
         };
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
@@ -291,16 +294,16 @@ class ExpandedCloudStoragePluginTest
     @Test
     @DisplayName("S3ClientException thrown by uploadFile is not rethrown by handleVerification")
     void s3ExceptionNotRethrown() {
-        final S3Client throwingClient = new NoOpS3Client() {
+        final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            public void uploadFile(
-                    final String objectKey,
-                    final String storageClass,
-                    final Iterator<byte[]> contentIterable,
-                    final String contentType)
+            void uploadFile(final String objectKey, final String storageClass,
+                    final Iterator<byte[]> contentIterable, final String contentType)
                     throws S3ClientException, IOException {
                 throw new S3ClientException("Simulated base S3 failure");
             }
+
+            @Override
+            public void close() {}
         };
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
@@ -319,9 +322,9 @@ class ExpandedCloudStoragePluginTest
         final int[] statusCodes = {400, 403, 404, 409, 500, 503};
         for (final int code : statusCodes) {
             final byte[] responseBody = ("Error " + code).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            final S3Client throwingClient = new NoOpS3Client() {
+            final S3UploadClient throwingClient = new S3UploadClient() {
                 @Override
-                public void uploadFile(
+                void uploadFile(
                         final String objectKey,
                         final String storageClass,
                         final Iterator<byte[]> contentIterable,
@@ -332,6 +335,9 @@ class ExpandedCloudStoragePluginTest
                     assertTrue(ex.getResponseBody().length > 0);
                     throw ex;
                 }
+
+                @Override
+                public void close() {}
             };
             start(
                     new ExpandedCloudStoragePlugin(throwingClient),
@@ -406,9 +412,9 @@ class ExpandedCloudStoragePluginTest
     @Test
     @DisplayName("IOException from uploadFile produces PersistedNotification with succeeded=false")
     void ioExceptionProducesFailedNotification() throws InterruptedException {
-        final S3Client throwingClient = new NoOpS3Client() {
+        final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            public void uploadFile(
+            void uploadFile(
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
@@ -416,6 +422,9 @@ class ExpandedCloudStoragePluginTest
                     throws S3ClientException, IOException {
                 throw new IOException("Simulated I/O failure");
             }
+
+            @Override
+            public void close() {}
         };
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
@@ -436,9 +445,9 @@ class ExpandedCloudStoragePluginTest
     @Test
     @DisplayName("Base S3ClientException from uploadFile produces PersistedNotification with succeeded=false")
     void s3ClientExceptionProducesFailedNotification() throws InterruptedException {
-        final S3Client throwingClient = new NoOpS3Client() {
+        final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            public void uploadFile(
+            void uploadFile(
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
@@ -446,6 +455,9 @@ class ExpandedCloudStoragePluginTest
                     throws S3ClientException, IOException {
                 throw new S3ClientException("Simulated base S3 failure");
             }
+
+            @Override
+            public void close() {}
         };
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
@@ -465,7 +477,15 @@ class ExpandedCloudStoragePluginTest
     @DisplayName("stop() closes the injected S3 client")
     void stopClosesS3Client() throws InterruptedException {
         final AtomicBoolean closed = new AtomicBoolean(false);
-        final S3Client trackingClient = new NoOpS3Client() {
+        final S3UploadClient trackingClient = new S3UploadClient() {
+            @Override
+            void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws S3ClientException, IOException {}
+
             @Override
             public void close() {
                 closed.set(true);
