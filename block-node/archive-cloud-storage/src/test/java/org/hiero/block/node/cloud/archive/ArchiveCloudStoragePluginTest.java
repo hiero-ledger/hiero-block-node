@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.archive.cloud.storage;
+package org.hiero.block.node.cloud.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,7 +45,7 @@ public class ArchiveCloudStoragePluginTest {
         @DisplayName("Root directory is empty")
         void testRootDirectoryIsEmpty() {
             start(toTest, testHistoricalBlockFacility);
-            assertThat(rootDir.toFile()).isEmptyDirectory();
+            assertThat(rootDir).isEmptyDirectory();
         }
     }
 }

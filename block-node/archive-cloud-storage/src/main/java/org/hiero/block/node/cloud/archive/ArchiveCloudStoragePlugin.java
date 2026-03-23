@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.archive.cloud.storage;
+package org.hiero.block.node.cloud.archive;
 
 import static java.lang.System.Logger.Level.DEBUG;
 

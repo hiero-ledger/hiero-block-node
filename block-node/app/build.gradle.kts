@@ -206,7 +206,7 @@ testModuleInfo {
     runtimeOnly("org.hiero.block.node.access.service")
     runtimeOnly("org.hiero.block.node.backfill")
     runtimeOnly("org.hiero.block.node.archive.s3cloud")
-    runtimeOnly("org.hiero.block.node.archive.cloud.storage")
+    runtimeOnly("org.hiero.block.node.cloud.archive")
 
     exportsTo("com.swirlds.config.impl")
 }
