@@ -259,12 +259,17 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      * @return the S3 object key
      */
     String buildObjectKey(final long blockNumber) {
-        final String padded = String.format("%019d", blockNumber);
-        final String folderPath = padded.substring(0, 4)
-                + "/" + padded.substring(4, 8)
-                + "/" + padded.substring(8, 12)
-                + "/" + padded.substring(12, 16)
-                + "/" + padded.substring(16);
+        final char[] buf = new char[19];
+        long n = blockNumber;
+        for (int i = 18; i >= 0; i--) {
+            buf[i] = (char) ('0' + (n % 10));
+            n /= 10;
+        }
+        final String folderPath = new String(buf, 0, 4)
+                + "/" + new String(buf, 4, 4)
+                + "/" + new String(buf, 8, 4)
+                + "/" + new String(buf, 12, 4)
+                + "/" + new String(buf, 16, 3);
         final String prefix = config.objectKeyPrefix();
         return (prefix == null || prefix.isEmpty())
                 ? folderPath + ".blk.zstd"
