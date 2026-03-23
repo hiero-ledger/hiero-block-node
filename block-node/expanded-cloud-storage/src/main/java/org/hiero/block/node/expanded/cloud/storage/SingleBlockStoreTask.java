@@ -5,10 +5,14 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -89,7 +93,6 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
      */
     @Override
     public UploadResult call() {
-        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(uploadTimeoutSeconds);
         try {
             final byte[] protoBytes = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
             final byte[] compressed = CompressionType.ZSTD.compress(protoBytes);
@@ -99,26 +102,31 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
                 return new UploadResult(blockNumber, false, blockSource);
             }
 
-            if (System.nanoTime() > deadline) {
-                LOGGER.log(
-                        WARNING,
-                        "Block {0}: compression exceeded upload timeout ({1}s), skipping upload.",
-                        blockNumber,
-                        uploadTimeoutSeconds);
+            final ExecutorService uploadExecutor = Executors.newVirtualThreadPerTaskExecutor();
+            final Future<Void> upload = uploadExecutor.submit(() -> {
+                s3Client.uploadFile(
+                        objectKey, storageClass, Collections.singletonList(compressed).iterator(), CONTENT_TYPE);
+                return null;
+            });
+            uploadExecutor.shutdown();
+            try {
+                upload.get(uploadTimeoutSeconds, TimeUnit.SECONDS);
+            } catch (final TimeoutException e) {
+                upload.cancel(true);
+                LOGGER.log(WARNING, "Block {0}: upload timed out after {1}s.", blockNumber, uploadTimeoutSeconds);
                 return new UploadResult(blockNumber, false, blockSource);
+            } catch (final ExecutionException e) {
+                LOGGER.log(WARNING, "Block {0}: upload failed: {1}", blockNumber, e.getCause().getMessage());
+                return new UploadResult(blockNumber, false, blockSource);
+            } finally {
+                uploadExecutor.shutdownNow();
             }
-
-            s3Client.uploadFile(
-                    objectKey,
-                    storageClass,
-                    Collections.singletonList(compressed).iterator(),
-                    CONTENT_TYPE);
 
             LOGGER.log(TRACE, "Block {0}: uploaded to {1}", blockNumber, objectKey);
             return new UploadResult(blockNumber, true, blockSource);
 
-        } catch (final com.hedera.bucky.S3ClientException | IOException e) {
-            LOGGER.log(WARNING, "Block {0}: upload failed: {1}", blockNumber, e.getMessage());
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
             return new UploadResult(blockNumber, false, blockSource);
         }
     }
