@@ -5,7 +5,8 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.util.Collections;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -102,10 +103,24 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
                 return new UploadResult(blockNumber, false, blockSource);
             }
 
+            final byte[] payload = compressed;
             final ExecutorService uploadExecutor = Executors.newVirtualThreadPerTaskExecutor();
             final Future<Void> upload = uploadExecutor.submit(() -> {
-                s3Client.uploadFile(
-                        objectKey, storageClass, Collections.singletonList(compressed).iterator(), CONTENT_TYPE);
+                s3Client.uploadFile(objectKey, storageClass, new Iterator<>() {
+                    private boolean hasNext = true;
+
+                    @Override
+                    public boolean hasNext() {
+                        return hasNext;
+                    }
+
+                    @Override
+                    public byte[] next() {
+                        if (!hasNext) throw new NoSuchElementException();
+                        hasNext = false;
+                        return payload;
+                    }
+                }, CONTENT_TYPE);
                 return null;
             });
             uploadExecutor.shutdown();
