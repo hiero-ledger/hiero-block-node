@@ -144,7 +144,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** {@inheritDoc} */
     @Override
     public void stop() {
-        BlockNodePlugin.super.stop();
         drainCompletedTasks();
         if (s3Client != null) {
             s3Client.close();
