@@ -13,7 +13,6 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -61,8 +60,8 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  * default). Set it to a non-empty URL to activate uploads.
  *
  * <h2>S3 client implementation</h2>
- * The S3 client is abstracted behind the {@link S3Client} interface, backed by
- * {@link BuckyS3ClientAdapter} which wraps {@code com.hedera.bucky.S3Client}.
+ * Uploads are performed via {@link BuckyS3ClientAdapter}, which wraps
+ * {@code com.hedera.bucky.S3Client} and implements the local {@link S3Client} test seam.
  */
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
 
@@ -82,9 +81,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
 
     /** CompletionService for async block upload tasks. */
     private CompletionService<SingleBlockStoreTask.UploadResult> completionService;
-
-    /** Count of tasks submitted but not yet drained; used by awaitAndDrain to know when to stop. */
-    private final AtomicInteger pendingTasks = new AtomicInteger(0);
 
     /** Whether the plugin is enabled (endpoint URL is non-blank). */
     private boolean enabled;
@@ -195,7 +191,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
 
         final String objectKey = buildObjectKey(blockNumber);
-        pendingTasks.incrementAndGet();
         completionService.submit(new SingleBlockStoreTask(
                 blockNumber,
                 block,
@@ -213,14 +208,15 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      * publishes a {@link PersistedNotification} for each result.
      *
      * <p>This is a non-blocking drain — it only collects tasks that have already finished.
+     * Package-private visibility allows test helpers in this package to drive the drain loop
+     * without holding production threads or needing a pending-task counter.
      */
-    private void drainCompletedTasks() {
+    void drainCompletedTasks() {
         if (completionService == null) {
             return;
         }
         Future<SingleBlockStoreTask.UploadResult> completed;
         while ((completed = completionService.poll()) != null) {
-            pendingTasks.decrementAndGet();
             try {
                 final SingleBlockStoreTask.UploadResult result = completed.get();
                 blockMessaging.sendBlockPersisted(
@@ -246,7 +242,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     }
 
     /**
-     * Builds the S3 object key for the given block number using the 4-digit folder hierarchy.
+     * Builds the S3 object key for the given block number using the 4‑digit folder hierarchy.
      *
      * <p>Format: {@code {prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd}
      * <p>The 19-digit zero-padded block number is split as 4/4/4/4/3 characters:
@@ -274,36 +270,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         return (prefix == null || prefix.isEmpty())
                 ? folderPath + ".blk.zstd"
                 : prefix + "/" + folderPath + ".blk.zstd";
-    }
-
-    /**
-     * Blocks until all currently-submitted upload tasks have completed, then drains their results.
-     * Package-private for test use only.
-     *
-     * @param timeoutMillis maximum milliseconds to wait for all in-flight tasks
-     * @throws InterruptedException if the calling thread is interrupted while waiting
-     */
-    void awaitAndDrain(final long timeoutMillis) throws InterruptedException {
-        if (completionService == null) return;
-        final long deadline = System.currentTimeMillis() + timeoutMillis;
-        while (pendingTasks.get() > 0 && System.currentTimeMillis() < deadline) {
-            final Future<SingleBlockStoreTask.UploadResult> f =
-                    completionService.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS);
-            if (f == null) continue;
-            pendingTasks.decrementAndGet();
-            try {
-                final SingleBlockStoreTask.UploadResult result = f.get();
-                if (blockMessaging != null) {
-                    blockMessaging.sendBlockPersisted(new PersistedNotification(
-                            result.blockNumber(), result.succeeded(), 0, result.blockSource()));
-                }
-            } catch (final ExecutionException e) {
-                LOGGER.log(
-                        WARNING,
-                        "Unexpected exception in upload task: {0}",
-                        e.getCause().getMessage());
-            }
-        }
     }
 
     /**

@@ -56,7 +56,6 @@ class ExpandedCloudStoragePluginIntegrationTest
     private static final String S3MOCK_VERSION = "4.11.0";
     private static final String ACCESS_KEY = "test-access-key";
     private static final String SECRET_KEY = "test-secret-key";
-    private static final long DRAIN_TIMEOUT_MS = 5_000L;
 
     private static S3MockContainer s3MockContainer;
     private static S3Client s3Client;
@@ -116,7 +115,7 @@ class ExpandedCloudStoragePluginIntegrationTest
         for (final TestBlock block : blocks) {
             plugin.handleVerification(verifiedNotification(block.number(), block.blockUnparsed()));
         }
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(5);
 
         final Set<String> objects = listAllObjects("blocks/");
         for (long i = 100L; i <= 104L; i++) {
@@ -144,7 +143,7 @@ class ExpandedCloudStoragePluginIntegrationTest
 
         final TestBlock block = testBlock(200L);
         plugin.handleVerification(verifiedNotification(200L, block.blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(1);
 
         final String padded = String.format("%019d", 200L);
         final String key = "intblocks/"
@@ -174,7 +173,7 @@ class ExpandedCloudStoragePluginIntegrationTest
 
         final TestBlock block = testBlock(300L);
         plugin.handleVerification(verifiedNotification(300L, block.blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(1);
 
         final String padded = String.format("%019d", 300L);
         final String expectedKey = padded.substring(0, 4) + "/" + padded.substring(4, 8) + "/"
@@ -186,6 +185,15 @@ class ExpandedCloudStoragePluginIntegrationTest
     }
 
     // ---- Private helpers ----------------------------------------------------
+
+    private void awaitNotifications(final int expectedCount) throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + 10_000L;
+        while (System.currentTimeMillis() < deadline) {
+            plugin.drainCompletedTasks();
+            if (blockMessaging.getSentPersistedNotifications().size() >= expectedCount) return;
+            Thread.sleep(50);
+        }
+    }
 
     private Set<String> listAllObjects(final String prefix) {
         try {

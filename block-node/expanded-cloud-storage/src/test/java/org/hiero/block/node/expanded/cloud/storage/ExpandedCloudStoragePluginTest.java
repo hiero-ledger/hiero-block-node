@@ -53,7 +53,6 @@ class ExpandedCloudStoragePluginTest
     private static final Instant START_TIME =
             ZonedDateTime.of(2025, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant();
     private static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
-    private static final long DRAIN_TIMEOUT_MS = 5_000L;
 
     // ---- Capturing S3 client ------------------------------------------------
 
@@ -96,6 +95,21 @@ class ExpandedCloudStoragePluginTest
         return new VerificationNotification(false, blockNumber, Bytes.EMPTY, null, BlockSource.UNKNOWN);
     }
 
+    /**
+     * Drives the plugin's drain loop and polls until at least {@code expectedCount}
+     * {@link PersistedNotification}s have been dispatched, or the 5-second timeout elapses.
+     * Uses the package-private {@link ExpandedCloudStoragePlugin#drainCompletedTasks()} so
+     * tests do not need a second {@code handleVerification} call to flush results.
+     */
+    private void awaitNotifications(final int expectedCount) throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + 5_000L;
+        while (System.currentTimeMillis() < deadline) {
+            plugin.drainCompletedTasks();
+            if (blockMessaging.getSentPersistedNotifications().size() >= expectedCount) return;
+            Thread.sleep(10);
+        }
+    }
+
     // ---- Tests --------------------------------------------------------------
 
     @Test
@@ -108,7 +122,7 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", ""));
 
         plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        // Plugin is disabled — handleVerification is a synchronous no-op; no upload task submitted.
 
         assertEquals(0, capturing.uploads.size(), "No uploads when plugin is disabled");
         assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty(), "No PersistedNotification when disabled");
@@ -124,7 +138,7 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
 
         plugin.handleVerification(failedNotification(0L));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        // Failed verification is skipped synchronously before any task is submitted.
 
         assertEquals(0, capturing.uploads.size(), "No upload for a failed notification");
     }
@@ -142,7 +156,7 @@ class ExpandedCloudStoragePluginTest
                         "expanded.cloud.storage.storageClass", "STANDARD"));
 
         plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(1);
 
         assertEquals(1, capturing.uploads.size(), "Exactly one uploadFile call expected");
         final UploadCall call = capturing.uploads.getFirst();
@@ -171,7 +185,7 @@ class ExpandedCloudStoragePluginTest
                 verifiedNotification(108273182L, testBlock(108273182L).blockUnparsed()));
         plugin.handleVerification(
                 verifiedNotification(1234567L, testBlock(1234567L).blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(3);
 
         assertEquals(3, capturing.uploads.size());
         final Set<String> keys =
@@ -193,7 +207,7 @@ class ExpandedCloudStoragePluginTest
                         "expanded.cloud.storage.objectKeyPrefix", ""));
 
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(1);
 
         assertEquals(1, capturing.uploads.size());
         assertEquals(
@@ -210,7 +224,7 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
 
         plugin.handleVerification(verifiedNotification(42L, testBlock(42).blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(1);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(1, notifications.size(), "Exactly one PersistedNotification expected");
@@ -240,7 +254,7 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
 
         plugin.handleVerification(verifiedNotification(7L, testBlock(7).blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(1);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(1, notifications.size(), "PersistedNotification must be sent even on S3ResponseException");
@@ -381,7 +395,7 @@ class ExpandedCloudStoragePluginTest
         // verified=true but block number is negative
         plugin.handleVerification(new VerificationNotification(
                 true, -1L, Bytes.EMPTY, testBlock(0).blockUnparsed(), BlockSource.UNKNOWN));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        // Both cases are skipped synchronously before any task is submitted.
 
         assertEquals(0, capturing.uploads.size(), "No upload expected for null block or negative block number");
         assertTrue(
@@ -409,7 +423,7 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
 
         plugin.handleVerification(verifiedNotification(5L, testBlock(5).blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(1);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(1, notifications.size(), "PersistedNotification must be sent even on IOException");
@@ -439,7 +453,7 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
 
         plugin.handleVerification(verifiedNotification(9L, testBlock(9).blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(1);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(1, notifications.size(), "PersistedNotification must be sent even on base S3ClientException");
@@ -463,7 +477,7 @@ class ExpandedCloudStoragePluginTest
                 Map.of("expanded.cloud.storage.endpointUrl", "http://fake:9000"));
 
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
-        plugin.awaitAndDrain(DRAIN_TIMEOUT_MS);
+        awaitNotifications(1);
 
         plugin.stop();
         assertTrue(closed.get(), "plugin.stop() must call close() on the S3 client");
