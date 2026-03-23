@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.tss.bootstrap;
 
-import java.lang.System.Logger.Level;
-import java.nio.file.Files;
-import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -18,17 +15,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
      */
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
-        // see if the statusDetail TSS Data file exists
-        // The configuration for all plugins
-        NodeConfig nodeConfig = context.configuration().getConfigData(NodeConfig.class);
-        // serialized TssData (ledger ID, WRAPS VK, and Rosters)
-        final var tssParametersFile = nodeConfig.tssDataFilePath();
-        if (!Files.exists(tssParametersFile)) {
-            // TSS Data is not persisted yet.
-            // Contact another blocknode server to get its TssData
-            // Use the same config as Backfill Plugin
-            // How to get it to the statusDetailPlugin?
-            LOGGER.log(Level.DEBUG, "No TssData file found, contacting peer BlockNode");
-        }
+        // todo: see if the statusDetail TSS Data file exists
+        // todo: get the tss information and add to context
     }
 }
