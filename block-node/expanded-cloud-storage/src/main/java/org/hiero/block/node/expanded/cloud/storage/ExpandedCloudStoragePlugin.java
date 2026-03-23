@@ -65,7 +65,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  */
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
 
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    private static final System.Logger LOGGER = System.getLogger(ExpandedCloudStoragePlugin.class.getName());
 
     /** Plugin configuration, set during {@link #init}. */
     private ExpandedCloudStorageConfig config;
