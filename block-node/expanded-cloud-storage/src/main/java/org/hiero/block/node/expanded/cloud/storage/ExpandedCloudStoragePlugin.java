@@ -132,7 +132,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
         if (s3Client == null) {
             try {
-                s3Client = createS3Client(config);
+                s3Client = new BuckyS3ClientAdapter(config);
             } catch (final com.hedera.bucky.S3ClientException e) {
                 LOGGER.log(WARNING, "Failed to create S3 client; plugin will be disabled.", e);
                 return;
@@ -268,15 +268,4 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 : prefix + "/" + folderPath + ".blk.zstd";
     }
 
-    /**
-     * Factory method for the production S3 client.
-     *
-     * @param cfg the plugin configuration
-     * @return a new {@link S3Client} backed by {@link BuckyS3ClientAdapter}
-     * @throws com.hedera.bucky.S3ClientException if the client cannot be initialised
-     */
-    private static S3Client createS3Client(final ExpandedCloudStorageConfig cfg)
-            throws com.hedera.bucky.S3ClientException {
-        return new BuckyS3ClientAdapter(cfg);
-    }
 }
