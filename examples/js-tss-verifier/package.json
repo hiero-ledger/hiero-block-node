@@ -1,0 +1,18 @@
+{
+  "name": "js-tss-verifier-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "verify": "tsx src/index.ts",
+    "verify:block0": "tsx src/index.ts ../../block-node/app/src/testFixtures/resources/test-blocks/tss/TssWraps/block-0.blk.zstd",
+    "verify:block10": "tsx src/index.ts ../../block-node/app/src/testFixtures/resources/test-blocks/tss/TssWraps/block-10.blk.zstd",
+    "verify:block1000": "tsx src/index.ts ../../block-node/app/src/testFixtures/resources/test-blocks/tss/TssWraps/block-1000.blk.zstd"
+  },
+  "dependencies": {
+    "@noble/curves": "^2.0.1",
+    "fzstd": "^0.1.1",
+    "protobufjs": "^8.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
