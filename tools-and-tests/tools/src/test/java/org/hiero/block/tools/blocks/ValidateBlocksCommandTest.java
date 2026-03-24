@@ -303,17 +303,20 @@ class ValidateBlocksCommandTest {
     // ── Missing address book ──
 
     @Test
-    void missingAddressBook_failsImmediately() throws Exception {
+    void missingAddressBookFallsBackToGenesisBook() throws Exception {
         List<Block> blocks = TestBlockFactory.createValidChain(3);
         writeBlocks(blocks);
-        // Don't write address book
+        // Don't write address book — should fall back to built-in genesis address book
 
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
+        // Without a matching address book file, the command falls back to the built-in
+        // genesis address book. Signature validation will fail because the test blocks
+        // use different keys than the genesis address book.
         assertTrue(
-                output.contains("No address book found"),
-                "Should fail immediately when no address book. Output:\n" + output);
+                output.contains("Using genesis address book") || output.contains("VALIDATION FAILED"),
+                "Should fall back to genesis address book or fail with signature mismatch. Output:\n" + output);
     }
 
     // ── Checkpoint/resume ──

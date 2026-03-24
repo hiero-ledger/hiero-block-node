@@ -76,8 +76,8 @@ public final class BlockChainValidation implements BlockValidation {
                         + simpleHash(previousBlockHash) + " readHash= " + simpleHash(readHash));
             }
         } else {
-            // First block: previousBlockRootHash must be the empty-tree hash
-            if (!Arrays.equals(readHash, EMPTY_TREE_HASH)) {
+            // First block: previousBlockRootHash must be the empty-tree hash or empty (testnet genesis)
+            if (readHash.length != 0 && !Arrays.equals(readHash, EMPTY_TREE_HASH)) {
                 throw new ValidationException("Block: " + blockNumber
                         + " - First block should have empty-tree previous hash. readHash= " + simpleHash(readHash));
             }

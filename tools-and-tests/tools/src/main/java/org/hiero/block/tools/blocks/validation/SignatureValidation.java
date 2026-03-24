@@ -8,7 +8,9 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -150,24 +152,39 @@ public final class SignatureValidation implements BlockValidation {
         // Verify each signature, tracking unique nodes to avoid counting duplicates.
         // Early-exit once threshold is met — no need to verify remaining signatures.
         final Set<Long> validatedNodes = new HashSet<>();
+        final List<String> diagnostics = new ArrayList<>();
         for (final var sig : signatures) {
             final long accountNum = AddressBookRegistry.accountIdForNode(sig.nodeId());
             try {
                 final String pubKeyHex = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
+                final String keySnippet =
+                        pubKeyHex.length() > 16 ? pubKeyHex.substring(pubKeyHex.length() - 16) : pubKeyHex;
                 if (SigFileUtils.verifyRsaSha384(
                         pubKeyHex, signedHash, sig.signaturesBytes().toByteArray())) {
                     validatedNodes.add(accountNum);
+                    diagnostics.add(
+                            "  node " + accountNum + " (id=" + sig.nodeId() + "): VERIFIED key=..." + keySnippet);
                     if (validatedNodes.size() >= threshold) break;
+                } else {
+                    diagnostics.add("  node " + accountNum + " (id=" + sig.nodeId() + "): FAILED key=..." + keySnippet);
                 }
             } catch (Exception e) {
-                // Unknown node — skip but count as failed
+                diagnostics.add("  node " + accountNum + " (id=" + sig.nodeId() + "): ERROR "
+                        + e.getClass().getSimpleName());
             }
         }
 
         if (validatedNodes.size() < threshold) {
-            throw new ValidationException("Block: " + blockNumber + " - Insufficient valid signatures: "
-                    + validatedNodes.size() + " unique nodes/" + totalNodes + " verified, need " + threshold + "/"
-                    + totalNodes);
+            final StringBuilder detail = new StringBuilder();
+            detail.append("Block: ").append(blockNumber);
+            detail.append(" - Insufficient valid signatures: ");
+            detail.append(validatedNodes.size()).append(" unique nodes/").append(totalNodes);
+            detail.append(" verified, need ").append(threshold).append("/").append(totalNodes);
+            detail.append("\n  blockTime=").append(blockTime);
+            detail.append(", signatures=").append(signatures.size());
+            detail.append("\n  Per-signature results:\n");
+            diagnostics.forEach(d -> detail.append(d).append("\n"));
+            throw new ValidationException(detail.toString());
         }
     }
 }
