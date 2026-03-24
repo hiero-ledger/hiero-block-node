@@ -12,6 +12,7 @@ dependencies.constraints {
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.34.0"
     val swirldsVersion = "0.61.3"
+    val eclipseCollectionsVersion = "13.0.0"
     val mockitoVersion = "5.23.0"
     val testContainersVersion = "1.21.4"
 
@@ -65,10 +66,10 @@ dependencies.constraints {
     api("io.grpc:grpc-netty:$grpcIoVersion") { because("io.grpc.netty") }
 
     // Eclipse Collections (primitive collections)
-    api("org.eclipse.collections:eclipse-collections-api:13.0.0") {
+    api("org.eclipse.collections:eclipse-collections-api:$eclipseCollectionsVersion") {
         because("org.eclipse.collections.api")
     }
-    api("org.eclipse.collections:eclipse-collections:13.0.0") {
+    api("org.eclipse.collections:eclipse-collections:$eclipseCollectionsVersion") {
         because("org.eclipse.collections.impl")
     }
 
