@@ -4,6 +4,7 @@ package org.hiero.block.node.stream.publisher;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
@@ -155,7 +156,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final long blockNumber, final BlockAction previousAction, final long handlerId) {
         return switch (previousAction) {
             case null -> getActionForHeader(blockNumber);
-            case ACCEPT -> getActionForCurrentlyStreaming(blockNumber);
+            case ACCEPT -> getActionForCurrentlyStreaming(blockNumber, handlerId);
             case END_ERROR, END_DUPLICATE ->
                 // This should not happen because the Handler should have shut down.
                 BlockAction.END_ERROR;
@@ -460,53 +461,47 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             } else {
                 return BlockAction.SKIP;
             }
-        } else if (blockNumber <= lastPersistedBlockNumber.get()) {
+        }
+        final long lastPersisted = lastPersistedBlockNumber.get();
+        final long nextUnstreamed = ensureNextGreaterThanPersisted(lastPersisted);
+        if (blockNumber <= lastPersisted) {
             return BlockAction.END_DUPLICATE;
-        } else if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
+        } else if (blockNumber < nextUnstreamed) {
             return streamBeforeEMBOrElse(blockNumber, BlockAction.SKIP);
-        } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
+        } else if (blockNumber == nextUnstreamed) {
             return resolveActionForHeader(blockNumber);
-        } else if (blockNumber > nextUnstreamedBlockNumber.get()) {
-            return BlockAction.SEND_BEHIND;
         } else {
-            // This should not be possible, all cases that could reach here are
-            // already handled above.
-            return BlockAction.END_ERROR;
+            return BlockAction.SEND_BEHIND;
         }
     }
 
+    private long ensureNextGreaterThanPersisted(final long lastPersisted) {
+        long nextUnstreamed = nextUnstreamedBlockNumber.get();
+        if (lastPersisted >= nextUnstreamed) {
+            // potentially increment the next unstreamed
+            final long newValue = lastPersisted + 1L;
+            if (nextUnstreamedBlockNumber.compareAndSet(nextUnstreamed, newValue)) {
+                // if cas was successful, we can update the local value as well
+                nextUnstreamed = newValue;
+            }
+        }
+        return nextUnstreamed;
+    }
+
     /// todo(1420) add documentation
-    private BlockAction getActionForCurrentlyStreaming(final long blockNumber) {
-        if (blockNumber <= lastPersistedBlockNumber.get()) {
-            return BlockAction.END_DUPLICATE;
-        } else if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < currentStreamingBlockNumber.get()) {
-            // Somehow another handler snuck in and is streaming _ahead_ of us.
-            // We'll have to skip the rest of this block.
-            return BlockAction.SKIP;
-        } else if (blockNumber >= currentStreamingBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
-            // This should result in new data being available, so we
-            // count down the data ready latch.
+    private BlockAction getActionForCurrentlyStreaming(final long blockNumber, final long handlerId) {
+        if (queueByBlockMap.containsKey(blockNumber)) {
             signalDataReady();
             if (blockNumber > metrics.highestBlockNumber.get()) {
                 metrics.highestBlockNumber.set(blockNumber);
             }
             // We're one of the handlers currently streaming, keep going.
             return BlockAction.ACCEPT;
-        } else if (blockNumber == nextUnstreamedBlockNumber.get()) {
-            // We're checking for a handler that is currently streaming, why error here?
-            // That is because next unstreamed is _after_ the block we're streaming.
-            // A handler that's currently streaming should always have a block number
-            // that is >= current streaming and < next unstreamed (the test above this one).
-            return BlockAction.END_ERROR;
-        } else if (blockNumber > nextUnstreamedBlockNumber.get()) {
-            // Something weird happened, we were streaming this block, but now
-            // the block node is behind. The most likely cause here is a block
-            // that failed to verify, or got stuck and did not finish, and was
-            // parallel streaming a block earlier than the calling handler.
-            return BlockAction.SEND_BEHIND;
         } else {
-            // This should not be possible, all cases that could reach here are
-            // already handled above.
+            // This is not expected
+            final String message =
+                    "Handler {0} wants to continue streaming block {1}, but it has no registered queue for the block";
+            LOGGER.log(WARNING, message, handlerId, blockNumber);
             return BlockAction.END_ERROR;
         }
     }
@@ -533,6 +528,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// todo(1420) add documentation
     private BlockAction resolveActionForHeader(final long blockNumber) {
         if (nextUnstreamedBlockNumber.compareAndSet(blockNumber, blockNumber + 1L)) {
+            if (blockNumber > metrics.highestBlockNumber.get()) {
+                metrics.highestBlockNumber.set(blockNumber);
+            }
             return BlockAction.ACCEPT;
         } else {
             // If the CAS does not succeed, we have either a SKIP or SEND_BEHIND
