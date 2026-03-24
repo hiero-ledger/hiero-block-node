@@ -25,11 +25,11 @@ reporting) but not cryptographic verification itself, which remains blocked (see
 
 ## Fixtures Tested
 
-| File | Block | Layout | Suffix | Bootstrap |
-|------|-------|--------|--------|-----------|
-| `block-0.blk.zstd` | 0 | `genesis-schnorr` | 192 bytes | present (ledger ID + 2 nodes) |
-| `block-10.blk.zstd` | 10 | `genesis-schnorr` | 192 bytes | not present |
-| `block-1000.blk.zstd` | 1000 | `wraps` | 704 bytes | present (carried over from block 0) |
+|         File          | Block |      Layout       |  Suffix   |              Bootstrap              |
+|-----------------------|-------|-------------------|-----------|-------------------------------------|
+| `block-0.blk.zstd`    | 0     | `genesis-schnorr` | 192 bytes | present (ledger ID + 2 nodes)       |
+| `block-10.blk.zstd`   | 10    | `genesis-schnorr` | 192 bytes | not present                         |
+| `block-1000.blk.zstd` | 1000  | `wraps`           | 704 bytes | present (carried over from block 0) |
 
 The earlier fixtures (`0.blk.gz`, `50.blk.gz`, `1319.blk.gz`) all decode to the 2920-byte
 genesis/Schnorr layout. Block 1000 (`block-1000.blk.zstd`) is the first confirmed WRAPS sample.
@@ -53,6 +53,7 @@ Confirmed by Rohit against the Java constants in `BlockVerificationUtils`:
 ```
 
 Java constants (from `BlockVerificationUtils`):
+
 ```java
 HINTS_VERIFICATION_KEY_LENGTH  = 1096
 HINTS_SIGNATURE_LENGTH         = 1632
