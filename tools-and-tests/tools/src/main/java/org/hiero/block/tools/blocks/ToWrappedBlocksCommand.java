@@ -610,7 +610,8 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                             effectiveBlock = updateAddressBookAndReverify(preVerified, blockNum, addressBookRegistry);
                         } catch (Exception e) {
                             // Don't fail wrapping for address book parse errors
-                            System.err.printf("Warning: address book auto-update failed at block %d: %s%n", blockNum, e);
+                            System.err.printf(
+                                    "Warning: address book auto-update failed at block %d: %s%n", blockNum, e);
                         }
 
                         // Monthly checkpoint: save state once per calendar month of blockchain data.
@@ -1043,9 +1044,13 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                     .map(psf -> psf.toRecordFileSignature(currentBook))
                     .toList();
             PrettyPrint.clearProgress();
-            final String yellowMessage = Ansi.AUTO.string("@|yellow Block %d: re-verified signatures"
-                    + " with updated address book:|@ %d verified (was %d)")
-            System.out.printf(yellowMessage, blockNum, reverifiedSigs.size(), preVerified.verifiedSignatures().size());
+            final String yellowMessage = Ansi.AUTO.string(
+                    "@|yellow Block %d: re-verified signatures" + " with updated address book:|@ %d verified (was %d)");
+            System.out.printf(
+                    yellowMessage,
+                    blockNum,
+                    reverifiedSigs.size(),
+                    preVerified.verifiedSignatures().size());
             return new PreVerifiedBlock(preVerified.recordBlock(), currentBook, reverifiedSigs);
         }
 

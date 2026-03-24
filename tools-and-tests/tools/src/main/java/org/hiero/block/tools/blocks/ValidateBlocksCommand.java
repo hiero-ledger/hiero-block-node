@@ -47,6 +47,7 @@ import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
 import org.hiero.block.tools.blocks.wrapped.BalanceCheckpointValidator;
+import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
