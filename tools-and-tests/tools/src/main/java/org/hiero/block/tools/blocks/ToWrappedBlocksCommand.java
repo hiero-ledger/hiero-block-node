@@ -610,8 +610,7 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                             effectiveBlock = updateAddressBookAndReverify(preVerified, blockNum, addressBookRegistry);
                         } catch (Exception e) {
                             // Don't fail wrapping for address book parse errors
-                            System.err.println("Warning: address book auto-update failed at block " + blockNum + ": "
-                                    + e.getMessage());
+                            System.err.printf("Warning: address book auto-update failed at block %d: %s%n", blockNum, e);
                         }
 
                         // Monthly checkpoint: save state once per calendar month of blockchain data.
