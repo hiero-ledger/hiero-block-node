@@ -100,7 +100,7 @@ anonymous subclass that delegates to `com.hedera.bucky.S3Client`. Tests subclass
 1. Serialising the block to Protobuf bytes (`BlockUnparsed.PROTOBUF.toBytes(block)`).
 2. Compressing to ZSTD (`CompressionType.ZSTD.compress(...)`).
 3. Uploading via `S3UploadClient.uploadFile()`, with a timeout enforced by submitting the
-   upload to a nested virtual-thread future and calling `Future.get(uploadTimeoutSeconds, SECONDS)`.
+upload to a nested virtual-thread future and calling `Future.get(uploadTimeoutSeconds, SECONDS)`.
 
 Returns `UploadResult(blockNumber, succeeded, bytesUploaded, blockSource)`. Failures (timeout,
 `S3ClientException`, `IOException`) are captured as `succeeded=false` and `bytesUploaded=0`
@@ -260,25 +260,25 @@ All properties are under the `expanded.cloud.storage` namespace.
 All counters are registered under the `hiero_block_node` Prometheus category via
 `MetricsHolder.createMetrics(Metrics)` in `start()`.
 
-| Metric name                                            | Description                                                              |
-|--------------------------------------------------------|--------------------------------------------------------------------------|
-| `expanded_cloud_storage_uploads_total`                 | Number of blocks successfully uploaded to S3-compatible storage.         |
-| `expanded_cloud_storage_upload_failures_total`         | Number of block uploads that failed (S3 error, timeout, compression error). |
-| `expanded_cloud_storage_upload_bytes_total`            | Total compressed bytes successfully uploaded to S3-compatible storage.   |
+|                  Metric name                   |                                 Description                                 |
+|------------------------------------------------|-----------------------------------------------------------------------------|
+| `expanded_cloud_storage_uploads_total`         | Number of blocks successfully uploaded to S3-compatible storage.            |
+| `expanded_cloud_storage_upload_failures_total` | Number of block uploads that failed (S3 error, timeout, compression error). |
+| `expanded_cloud_storage_upload_bytes_total`    | Total compressed bytes successfully uploaded to S3-compatible storage.      |
 
 Counters are only registered when the plugin is enabled (non-blank `endpointUrl`). When the
 plugin is disabled, `metricsHolder` remains `null` and no counters are registered.
 
 ## Exceptions
 
-|                     Exception                      |           Source            |                                                                                                      Handling                                                                                                       |
-|----------------------------------------------------|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `com.hedera.bucky.S3ResponseException`             | `S3UploadClient.uploadFile` | Logged at WARNING (includes HTTP status code, body); upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues. Carries `getResponseStatusCode()` and `getResponseBody()`.        |
-| `com.hedera.bucky.S3ClientException`               | `S3UploadClient.uploadFile` | Logged at WARNING; upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                                                                                      |
-| `IOException`                                      | `S3UploadClient.uploadFile` | Logged at WARNING; upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                                                                                      |
-| `TimeoutException`                                 | `SingleBlockStoreTask.call` | Upload cancelled after `uploadTimeoutSeconds`; logged at WARNING; `PersistedNotification` sent with `succeeded=false`.                                                                                               |
-| `com.hedera.bucky.S3ClientInitializationException` | `S3UploadClient.forConfig`  | Logged at WARNING in `start()`; `s3Client` remains `null`; plugin is effectively disabled (all subsequent `handleVerification` calls are no-ops).                                                                   |
-| Block bytes empty after compression                | `SingleBlockStoreTask.call` | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false`.                                                                                                                              |
+|                     Exception                      |           Source            |                                                                                                   Handling                                                                                                   |
+|----------------------------------------------------|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `com.hedera.bucky.S3ResponseException`             | `S3UploadClient.uploadFile` | Logged at WARNING (includes HTTP status code, body); upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues. Carries `getResponseStatusCode()` and `getResponseBody()`. |
+| `com.hedera.bucky.S3ClientException`               | `S3UploadClient.uploadFile` | Logged at WARNING; upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                                                                              |
+| `IOException`                                      | `S3UploadClient.uploadFile` | Logged at WARNING; upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                                                                              |
+| `TimeoutException`                                 | `SingleBlockStoreTask.call` | Upload cancelled after `uploadTimeoutSeconds`; logged at WARNING; `PersistedNotification` sent with `succeeded=false`.                                                                                       |
+| `com.hedera.bucky.S3ClientInitializationException` | `S3UploadClient.forConfig`  | Logged at WARNING in `start()`; `s3Client` remains `null`; plugin is effectively disabled (all subsequent `handleVerification` calls are no-ops).                                                            |
+| Block bytes empty after compression                | `SingleBlockStoreTask.call` | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false`.                                                                                                                      |
 
 The plugin is designed to be **fault-isolated**: no exception from S3 will propagate up to
 crash the node.
