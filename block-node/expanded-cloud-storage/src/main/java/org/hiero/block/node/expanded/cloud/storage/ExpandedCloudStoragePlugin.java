@@ -12,6 +12,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -83,6 +85,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** Virtual-thread executor sourced from the thread-pool manager. Non-null only when enabled. */
     private ExecutorService virtualThreadExecutor;
 
+    /** Count of tasks submitted but not yet drained; used to bound the drain in {@link #stop()}. */
+    private final AtomicInteger inFlightCount = new AtomicInteger();
+
     // ---- Constructors -------------------------------------------------------
 
     /** No-arg constructor used by the Java {@link java.util.ServiceLoader}. */
@@ -142,7 +147,28 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** {@inheritDoc} */
     @Override
     public void stop() {
-        drainCompletedTasks();
+        if (completionService != null) {
+            // Drain in-flight uploads before closing the S3 client. Each task has its own
+            // uploadTimeoutSeconds deadline, so waiting that long guarantees all in-flight
+            // tasks have either completed or timed out.
+            final long deadline = System.currentTimeMillis() + (long) config.uploadTimeoutSeconds() * 1_000L;
+            while (inFlightCount.get() > 0 && System.currentTimeMillis() < deadline) {
+                final long remainingMs = deadline - System.currentTimeMillis();
+                if (remainingMs <= 0) break;
+                try {
+                    final Future<SingleBlockStoreTask.UploadResult> completed =
+                            completionService.poll(Math.min(remainingMs, 200L), TimeUnit.MILLISECONDS);
+                    if (completed != null) {
+                        publishResult(completed);
+                    }
+                } catch (final InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            // Final non-blocking sweep for any tasks that just landed.
+            drainCompletedTasks();
+        }
         if (s3Client != null) {
             s3Client.close();
             s3Client = null;
@@ -184,6 +210,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
 
         final String objectKey = buildObjectKey(blockNumber);
+        inFlightCount.incrementAndGet();
         completionService.submit(new SingleBlockStoreTask(
                 blockNumber,
                 block,
@@ -210,27 +237,34 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
         Future<SingleBlockStoreTask.UploadResult> completed;
         while ((completed = completionService.poll()) != null) {
-            try {
-                final SingleBlockStoreTask.UploadResult result = completed.get();
-                blockMessaging.sendBlockPersisted(
-                        new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
-                if (!result.succeeded()) {
-                    LOGGER.log(
-                            WARNING,
-                            "Block {0}: upload failed; PersistedNotification sent with succeeded=false.",
-                            result.blockNumber());
-                } else {
-                    LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
-                }
-            } catch (final InterruptedException e) {
-                Thread.currentThread().interrupt();
-                LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
-            } catch (final ExecutionException e) {
+            publishResult(completed);
+        }
+    }
+
+    /**
+     * Decrements the in-flight counter and publishes a {@link PersistedNotification} for the
+     * given completed upload future. Handles {@link InterruptedException} and
+     * {@link ExecutionException} without propagating.
+     */
+    private void publishResult(final Future<SingleBlockStoreTask.UploadResult> completed) {
+        inFlightCount.decrementAndGet();
+        try {
+            final SingleBlockStoreTask.UploadResult result = completed.get();
+            blockMessaging.sendBlockPersisted(
+                    new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
+            if (!result.succeeded()) {
                 LOGGER.log(
                         WARNING,
-                        "Unexpected exception in upload task: {0}",
-                        e.getCause().getMessage());
+                        "Block {0}: upload failed; PersistedNotification sent with succeeded=false.",
+                        result.blockNumber());
+            } else {
+                LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
             }
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
+        } catch (final ExecutionException e) {
+            LOGGER.log(WARNING, "Unexpected exception in upload task: {0}", e.getCause().getMessage());
         }
     }
 
