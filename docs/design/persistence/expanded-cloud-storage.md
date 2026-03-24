@@ -102,9 +102,9 @@ anonymous subclass that delegates to `com.hedera.bucky.S3Client`. Tests subclass
 3. Uploading via `S3UploadClient.uploadFile()`, with a timeout enforced by submitting the
    upload to a nested virtual-thread future and calling `Future.get(uploadTimeoutSeconds, SECONDS)`.
 
-Returns `UploadResult(blockNumber, succeeded, blockSource)`. Failures (timeout,
-`S3ClientException`, `IOException`) are captured as `succeeded=false` so the
-`CompletionService` always receives a result — exceptions never propagate to the caller.
+Returns `UploadResult(blockNumber, succeeded, bytesUploaded, blockSource)`. Failures (timeout,
+`S3ClientException`, `IOException`) are captured as `succeeded=false` and `bytesUploaded=0`
+so the `CompletionService` always receives a result — exceptions never propagate to the caller.
 
 ### `ExpandedCloudStorageConfig`
 
@@ -143,7 +143,7 @@ file storage.
 Inside `SingleBlockStoreTask.call()`:
 - Serialise and ZSTD-compress the block bytes.
 - Upload via `S3UploadClient.uploadFile()` with a timeout guard.
-- Return `UploadResult(blockNumber, succeeded, blockSource)`.
+- Return `UploadResult(blockNumber, succeeded, bytesUploaded, blockSource)`.
 
 ### Object key format
 
@@ -200,7 +200,7 @@ sequenceDiagram
     S3->>Store: multipart PUT
     Store-->>S3: 200 OK
     S3-->>Task: (success)
-    Task-->>CS: UploadResult(blockNumber, succeeded=true, blockSource)
+    Task-->>CS: UploadResult(blockNumber, succeeded=true, bytesUploaded, blockSource)
 ```
 
 ### Class relationships
@@ -257,11 +257,17 @@ All properties are under the `expanded.cloud.storage` namespace.
 
 ## Metrics
 
-> **Note:** Metrics are not yet implemented. The counters below are planned for a follow-on issue.
+All counters are registered under the `hiero_block_node` Prometheus category via
+`MetricsHolder.createMetrics(Metrics)` in `start()`.
 
-- `expanded_cloud_storage_uploads_total` — counter of successful block uploads.
-- `expanded_cloud_storage_upload_failures_total` — counter of failed uploads (S3 errors).
-- `expanded_cloud_storage_upload_bytes_total` — total bytes uploaded.
+| Metric name                                            | Description                                                              |
+|--------------------------------------------------------|--------------------------------------------------------------------------|
+| `expanded_cloud_storage_uploads_total`                 | Number of blocks successfully uploaded to S3-compatible storage.         |
+| `expanded_cloud_storage_upload_failures_total`         | Number of block uploads that failed (S3 error, timeout, compression error). |
+| `expanded_cloud_storage_upload_bytes_total`            | Total compressed bytes successfully uploaded to S3-compatible storage.   |
+
+Counters are only registered when the plugin is enabled (non-blank `endpointUrl`). When the
+plugin is disabled, `metricsHolder` remains `null` and no counters are registered.
 
 ## Exceptions
 

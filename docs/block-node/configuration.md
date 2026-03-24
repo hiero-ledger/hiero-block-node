@@ -18,6 +18,7 @@
   - [Publisher Plugin Configuration](#publisher-plugin-configuration)
   - [Subscriber Plugin Configuration](#subscriber-plugin-configuration)
   - [Verification Plugin Configuration](#verification-plugin-configuration)
+  - [Expanded Cloud Storage Plugin Configuration](#expanded-cloud-storage-plugin-configuration)
 
 ## Overview
 
@@ -187,3 +188,47 @@ Currently, no specific options.
 ### Verification Plugin Configuration
 
 Currently, no specific options.
+
+### Expanded Cloud Storage Plugin Configuration
+
+Uploads each verified block as a single ZSTD-compressed `.blk.zstd` object to any
+S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is **disabled by
+default** — setting `EXPANDED_CLOUD_STORAGE_ENDPOINT_URL` to a non-empty value activates it.
+
+| ENV Variable                               | Description                                                                                       |          Default |
+|:-------------------------------------------|:--------------------------------------------------------------------------------------------------|-----------------:|
+| EXPANDED_CLOUD_STORAGE_ENDPOINT_URL        | S3-compatible endpoint URL. **Blank disables the plugin.**                                        |               "" |
+| EXPANDED_CLOUD_STORAGE_BUCKET_NAME         | Name of the S3 bucket where blocks are stored.                                                    | block-node-blocks |
+| EXPANDED_CLOUD_STORAGE_OBJECT_KEY_PREFIX   | Prefix prepended to every object key (e.g. `blocks`).                                             |           blocks |
+| EXPANDED_CLOUD_STORAGE_STORAGE_CLASS       | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version.   |         STANDARD |
+| EXPANDED_CLOUD_STORAGE_REGION_NAME         | AWS / S3-compatible region name.                                                                  |        us-east-1 |
+| EXPANDED_CLOUD_STORAGE_ACCESS_KEY          | S3 access key (not logged).                                                                       |               "" |
+| EXPANDED_CLOUD_STORAGE_SECRET_KEY          | S3 secret key (not logged).                                                                       |               "" |
+| EXPANDED_CLOUD_STORAGE_UPLOAD_TIMEOUT_SECONDS | Max seconds per block upload before treating the upload as failed.                             |               60 |
+
+Object keys follow the format `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`, where the
+19-digit zero-padded block number is split into a 4/4/4/4/3 folder hierarchy:
+
+| Block number | Object key                                 |
+|:-------------|:-------------------------------------------|
+| 1            | `blocks/0000/0000/0000/0000/001.blk.zstd`  |
+| 1 234 567    | `blocks/0000/0000/0000/1234/567.blk.zstd`  |
+| 108 273 182  | `blocks/0000/0000/0010/8273/182.blk.zstd`  |
+
+#### Expanded Cloud Storage Metrics
+
+All counters are published to the Prometheus endpoint under the `hiero_block_node` category.
+
+| Metric                                           | Description                                                              |
+|:-------------------------------------------------|:-------------------------------------------------------------------------|
+| `expanded_cloud_storage_uploads_total`           | Number of blocks successfully uploaded.                                  |
+| `expanded_cloud_storage_upload_failures_total`   | Number of uploads that failed (S3 error, timeout, or compression error). |
+| `expanded_cloud_storage_upload_bytes_total`      | Total compressed bytes successfully uploaded.                            |
+
+#### Suggested Alerting
+
+| Alert                              | Condition                                                                              | Severity |
+|:-----------------------------------|:---------------------------------------------------------------------------------------|:---------|
+| Upload failure rate elevated       | `rate(expanded_cloud_storage_upload_failures_total[5m]) > 0`                          | Warning  |
+| No uploads in expected window      | `increase(expanded_cloud_storage_uploads_total[10m]) == 0` (when blocks are arriving) | Critical |
+| Bytes stalled                      | `rate(expanded_cloud_storage_upload_bytes_total[10m]) == 0` (when blocks are arriving) | Warning  |
