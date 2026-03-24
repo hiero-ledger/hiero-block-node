@@ -65,49 +65,46 @@ cloud.
       the exception hierarchy <code>S3ClientException</code> →
       <code>S3ClientInitializationException</code> / <code>S3ResponseException</code>.</dd>
 
+  <dt>S3UploadClient</dt>
+  <dd>Package-private abstract class that abstracts the S3 upload operation. The production
+      instance is obtained via <code>S3UploadClient.forConfig()</code>, which inlines
+      <code>com.hedera.bucky.S3Client</code> delegation directly. Unit tests subclass it
+      directly to capture or throw without requiring a real S3 endpoint or Mockito.</dd>
+
   <dt>S3ResponseException</dt>
   <dd>A <code>com.hedera.bucky.S3ClientException</code> subtype thrown when the S3 service
       returns a non-success HTTP response. Carries the HTTP status code
       (<code>getResponseStatusCode()</code>), raw response body
       (<code>getResponseBody()</code>), and response headers
       (<code>getResponseHeaders()</code>).</dd>
-
-  <dt>BuckyS3ClientAdapter</dt>
-  <dd>The production implementation of the local <code>S3Client</code> interface, wrapping
-      <code>com.hedera.bucky.S3Client</code> with thin delegation — no exception translation
-      needed.</dd>
-
-  <dt>NoOpS3Client</dt>
-  <dd>A no-operation <code>S3Client</code> implementation used in unit tests; logs all calls
-      at INFO level, returns empty/null, never throws.</dd>
 </dl>
 
 ## Entities
 
-### `S3Client` (interface)
+### `S3UploadClient` (abstract class)
 
-Defined in `org.hiero.block.node.expanded.cloud.storage`. Mirrors bucky's public API.
-The production implementation is `BuckyS3ClientAdapter`; `NoOpS3Client` is used for testing.
+Package-private abstract class in `org.hiero.block.node.expanded.cloud.storage`. Exposes
+a single upload method and `close()`:
 
-Key methods (all declare `throws com.hedera.bucky.S3ClientException, IOException`):
-- `uploadFile(objectKey, storageClass, Iterator<byte[]> content, contentType)`
-- `uploadTextFile(objectKey, storageClass, content)`
-- `downloadTextFile(key)`
-- `listObjects(prefix, maxResults)`
-- `listMultipartUploads()`
-- `abortMultipartUpload(key, uploadId)`
+- `uploadFile(objectKey, storageClass, Iterator<byte[]> content, contentType)` — throws
+  `com.hedera.bucky.S3ClientException, IOException`
 - `close()`
 
-### `BuckyS3ClientAdapter`
+The static factory `S3UploadClient.forConfig(ExpandedCloudStorageConfig)` returns a concrete
+anonymous subclass that delegates to `com.hedera.bucky.S3Client`. Tests subclass
+`S3UploadClient` directly without any mocking framework.
 
-Production adapter wrapping `com.hedera.bucky.S3Client`. Constructed from
-`ExpandedCloudStorageConfig`; no exception translation is required because bucky throws
-`com.hedera.bucky.S3ResponseException` (a subtype of `com.hedera.bucky.S3ClientException`),
-which satisfies the interface's declared throws clause directly.
+### `SingleBlockStoreTask`
 
-### `NoOpS3Client`
+`Callable<UploadResult>` submitted per block to the `CompletionService`. Responsible for:
+1. Serialising the block to Protobuf bytes (`BlockUnparsed.PROTOBUF.toBytes(block)`).
+2. Compressing to ZSTD (`CompressionType.ZSTD.compress(...)`).
+3. Uploading via `S3UploadClient.uploadFile()`, with a timeout enforced by submitting the
+   upload to a nested virtual-thread future and calling `Future.get(uploadTimeoutSeconds, SECONDS)`.
 
-No-op stub implementing `S3Client`; used in unit tests.
+Returns `UploadResult(blockNumber, succeeded, blockSource)`. Failures (timeout,
+`S3ClientException`, `IOException`) are captured as `succeeded=false` so the
+`CompletionService` always receives a result — exceptions never propagate to the caller.
 
 ### `ExpandedCloudStorageConfig`
 
@@ -116,8 +113,11 @@ No-op stub implementing `S3Client`; used in unit tests.
 ### `ExpandedCloudStoragePlugin`
 
 Implements `BlockNodePlugin` and `BlockNotificationHandler`. Listens for
-`VerificationNotification`, compresses block bytes to ZSTD, and uploads one `.blk.zstd`
-object per block via a `CompletionService` backed by a virtual-thread executor.
+`VerificationNotification`, builds the S3 object key, and submits one `SingleBlockStoreTask`
+per verified block to a `CompletionService` backed by a virtual-thread executor.
+
+The plugin is disabled (`virtualThreadExecutor == null`) when `endpointUrl` is blank; all
+notification-handler methods return immediately without side effects in that state.
 
 ## Design
 
@@ -130,14 +130,20 @@ file storage.
 
 ### Upload flow (`handleVerification`)
 
-1. **Drain**: poll `CompletionService` for any previously completed upload tasks; publish a
-   `PersistedNotification` for each (success or failure).
-2. **Guard**: `notification.success() == false` → skip (log TRACE).
-3. **Guard**: `notification.blockNumber() < 0` → skip (log TRACE).
-4. **Guard**: `notification.block() == null` → skip (log WARNING).
-5. Compress block: `CompressionType.ZSTD.compress(BlockUnparsed.PROTOBUF.toBytes(block))`.
+1. **Guard**: return immediately if `s3Client == null` or `completionService == null` (plugin
+   disabled or not yet started).
+2. **Drain**: poll `CompletionService` for any previously completed upload tasks; publish a
+   `PersistedNotification` for each result (success or failure).
+3. **Guard**: `notification.success() == false` → skip (log TRACE).
+4. **Guard**: `notification.blockNumber() < 0` → skip (log TRACE).
+5. **Guard**: `notification.block() == null` → skip (log WARNING).
 6. Build object key using the 4-digit folder hierarchy (see below).
 7. Submit `SingleBlockStoreTask` to the `CompletionService`.
+
+Inside `SingleBlockStoreTask.call()`:
+- Serialise and ZSTD-compress the block bytes.
+- Upload via `S3UploadClient.uploadFile()` with a timeout guard.
+- Return `UploadResult(blockNumber, succeeded, blockSource)`.
 
 ### Object key format
 
@@ -154,10 +160,16 @@ leaf (4/4/4/4/3) for lexicographic ordering and S3 prefix partitioning.
 | 1 234 567    | `blocks/0000/0000/0000/1234/567.blk.zstd` |
 | 108 273 182  | `blocks/0000/0000/0010/8273/182.blk.zstd` |
 
+If `objectKeyPrefix` is blank, the hierarchy key is used bare (no leading `/`).
+
+Zero-padding is computed via a char-array loop to avoid `String.format` allocation overhead.
+
 ### Enabled / disabled guard
 
 If `expanded.cloud.storage.endpointUrl` is blank (the default), the plugin logs an INFO
-message and returns from `init()` without registering a notification handler.
+message and returns from `init()` without registering a notification handler. The
+`virtualThreadExecutor` field remains `null`, which acts as the disabled sentinel throughout
+`start()`, `stop()`, and `handleVerification()`.
 
 ### Future: `BlockProviderPlugin` (download path)
 
@@ -175,7 +187,7 @@ sequenceDiagram
     participant ECS as ExpandedCloudStoragePlugin
     participant CS as CompletionService
     participant Task as SingleBlockStoreTask
-    participant S3 as S3Client (BuckyS3ClientAdapter)
+    participant S3 as S3UploadClient
     participant Store as S3-Compatible Store
 
     CN->>ECS: handleVerification(VerificationNotification)
@@ -183,7 +195,7 @@ sequenceDiagram
     ECS->>ECS: check success() && blockNumber >= 0 && block != null
     ECS->>CS: submit(SingleBlockStoreTask)
     CS->>Task: call()
-    Task->>Task: compress block to ZSTD
+    Task->>Task: serialize + compress block to ZSTD
     Task->>S3: uploadFile(objectKey, storageClass, bytes, contentType)
     S3->>Store: multipart PUT
     Store-->>S3: 200 OK
@@ -195,37 +207,36 @@ sequenceDiagram
 
 ```mermaid
 classDiagram
-    class S3Client {
-        <<interface>>
+    class S3UploadClient {
+        <<abstract>>
         +uploadFile(objectKey, storageClass, content, contentType)
-        +uploadTextFile(objectKey, storageClass, content)
-        +downloadTextFile(key) String
-        +listObjects(prefix, maxResults) List~String~
-        +listMultipartUploads() Map
-        +abortMultipartUpload(key, uploadId)
         +close()
-    }
-    class NoOpS3Client {
-        +uploadFile(...)
-        +close()
-    }
-    class BuckyS3ClientAdapter {
-        -delegate: com.hedera.bucky.S3Client
-        +uploadFile(...)
-        +close()
+        +forConfig(config)$ S3UploadClient
     }
     class ExpandedCloudStoragePlugin {
-        -s3Client: S3Client
+        -s3Client: S3UploadClient
         -config: ExpandedCloudStorageConfig
+        -completionService: CompletionService
+        -virtualThreadExecutor: ExecutorService
         +init(context, serviceBuilder)
         +start()
         +stop()
         +handleVerification(notification)
         +buildObjectKey(blockNumber) String
+        ~drainCompletedTasks()
     }
-    S3Client <|.. NoOpS3Client
-    S3Client <|.. BuckyS3ClientAdapter
-    ExpandedCloudStoragePlugin --> S3Client
+    class SingleBlockStoreTask {
+        -blockNumber: long
+        -block: BlockUnparsed
+        -s3Client: S3UploadClient
+        -objectKey: String
+        -uploadTimeoutSeconds: int
+        +call() UploadResult
+    }
+    S3UploadClient <|-- ProductionS3UploadClient : forConfig() anonymous
+    ExpandedCloudStoragePlugin --> S3UploadClient
+    ExpandedCloudStoragePlugin --> SingleBlockStoreTask : submits
+    SingleBlockStoreTask --> S3UploadClient
     ExpandedCloudStoragePlugin --> ExpandedCloudStorageConfig
 ```
 
@@ -247,19 +258,22 @@ All properties are under the `expanded.cloud.storage` namespace.
 
 ## Metrics
 
+> **Note:** Metrics are not yet implemented. The counters below are planned for a follow-on issue.
+
 - `expanded_cloud_storage_uploads_total` — counter of successful block uploads.
 - `expanded_cloud_storage_upload_failures_total` — counter of failed uploads (S3 errors).
 - `expanded_cloud_storage_upload_bytes_total` — total bytes uploaded.
 
 ## Exceptions
 
-|                     Exception                      |               Source                |                                                                                                        Handling                                                                                                        |
-|----------------------------------------------------|-------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `com.hedera.bucky.S3ResponseException`             | `BuckyS3ClientAdapter.uploadFile()` | Logged at WARNING (includes HTTP status code, body); upload marked failed; plugin continues. `S3ResponseException` carries `getResponseStatusCode()`, `getResponseBody()`, and `getResponseHeaders()` for diagnostics. |
-| `com.hedera.bucky.S3ClientException`               | `BuckyS3ClientAdapter.uploadFile()` | Logged at WARNING; upload marked failed; plugin continues.                                                                                                                                                             |
-| `IOException`                                      | `BuckyS3ClientAdapter.uploadFile()` | Logged at WARNING; upload marked failed; plugin continues.                                                                                                                                                             |
-| `com.hedera.bucky.S3ClientInitializationException` | `BuckyS3ClientAdapter` constructor  | Logged at WARNING; plugin sets `enabled = false`.                                                                                                                                                                      |
-| Block bytes empty                                  | `SingleBlockStoreTask.call()`       | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false`.                                                                                                                                |
+|                     Exception                      |           Source            |                                                                                                      Handling                                                                                                       |
+|----------------------------------------------------|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `com.hedera.bucky.S3ResponseException`             | `S3UploadClient.uploadFile` | Logged at WARNING (includes HTTP status code, body); upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues. Carries `getResponseStatusCode()` and `getResponseBody()`.        |
+| `com.hedera.bucky.S3ClientException`               | `S3UploadClient.uploadFile` | Logged at WARNING; upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                                                                                      |
+| `IOException`                                      | `S3UploadClient.uploadFile` | Logged at WARNING; upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                                                                                      |
+| `TimeoutException`                                 | `SingleBlockStoreTask.call` | Upload cancelled after `uploadTimeoutSeconds`; logged at WARNING; `PersistedNotification` sent with `succeeded=false`.                                                                                               |
+| `com.hedera.bucky.S3ClientInitializationException` | `S3UploadClient.forConfig`  | Logged at WARNING in `start()`; `s3Client` remains `null`; plugin is effectively disabled (all subsequent `handleVerification` calls are no-ops).                                                                   |
+| Block bytes empty after compression                | `SingleBlockStoreTask.call` | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false`.                                                                                                                              |
 
 The plugin is designed to be **fault-isolated**: no exception from S3 will propagate up to
 crash the node.
@@ -277,9 +291,11 @@ crash the node.
    by `uploadFile` → plugin logs WARNING, does not rethrow, sends `PersistedNotification`
    with `succeeded=false`.
 7. **S3ClientException isolation**: base `S3ClientException` → same handling as above.
-8. **Integration (MinIO)**: after `handleVerification` for blocks 100–104, all five objects
-   appear in the MinIO bucket with non-empty content.
+8. **Integration (S3Mock)**: after `handleVerification` for blocks 100–104, all five objects
+   appear in the S3Mock bucket with the correct folder-hierarchy keys.
 9. **PersistedNotification on success**: successful upload publishes
    `PersistedNotification(blockNumber, succeeded=true)`.
 10. **PersistedNotification on failure**: failed upload publishes
     `PersistedNotification(blockNumber, succeeded=false)`.
+11. **Upload timeout**: upload exceeding `uploadTimeoutSeconds` is cancelled and reported
+    as `succeeded=false`.
