@@ -44,7 +44,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     private static final System.Logger LOGGER = System.getLogger(SingleBlockStoreTask.class.getName());
 
     /** The outcome of a single block upload attempt. */
-    public record UploadResult(long blockNumber, boolean succeeded, BlockSource blockSource) {}
+    public record UploadResult(long blockNumber, boolean succeeded, long bytesUploaded, BlockSource blockSource) {}
 
     private final long blockNumber;
     private final BlockUnparsed block;
@@ -100,10 +100,11 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
 
             if (compressed.length == 0) {
                 LOGGER.log(WARNING, "Block {0}: compressed bytes are empty, skipping upload.", blockNumber);
-                return new UploadResult(blockNumber, false, blockSource);
+                return new UploadResult(blockNumber, false, 0L, blockSource);
             }
 
             final byte[] payload = compressed;
+            final long payloadBytes = compressed.length;
             final ExecutorService uploadExecutor = Executors.newVirtualThreadPerTaskExecutor();
             final Future<Void> upload = uploadExecutor.submit(() -> {
                 s3Client.uploadFile(
@@ -133,24 +134,24 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             } catch (final TimeoutException e) {
                 upload.cancel(true);
                 LOGGER.log(WARNING, "Block {0}: upload timed out after {1}s.", blockNumber, uploadTimeoutSeconds);
-                return new UploadResult(blockNumber, false, blockSource);
+                return new UploadResult(blockNumber, false, 0L, blockSource);
             } catch (final ExecutionException e) {
                 LOGGER.log(
                         WARNING,
                         "Block {0}: upload failed: {1}",
                         blockNumber,
                         e.getCause().getMessage());
-                return new UploadResult(blockNumber, false, blockSource);
+                return new UploadResult(blockNumber, false, 0L, blockSource);
             } finally {
                 uploadExecutor.shutdownNow();
             }
 
             LOGGER.log(TRACE, "Block {0}: uploaded to {1}", blockNumber, objectKey);
-            return new UploadResult(blockNumber, true, blockSource);
+            return new UploadResult(blockNumber, true, payloadBytes, blockSource);
 
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new UploadResult(blockNumber, false, blockSource);
+            return new UploadResult(blockNumber, false, 0L, blockSource);
         }
     }
 }
