@@ -44,7 +44,7 @@ import org.junit.jupiter.api.Timeout;
  * <p>All tests here inject a {@link CapturingS3Client} or an anonymous {@link S3UploadClient}
  * subclass via the package-private constructor — no Docker or real S3 endpoint required.
  *
- * @see ExpandedCloudStoragePluginIntegrationTest for MinIO-backed integration tests
+ * @see ExpandedCloudStoragePluginIntegrationTest for S3Mock-backed integration tests
  */
 @Timeout(value = 30, unit = TimeUnit.SECONDS)
 class ExpandedCloudStoragePluginTest
@@ -70,8 +70,7 @@ class ExpandedCloudStoragePluginTest
                 final String objectKey,
                 final String storageClass,
                 final Iterator<byte[]> contentIterable,
-                final String contentType)
-                throws S3ClientException, IOException {
+                final String contentType) {
             uploads.add(new UploadCall(objectKey, storageClass, contentType));
         }
 
@@ -117,7 +116,7 @@ class ExpandedCloudStoragePluginTest
 
     @Test
     @DisplayName("Plugin is disabled when endpointUrl is blank — handleVerification is a no-op")
-    void pluginDisabledWhenNoEndpoint() throws InterruptedException {
+    void pluginDisabledWhenNoEndpoint() {
         final CapturingS3Client capturing = new CapturingS3Client();
         start(
                 new ExpandedCloudStoragePlugin(capturing),
@@ -133,7 +132,7 @@ class ExpandedCloudStoragePluginTest
 
     @Test
     @DisplayName("Plugin skips upload for a failed VerificationNotification")
-    void skipsUploadOnFailedVerification() throws InterruptedException {
+    void skipsUploadOnFailedVerification() {
         final CapturingS3Client capturing = new CapturingS3Client();
         start(
                 new ExpandedCloudStoragePlugin(capturing),
@@ -242,8 +241,11 @@ class ExpandedCloudStoragePluginTest
         final byte[] body = "Service Unavailable".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            void uploadFile(final String objectKey, final String storageClass,
-                    final Iterator<byte[]> contentIterable, final String contentType)
+            void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
                     throws S3ClientException, IOException {
                 throw new S3ResponseException(statusCode, body, null, "S3 returned 503");
             }
@@ -270,8 +272,11 @@ class ExpandedCloudStoragePluginTest
     void responseExceptionForbiddenNotRethrown() {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            void uploadFile(final String objectKey, final String storageClass,
-                    final Iterator<byte[]> contentIterable, final String contentType)
+            void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
                     throws S3ClientException, IOException {
                 throw new S3ResponseException(
                         403, "Forbidden".getBytes(java.nio.charset.StandardCharsets.UTF_8), null, "Access denied");
@@ -296,8 +301,11 @@ class ExpandedCloudStoragePluginTest
     void s3ExceptionNotRethrown() {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            void uploadFile(final String objectKey, final String storageClass,
-                    final Iterator<byte[]> contentIterable, final String contentType)
+            void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
                     throws S3ClientException, IOException {
                 throw new S3ClientException("Simulated base S3 failure");
             }
@@ -357,23 +365,18 @@ class ExpandedCloudStoragePluginTest
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000", "bucket", "blocks", "INVALID_CLASS", "us-east-1", "", "", 60, 4),
+                        "http://fake:9000", "bucket", "blocks", "INVALID_CLASS", "us-east-1", "", "", 60),
                 "Invalid storageClass must throw IllegalArgumentException");
     }
 
     @Test
-    @DisplayName("Config rejects uploadTimeoutSeconds < 1 and maxConcurrentUploads < 1")
+    @DisplayName("Config rejects uploadTimeoutSeconds < 1")
     void configBoundsValidation() {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000", "bucket", "blocks", "STANDARD", "us-east-1", "", "", 0, 4),
+                        "http://fake:9000", "bucket", "blocks", "STANDARD", "us-east-1", "", "", 0),
                 "uploadTimeoutSeconds=0 must throw IllegalArgumentException");
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000", "bucket", "blocks", "STANDARD", "us-east-1", "", "", 60, 0),
-                "maxConcurrentUploads=0 must throw IllegalArgumentException");
     }
 
     @Test
@@ -382,14 +385,14 @@ class ExpandedCloudStoragePluginTest
         for (final String storageClass : ExpandedCloudStorageConfig.VALID_STORAGE_CLASSES) {
             assertDoesNotThrow(
                     () -> new ExpandedCloudStorageConfig(
-                            "http://fake:9000", "bucket", "blocks", storageClass, "us-east-1", "", "", 60, 4),
+                            "http://fake:9000", "bucket", "blocks", storageClass, "us-east-1", "", "", 60),
                     "Valid storageClass '" + storageClass + "' must not throw");
         }
     }
 
     @Test
     @DisplayName("handleVerification skips upload for null block body and negative block number")
-    void handleVerificationGuardsSkipUpload() throws InterruptedException {
+    void handleVerificationGuardsSkipUpload() {
         final CapturingS3Client capturing = new CapturingS3Client();
         start(
                 new ExpandedCloudStoragePlugin(capturing),
@@ -483,8 +486,7 @@ class ExpandedCloudStoragePluginTest
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
-                    final String contentType)
-                    throws S3ClientException, IOException {}
+                    final String contentType) {}
 
             @Override
             public void close() {

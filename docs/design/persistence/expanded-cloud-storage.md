@@ -254,7 +254,6 @@ All properties are under the `expanded.cloud.storage` namespace.
 | `expanded.cloud.storage.accessKey`            | `""`                | S3 access key (not logged).                                |
 | `expanded.cloud.storage.secretKey`            | `""`                | S3 secret key (not logged).                                |
 | `expanded.cloud.storage.uploadTimeoutSeconds` | `60`                | Max seconds per upload before treating as failed.          |
-| `expanded.cloud.storage.maxConcurrentUploads` | `4`                 | Max parallel in-flight uploads.                            |
 
 ## Metrics
 
