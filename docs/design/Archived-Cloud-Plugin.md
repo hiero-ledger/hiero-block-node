@@ -3,15 +3,15 @@
 ## Table of Contents
 
 1. [Purpose](#purpose)
-1. [Goals](#goals)
-1. [Terms](#terms)
-1. [Entities](#entities)
-1. [Design](#design)
-1. [Diagram](#diagram)
-1. [Configuration](#configuration)
-1. [Metrics](#metrics)
-1. [Exceptions](#exceptions)
-1. [Acceptance Tests](#acceptance-tests)
+2. [Goals](#goals)
+3. [Terms](#terms)
+4. [Entities](#entities)
+5. [Design](#design)
+6. [Diagram](#diagram)
+7. [Configuration](#configuration)
+8. [Metrics](#metrics)
+9. [Exceptions](#exceptions)
+10. [Acceptance Tests](#acceptance-tests)
 
 ## Purpose
 
@@ -52,44 +52,45 @@ TBD.
 
 1. The `ArchiveCloudPlugin.handleVerificationNotification()` receives a full
    block recently verified.
-1. If a `BlockArchiveTask` does not exist, create one and start it.
-    * If the current _notified_ block is not the first block in a group,
+2. If a `BlockArchiveTask` does not exist, create one and start it.
+   1. If the current _notified_ block is not the first block in a group,
       then the `BlockArchiveTask` must be marked as "temporary". This
       type of task stores blocks for future use in reconciliation.
-1. A new `SingleBlockStoreTask` is created, provided with the verified block,
+3. A new `SingleBlockStoreTask` is created, provided with the verified block,
    and added to the current active `BlockArchiveTask`.
-1. Each `SingleBlockStoreTask` calculates the correct file pattern, converts
+4. Each `SingleBlockStoreTask` calculates the correct file pattern, converts
    the block to a ZStandard compressed data stream, and provides that data to
    the `BlockArchiveTask` along with the file name.
-1. The `BlockArchiveTask` will write file and index data to the remote `tar`
+5. The `BlockArchiveTask` will write file and index data to the remote `tar`
    file in block-number order.
-1. The `BlockArchiveTask` will close the `tar` file when the last block of the
+6. The `BlockArchiveTask` will close the `tar` file when the last block of the
    group is written.
-1. The `BlockArchiveTask` will send a `PerisistenceNotification` for each file
+7. The `BlockArchiveTask` will send a `PerisistenceNotification` for each file
    added to the `tar` file.
-    * On failure a `PerisistenceNotification` will be published
+   1. On failure a `PerisistenceNotification` will be published
       with `success=false`.
-    * On success a `PerisistenceNotification` will be published
+   2. On success a `PerisistenceNotification` will be published
       with `success=true`.
-    * The `BlockArchiveTask` will attempt to store each file with retry defined
+   3. The `BlockArchiveTask` will attempt to store each file with retry defined
       by configuration. Only after all retries have failed will a failure
       be reported.
-    * If a failure is reported, the `BlockArchiveTask` will also end and report
+   4. If a failure is reported, the `BlockArchiveTask` will also end and report
       a failed archive to the `ArchiveCloudPlugin`.
-1. The `ArchiveCloudPlugin` may initiate a "recovery" process when a block
+8. The `ArchiveCloudPlugin` may initiate a "recovery" process when a block
    fails or arrives out of order.
-1. A "recovery" process gathers one or more "temporary" `tar` files to reorder
+9. A "recovery" process gathers one or more "temporary" `tar` files to reorder
    and consolidate blocks that arrived out of order; continue a `tar` file that
    did not complete due to a block, plugin, or node failure; or both.
-    * A "recovery" process is initiated by creating and starting an
+   1. A "recovery" process is initiated by creating and starting an
       `ArchiveRecoveryTask`, passing to it the group start, temporary `tar`
       files, and any additional data needed.
-    * While a "recovery" process is active, newly received verified blocks will
+   2. While a "recovery" process is active, newly received verified blocks will
       be delivered to the `ArchiveRecoveryTask` if they fall within the
       group being recovered, or delivered to a `BlockArchiveTask` as normal
       otherwise.
 
-File pattern _within_ a `tar` file:
+File pattern _within_ a `tar` file
+
 ```text
 19 digit block number with a suffix of '.blk.zstd'.
 Block number split into groups of 4 digit folders, starting from the left.
@@ -100,7 +101,8 @@ Block         "1" = 0000/0000/0000/0000/001.blk.zstd
 Block "108273182" = 0000/0000/0010/8273/182.blk.zstd
 ```
 
-File/object pattern for `tar` files in cloud storage:
+File/object pattern for `tar` files in cloud storage
+
 ```text
 Start with a 19 digit block number for the first block in the group.
 Truncate the block number by removing digits from the right equal to the grouping level.
@@ -131,4 +133,3 @@ TBD.
 ## Acceptance Tests
 
 TBD.
-

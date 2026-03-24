@@ -3,20 +3,20 @@
 ## Table of Contents
 
 1. [Purpose](#purpose)
-1. [Goals](#goals)
-1. [Terms](#terms)
-1. [Entities](#entities)
-1. [Design](#design)
-1. [Diagram](#diagram)
-1. [Configuration](#configuration)
-1. [Metrics](#metrics)
-1. [Exceptions](#exceptions)
-1. [Acceptance Tests](#acceptance-tests)
+2. [Goals](#goals)
+3. [Terms](#terms)
+4. [Entities](#entities)
+5. [Design](#design)
+6. [Diagram](#diagram)
+7. [Configuration](#configuration)
+8. [Metrics](#metrics)
+9. [Exceptions](#exceptions)
+10. [Acceptance Tests](#acceptance-tests)
 
 ## Purpose
 
-The Expanded Cloud Storage Plugin (ECSP) is a data storage plugin for the block node
-that stores individual block files in cloud storage systems.
+The Expanded Cloud Storage Plugin (ECSP) is a data storage plugin for the block
+node that stores individual block files in cloud storage systems.
 
 ## Goals
 
@@ -46,24 +46,28 @@ TBD.
 
 1. The `ExpandedCloudPlugin.handleVerificationNotification()` receives a full
    block recently verified.
-1. A new `SingleBlockStoreTask` is created, provided with the verified block,
+2. A new `SingleBlockStoreTask` is created, provided with the verified block,
    and added to a Completion Service.
-1. Each `SingleBlockStoreTask` calculates the correct file pattern, opens a
+3. Each `SingleBlockStoreTask` calculates the correct file pattern, opens a
    connection or session to the cloud storage service, stores the block
    as a ZStandard compressed object or file, then closes the connection
    or session.
-    * We may chose to implement some form of connection or session pooling to
-      avoid rate limits, reduce costs, reduce latency, and/or improve throughput.
-1. The `ExpandedCloudPlugin` will periodically query the Completion Service to
+   1. We may chose to implement some form of connection or session pooling
+      to avoid rate limits, reduce costs, reduce latency, and/or
+      improve throughput.
+4. The `ExpandedCloudPlugin` will periodically query the Completion Service to
    gather completed storage results, handled retries, and report failures.
-    * The plugin will _also_ check for completion immediately _prior_ to handling
-      each validation notification, and try to clear completed tasks before adding
-      new tasks. This check might also handle ensuring any connection or session
-      pool is managed effectively.
-    * On failure a `PerisistenceNotification` will be published with `success=false`.
-    * On success a `PerisistenceNotification` will be published with `success=true`.
+   1. The plugin will _also_ check for completion immediately _prior_ to
+      handling each validation notification, and try to clear completed tasks
+      before adding new tasks. This check might also handle ensuring any
+      connection or session pool is managed effectively.
+   2. On failure a `PerisistenceNotification` will be published with
+      `success=false`.
+   3. On success a `PerisistenceNotification` will be published with
+      `success=true`.
 
-File/object pattern:
+File/object pattern
+
 ```text
 19 digit block number with a suffix of '.blk.zstd'.
 Block number split into groups of 4 digit folders, starting from the left.
@@ -92,4 +96,3 @@ TBD.
 ## Acceptance Tests
 
 TBD.
-
