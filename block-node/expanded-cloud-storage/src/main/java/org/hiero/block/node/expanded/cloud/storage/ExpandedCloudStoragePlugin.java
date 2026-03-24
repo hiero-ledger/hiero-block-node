@@ -4,7 +4,10 @@ package org.hiero.block.node.expanded.cloud.storage;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
+import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
+import com.swirlds.metrics.api.Counter;
+import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
 import java.util.concurrent.CompletionService;
@@ -88,6 +91,12 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** Count of tasks submitted but not yet drained; used to bound the drain in {@link #stop()}. */
     private final AtomicInteger inFlightCount = new AtomicInteger();
 
+    /** Metrics instance, saved in {@link #init} for use in {@link #start}. */
+    private Metrics metrics;
+
+    /** Counters for upload events; non-null only when the plugin is enabled. */
+    private MetricsHolder metricsHolder;
+
     // ---- Constructors -------------------------------------------------------
 
     /** No-arg constructor used by the Java {@link java.util.ServiceLoader}. */
@@ -123,6 +132,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             return;
         }
 
+        metrics = context.metrics();
         blockMessaging.registerBlockNotificationHandler(this, false, name());
         virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
     }
@@ -142,6 +152,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             }
         }
         completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
+        metricsHolder = MetricsHolder.createMetrics(metrics);
     }
 
     /** {@inheritDoc} */
@@ -253,11 +264,16 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             blockMessaging.sendBlockPersisted(
                     new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
             if (!result.succeeded()) {
+                if (metricsHolder != null) metricsHolder.uploadFailuresTotal().increment();
                 LOGGER.log(
                         WARNING,
                         "Block {0}: upload failed; PersistedNotification sent with succeeded=false.",
                         result.blockNumber());
             } else {
+                if (metricsHolder != null) {
+                    metricsHolder.uploadsTotal().increment();
+                    metricsHolder.uploadBytesTotal().add(result.bytesUploaded());
+                }
                 LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
             }
         } catch (final InterruptedException e) {
@@ -297,5 +313,36 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         return (prefix == null || prefix.isEmpty())
                 ? folderPath + ".blk.zstd"
                 : prefix + "/" + folderPath + ".blk.zstd";
+    }
+
+    // ---- Metrics ------------------------------------------------------------
+
+    /**
+     * Holds all counters reported by this plugin.
+     *
+     * @param uploadsTotal        number of blocks successfully uploaded to S3
+     * @param uploadFailuresTotal number of blocks that failed to upload (S3 error, timeout, etc.)
+     * @param uploadBytesTotal    total compressed bytes successfully uploaded to S3
+     */
+    public record MetricsHolder(Counter uploadsTotal, Counter uploadFailuresTotal, Counter uploadBytesTotal) {
+
+        /**
+         * Registers all counters with the given {@link Metrics} instance.
+         *
+         * @param metrics the metrics registry
+         * @return a new {@code MetricsHolder} with all counters registered
+         */
+        public static MetricsHolder createMetrics(@NonNull final Metrics metrics) {
+            return new MetricsHolder(
+                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "expanded_cloud_storage_uploads_total")
+                            .withDescription("Number of blocks successfully uploaded to S3-compatible storage")),
+                    metrics.getOrCreate(
+                            new Counter.Config(METRICS_CATEGORY, "expanded_cloud_storage_upload_failures_total")
+                                    .withDescription(
+                                            "Number of block uploads that failed (S3 error, timeout, compression error)")),
+                    metrics.getOrCreate(
+                            new Counter.Config(METRICS_CATEGORY, "expanded_cloud_storage_upload_bytes_total")
+                                    .withDescription("Total compressed bytes successfully uploaded to S3-compatible storage")));
+        }
     }
 }
