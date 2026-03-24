@@ -124,7 +124,10 @@ class BlockNodeCloudStorageTests {
 
         app = new BlockNodeApp(new ServiceLoaderFunction(), false, envVarGetter);
         app.start();
-        Thread.sleep(200);
+        final long startDeadline = System.currentTimeMillis() + 10_000L;
+        while (app.blockNodeState() != State.RUNNING && System.currentTimeMillis() < startDeadline) {
+            Thread.sleep(50);
+        }
         assertEquals(State.RUNNING, app.blockNodeState(), "BlockNodeApp must be RUNNING after startup");
 
         publishClient = createGrpcClient();
