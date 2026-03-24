@@ -15,24 +15,36 @@
 
 ## Purpose
 
-The `expanded-cloud-storage` plugin uploads each individually-verified block as a compressed
+The `expanded-cloud-storage` plugin (ECSP) uploads each individually-verified block as a compressed
 `.blk.zstd` object directly to any S3-compatible object store (AWS S3, GCS via S3-interop,
-MinIO, etc.). Unlike the existing `s3-archive` plugin, which batches blocks into large tar
+MinIO, etc.). Unlike the previous `s3-archive` plugin, which batched blocks into large tar
 archives, this plugin uploads **one block per S3 object** — making individual blocks
 immediately queryable and suitable for consumers that need block-level granularity in the
 cloud.
 
 ## Goals
 
-- Upload each verified block as a single `.blk.zstd` S3 object using ZSTD-compressed
+* The ECSP must store every block, as received, after verification.
+* The ECSP must store each verified block as a single ZStandard-compressed file using ZSTD-compressed
   Protobuf encoding.
-- Support any S3-compatible store (AWS S3, GCS S3-interop, MinIO) via a pluggable
-  `S3Client` interface backed by the `com.hedera.bucky:bucky-client` library.
-- Provide a zero-cost disabled state (blank `endpointUrl` → plugin skips registration).
-- (Future) Extend to `BlockProviderPlugin` to serve blocks back from S3 for gap-fill and
-  disaster recovery.
+* The ECSP must adhere to a file pattern as defined below.
+* The ECSP must store all blocks as files or objects in a cloud storage system.
+* The ECSP must not report success until data is stored such that it can be
+  recovered if the local system fails unexpectedly, including a failure that
+  results in complete and unrecoverable loss of all local storage.
+* The ECSP must support any S3-compatible store (AWS S3, GCS S3-interop, etc)
+  backed by the `com.hedera.bucky:bucky-client` library.
+* The ECSP should provide a zero-cost disabled state (blank `endpointUrl` → plugin skips registration).
 
 ## Terms
+
+<dl>
+  <dt>Cloud Storage</dt>
+  <dd>Any storage API that stores data remotely with very high
+      availability and reliability. Multiple such APIs may be supported
+      by the plugin and controlled by configuration.<br/>
+      An example of a common cloud storage API is S3 storage.</dd>
+</dl>
 
 <dl>
   <dt>S3-compatible object store</dt>
@@ -73,6 +85,7 @@ cloud.
 ## Entities
 
 ### `S3Client` (interface)
+
 Defined in `org.hiero.block.node.expanded.cloud.storage`. Mirrors bucky's public API.
 The production implementation is `BuckyS3ClientAdapter`; `NoOpS3Client` is used for testing.
 
@@ -86,18 +99,22 @@ Key methods (all declare `throws com.hedera.bucky.S3ClientException, IOException
 - `close()`
 
 ### `BuckyS3ClientAdapter`
+
 Production adapter wrapping `com.hedera.bucky.S3Client`. Constructed from
 `ExpandedCloudStorageConfig`; no exception translation is required because bucky throws
 `com.hedera.bucky.S3ResponseException` (a subtype of `com.hedera.bucky.S3ClientException`),
 which satisfies the interface's declared throws clause directly.
 
 ### `NoOpS3Client`
+
 No-op stub implementing `S3Client`; used in unit tests.
 
 ### `ExpandedCloudStorageConfig`
+
 `@ConfigData("expanded.cloud.storage")` record carrying all plugin settings.
 
 ### `ExpandedCloudStoragePlugin`
+
 Implements `BlockNodePlugin` and `BlockNotificationHandler`. Listens for
 `VerificationNotification`, compresses block bytes to ZSTD, and uploads one `.blk.zstd`
 object per block via a `CompletionService` backed by a virtual-thread executor.
@@ -131,11 +148,11 @@ file storage.
 The 19-digit zero-padded block number is split into four 4-digit folder groups plus a 3-digit
 leaf (4/4/4/4/3) for lexicographic ordering and S3 prefix partitioning.
 
-| Block number | Object key |
-|---|---|
-| 1 | `blocks/0000/0000/0000/0000/001.blk.zstd` |
-| 1 234 567 | `blocks/0000/0000/0000/1234/567.blk.zstd` |
-| 108 273 182 | `blocks/0000/0000/0010/8273/182.blk.zstd` |
+| Block number |                Object key                 |
+|--------------|-------------------------------------------|
+| 1            | `blocks/0000/0000/0000/0000/001.blk.zstd` |
+| 1 234 567    | `blocks/0000/0000/0000/1234/567.blk.zstd` |
+| 108 273 182  | `blocks/0000/0000/0010/8273/182.blk.zstd` |
 
 ### Enabled / disabled guard
 
@@ -216,21 +233,19 @@ classDiagram
 
 All properties are under the `expanded.cloud.storage` namespace.
 
-| Property | Default | Description |
-|---|---|---|
-| `expanded.cloud.storage.endpointUrl` | `""` | S3-compatible endpoint URL. **Blank disables the plugin.** |
-| `expanded.cloud.storage.bucketName` | `block-node-blocks` | Name of the S3 bucket. |
-| `expanded.cloud.storage.objectKeyPrefix` | `blocks` | Prefix prepended to every object key. |
-| `expanded.cloud.storage.storageClass` | `STANDARD` | S3 storage class (e.g. `STANDARD`, `GLACIER`). |
-| `expanded.cloud.storage.regionName` | `us-east-1` | AWS / S3-compatible region. |
-| `expanded.cloud.storage.accessKey` | `""` | S3 access key (not logged). |
-| `expanded.cloud.storage.secretKey` | `""` | S3 secret key (not logged). |
-| `expanded.cloud.storage.uploadTimeoutSeconds` | `60` | Max seconds per upload before treating as failed. |
-| `expanded.cloud.storage.maxConcurrentUploads` | `4` | Max parallel in-flight uploads. |
+|                   Property                    |       Default       |                        Description                         |
+|-----------------------------------------------|---------------------|------------------------------------------------------------|
+| `expanded.cloud.storage.endpointUrl`          | `""`                | S3-compatible endpoint URL. **Blank disables the plugin.** |
+| `expanded.cloud.storage.bucketName`           | `block-node-blocks` | Name of the S3 bucket.                                     |
+| `expanded.cloud.storage.objectKeyPrefix`      | `blocks`            | Prefix prepended to every object key.                      |
+| `expanded.cloud.storage.storageClass`         | `STANDARD`          | S3 storage class (e.g. `STANDARD`, `GLACIER`).             |
+| `expanded.cloud.storage.regionName`           | `us-east-1`         | AWS / S3-compatible region.                                |
+| `expanded.cloud.storage.accessKey`            | `""`                | S3 access key (not logged).                                |
+| `expanded.cloud.storage.secretKey`            | `""`                | S3 secret key (not logged).                                |
+| `expanded.cloud.storage.uploadTimeoutSeconds` | `60`                | Max seconds per upload before treating as failed.          |
+| `expanded.cloud.storage.maxConcurrentUploads` | `4`                 | Max parallel in-flight uploads.                            |
 
 ## Metrics
-
-No custom metrics are defined for the MVP. A follow-on issue should add:
 
 - `expanded_cloud_storage_uploads_total` — counter of successful block uploads.
 - `expanded_cloud_storage_upload_failures_total` — counter of failed uploads (S3 errors).
@@ -238,13 +253,13 @@ No custom metrics are defined for the MVP. A follow-on issue should add:
 
 ## Exceptions
 
-| Exception | Source | Handling |
-|---|---|---|
-| `com.hedera.bucky.S3ResponseException` | `BuckyS3ClientAdapter.uploadFile()` | Logged at WARNING (includes HTTP status code, body); upload marked failed; plugin continues. `S3ResponseException` carries `getResponseStatusCode()`, `getResponseBody()`, and `getResponseHeaders()` for diagnostics. |
-| `com.hedera.bucky.S3ClientException` | `BuckyS3ClientAdapter.uploadFile()` | Logged at WARNING; upload marked failed; plugin continues. |
-| `IOException` | `BuckyS3ClientAdapter.uploadFile()` | Logged at WARNING; upload marked failed; plugin continues. |
-| `com.hedera.bucky.S3ClientInitializationException` | `BuckyS3ClientAdapter` constructor | Logged at WARNING; plugin sets `enabled = false`. |
-| Block bytes empty | `SingleBlockStoreTask.call()` | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false`. |
+|                     Exception                      |               Source                |                                                                                                        Handling                                                                                                        |
+|----------------------------------------------------|-------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `com.hedera.bucky.S3ResponseException`             | `BuckyS3ClientAdapter.uploadFile()` | Logged at WARNING (includes HTTP status code, body); upload marked failed; plugin continues. `S3ResponseException` carries `getResponseStatusCode()`, `getResponseBody()`, and `getResponseHeaders()` for diagnostics. |
+| `com.hedera.bucky.S3ClientException`               | `BuckyS3ClientAdapter.uploadFile()` | Logged at WARNING; upload marked failed; plugin continues.                                                                                                                                                             |
+| `IOException`                                      | `BuckyS3ClientAdapter.uploadFile()` | Logged at WARNING; upload marked failed; plugin continues.                                                                                                                                                             |
+| `com.hedera.bucky.S3ClientInitializationException` | `BuckyS3ClientAdapter` constructor  | Logged at WARNING; plugin sets `enabled = false`.                                                                                                                                                                      |
+| Block bytes empty                                  | `SingleBlockStoreTask.call()`       | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false`.                                                                                                                                |
 
 The plugin is designed to be **fault-isolated**: no exception from S3 will propagate up to
 crash the node.

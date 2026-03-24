@@ -157,7 +157,7 @@ class BlockNodeCloudStorageTests {
      * {@code app.shutdown()} without active publisher handlers in the messaging facility.
      */
     @Test
-    void happyPath_blockIsUploadedToS3() throws Exception {
+    void blockIsUploadedToS3() throws Exception {
         final long blockNumber = 0L;
         final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
         final PublishStreamRequest blockRequest = PublishStreamRequest.newBuilder()
@@ -201,7 +201,7 @@ class BlockNodeCloudStorageTests {
      * trigger a second upload.
      */
     @Test
-    void duplicateBlock_onlyOneS3ObjectCreated() throws Exception {
+    void onlyOneS3ObjectCreatedOnDuplicate() throws Exception {
         final long blockNumber = 0L;
         final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
         final PublishStreamRequest request = PublishStreamRequest.newBuilder()

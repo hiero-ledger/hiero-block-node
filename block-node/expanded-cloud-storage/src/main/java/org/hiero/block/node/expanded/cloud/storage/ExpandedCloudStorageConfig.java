@@ -67,9 +67,11 @@ public record ExpandedCloudStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "60") int uploadTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "4") int maxConcurrentUploads) {
 
-    /** Valid S3 storage class values accepted by this plugin. */
-    static final Set<String> VALID_STORAGE_CLASSES = Set.of(
-            "STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING", "GLACIER", "GLACIER_IR", "DEEP_ARCHIVE");
+    /** Valid S3 storage class values accepted by this plugin.
+     * BN is scoped to STANDARD class and utilizes cloud policies to move files to archive storage
+     * To expand the list add options as documented in S3 API for x-amz-storage-class header
+     */
+    static final Set<String> VALID_STORAGE_CLASSES = Set.of("STANDARD");
 
     /**
      * Compact constructor that validates {@code storageClass} and numeric bounds at

@@ -11,7 +11,6 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.internal.BlockUnparsed;
@@ -26,11 +25,10 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 /**
  * A block node plugin that uploads each individually-verified block as a compressed
  * {@code .blk.zstd} object directly to any S3-compatible object store (AWS S3, GCS via
- * S3-interop, MinIO, etc.).
+ * S3-interop, etc.).
  *
- * <p>Unlike the {@code s3-archive} plugin, which batches blocks into large tar files, this
- * plugin uploads one block per object. This makes individual blocks immediately queryable and
- * suits consumers that want block-level granularity in the cloud with minimal latency.
+ * <p>This plugin uploads one block per object. This makes individual blocks immediately queryable
+ *  and suits consumers that want block-level granularity in the cloud with minimal latency.
  *
  * <h2>Trigger: {@link VerificationNotification}</h2>
  * The plugin reacts to {@code handleVerification()} rather than {@code handlePersisted()}.
@@ -266,5 +264,4 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 ? folderPath + ".blk.zstd"
                 : prefix + "/" + folderPath + ".blk.zstd";
     }
-
 }
