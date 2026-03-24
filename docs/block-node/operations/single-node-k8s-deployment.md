@@ -22,7 +22,7 @@ Quick reference for minimum mainnet deployments:
 
 Note: Servers may be acquired from bare metal or cloud providers that offer dedicated
 instances. LFH configurations require significant storage and are typically sourced from
-bare metal providers.
+bare metal providers, or purchased outright and self-hosted, or colocated.
 
 ## Server Provisioning
 

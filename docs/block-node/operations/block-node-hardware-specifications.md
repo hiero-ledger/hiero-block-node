@@ -213,6 +213,6 @@ All figures use the raw (uncompressed) wire size.
   NVMe and network maximum throughput targets above. PCIe 3.0 configurations may
   be bandwidth-limited.
 - **CPU vintage**: A 2024 or newer CPU is recommended to benefit from improved
-  single-thread IPC and PCIe 4+ native support.
+  single-thread IPC and PCIe 4+ support.
 - **OS disk**: Minimal sizing is sufficient; the OS disk sees negligible I/O after
   initial start-up. Allow at least 10 GB for OCI image storage.
