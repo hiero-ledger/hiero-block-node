@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -281,66 +282,16 @@ class LiveStreamPublisherManagerTest {
             void testGetActionACCEPTPreviousAction() {
                 // Initially, the next expected block number is 0L.
                 // Call with next expected block number and previous action null in order to "start" streaming block 0L.
-                final BlockAction firstCall = toTest.getActionForBlock(0L, null, publisherHandlerId);
+                final long blockNumber = 0L;
+                final BlockAction firstCall = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
+                // We have to register a queue for the header we just got an ACCEPT for
+                toTest.registerQueueForBlock(publisherHandlerId, new ConcurrentLinkedDeque<>(), blockNumber);
                 // Assert that the first call returns ACCEPT.
                 assertThat(firstCall).isEqualTo(BlockAction.ACCEPT);
-                // Call with next expected block number and previous action ACCEPT.
-                final BlockAction secondCall = toTest.getActionForBlock(0L, firstCall, publisherHandlerId);
+                // Call with previous action ACCEPT.
+                final BlockAction secondCall = toTest.getActionForBlock(blockNumber, firstCall, publisherHandlerId);
                 // Assert that the second call also returns ACCEPT.
                 assertThat(secondCall).isEqualTo(BlockAction.ACCEPT);
-            }
-
-            /// This test aims to assert that the
-            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
-            /// method returns [BlockAction#END_DUPLICATE] when the provided block
-            /// number is lower or equal to the latest known block number and
-            /// previous action is [BlockAction#ACCEPT].
-            @Test
-            @DisplayName(
-                    "getActionForBlock() returns END_DUPLICATE when the provided block number is lower or equal to the latest known block number and previous action is ACCEPT")
-            void testGetActionACCEPTPreviousActionDUPLICATE() {
-                // Initially, the latest known block number is -1L.
-                // Call with lower than latest known block number and previous action ACCEPT.
-                final BlockAction actual = toTest.getActionForBlock(-2L, BlockAction.ACCEPT, publisherHandlerId);
-                // Assert
-                assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
-            }
-
-            /// This test aims to assert that the
-            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
-            /// method returns [BlockAction#SKIP] when the provided block
-            /// number is both higher than the latest known block number and
-            /// lower than the current streaming block number, and previous
-            /// action is [BlockAction#ACCEPT].
-            @Test
-            @DisplayName(
-                    "getActionForBlock() returns SKIP when the provided block number is both higher than the latest known block number and lower than the current streaming block number, and previous action is ACCEPT")
-            void testGetActionACCEPTPreviousActionSKIP() {
-                // Initially, the next expected block number is 0L.
-                // Initially, the current streaming block number is same as next expected, i.e. 0L in this case.
-                // For this test we need to actually send items to the publisher handler so that we can trigger
-                // logic that will update the current streaming block number once we run messaging forwarder async.
-                // First we need to build a block
-                final long streamedBlockNumber = 0L;
-                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0);
-                // Now we build the request
-                final BlockItemSetUnparsed itemSet = block.asItemSetUnparsed();
-                final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(itemSet)
-                        .build();
-                // We send the request to the publisher handler.
-                // This will queue the messaging forwarder to run and update the current streaming block number.
-                publisherHandler.onNext(request);
-                endThisBlock(publisherHandler, streamedBlockNumber);
-                // We run the queued messaging forwarder to update the current streaming block number.
-                // We need to run the task async, because the loop (managed by config) is way too big to block on.
-                // We will however wait for one second to ensure the task is run.
-                threadPoolManager.executor().executeAsync(1_000L, false);
-                // Call, now we expect to hit SKIP
-                final BlockAction actual =
-                        toTest.getActionForBlock(streamedBlockNumber, BlockAction.ACCEPT, publisherHandlerId);
-                // Assert
-                assertThat(actual).isEqualTo(BlockAction.SKIP);
             }
 
             /// This test aims to assert that the
@@ -361,18 +312,17 @@ class LiveStreamPublisherManagerTest {
 
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
-            /// method returns [BlockAction#SEND_BEHIND] when the provided
-            /// block number higher than the next expected block number and
-            /// previous action is [BlockAction#ACCEPT].
+            /// method returns [BlockAction#END_ERROR] when we want to continue streaming a block,
+            /// i.e. we had a previous action [BlockAction#ACCEPT], but we do not have a registered
+            /// queue for that block.
             @Test
             @DisplayName(
-                    "getActionForBlock() returns END_BEHIND when the provided block number higher than the next expected block number and previous action is ACCEPT")
-            void testGetActionACCEPTPreviousActionBEHIND() {
-                // Initially, the next expected block number is 0L.
-                // Call with higher than next expected block number and previous action ACCEPT.
-                final BlockAction actual = toTest.getActionForBlock(1L, BlockAction.ACCEPT, publisherHandlerId);
+                    "getActionForBlock() returns END_ERROR when previous action was ACCEPT, but we do not have a registered queue for the block we want to continue")
+            void testGetActionACCEPTNoQueueContinuingBlock() {
+                // Call
+                final BlockAction actual = toTest.getActionForBlock(0L, BlockAction.ACCEPT, publisherHandlerId);
                 // Assert
-                assertThat(actual).isEqualTo(BlockAction.SEND_BEHIND);
+                assertThat(actual).isEqualTo(BlockAction.END_ERROR);
             }
 
             /// This test aims to assert that the
