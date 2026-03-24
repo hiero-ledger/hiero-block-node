@@ -93,13 +93,16 @@ public class BlockNodeApp implements HealthFacility {
 
     /**
      * Constructor for the BlockNodeApp class with a custom environment variable getter.
-     * This constructor is primarily intended for testing, allowing injection of configuration
-     * overrides via a custom {@code envVarGetter} without mutating JVM system properties or
-     * real environment variables.
+     *
+     * <p><b>Note:</b> This overload exists to support integration and E2E tests that need to
+     * inject S3 or other environment-variable-driven config without mutating the real JVM
+     * environment. It should not be used in production code; production should use
+     * {@link #BlockNodeApp(ServiceLoaderFunction, boolean)} which defaults to
+     * {@code System::getenv}.
      *
      * @param serviceLoader Optional function to load the service loader, if null then the default will be used
      * @param shouldExitJvmOnShutdown if true, the JVM will exit on shutdown, otherwise it will not
-     * @param envVarGetter function to retrieve environment variable values; typically {@code System::getenv}
+     * @param envVarGetter function to retrieve environment variable values; {@code System::getenv}
      *                     in production, or a custom map lookup in tests
      * @throws IOException if there is an error starting the server
      */
