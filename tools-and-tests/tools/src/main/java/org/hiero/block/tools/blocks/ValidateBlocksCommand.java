@@ -267,7 +267,7 @@ public class ValidateBlocksCommand implements Runnable {
             try {
                 addressBookRegistry = new AddressBookRegistry();
                 System.out.println(Ansi.AUTO.string("@|yellow Using genesis address book for network:|@ "
-                        + org.hiero.block.tools.config.NetworkConfig.current().networkName()
+                        + NetworkConfig.current().networkName()
                         + " (address book updates will be discovered from block data)"));
             } catch (Exception e) {
                 System.err.println(
