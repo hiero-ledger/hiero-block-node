@@ -219,7 +219,7 @@ cp .env.example .env
 | `CLUSTER_NAME`           | `solo-cluster`           | Kind cluster name                                                    |
 | `NAMESPACE`              | `solo-network`           | Kubernetes namespace                                                 |
 | `DEPLOYMENT`             | `deployment-solo`        | Solo deployment name                                                 |
-| `SOLO_VERSION`           | `latest`                 | Solo CLI version (CI pins to `0.61.0`)                               |
+| `SOLO_VERSION`           | `latest`                 | Solo CLI version (CI pins to `0.63.0`)                               |
 | `CN_VERSION`             | `latest`                 | Consensus Node version                                               |
 | `MN_VERSION`             | `latest`                 | Mirror Node version                                                  |
 | `BN_VERSION`             | `latest`                 | Block Node version                                                   |
@@ -418,7 +418,7 @@ The CI workflow (`.github/workflows/solo-e2e-test.yml`) uses the same scripts as
 | `mirror-node-version`      | `latest`                 | MN version (`latest`, `rc` or specific tag)         |
 | `relay-version`            | `latest`                 | Relay version (`latest` or specific tag)            |
 | `tck-version`              | `latest`                 | TCK-SDK version (`latest` or specific tag)          |
-| `solo-version`             | `0.61.0`                 | Solo CLI version                                    |
+| `solo-version`             | `0.63.0`                 | Solo CLI version                                    |
 | `tss-enabled`              | `true`                   | Enable TSS on consensus nodes                       |
 | `nlg-enabled`              | `false`                  | Enable NLG load generation                          |
 | `nlg-test-type`            | `CryptoTransferLoadTest` | NLG test class                                      |
@@ -636,7 +636,7 @@ solo cluster-ref config disconnect -c kind-solo-cluster -q
 |------------------------------------|----------------------|-----------------------------------------------|
 | Mirror Importer `CrashLoopBackOff` | Waiting for Postgres | Wait 2-3 minutes, recovers automatically      |
 | "context deadline exceeded"        | Helm repo timeout    | Retry: `task network:deploy`                  |
-| Solo CLI errors                    | Version mismatch     | `npm i @hashgraph/solo@0.61.0 -g`             |
+| Solo CLI errors                    | Version mismatch     | `npm i @hashgraph/solo@0.63.0 -g`             |
 | Port already in use                | Stale port-forwards  | `task port-forward:stop && task port-forward` |
 
 ### Debugging

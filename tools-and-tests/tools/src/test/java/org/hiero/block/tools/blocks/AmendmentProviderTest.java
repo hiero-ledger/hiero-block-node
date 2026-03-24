@@ -83,22 +83,21 @@ class AmendmentProviderTest {
         }
 
         @Test
-        @DisplayName("hasGenesisAmendments returns true only for block 0")
+        @DisplayName("hasGenesisAmendments always returns false (record streams are complete from genesis)")
         void testHasGenesisAmendments() {
             TestnetAmendmentProvider provider = new TestnetAmendmentProvider();
-            assertTrue(provider.hasGenesisAmendments(0), "Block 0 should have genesis amendments");
+            assertFalse(provider.hasGenesisAmendments(0), "Block 0 should not have genesis amendments");
             assertFalse(provider.hasGenesisAmendments(1), "Block 1 should not have genesis amendments");
             assertFalse(provider.hasGenesisAmendments(-1), "Block -1 should not have genesis amendments");
             assertFalse(provider.hasGenesisAmendments(100), "Block 100 should not have genesis amendments");
         }
 
         @Test
-        @DisplayName("getGenesisAmendments returns empty list for non-genesis blocks")
+        @DisplayName("getGenesisAmendments always returns empty list")
         void testGetGenesisAmendmentsNonGenesis() {
             TestnetAmendmentProvider provider = new TestnetAmendmentProvider();
-            List<BlockItem> amendments = provider.getGenesisAmendments(1);
-            assertNotNull(amendments, "Amendments should not be null");
-            assertTrue(amendments.isEmpty(), "Amendments should be empty for non-genesis blocks");
+            assertTrue(provider.getGenesisAmendments(0).isEmpty(), "Block 0 should have no genesis amendments");
+            assertTrue(provider.getGenesisAmendments(1).isEmpty(), "Block 1 should have no genesis amendments");
         }
 
         @Test

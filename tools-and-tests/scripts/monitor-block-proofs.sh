@@ -213,7 +213,7 @@ while true; do
       wait_count=0
       printf "  Block %d: waiting" "$block"
     fi
-    ((wait_count++))
+    (( wait_count++ )) || true
     printf "."
     sleep 5
     block=$(( block - STEP ))

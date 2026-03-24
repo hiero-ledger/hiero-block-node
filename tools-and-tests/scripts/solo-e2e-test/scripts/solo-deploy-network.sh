@@ -360,8 +360,10 @@ function deploy_block_nodes {
     log_line "  Generated ${overlay_count} overlay files (use --verbose to see contents)"
   fi
 
-  # Path to resource overlay (relative to scripts dir) — mini.yaml provides adequate
-  # memory (1Gi) instead of the default nano profile (128M) which causes OOMKills.
+  # TODO: Solo 0.63.0 has a built-in TSS overlay (block-node-tss-values.yaml) that provides
+  # identical resources, but it only activates when tssEnabled is in the remote config. Since BNs
+  # deploy before CNs (which set the TSS flag via --tss), Solo's overlay doesn't apply in time.
+  # This mini overlay remains necessary until Solo supports setting TSS state before BN deployment.
   local resource_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/mini.yaml"
 
   # Path to observability overlay (relative to scripts dir)
@@ -449,6 +451,7 @@ function deploy_consensus_nodes {
   fi
 
   # shellcheck disable=SC2086
+  # adding --dev flag so in case it fails we have more information on details
   eval solo consensus network deploy \
     --deployment "${DEPLOYMENT}" \
     --pvcs true \
@@ -465,54 +468,6 @@ function deploy_consensus_nodes {
     --deployment "${DEPLOYMENT}" \
     ${cn_args} || fail "ERROR: Failed to setup consensus nodes" 1
   end_task
-
-  # TODO(https://github.com/hiero-ledger/solo/pull/3602): Once either solo or the CN defaults to a bigger message size limit, this patching step can be removed.
-  # this might be expected in solo 0.61.0 as the earliest.
-  # Patch block-nodes.json on each CN to increase message size limits.
-  # The default hard limit (6 MB) is too small for the genesis WRAPS proof (~30 MB).
-  # See: https://github.com/hiero-ledger/hiero-consensus-node BlockNodeConfiguration
-  if [[ "${TSS_ENABLED}" == "true" ]]; then
-    start_task "Patching block-nodes.json message size limits for WRAPS support"
-    local remote_path="/opt/hgcapp/services-hedera/HapiApp2.0/data/config/block-nodes.json"
-    local hard_limit=37748736   # 36 MB
-    local soft_limit=4194304    # 4 MB
-    local tmp_file
-    tmp_file=$(mktemp)
-
-    IFS=',' read -ra cn_nodes <<< "${NODE_ALIASES}"
-    for node_alias in "${cn_nodes[@]}"; do
-      local pod_name="network-${node_alias}-0"
-      log_line "  Patching ${pod_name}: messageSizeHardLimitBytes=${hard_limit}, messageSizeSoftLimitBytes=${soft_limit}"
-
-      # Copy block-nodes.json from pod to local temp file, patch with yq, copy back
-      kubectl cp "${NAMESPACE}/${pod_name}:${remote_path}" "${tmp_file}" -c root-container 2>/dev/null || {
-        log_line "  WARNING: Failed to copy block-nodes.json from ${pod_name}"
-        continue
-      }
-
-      # Use yq to add message size limits to each node entry
-      yq -i -o=json '(.nodes[] | select(.)) += {"messageSizeSoftLimitBytes": '"${soft_limit}"', "messageSizeHardLimitBytes": '"${hard_limit}"'}' "${tmp_file}" || {
-        log_line "  WARNING: Failed to patch block-nodes.json for ${pod_name}"
-        continue
-      }
-
-      # Copy patched file back to pod
-      kubectl cp "${tmp_file}" "${NAMESPACE}/${pod_name}:${remote_path}" -c root-container 2>/dev/null || {
-        log_line "  WARNING: Failed to copy patched block-nodes.json to ${pod_name}"
-        continue
-      }
-
-      # Fix ownership and permissions (kubectl cp writes as root, CN process runs as hedera)
-      kubectl exec "${pod_name}" -n "${NAMESPACE}" -c root-container -- chown hedera:hedera "${remote_path}" 2>/dev/null
-      kubectl exec "${pod_name}" -n "${NAMESPACE}" -c root-container -- chmod 755 "${remote_path}" 2>/dev/null
-
-      # Verify
-      log_line "  Patched block-nodes.json on ${pod_name}:"
-      kubectl exec "${pod_name}" -n "${NAMESPACE}" -c root-container -- cat "${remote_path}" 2>/dev/null
-    done
-    rm -f "${tmp_file}"
-    end_task
-  fi
 
   start_task "Starting consensus nodes"
   solo consensus node start \
@@ -649,7 +604,7 @@ function print_summary {
   echo "node_aliases=${NODE_ALIASES}"
 }
 
-readonly SOLO_MIN_VERSION="0.61.0"
+readonly SOLO_MIN_VERSION="0.63.0"
 
 function check_prerequisites {
   if ! command -v yq &> /dev/null; then
