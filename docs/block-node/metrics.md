@@ -239,6 +239,17 @@ Provides metrics related to the backfill process, including On-Demand and Histor
 | Gauge   | `backfill_status`            | Current status of the backfill process (0=Idle, 1=Running) |
 | Gauge   | `backfill_pending_blocks`    | Number of blocks pending to be backfilled                  |
 
+#### Expanded Cloud Storage
+
+**Plugin:** `expanded-cloud-storage`
+Tracks the count and byte data size regarding single block uploads
+
+|  Type   | Metric                                         | Description                                                              |
+|---------|:-----------------------------------------------|:-------------------------------------------------------------------------|
+| Counter | `expanded_cloud_storage_uploads_total`         | Number of blocks successfully uploaded.                                  |
+| Counter | `expanded_cloud_storage_upload_failures_total` | Number of uploads that failed (S3 error, timeout, or compression error). |
+| Counter | `expanded_cloud_storage_upload_bytes_total`    | Total compressed bytes successfully uploaded.                            |
+
 ## Alerting Recommendations
 
 Alerting rules can be created based on these metrics to notify the operations team of potential issues.
@@ -284,3 +295,11 @@ As the product matures through beta and rc phases, high severity alerts will be 
 | M        | `hashing_block_time`                       | If value exceeds 2s, otherwise, configure as needed  |
 | M        | `verification_block_time`                  | If value exceeds 20s, otherwise, configure as needed |
 | M        | `files_recent_persistence_time_latency_ns` | If value exceeds 20s, otherwise, configure as needed |
+
+**Archive**: Alerts for metrics regarding file archival
+
+| Severity | Alert                         | Metric                                         |                          Condition                           |
+|:---------|:------------------------------|:-----------------------------------------------|--------------------------------------------------------------|
+| Warning  | Upload failure rate elevated  | `expanded_cloud_storage_upload_failures_total` | `rate(expanded_cloud_storage_upload_failures_total[5m]) > 0` |
+| Critical | No uploads in expected window | `expanded_cloud_storage_uploads_total`         | `increase(expanded_cloud_storage_uploads_total[10m]) == 0`   |
+| Warning  | Bytes stalled                 | `expanded_cloud_storage_upload_bytes_total`    | `rate(expanded_cloud_storage_upload_bytes_total[10m]) == 0`  |

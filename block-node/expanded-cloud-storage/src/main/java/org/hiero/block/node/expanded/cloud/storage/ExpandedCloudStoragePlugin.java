@@ -280,7 +280,10 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             Thread.currentThread().interrupt();
             LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
         } catch (final ExecutionException e) {
-            LOGGER.log(WARNING, "Unexpected exception in upload task: {0}", e.getCause().getMessage());
+            LOGGER.log(
+                    WARNING,
+                    "Unexpected exception in upload task: {0}",
+                    e.getCause().getMessage());
         }
     }
 
@@ -340,9 +343,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                             new Counter.Config(METRICS_CATEGORY, "expanded_cloud_storage_upload_failures_total")
                                     .withDescription(
                                             "Number of block uploads that failed (S3 error, timeout, compression error)")),
-                    metrics.getOrCreate(
-                            new Counter.Config(METRICS_CATEGORY, "expanded_cloud_storage_upload_bytes_total")
-                                    .withDescription("Total compressed bytes successfully uploaded to S3-compatible storage")));
+                    metrics.getOrCreate(new Counter.Config(
+                                    METRICS_CATEGORY, "expanded_cloud_storage_upload_bytes_total")
+                            .withDescription("Total compressed bytes successfully uploaded to S3-compatible storage")));
         }
     }
 }
