@@ -1044,9 +1044,9 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                     .map(psf -> psf.toRecordFileSignature(currentBook))
                     .toList();
             PrettyPrint.clearProgress();
-            System.out.println(Ansi.AUTO.string("@|yellow Block " + blockNum
-                    + ": re-verified signatures with updated address book:|@ " + reverifiedSigs.size()
-                    + " verified (was " + preVerified.verifiedSignatures().size() + ")"));
+            final String yellowMessage = Ansi.AUTO.string("@|yellow Block %d: re-verified signatures"
+                    + " with updated address book:|@ %d verified (was %d)")
+            System.out.printf(yellowMessage, blockNum, reverifiedSigs.size(), preVerified.verifiedSignatures().size());
             return new PreVerifiedBlock(preVerified.recordBlock(), currentBook, reverifiedSigs);
         }
 
