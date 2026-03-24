@@ -34,11 +34,9 @@ import org.hiero.block.node.base.Loggable;
  * @param objectKeyPrefix      prefix prepended to every object key (e.g. {@code "blocks"}).
  *                             Set to empty string for no prefix. The full key format is:
  *                             {@code {prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd}.
- * @param storageClass         S3 storage class. Must be one of: {@code STANDARD},
- *                             {@code STANDARD_IA}, {@code ONEZONE_IA},
- *                             {@code INTELLIGENT_TIERING}, {@code GLACIER},
- *                             {@code GLACIER_IR}, {@code DEEP_ARCHIVE}.
- *                             Validated at startup.
+ * @param storageClass         S3 storage class. Must be {@code STANDARD}. BN relies on
+ *                             bucket lifecycle policies rather than storage-class headers to
+ *                             move objects to archive tiers. Validated at startup.
  * @param regionName           AWS / S3-compatible region name (e.g. {@code us-east-1}).
  * @param accessKey            S3 access key; not logged. Leave blank to use environment
  *                             variables or IAM instance role.
@@ -46,8 +44,6 @@ import org.hiero.block.node.base.Loggable;
  *                             variables or IAM instance role.
  * @param uploadTimeoutSeconds maximum seconds to wait for a single block upload before
  *                             treating it as failed. Default: 60.
- * @param maxConcurrentUploads maximum number of block uploads in-flight simultaneously.
- *                             Default: 4.
  */
 @ConfigData("expanded.cloud.storage")
 public record ExpandedCloudStorageConfig(
@@ -64,27 +60,23 @@ public record ExpandedCloudStorageConfig(
 
         @ConfigProperty(defaultValue = "") String accessKey,
         @ConfigProperty(defaultValue = "") String secretKey,
-        @Loggable @ConfigProperty(defaultValue = "60") int uploadTimeoutSeconds,
-        @Loggable @ConfigProperty(defaultValue = "4") int maxConcurrentUploads) {
+        @Loggable @ConfigProperty(defaultValue = "60") int uploadTimeoutSeconds) {
 
-    /** Valid S3 storage class values accepted by this plugin.
-     * BN is scoped to STANDARD class and utilizes cloud policies to move files to archive storage
-     * To expand the list add options as documented in S3 API for x-amz-storage-class header
+    /**
+     * Valid S3 storage class values accepted by this plugin.
+     * BN is scoped to STANDARD and relies on bucket lifecycle policies for archive tiers.
+     * To expand this set, add options from the S3 API {@code x-amz-storage-class} header docs.
      */
     static final Set<String> VALID_STORAGE_CLASSES = Set.of("STANDARD");
 
     /**
-     * Compact constructor that validates {@code storageClass} and numeric bounds at
-     * construction time so misconfiguration fails fast at node startup.
+     * Compact constructor that validates {@code storageClass} and {@code uploadTimeoutSeconds}
+     * at construction time so misconfiguration fails fast at node startup.
      */
     public ExpandedCloudStorageConfig {
         if (!VALID_STORAGE_CLASSES.contains(storageClass)) {
             throw new IllegalArgumentException("Invalid expanded.cloud.storage.storageClass: '" + storageClass
                     + "'. Must be one of: " + VALID_STORAGE_CLASSES);
-        }
-        if (maxConcurrentUploads < 1) {
-            throw new IllegalArgumentException(
-                    "expanded.cloud.storage.maxConcurrentUploads must be >= 1, got: " + maxConcurrentUploads);
         }
         if (uploadTimeoutSeconds < 1) {
             throw new IllegalArgumentException(
