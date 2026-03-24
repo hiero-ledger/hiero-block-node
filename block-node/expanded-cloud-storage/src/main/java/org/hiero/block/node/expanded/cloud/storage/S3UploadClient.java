@@ -24,8 +24,8 @@ abstract class S3UploadClient implements AutoCloseable {
      * @throws com.hedera.bucky.S3ClientException if the S3 service returns an error
      * @throws IOException                         if an I/O error occurs
      */
-    abstract void uploadFile(String objectKey, String storageClass,
-            Iterator<byte[]> contentIterable, String contentType)
+    abstract void uploadFile(
+            String objectKey, String storageClass, Iterator<byte[]> contentIterable, String contentType)
             throws com.hedera.bucky.S3ClientException, IOException;
 
     /** Releases resources held by this client. Must be idempotent. */
@@ -42,12 +42,14 @@ abstract class S3UploadClient implements AutoCloseable {
     static S3UploadClient forConfig(final ExpandedCloudStorageConfig config)
             throws com.hedera.bucky.S3ClientInitializationException {
         final com.hedera.bucky.S3Client bucky = new com.hedera.bucky.S3Client(
-                config.regionName(), config.endpointUrl(), config.bucketName(),
-                config.accessKey(), config.secretKey());
+                config.regionName(), config.endpointUrl(), config.bucketName(), config.accessKey(), config.secretKey());
         return new S3UploadClient() {
             @Override
-            void uploadFile(final String objectKey, final String storageClass,
-                    final Iterator<byte[]> contentIterable, final String contentType)
+            void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
                     throws com.hedera.bucky.S3ClientException, IOException {
                 bucky.uploadFile(objectKey, storageClass, contentIterable, contentType);
             }

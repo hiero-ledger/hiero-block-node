@@ -106,21 +106,25 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             final byte[] payload = compressed;
             final ExecutorService uploadExecutor = Executors.newVirtualThreadPerTaskExecutor();
             final Future<Void> upload = uploadExecutor.submit(() -> {
-                s3Client.uploadFile(objectKey, storageClass, new Iterator<>() {
-                    private boolean hasNext = true;
+                s3Client.uploadFile(
+                        objectKey,
+                        storageClass,
+                        new Iterator<>() {
+                            private boolean hasNext = true;
 
-                    @Override
-                    public boolean hasNext() {
-                        return hasNext;
-                    }
+                            @Override
+                            public boolean hasNext() {
+                                return hasNext;
+                            }
 
-                    @Override
-                    public byte[] next() {
-                        if (!hasNext) throw new NoSuchElementException();
-                        hasNext = false;
-                        return payload;
-                    }
-                }, CONTENT_TYPE);
+                            @Override
+                            public byte[] next() {
+                                if (!hasNext) throw new NoSuchElementException();
+                                hasNext = false;
+                                return payload;
+                            }
+                        },
+                        CONTENT_TYPE);
                 return null;
             });
             uploadExecutor.shutdown();
@@ -131,7 +135,11 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
                 LOGGER.log(WARNING, "Block {0}: upload timed out after {1}s.", blockNumber, uploadTimeoutSeconds);
                 return new UploadResult(blockNumber, false, blockSource);
             } catch (final ExecutionException e) {
-                LOGGER.log(WARNING, "Block {0}: upload failed: {1}", blockNumber, e.getCause().getMessage());
+                LOGGER.log(
+                        WARNING,
+                        "Block {0}: upload failed: {1}",
+                        blockNumber,
+                        e.getCause().getMessage());
                 return new UploadResult(blockNumber, false, blockSource);
             } finally {
                 uploadExecutor.shutdownNow();
