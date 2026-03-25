@@ -15,7 +15,7 @@ import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
-import io.helidon.webserver.ConnectionConfig;
+import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
@@ -208,9 +208,9 @@ public class BlockNodeApp implements HealthFacility {
                 .addProtocol(pbjConfig)
                 .addRouting(serviceBuilder.httpRoutingBuilder())
                 .addRouting(serviceBuilder.grpcRoutingBuilder())
-                .connectionConfig(ConnectionConfig.builder()
-                        .sendBufferSize(serverConfig.socketSendBufferSizeBytes())
-                        .receiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
+                .connectionOptions(SocketOptions.builder()
+                        .socketSendBufferSize(serverConfig.socketSendBufferSizeBytes())
+                        .socketReceiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
                         .tcpNoDelay(serverConfig.tcpNoDelay())
                         .build())
                 .backlog(serverConfig.backlogSize())
