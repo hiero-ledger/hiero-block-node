@@ -19,6 +19,10 @@ javaModules {
     directory("block-node") { group = hieroGroup }
 }
 
+include("k6-tests")
+
+project(":k6-tests").projectDir = file("tools-and-tests/k6")
+
 // @jjohannes: remove once 'swirldsVersion' is updated to '0.63.x' in
 // hiero-dependency-versions/build.gradle.kts
 @Suppress("UnstableApiUsage")

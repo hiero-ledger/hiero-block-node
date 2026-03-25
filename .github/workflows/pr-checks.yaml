@@ -59,15 +59,17 @@ jobs:
     name: "Quality Checks and UTs"
     runs-on: hiero-block-node-linux-medium
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+      - name: Setup Node, Java, checkout code and harden runner
+        uses: PandasWhoCode/initialize-github-job@a57cd6d8d768b2f3c95334bdd4fa8c21609fc651 # v1.0.5
         with:
-          egress-policy: audit
-
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
+          checkout: "true"
+          checkout-token: "${{ secrets.GITHUB_TOKEN }}"
+          checkout-fetch-depth: "0"
+          setup-node: "true"
+          node-version: "20.19.4"
+          setup-java: "true"
+          java-version: "25.0.2"
+          java-distribution: "temurin"
 
       - name: Expand Shallow Clone for Spotless
         run: |
@@ -76,12 +78,6 @@ jobs:
           else
             echo "Repository is not shallow, no need to unshallow."
           fi
-
-      - name: Set up JDK 25
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: "temurin"
-          java-version: "25.0.2"
 
       - name: Build
         id: gradle-build
