@@ -409,23 +409,27 @@ class ValidateBlocksCommandTest {
     }
 
     @Test
-    void checkpointDeletedOnFullSuccess() throws Exception {
+    void checkpointPreservedOnFullSuccess() throws Exception {
         List<Block> blocks = TestBlockFactory.createValidChain(5);
         writeBlocks(blocks);
         writeAddressBook();
-
-        // Create a fake checkpoint first so we can verify it gets cleaned up
-        Path checkpointDir = tempDir.resolve("validateCheckpoint");
-        Files.createDirectories(checkpointDir);
-        Files.writeString(checkpointDir.resolve("validateProgress.json"), "{}");
 
         Object[] result = runValidate();
         String output = (String) result[1];
 
         assertTrue(output.contains("VALIDATION PASSED"), "Should pass validation. Output:\n" + output);
-        assertFalse(
+
+        // Checkpoint should be preserved on success so that future runs can resume
+        Path checkpointDir = tempDir.resolve("validateCheckpoint");
+        assertTrue(
                 Files.exists(checkpointDir.resolve("validateProgress.json")),
-                "Checkpoint JSON should be deleted after full success");
+                "Checkpoint JSON should be preserved after full success");
+
+        // Verify checkpoint contents reflect all blocks validated
+        String json = Files.readString(checkpointDir.resolve("validateProgress.json"));
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        assertEquals(4, root.get("lastValidatedBlockNumber").getAsLong(), "Last validated should be block 4");
+        assertEquals(5, root.get("blocksValidated").getAsLong(), "Should have validated 5 blocks (0-4)");
     }
 
     // ── CLI validation ──
