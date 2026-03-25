@@ -4,7 +4,8 @@ import { parseBlockFixture } from "./parseBlock.js";
 import { extractBootstrapPublication } from "./extractBootstrap.js";
 import { computeBlockRoot } from "./computeBlockRoot.js";
 import { attemptNobleVerification } from "./attemptNobleVerify.js";
-import { assessSnarkjsTractability } from "./assessWrapsSnarkjs.js";
+import { assessSnarkjsTractability, attemptWrapsDeserialization } from "./assessWrapsSnarkjs.js";
+import { verifySchnorrSignature } from "./verifySchnorr.js";
 import { buildVerificationReport, formatVerificationReports } from "./report.js";
 import type { BootstrapPublicationSummary, VerificationReport } from "./types.js";
 
@@ -64,6 +65,8 @@ async function buildReports(fixturePaths: string[]): Promise<VerificationReport[
         bootstrapPublication,
         nobleAttempt: attemptNobleVerification(parsedBlock.proofLayout),
         snarkjsAssessment: assessSnarkjsTractability(parsedBlock.proofLayout),
+        wrapsDeserialization: attemptWrapsDeserialization(parsedBlock.proofLayout, bootstrapPublication),
+        schnorrVerification: verifySchnorrSignature(parsedBlock.proofLayout, bootstrapPublication),
       }),
     );
   }
@@ -75,7 +78,9 @@ async function main(): Promise<void> {
   const { fixturePaths, json } = parseArgs(process.argv.slice(2));
   const reports = await buildReports(fixturePaths);
   if (json) {
-    console.log(JSON.stringify(reports, null, 2));
+    const replacer = (_key: string, value: unknown) =>
+      typeof value === "bigint" ? "0x" + value.toString(16) : value;
+    console.log(JSON.stringify(reports, replacer, 2));
     return;
   }
   console.log(formatVerificationReports(reports));

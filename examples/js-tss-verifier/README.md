@@ -1,22 +1,23 @@
 # JS/TS TSS Verifier Example
 
-This example is a Node-first spike for independently inspecting Hedera block proof data produced
-under HIP-1056 and HIP-1200.
+This example is a Node-first spike for independently inspecting and partially verifying Hedera
+block proof data produced under HIP-1056 and HIP-1200.
 
-It does four things:
+It does six things:
 
 1. Loads real `.blk.zstd` (and legacy `.blk.gz`) fixtures.
 2. Recomputes the HIP-1056 block root hash from `BlockUnparsed`.
 3. Extracts and classifies the HIP-1200 `blockSignature` payload.
-4. Attempts JS-side tractability checks with `@noble/curves/bls12-381`.
+4. **Deserializes the 704-byte WRAPS proof** into its Nova IVC fields (ProofData) and validates
+   the ledger ID against bootstrap data.
+5. **Verifies Schnorr aggregate signatures** for genesis/pre-settled blocks using BabyJubjub
+   curve arithmetic, Blake2s, and Poseidon over BN254.
+6. Reports BLS12-381 point decode attempts for reference.
 
 The parser follows a shallow design for block items: it scans `BlockUnparsed` and
 `BlockItemUnparsed` at the protobuf wire level, preserves each item's original encoded bytes for
 hashing, and only deeply decodes the small set of messages needed for block metadata, block proof,
 and block-0 bootstrap extraction.
-
-It does not claim full pure-JS TSS verification today. See
-`docs/design/tss-js-spike-findings.md` for the current tractability findings.
 
 ## Setup
 
@@ -65,29 +66,47 @@ npm run verify -- --json
 
 ## What To Expect
 
-- **Block 0** exposes bootstrap data via `LedgerIdPublicationTransactionBody` and uses the
-  genesis/Schnorr layout: `vk (1096) || blsSig (1632) || aggregate_schnorr_sig (192)` = 2920 bytes.
-- **Block 10** is a regular Schnorr-path block with no bootstrap transaction.
-- **Block 1000** is the first confirmed WRAPS sample:
-  `vk (1096) || blsSig (1632) || wraps_proof (704)` = 3432 bytes.
-- The noble attempt is intentionally conservative. It reports whether the extracted slices look
-  like standard BLS12-381 points; it does not fabricate a passing result when the byte format is
-  not canonical.
-- Direct verification with `@noble/curves` or `snarkjs` is currently blocked on byte format
-  mapping. See `docs/design/tss-js-spike-findings.md` for detail.
+- **Block 0**: Schnorr aggregate signature **VERIFIED** (2/2 signers). Exposes bootstrap data via
+  `LedgerIdPublicationTransactionBody`. Uses genesis/Schnorr layout (2920 bytes).
+- **Block 10**: Schnorr **VERIFIED** when run after block 0 (bootstrap context carried forward).
+- **Block 1000**: WRAPS proof **deserialized successfully**. IVC state fields extracted, ledger ID
+  **matches** bootstrap. This is a Nova IVC proof — full verification requires a Nova verifier.
 
 ## Current Observations
 
 ```
 block-0:
-  block root:  83871f1fbc0bcbdaa6c5f08b29fb6520aa692e02bfe2cc36e6d1c876559baacb95ce51f1fb1b4a542ed6476149eac67a
-  ledger ID:   60c64bef22e069e5ba0043363059c7dfdad92e19592431230597ef3dfdc2521b
-  proof layout: genesis-schnorr, 2920 bytes
+  block root:     83871f1f...eac67a
+  ledger ID:      60c64bef...c2521b
+  proof layout:   genesis-schnorr, 2920 bytes
+  Schnorr:        VERIFIED (2/2 signers)
 
 block-1000:
-  block root:  ed32913bfc0362bbbdd39b61b1959daf032cc48eafce163b83e2e647e545b11d7785cd7df2432d72b194ea0cb586e9fe
-  proof layout: wraps, 3432 bytes
+  block root:     ed32913b...86e9fe
+  proof layout:   wraps, 3432 bytes
+  WRAPS deser:    SUCCESS (IVC step=2, z_0/z_i parsed, ledger ID match)
 ```
+
+## Verification Coverage
+
+| Verification step | Status |
+|---|---|
+| Block root recomputation (SHA-384 Merkle) | Working |
+| Bootstrap extraction | Working |
+| Schnorr aggregate signature (BabyJubjub + Blake2s + Poseidon) | Working |
+| WRAPS proof deserialization (704-byte ProofData) | Working |
+| WRAPS proof cryptographic verification (Nova IVC) | Not tractable in pure JS |
+| hinTS aggregate signature (BLS12-381) | Not tractable — custom ArkWorks format |
+
+## Architecture Notes
+
+The 704-byte WRAPS proof is a `ProofData` struct (not a bare Groth16 proof):
+- `i` (IVC step counter), `z_0`, `z_i` (IVC state vectors)
+- Nova instance commitments (`U_i`, `u_i`)
+- Groth16 decider proof + 2 KZG opening proofs + fold data
+
+Full WRAPS verification requires a Nova IVC verifier, which does not exist in JavaScript.
+The most credible path is a WASM build of the Rust verifier from `hedera-cryptography`.
 
 ## Oracle Context
 

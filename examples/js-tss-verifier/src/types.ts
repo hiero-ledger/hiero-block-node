@@ -84,6 +84,65 @@ export interface SnarkjsAssessment {
   reason: string;
 }
 
+// --- WRAPS ProofData deserialization types (704-byte suffix) ---
+
+export interface WrapsKzgEvalProof {
+  eval: bigint;
+  proof: bigint; // compressed G1 x-coordinate
+}
+
+export interface WrapsEthProof {
+  groth16A: bigint; // compressed G1
+  groth16B: { c0: bigint; c1: bigint }; // compressed G2 (Fp2 x-coordinate)
+  groth16C: bigint; // compressed G1
+  kzgProofs: [WrapsKzgEvalProof, WrapsKzgEvalProof];
+  cmT: bigint; // compressed G1
+  r: bigint; // Fr scalar
+  kzgChallenges: [bigint, bigint]; // Fr scalars
+}
+
+export interface WrapsProofData {
+  i: bigint;
+  z_0: bigint[];
+  z_i: bigint[];
+  U_i_commitments: bigint[];
+  u_i_commitments: bigint[];
+  ethProof: WrapsEthProof;
+}
+
+export interface WrapsDeserializationResult {
+  ok: boolean;
+  proofData?: WrapsProofData;
+  error?: string;
+  /** Checks whether z_0[0] matches the bootstrap ledger ID */
+  ledgerIdCheck?: { expected: string; actual: string; match: boolean };
+}
+
+// --- Schnorr verification types (192-byte suffix) ---
+
+export interface ParsedSchnorrSuffix {
+  bitvector: boolean[];
+  proverResponse: bigint;
+  verifierChallenge: bigint;
+}
+
+export interface ParsedNodeKey {
+  pubkeyX: bigint;
+  pubkeyY: bigint;
+  pokCommitmentX: bigint;
+  pokCommitmentY: bigint;
+  pokChallenge: bigint;
+  pokResponse: bigint;
+}
+
+export interface SchnorrVerificationResult {
+  attempted: boolean;
+  status: "verified" | "failed" | "skipped" | "error";
+  reason: string;
+  signerCount?: number;
+  totalNodes?: number;
+}
+
 export interface VerificationReport {
   fixturePath: string;
   blockNumber: string;
@@ -94,5 +153,7 @@ export interface VerificationReport {
   bootstrapContributionCount?: number;
   nobleAttempt: NobleAttemptResult;
   snarkjsAssessment: SnarkjsAssessment;
+  wrapsDeserialization?: WrapsDeserializationResult;
+  schnorrVerification?: SchnorrVerificationResult;
   oracleNotes: string[];
 }

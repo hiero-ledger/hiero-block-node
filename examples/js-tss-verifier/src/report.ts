@@ -4,11 +4,9 @@ import type {
   ParsedBlockFixture,
   SnarkjsAssessment,
   VerificationReport,
+  WrapsDeserializationResult,
+  SchnorrVerificationResult,
 } from "./types.js";
-
-function toHex(bytes: Buffer): string {
-  return bytes.toString("hex");
-}
 
 function buildOracleNotes(parsedBlock: ParsedBlockFixture): string[] {
   const notes: string[] = [];
@@ -33,20 +31,72 @@ export function buildVerificationReport(args: {
   bootstrapPublication: BootstrapPublicationSummary | null;
   nobleAttempt: NobleAttemptResult;
   snarkjsAssessment: SnarkjsAssessment;
+  wrapsDeserialization?: WrapsDeserializationResult;
+  schnorrVerification?: SchnorrVerificationResult;
 }): VerificationReport {
-  const { parsedBlock, blockRoot, bootstrapPublication, nobleAttempt, snarkjsAssessment } = args;
+  const {
+    parsedBlock,
+    blockRoot,
+    bootstrapPublication,
+    nobleAttempt,
+    snarkjsAssessment,
+    wrapsDeserialization,
+    schnorrVerification,
+  } = args;
   return {
     fixturePath: parsedBlock.fixturePath,
     blockNumber: parsedBlock.blockNumber,
-    blockRootHex: toHex(blockRoot),
+    blockRootHex: Buffer.from(blockRoot).toString("hex"),
     proofLayout: parsedBlock.proofLayout,
     bootstrapFound: bootstrapPublication !== null,
     bootstrapLedgerIdHex: bootstrapPublication?.ledgerIdHex,
     bootstrapContributionCount: bootstrapPublication?.nodeContributions.length,
     nobleAttempt,
     snarkjsAssessment,
+    wrapsDeserialization,
+    schnorrVerification,
     oracleNotes: buildOracleNotes(parsedBlock),
   };
+}
+
+function formatWrapsDeserialization(result: WrapsDeserializationResult | undefined): string[] {
+  if (!result) return [];
+  const lines: string[] = [];
+  if (result.ok && result.proofData) {
+    const p = result.proofData;
+    lines.push(`WRAPS deserialization: SUCCESS`);
+    lines.push(`  IVC step (i): ${p.i}`);
+    lines.push(`  z_0: [${p.z_0.map((v) => "0x" + v.toString(16).slice(0, 12) + "...").join(", ")}]`);
+    lines.push(`  z_i: [${p.z_i.map((v) => "0x" + v.toString(16).slice(0, 12) + "...").join(", ")}]`);
+    lines.push(`  U_i commitments: ${p.U_i_commitments.length} G1 points`);
+    lines.push(`  u_i commitments: ${p.u_i_commitments.length} G1 points`);
+    lines.push(
+      `  Groth16 proof: A(G1), B(G2), C(G1) — present`,
+    );
+    lines.push(`  KZG proofs: 2 eval+proof pairs`);
+    if (result.ledgerIdCheck) {
+      const c = result.ledgerIdCheck;
+      lines.push(`  Ledger ID check (z_0[0] vs bootstrap): ${c.match ? "MATCH" : "MISMATCH"}`);
+    }
+  } else {
+    lines.push(`WRAPS deserialization: FAILED — ${result.error}`);
+  }
+  return lines;
+}
+
+function formatSchnorrVerification(result: SchnorrVerificationResult | undefined): string[] {
+  if (!result) return [];
+  const lines: string[] = [];
+  const statusLabel =
+    result.status === "verified"
+      ? "VERIFIED"
+      : result.status === "failed"
+        ? "FAILED"
+        : result.status === "error"
+          ? "ERROR"
+          : "SKIPPED";
+  lines.push(`Schnorr verification: ${statusLabel} — ${result.reason}`);
+  return lines;
 }
 
 export function formatVerificationReports(reports: VerificationReport[]): string {
@@ -65,6 +115,17 @@ export function formatVerificationReports(reports: VerificationReport[]): string
     if (report.bootstrapLedgerIdHex) {
       lines.push(`Ledger ID: ${report.bootstrapLedgerIdHex}`);
     }
+
+    // WRAPS deserialization (new)
+    for (const line of formatWrapsDeserialization(report.wrapsDeserialization)) {
+      lines.push(line);
+    }
+
+    // Schnorr verification (new)
+    for (const line of formatSchnorrVerification(report.schnorrVerification)) {
+      lines.push(line);
+    }
+
     lines.push(`Noble attempt: ${report.nobleAttempt.status} - ${report.nobleAttempt.reason}`);
     for (const check of report.nobleAttempt.wholeSliceChecks) {
       lines.push(`  whole-slice ${check.label}: ${check.ok ? "ok" : "fail"} (${check.details})`);
