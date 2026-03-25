@@ -20,7 +20,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
 
     /// The logger for this class.
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    private final System.Logger LOGGER = System.getLogger(ArchiveCloudStoragePlugin.class.getName());
 
     /// {@inheritDoc}
     ///
