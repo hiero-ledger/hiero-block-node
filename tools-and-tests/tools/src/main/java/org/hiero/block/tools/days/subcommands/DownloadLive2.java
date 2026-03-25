@@ -26,6 +26,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import org.hiero.block.tools.blocks.DayBlockWrapper;
 import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.download.DownloadDayImplV2;
 import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
@@ -119,6 +120,16 @@ public class DownloadLive2 implements Runnable {
             names = {"--stats-csv"},
             description = "Path to signature statistics CSV file (default: outputDir/signature_statistics_live.csv)")
     private Path statsCsvPath;
+
+    @Option(
+            names = {"--wrap-output-dir"},
+            description = "Directory for wrapped block output (default: wrappedBlocks)")
+    private Path wrapOutputDir = Path.of("wrappedBlocks");
+
+    @Option(
+            names = {"--wrap-parse-threads"},
+            description = "Thread count for wrap parse+verify stage (default: 2)")
+    private int wrapParseThreads = 2;
 
     /**
      * State persisted to JSON for resumability.
@@ -342,6 +353,8 @@ public class DownloadLive2 implements Runnable {
         System.out.println("  addressBookPath=" + addressBookPath);
         System.out.println("  maxConcurrency=" + maxConcurrency);
         System.out.println("  startDate=" + (startDate != null ? startDate : "(auto-detect)"));
+        System.out.println("  wrapOutputDir=" + wrapOutputDir);
+        System.out.println("  wrapParseThreads=" + wrapParseThreads);
 
         try {
             // Create directories
@@ -373,6 +386,10 @@ public class DownloadLive2 implements Runnable {
 
             final BlockTimeReader blockTimeReader = new BlockTimeReader();
 
+            // Initialize DayBlockWrapper for inline wrapping
+            final DayBlockWrapper dayWrapper =
+                    new DayBlockWrapper(wrapOutputDir, addressBookRegistry, blockTimeReader, wrapParseThreads);
+
             // Initialize stats CSV path (same file as validate-with-stats for consistency)
             if (statsCsvPath == null) {
                 statsCsvPath = outputDir.toPath().resolve("signature_statistics.csv");
@@ -397,6 +414,7 @@ public class DownloadLive2 implements Runnable {
                             () -> {
                                 System.out.println("[download-live2] Shutdown requested, finalizing stats...");
                                 stats.finalizeDayStats();
+                                dayWrapper.close();
                                 downloadManager.close();
                             },
                             "download-live2-shutdown"));
@@ -405,7 +423,8 @@ public class DownloadLive2 implements Runnable {
             System.out.println("[download-live2] About to check catch-up mode...");
             System.out.flush();
             State currentState = initialState;
-            State catchUpResult = processCatchUpMode(initialState, downloadManager, stats, addressBookRegistry);
+            State catchUpResult =
+                    processCatchUpMode(initialState, downloadManager, stats, addressBookRegistry, dayWrapper);
             System.out.println(
                     "[download-live2] Catch-up mode check returned: " + (catchUpResult != null ? "state" : "null"));
             System.out.flush();
@@ -416,7 +435,7 @@ public class DownloadLive2 implements Runnable {
             }
 
             // Main processing loop (live mode with batch download for remaining blocks)
-            processBlocks(currentState, addressBookRegistry, downloadManager, blockTimeReader, stats);
+            processBlocks(currentState, addressBookRegistry, downloadManager, blockTimeReader, stats, dayWrapper);
 
         } catch (Exception e) {
             System.err.println("[download-live2] Fatal error: " + e.getMessage());
@@ -531,7 +550,8 @@ public class DownloadLive2 implements Runnable {
             State initialState,
             ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
             SignatureStats stats,
-            AddressBookRegistry addressBookRegistry)
+            AddressBookRegistry addressBookRegistry,
+            DayBlockWrapper dayWrapper)
             throws Exception {
 
         System.out.println("[CATCH-UP] Checking catch-up mode...");
@@ -585,7 +605,9 @@ public class DownloadLive2 implements Runnable {
                     updatedBlockTimeReader,
                     stats,
                     addressBookRegistry,
-                    catchUpState);
+                    catchUpState,
+                    dayWrapper,
+                    daysInfo);
         }
 
         printCatchUpSummary(daysToDownload.size(), catchUpState.lastBlockNumber, today, overallStartMillis);
@@ -654,7 +676,9 @@ public class DownloadLive2 implements Runnable {
             BlockTimeReader blockTimeReader,
             SignatureStats stats,
             AddressBookRegistry addressBookRegistry,
-            CatchUpState state)
+            CatchUpState state,
+            DayBlockWrapper dayWrapper,
+            Map<LocalDate, DayBlockInfo> daysInfo)
             throws Exception {
 
         refreshListingsForDay(dayDate);
@@ -675,10 +699,20 @@ public class DownloadLive2 implements Runnable {
                     blockTimeReader,
                     addressBookRegistry,
                     stats);
-            finalizeCatchUpDay(dayDate, dayBlockInfo, blockTimeReader, stats, state, dayStartMillis, false);
+            finalizeCatchUpDay(
+                    dayDate, dayBlockInfo, blockTimeReader, stats, state, dayStartMillis, false, dayWrapper, daysInfo);
         } catch (Exception e) {
             if (handleCatchUpError(
-                    e, dayDate, dayBlockInfo, downloadManager, addressBookRegistry, stats, state, dayStartMillis)) {
+                    e,
+                    dayDate,
+                    dayBlockInfo,
+                    downloadManager,
+                    addressBookRegistry,
+                    stats,
+                    state,
+                    dayStartMillis,
+                    dayWrapper,
+                    daysInfo)) {
                 return; // Successfully retried
             }
             throw e;
@@ -692,8 +726,10 @@ public class DownloadLive2 implements Runnable {
             SignatureStats stats,
             CatchUpState state,
             long dayStartMillis,
-            boolean afterFix)
-            throws IOException {
+            boolean afterFix,
+            DayBlockWrapper dayWrapper,
+            Map<LocalDate, DayBlockInfo> daysInfo)
+            throws Exception {
         state.lastBlockNumber = dayBlockInfo.lastBlockNumber;
         state.lastProcessedDay = dayDate;
         LocalDateTime lastBlockTime = blockTimeReader.getBlockLocalDateTime(state.lastBlockNumber);
@@ -710,6 +746,9 @@ public class DownloadLive2 implements Runnable {
         stats.finalizeDayStats();
         saveState(new State(
                 state.lastBlockNumber, state.previousRecordHash, state.lastRecordFileTime, state.lastProcessedDay));
+
+        // Validate and wrap the completed day archive
+        validateAndWrapDay(dayDate, dayBlockInfo, dayWrapper);
     }
 
     private boolean handleCatchUpError(
@@ -720,7 +759,9 @@ public class DownloadLive2 implements Runnable {
             AddressBookRegistry addressBookRegistry,
             SignatureStats stats,
             CatchUpState state,
-            long dayStartMillis)
+            long dayStartMillis,
+            DayBlockWrapper dayWrapper,
+            Map<LocalDate, DayBlockInfo> daysInfo)
             throws Exception {
         String errorMsg = e.getMessage() != null ? e.getMessage() : "";
         Throwable cause = e.getCause();
@@ -757,7 +798,8 @@ public class DownloadLive2 implements Runnable {
                     newReader,
                     addressBookRegistry,
                     stats);
-            finalizeCatchUpDay(dayDate, dayBlockInfo, newReader, stats, state, dayStartMillis, true);
+            finalizeCatchUpDay(
+                    dayDate, dayBlockInfo, newReader, stats, state, dayStartMillis, true, dayWrapper, daysInfo);
             return true;
         } catch (Exception retryEx) {
             System.err.println("[CATCH-UP] Retry failed after FixBlockTime: " + retryEx.getMessage());
@@ -1182,7 +1224,8 @@ public class DownloadLive2 implements Runnable {
             AddressBookRegistry addressBookRegistry,
             ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
             BlockTimeReader initialBlockTimeReader,
-            SignatureStats stats)
+            SignatureStats stats,
+            DayBlockWrapper dayWrapper)
             throws Exception {
 
         long currentBlockNumber = initialState.blockNumber;
@@ -1285,6 +1328,9 @@ public class DownloadLive2 implements Runnable {
                         System.out.println("[download-live2] Day completed: " + currentDay
                                 + " (" + blocksProcessedToday + " blocks in "
                                 + formatDuration((System.currentTimeMillis() - dayStartTime) / 1000) + ")");
+
+                        // Validate and wrap the completed day archive
+                        validateAndWrapDayByDate(currentDay, blockTimeReader, dayWrapper);
                     }
 
                     // Check if output file already exists for new day
@@ -1639,6 +1685,67 @@ public class DownloadLive2 implements Runnable {
             Files.writeString(stateJsonPath, json, StandardCharsets.UTF_8);
         } catch (IOException e) {
             System.err.println("[download-live2] Warning: Failed to save state: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Validates and wraps a completed day archive. Used in catch-up mode where DayBlockInfo is available.
+     *
+     * @param dayDate the day date
+     * @param dayBlockInfo the day's block info
+     * @param dayWrapper the wrapper instance
+     * @throws Exception if validation or wrapping fails (fail-hard)
+     */
+    private void validateAndWrapDay(LocalDate dayDate, DayBlockInfo dayBlockInfo, DayBlockWrapper dayWrapper)
+            throws Exception {
+        Path dayArchive = outputDir.toPath().resolve(dayDate + ".tar.zstd");
+        if (!Files.exists(dayArchive)) {
+            System.out.println("[WRAP] No archive found for " + dayDate + ", skipping wrap");
+            return;
+        }
+
+        // Validate before wrapping
+        DayBlockWrapper.validateDayArchive(dayArchive, dayBlockInfo);
+        System.out.println("[WRAP] Validated " + dayDate + " — block count OK");
+
+        // Wrap the validated day
+        dayWrapper.wrapDay(dayArchive, dayBlockInfo);
+    }
+
+    /**
+     * Validates and wraps a completed day archive. Used in live mode where DayBlockInfo may need to be loaded.
+     *
+     * @param dayDate the day date
+     * @param blockTimeReader the block time reader for looking up day blocks
+     * @param dayWrapper the wrapper instance
+     */
+    private void validateAndWrapDayByDate(
+            LocalDate dayDate, BlockTimeReader blockTimeReader, DayBlockWrapper dayWrapper) {
+        Path dayArchive = outputDir.toPath().resolve(dayDate + ".tar.zstd");
+        if (!Files.exists(dayArchive)) {
+            System.out.println("[WRAP] No archive found for " + dayDate + ", skipping wrap");
+            return;
+        }
+
+        try {
+            // Load day block info to get expected block counts
+            Map<LocalDate, DayBlockInfo> daysInfo = loadDayBlockInfoMap();
+            DayBlockInfo dayBlockInfo = daysInfo.get(dayDate);
+            if (dayBlockInfo == null) {
+                System.err.println("[WRAP] WARNING: No day block info for " + dayDate + ", skipping wrap");
+                return;
+            }
+
+            // Validate before wrapping
+            DayBlockWrapper.validateDayArchive(dayArchive, dayBlockInfo);
+            System.out.println("[WRAP] Validated " + dayDate + " — block count OK");
+
+            // Wrap the validated day
+            dayWrapper.wrapDay(dayArchive, dayBlockInfo);
+        } catch (Exception e) {
+            System.err.println("[WRAP] FATAL: Failed to validate/wrap day " + dayDate + ": " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
         }
     }
 
