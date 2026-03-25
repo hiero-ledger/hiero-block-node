@@ -14,6 +14,7 @@ import com.swirlds.metrics.api.IntegerGauge;
 import com.swirlds.metrics.api.LongGauge;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
@@ -185,11 +186,19 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
     @Override
     public ActionForBlock endOfBlock(final long blockNumber) {
-        endBlocksReceived.add(blockNumber);
-        final long blockToResend = nextBlockToResend();
-        if (blockToResend != UNKNOWN_BLOCK_NUMBER) {
-            return new ActionForBlock(BlockAction.RESEND, blockToResend);
+        if (queueByBlockMap.containsKey(blockNumber)) {
+            endBlocksReceived.add(blockNumber);
+            final long blockToResend = nextBlockToResend();
+            if (blockToResend != UNKNOWN_BLOCK_NUMBER) {
+                return new ActionForBlock(BlockAction.RESEND, blockToResend);
+            } else {
+                return new ActionForBlock(BlockAction.ACCEPT, blockNumber);
+            }
         } else {
+            // If the queue is not in the map, this means that the manager no longer
+            // needs the block
+            // Remove a proof in case it is collected
+            blockProofs.remove(blockNumber);
             return new ActionForBlock(BlockAction.ACCEPT, blockNumber);
         }
     }
@@ -341,11 +350,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     ///     for removal.
     private void clearObsoleteQueueItems(final long blockNumber) {
         if (queueByBlockMap != null && !queueByBlockMap.isEmpty()) {
-            NavigableSet<Long> keysBeforeBlock = new TreeSet<>();
+            final NavigableSet<Long> keysBeforeBlock = new TreeSet<>();
             keysBeforeBlock.addAll(queueByBlockMap.headMap(blockNumber).keySet());
             for (final Long candidate : keysBeforeBlock) {
                 if (!(blockProofs.containsKey(candidate) || hasBlockProof(queueByBlockMap.get(candidate)))) {
                     queueByBlockMap.remove(candidate);
+                    // possibly remove a just collected block proof
+                    blockProofs.remove(candidate);
                 }
             }
         }
@@ -354,7 +365,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// Return `true` iff the provided queue of block item lists ends with
     /// a `BlockProof`.
     ///
-    /// One ore more block proofs are the final items in a complete block.
+    /// One or more block proofs are the final items in a complete block.
     /// The presence of a `BlockProof` signals that all content items for the
     /// block have been received and that the block is ready for verification
     /// and persistence. Callers that need to detect completed blocks — for
@@ -366,17 +377,33 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// @return `true` iff the item list for the _last_ entry in the provided
     ///     queue ends with a `BlockProof` item.
     private boolean hasBlockProof(final Deque<BlockItemSetUnparsed> activeQueue) {
-        if (activeQueue != null && !activeQueue.isEmpty()) {
-            BlockItemSetUnparsed lastItem = activeQueue.getLast();
-            if (lastItem != null
-                    && lastItem.blockItems() != null
-                    && !lastItem.blockItems().isEmpty()) {
-                return lastItem.blockItems().getLast().hasBlockProof();
-            } else {
-                return false;
-            }
+        final BlockItemSetUnparsed lastItem = getLastDequeItem(activeQueue);
+        if (lastItem != null
+                && lastItem.blockItems() != null
+                && !lastItem.blockItems().isEmpty()) {
+            return lastItem.blockItems().getLast().hasBlockProof();
         } else {
             return false;
+        }
+    }
+
+    /// This method will return the last item of a [Deque].
+    /// The method does not throw, but will return `null` in cases where the
+    /// deque is null or empty.
+    /// @param deque the deque to get the last item of
+    /// @param <T> type of the items in the deque
+    /// @return the last item of the deque or `null` if the deque provided is
+    ///    `null` or empty
+    @Nullable
+    private <T> T getLastDequeItem(final Deque<T> deque) {
+        try {
+            if (deque != null && !deque.isEmpty()) {
+                return deque.getLast();
+            } else {
+                return null;
+            }
+        } catch (final NoSuchElementException e) {
+            return null;
         }
     }
 
@@ -772,15 +799,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         // Send the proof
                         final BlockItemUnparsed proof = publisherManager.blockProofs.remove(currentBlockNumber);
                         if (proof != null) {
-                            publisherManager.endBlocksReceived.remove(currentBlockNumber);
                             final BlockItemSetUnparsed itemSet = BlockItemSetUnparsed.newBuilder()
                                     .blockItems(proof)
                                     .build();
                             // Remove the queue of the block, this will now mark the block as no longer active
                             publisherManager.queueByBlockMap.remove(currentBlockNumber);
+                            publisherManager.endBlocksReceived.remove(currentBlockNumber);
                             // Send the last item set to internal messaging
                             sendBlockItems(itemSet, currentBlockNumber, true);
-                            // Now potentially increment  the current streaming block
+                            // Now potentially increment the current streaming block
                             publisherManager.currentStreamingBlockNumber.compareAndSet(
                                     currentBlockNumber, currentBlockNumber + 1);
                             // Finally, update metrics
@@ -814,16 +841,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 final Entry<Long, Deque<BlockItemSetUnparsed>> firstEntry =
                         publisherManager.queueByBlockMap.firstEntry();
                 if (firstEntry != null) {
-                    // Note: If we have a first entry in the map, we need to see
-                    // if it is lower than or equal (would be equal in the case
-                    // where the block that just finished streaming is also just
-                    // resent) to the publisher's current streaming value.
-                    // If lower or equal, we need to return the lower block
-                    // number, otherwise we need to return the publisher's
-                    // current streaming value. Else it means that we have
-                    // received a block that was resent.
-                    final long lowestBlockByNumber = firstEntry.getKey();
-                    result = Math.min(lowestBlockByNumber, publisherCurrentStreamingNumber);
+                    result = firstEntry.getKey();
                 } else {
                     result = publisherCurrentStreamingNumber;
                 }
