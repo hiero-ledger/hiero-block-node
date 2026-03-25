@@ -4,7 +4,7 @@ import type { ChunkedPointCheck, NobleAttemptResult, PointCheck, ProofLayout } f
 type PointDecoder = (bytes: Uint8Array) => unknown;
 
 function decodeG1(bytes: Uint8Array): unknown {
-  return bls12_381.G1.Point.fromHex(bytes));
+  return bls12_381.G1.Point.fromHex(Buffer.from(bytes).toString("hex"));
 }
 
 function decodeG2(bytes: Uint8Array): unknown {
