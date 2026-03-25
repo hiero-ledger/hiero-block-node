@@ -20,6 +20,7 @@ permissions:
 
 env:
   GRADLE_EXEC: ionice -c 2 -n 2 nice -n 19 ./gradlew --no-daemon
+  SOLO_VERSION: "0.63.0"
 
 jobs:
   k6-tests:
@@ -71,7 +72,7 @@ jobs:
       - name: Install Solo CLI via npm
         id: solo
         run: |
-          npm i @hashgraph/solo@latest -g
+          npm i @hashgraph/solo@${SOLO_VERSION} -g
           # Extract version number from solo output (handles various output formats)
           SOLO_INSTALLED=$(solo --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
           echo "Solo version: ${SOLO_INSTALLED}"
