@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-plugins {
-    id("org.hiero.gradle.module.library")
-    id("com.hedera.pbj.pbj-compiler")
-}
+plugins { id("org.hiero.gradle.module.library") }
 
 description = "Hiero Block Node TSS Bootstrap Service"
 
@@ -16,5 +13,3 @@ testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
 }
-
-pbj { generateTestClasses = false }
