@@ -5,7 +5,7 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import io.helidon.webserver.ConnectionConfig;
+import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
@@ -57,9 +57,9 @@ public class NetworkCapacityServer {
                 .addProtocol(pbjConfig)
                 .addProtocol(h2)
                 .addRouting(pbjRoutingBuilder)
-                .connectionConfig(ConnectionConfig.builder()
-                        .sendBufferSize(config.sendBufferSize())
-                        .receiveBufferSize(config.receiveBufferSize())
+                .connectionOptions(SocketOptions.builder()
+                        .socketSendBufferSize(config.sendBufferSize())
+                        .socketReceiveBufferSize(config.receiveBufferSize())
                         .tcpNoDelay(config.tcpNoDelay())
                         .build())
                 .backlog(config.backlogSize())

@@ -10,7 +10,7 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.webserver.ConnectionConfig;
+import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import org.hiero.block.api.BlockEnd;
@@ -41,14 +41,16 @@ public class TestBlockNodeServer {
                 .service(new TrivialBlockNodeServerInterface(historicalBlockFacility))
                 .service(new TestBlockStreamSubscribeService(historicalBlockFacility));
         // start the web server with the PBJ configuration and routing
+        int BUFFER_SIZE_4_MB = 4 * 1024 * 1024;
         webServer = WebServerConfig.builder()
                 .port(port)
                 .addProtocol(pbjConfig)
                 .addRouting(pbjRoutingBuilder)
-                .connectionConfig(ConnectionConfig.builder()
-                        .sendBufferSize(524288)
-                        .receiveBufferSize(524288)
+                .connectionOptions(SocketOptions.builder()
+                        .socketSendBufferSize(BUFFER_SIZE_4_MB)
+                        .socketReceiveBufferSize(BUFFER_SIZE_4_MB)
                         .build())
+                .writeBufferSize(BUFFER_SIZE_4_MB)
                 .build();
         webServer.start();
     }
