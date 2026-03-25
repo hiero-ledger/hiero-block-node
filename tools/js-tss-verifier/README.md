@@ -21,7 +21,7 @@ and block-0 bootstrap extraction.
 
 ## Setup
 
-Run this from `examples/js-tss-verifier/`:
+Run this from `tools/js-tss-verifier/`:
 
 ```bash
 npm install
@@ -112,7 +112,7 @@ The most credible path is a WASM build of the Rust verifier from `hedera-cryptog
 
 The example is meant to be read alongside:
 
-- `docs/design/tss-js-spike-findings.md`
-- `docs/design/tss.md`
-- `docs/design/tss-block-proof-verification.md`
+- `docs/tss-js-spike-findings.md` (in this directory)
+- `docs/tss.md` (in this directory)
+- `docs/design/tss-block-proof-verification.md` (repo root)
 - `block-node/verification/src/test/java/org/hiero/block/node/verification/session/impl/TssBlockProofVerificationTest.java`

@@ -11,7 +11,9 @@
   "dependencies": {
     "@noble/curves": "^2.0.1",
     "fzstd": "^0.1.1",
-    "protobufjs": "^8.0.0",
+    "protobufjs": "^8.0.0"
+  },
+  "devDependencies": {
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
