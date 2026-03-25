@@ -25,7 +25,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
@@ -932,28 +931,9 @@ public class ValidateBlocksCommand implements Runnable {
                 (blocksValidated >= estimatedTotalBlocks - BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP
                         || blocksValidated == estimatedTotalBlocks);
 
-        // On full success: remove checkpoint (validation is complete).
-        // On partial/error: save a final checkpoint for next resume.
-        if (!validationFailed && allBlocksValidated) {
-            try {
-                // Delete all checkpoint files
-                if (Files.isDirectory(checkpointDir)) {
-                    try (Stream<Path> cpFiles = Files.list(checkpointDir)) {
-                        cpFiles.forEach(p -> {
-                            try {
-                                Files.deleteIfExists(p);
-                            } catch (IOException ignored) {
-                            }
-                        });
-                    }
-                    Files.deleteIfExists(checkpointDir);
-                }
-                System.out.println(Ansi.AUTO.string("@|yellow Checkpoint deleted|@ (validation complete)"));
-            } catch (IOException e) {
-                System.err.println("Warning: could not delete checkpoint: " + e.getMessage());
-            }
-        } else if (!validationFailed && lastValidatedRef[0] >= 0 && chainValidation.getPreviousBlockHash() != null) {
-            // Partial completion (state file errors only) — save checkpoint
+        // Save checkpoint on both full success and partial completion so the next run
+        // can resume from where this one left off (instead of re-validating from block 0).
+        if (!validationFailed && lastValidatedRef[0] >= 0 && chainValidation.getPreviousBlockHash() != null) {
             try {
                 Files.createDirectories(checkpointDir);
             } catch (IOException ignored) {
