@@ -207,7 +207,7 @@ message TssRoster {
     /**
      * The list of `RosterEntry`
      */
-    repeated RosterEntry roster_entry = 1;
+    repeated RosterEntry roster_entries = 1;
 }
 
 /**

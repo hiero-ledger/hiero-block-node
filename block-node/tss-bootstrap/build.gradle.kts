@@ -10,10 +10,7 @@ description = "Hiero Block Node TSS Bootstrap Service"
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
 
-mainModuleInfo {
-    runtimeOnly("com.swirlds.config.impl")
-    runtimeOnly("com.hedera.pbj.grpc.helidon.config")
-}
+mainModuleInfo { runtimeOnly("com.swirlds.config.impl") }
 
 testModuleInfo {
     requires("org.junit.jupiter.api")
