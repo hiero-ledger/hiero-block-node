@@ -21,6 +21,7 @@ import java.util.Map.Entry;
 import java.util.NavigableSet;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentMap;
@@ -115,7 +116,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
         blocksToResend = new ConcurrentSkipListSet<>();
-        updateBlockNumbers(serverContext);
+        initializeBlockNumbers(serverContext);
     }
 
     @Override
@@ -298,6 +299,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         handler.sendAcknowledgement(newLastPersistedBlock);
                     });
                     lastPersistedBlockNumber.set(newLastPersistedBlock);
+                    ensureNextGreaterThanPersisted(newLastPersistedBlock);
+                    clearObsoleteQueueItems(newLastPersistedBlock);
                     metrics.latestBlockNumberAcknowledged.set(newLastPersistedBlock);
                 }
             } else {
@@ -308,6 +311,72 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 currentStreamingBlockNumber.set(blockNumber);
                 handlers.values().parallelStream().unordered().forEach(PublisherHandler::handleFailedPersistence);
             }
+        }
+    }
+
+    /// Removes queue entries for blocks that are incomplete and
+    /// presumed already persisted.
+    ///
+    /// This method scans all entries in [#queueByBlockMap] whose block number
+    /// is strictly less than `blockNumber` and removes any that are confirmed
+    /// incomplete — meaning the block has not yet streamed a block proof.
+    ///
+    /// An entry is considered safe to remove only when _both_ conditions hold:
+    /// - The block number is **not** present as a key in [#blockProofs], which
+    ///    would indicate that the block is complete and awaiting dispatch
+    /// - The last [BlockItemSetUnparsed] batch in the queue does **not** end
+    ///   with a `BlockProof` item, which would indicate the proof arrived but
+    ///   the block is not yet completed (this should be quite rare).
+    ///
+    /// Entries that fail either check are left in the map so that in-flight
+    /// complete blocks are not lost before they can be forwarded to the
+    /// messaging facility.
+    ///
+    /// This method is called any time the last persisted block is changed.
+    /// This will discard buffered data for blocks that will never be forwarded
+    /// and prevent the forwarder becoming "stuck" on an incomplete block.
+    ///
+    /// @param blockNumber the latest persisted block number. Only queue
+    ///     entries whose key is strictly less than this value are candidates
+    ///     for removal.
+    private void clearObsoleteQueueItems(final long blockNumber) {
+        if (queueByBlockMap != null && !queueByBlockMap.isEmpty()) {
+            NavigableSet<Long> keysBeforeBlock = new TreeSet<>();
+            keysBeforeBlock.addAll(queueByBlockMap.headMap(blockNumber).keySet());
+            for (final Long candidate : keysBeforeBlock) {
+                if (!(blockProofs.containsKey(candidate) || hasBlockProof(queueByBlockMap.get(candidate)))) {
+                    queueByBlockMap.remove(candidate);
+                }
+            }
+        }
+    }
+
+    /// Return `true` iff the provided queue of block item lists ends with
+    /// a `BlockProof`.
+    ///
+    /// One ore more block proofs are the final items in a complete block.
+    /// The presence of a `BlockProof` signals that all content items for the
+    /// block have been received and that the block is ready for verification
+    /// and persistence. Callers that need to detect completed blocks — for
+    /// example, to decide when to remove an incomplete queue — should use this
+    /// method rather than inspecting the raw queue data directly.
+    ///
+    /// @param activeQueue a [Deque] of Block Item Sets to inspect for a
+    ///     `BlockProof`.
+    /// @return `true` iff the item list for the _last_ entry in the provided
+    ///     queue ends with a `BlockProof` item.
+    private boolean hasBlockProof(final Deque<BlockItemSetUnparsed> activeQueue) {
+        if (activeQueue != null && !activeQueue.isEmpty()) {
+            BlockItemSetUnparsed lastItem = activeQueue.getLast();
+            if (lastItem != null
+                    && lastItem.blockItems() != null
+                    && !lastItem.blockItems().isEmpty()) {
+                return lastItem.blockItems().getLast().hasBlockProof();
+            } else {
+                return false;
+            }
+        } else {
+            return false;
         }
     }
 
@@ -348,7 +417,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         scheduledExecutor.shutdownNow();
     }
 
-    private void updateBlockNumbers(final BlockNodeContext serverContext) {
+    private void initializeBlockNumbers(final BlockNodeContext serverContext) {
         // The current streaming should be the next block to be
         // streamed, but _only_ on startup. After that there should always be
         // a delta (next unstreamed must always be strictly greater than the current
@@ -467,7 +536,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (blockNumber <= lastPersisted) {
             return BlockAction.END_DUPLICATE;
         } else if (blockNumber < nextUnstreamed) {
-            return streamBeforeEMBOrElse(blockNumber, BlockAction.SKIP);
+            return streamBeforeEmbOrElse(blockNumber, BlockAction.SKIP);
         } else if (blockNumber == nextUnstreamed) {
             return resolveActionForHeader(blockNumber);
         } else {
@@ -507,7 +576,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     /// todo(1420) add documentation
-    private BlockAction streamBeforeEMBOrElse(final long blockNumber, final BlockAction elseAction) {
+    private BlockAction streamBeforeEmbOrElse(final long blockNumber, final BlockAction elseAction) {
         // current streaming number will always be within the range tested here.
         // Except when we're awaiting the first block after restart and earliest
         // managed block is higher than what the publisher offered here.
@@ -721,11 +790,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                                     .add(itemSet.blockItems().size());
                             // Then potentially increment the current streaming
                             // block number.
-                        } else {
-                            // @todo(2200) if we have received the end of block message, but we do not have the proof,
-                            //    should we take any action? In theory the end of block message should arrive after the
-                            //    proof, but also we have the condition where we are registering the queue for the
-                            //    block expected here again (i.e. starting to stream it again)
                         }
                     }
                     // We have no queue for this block, so wait for an
