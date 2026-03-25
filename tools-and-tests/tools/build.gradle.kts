@@ -33,6 +33,7 @@ mainModuleInfo {
     requires("io.helidon.webserver")
     requires("io.helidon.webserver.http2")
     requires("com.hedera.pbj.grpc.client.helidon")
+    requires("io.helidon.common.socket")
     requires("io.helidon.common.tls")
     requires("io.helidon.webclient.api")
     requires("io.helidon.webclient.grpc")
