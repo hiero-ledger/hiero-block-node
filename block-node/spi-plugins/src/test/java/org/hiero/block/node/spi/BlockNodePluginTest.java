@@ -106,4 +106,11 @@ public class BlockNodePluginTest {
         plugin.stop();
         // No exception means the default implementation is a no-op
     }
+
+    @Test
+    @DisplayName("Test default onContextUpdate method")
+    void testDefaultOnContextUpdate() {
+        BlockNodePlugin plugin = new TestBlockNodePlugin();
+        plugin.onContextUpdate(null);
+    }
 }
