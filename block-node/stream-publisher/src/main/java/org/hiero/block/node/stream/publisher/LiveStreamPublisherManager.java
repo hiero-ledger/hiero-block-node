@@ -297,9 +297,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (notification != null) {
             final long newLastPersistedBlock = notification.blockNumber();
             if (notification.succeeded()) {
-                // If we are currently streaming any blocks < newLastPersistedBlock, then do not send acknowledgement
-                if (newLastPersistedBlock > lastPersistedBlockNumber.get()
-                        && isBeforeEarliestActiveBlock(newLastPersistedBlock)) {
+                // @todo(#1841) Re-enable the active-queue guard below once proper
+                // stalled-handler timeout detection is in place. Without that
+                // mechanism, this check prevents backfill from advancing the
+                // manager past a stalled ACCEPT winner, freezing the pipeline.
+                // && isBeforeEarliestActiveBlock(newLastPersistedBlock)
+                if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
                     handlers.values().parallelStream().unordered().forEach(handler -> {
                         // _Important_, we only need the last persisted block number
                         // all previous blocks are implicitly acknowledged.

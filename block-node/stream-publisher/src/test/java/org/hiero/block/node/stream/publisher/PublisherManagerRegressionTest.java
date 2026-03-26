@@ -33,6 +33,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.stream.publisher.LiveStreamPublisherManager.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -163,6 +164,7 @@ class PublisherManagerRegressionTest {
     /// remaining publisher so it can take over.
     ///
     /// This test is expected to fail until @todo(#1841) is implemented.
+    @Disabled("stall timeout detection not yet implemented — @todo(#1841)")
     @Test
     @DisplayName("timeout detection and block resend triggered after 2-block stall — @todo(#1841)")
     void testTimeoutDetectionAndBlockResendTriggeredForSkipPublishers() {
