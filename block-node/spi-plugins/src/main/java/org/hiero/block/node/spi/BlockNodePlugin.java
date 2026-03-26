@@ -87,4 +87,12 @@ public interface BlockNodePlugin {
                 .pluginSoftwareVersion(moduleInfo.version())
                 .build();
     }
+
+    /**
+     * Notify the plugin of an update to the BlockNodeContext. This method is called when the block node context has
+     * been updated. It provides the plugin an opportunity to update its state when the BlockNodeContext changes.
+     *
+     * @param context        the block node context
+     */
+    default void onContextUpdate(BlockNodeContext context) {}
 }
