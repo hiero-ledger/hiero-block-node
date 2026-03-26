@@ -98,5 +98,7 @@ public interface BlockNodePlugin {
      *
      * @param context the block node context
      */
-    default void onContextUpdate(BlockNodeContext context) {}
+    default void onContextUpdate(BlockNodeContext context) {
+        // do nothing
+    }
 }
