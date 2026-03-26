@@ -3,8 +3,11 @@ package org.hiero.block.node.stream.publisher.fixtures;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.util.List;
 import org.hiero.block.api.BlockEnd;
+import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.stream.publisher.PublisherHandler;
 
 /// Utility class to assist with publish API testing.
@@ -21,6 +24,20 @@ public final class PublishApiUtility {
                 BlockEnd.newBuilder().blockNumber(blockNumber).build();
         final PublishStreamRequestUnparsed request =
                 PublishStreamRequestUnparsed.newBuilder().endOfBlock(endOfBlock).build();
+        publisherHandler.onNext(request);
+    }
+
+    /// Send only the block header for a given block number, simulating a
+    /// publisher that goes silent mid-block.
+    /// @param publisherHandler A publisher handler to send the header to.
+    /// @param blockNumber A block number whose header to send.
+    public static void sendHeaderOnly(final PublisherHandler publisherHandler, final long blockNumber) {
+        final BlockItemSetUnparsed headerOnly = BlockItemSetUnparsed.newBuilder()
+                .blockItems(List.of(
+                        TestBlockBuilder.generateBlockWithNumber(blockNumber).getHeaderUnparsed()))
+                .build();
+        final PublishStreamRequestUnparsed request =
+                PublishStreamRequestUnparsed.newBuilder().blockItems(headerOnly).build();
         publisherHandler.onNext(request);
     }
 
