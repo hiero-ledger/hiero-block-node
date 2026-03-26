@@ -11,10 +11,8 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Objects;
 import java.util.UUID;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
@@ -90,7 +88,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
                             false,
                             Codec.DEFAULT_MAX_DEPTH,
                             BlockAccessor.MAX_BLOCK_SIZE_BYTES);
-        } catch (final UncheckedIOException | ParseException e) {
+        } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
         }
@@ -98,13 +96,15 @@ final class BlockFileBlockAccessor implements BlockAccessor {
 
     /**
      * {@inheritDoc}
+     *
+     * This method _will not throw_, but will return null if there is any failure
+     * while reading the block data from the provided path.
      */
     @Override
     public Bytes blockBytes(@NonNull final Format format) {
-        Objects.requireNonNull(format);
         try {
             return getBytesFromPath(format, blockFileLink, compressionType);
-        } catch (final UncheckedIOException | IOException e) {
+        } catch (final RuntimeException e) {
             LOGGER.log(WARNING, FAILED_TO_READ_MESSAGE.formatted(absolutePathToBlock), e);
             return null;
         }
@@ -113,17 +113,19 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     /**
      * Get the bytes from the specified path, converting to the desired format if necessary.
      *
+     * This method _will not throw_, but will return null if there is any failure
+     * while reading the block data from the provided path.
+     *
      * @param responseFormat the desired format of the data
      * @param sourcePath the path to the source file
      * @param sourceCompression the compression type of the source data
      * @return the bytes of the block in the desired format, or null if the block cannot be read
-     * @throws IOException if unable to read or decompress the data.
      */
     private Bytes getBytesFromPath(
-            final Format responseFormat, final Path sourcePath, final CompressionType sourceCompression)
-            throws IOException {
+            final Format responseFormat, final Path sourcePath, final CompressionType sourceCompression) {
         try (final InputStream in = Files.newInputStream(sourcePath);
                 final InputStream wrapped = sourceCompression.wrapStream(in)) {
+            final Bytes result;
             Bytes sourceData =
                     switch (responseFormat) {
                         case JSON, PROTOBUF -> Bytes.wrap(wrapped.readAllBytes());
@@ -136,10 +138,14 @@ final class BlockFileBlockAccessor implements BlockAccessor {
                         }
                     };
             if (Format.JSON == responseFormat) {
-                return getJsonBytesFromProtobufBytes(sourceData);
+                result = getJsonBytesFromProtobufBytes(sourceData);
             } else {
-                return sourceData;
+                result = sourceData;
             }
+            return result;
+        } catch (final IOException | RuntimeException e) {
+            LOGGER.log(WARNING, FAILED_TO_READ_MESSAGE.formatted(absolutePathToBlock), e);
+            return null;
         }
     }
 
@@ -161,7 +167,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
                         false,
                         Codec.DEFAULT_MAX_DEPTH,
                         BlockAccessor.MAX_BLOCK_SIZE_BYTES));
-            } catch (final UncheckedIOException | ParseException e) {
+            } catch (final RuntimeException | ParseException e) {
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(absolutePathToBlock);
                 LOGGER.log(WARNING, message, e);
                 return null;
@@ -178,7 +184,7 @@ final class BlockFileBlockAccessor implements BlockAccessor {
     public void close() {
         try {
             Files.delete(blockFileLink);
-        } catch (final IOException e) {
+        } catch (final RuntimeException | IOException e) {
             final String message = "Failed to delete accessor link for block: %d, path: %s"
                     .formatted(blockNumber, absolutePathToBlock);
             LOGGER.log(INFO, message, e);
