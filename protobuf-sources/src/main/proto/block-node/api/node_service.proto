@@ -16,7 +16,7 @@ message ServerStatusRequest {}
 
 /**
  * A response to a server status detail request.
- * <p>
+ *
  * This message SHALL provide a client with extended detail information needed
  * to successfully query this Block-Node for a block, stream of blocks, or
  * state snapshot.<br/>
@@ -51,7 +51,7 @@ message ServerStatusDetailResponse {
 
 /**
  * A response to a server status request.
- * <p>
+ *
  * This message SHALL provide a client with information needed to successfully
  * query this Block-Node for a block, stream of blocks, or
  * state snapshot.<br/>
