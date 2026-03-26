@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import org.hiero.block.tools.records.model.parsed.ParsedRecordBlock;
 import org.hiero.block.tools.records.model.parsed.ParsedV2RecordFileTest;
@@ -45,6 +47,7 @@ import org.hiero.block.tools.records.model.parsed.RecordBlockConverter;
 import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -217,6 +220,78 @@ class WrbFixtureGeneratorTest {
                 "V6 round-trip record file bytes should match original");
     }
 
+    // === Round-trip from disk tests
+    // ====================================================================================
+
+    @Nested
+    @DisplayName("Read WRB fixtures from disk and validate round-trip")
+    class ReadFixturesFromDisk {
+
+        @Test
+        @DisplayName("Read V2 WRB fixture from disk and round-trip to original record file bytes")
+        void readV2WrbFromDisk() throws Exception {
+            final Block block = loadBlockFromResource("/record-files/wrb/v2-block.blk.gz");
+            assertBlockStructure(block, 2);
+            assertEquals(
+                    V2_TEST_BLOCK_NUMBER,
+                    block.items().get(0).blockHeaderOrThrow().number());
+
+            final ParsedRecordBlock roundTrip = RecordBlockConverter.toRecordFile(block, V2_TEST_BLOCK_ADDRESS_BOOK);
+            assertArrayEquals(
+                    V2_TEST_BLOCK_BYTES,
+                    roundTrip.recordFile().recordFileContents(),
+                    "V2 fixture read from disk should round-trip to original record file bytes");
+            assertEquals(2, roundTrip.recordFile().recordFormatVersion(), "Record format version should be 2");
+        }
+
+        @Test
+        @DisplayName("Read V5 WRB fixture from disk and round-trip to original record file bytes")
+        void readV5WrbFromDisk() throws Exception {
+            final Block block = loadBlockFromResource("/record-files/wrb/v5-block.blk.gz");
+            assertBlockStructure(block, 5);
+            assertEquals(
+                    V5_TEST_BLOCK_NUMBER,
+                    block.items().get(0).blockHeaderOrThrow().number());
+
+            final ParsedRecordBlock roundTrip = RecordBlockConverter.toRecordFile(block, V5_TEST_BLOCK_ADDRESS_BOOK);
+            assertArrayEquals(
+                    V5_TEST_BLOCK_BYTES,
+                    roundTrip.recordFile().recordFileContents(),
+                    "V5 fixture read from disk should round-trip to original record file bytes");
+            assertEquals(5, roundTrip.recordFile().recordFormatVersion(), "Record format version should be 5");
+        }
+
+        @Test
+        @DisplayName("Read V6 WRB fixture from disk and round-trip to original record file bytes")
+        void readV6WrbFromDisk() throws Exception {
+            final Block block = loadBlockFromResource("/record-files/wrb/v6-block.blk.gz");
+            assertBlockStructure(block, 6);
+            assertEquals(
+                    V6_TEST_BLOCK_NUMBER,
+                    block.items().get(0).blockHeaderOrThrow().number());
+
+            // Verify sidecar is present
+            assertEquals(
+                    1,
+                    block.items().stream()
+                            .filter(item -> item.hasRecordFile())
+                            .findFirst()
+                            .orElseThrow()
+                            .recordFileOrThrow()
+                            .sidecarFileContents()
+                            .size(),
+                    "V6 fixture should contain 1 sidecar file");
+
+            final ParsedRecordBlock roundTrip = RecordBlockConverter.toRecordFile(block, V6_TEST_BLOCK_ADDRESS_BOOK);
+            assertArrayEquals(
+                    V6_TEST_BLOCK_BYTES,
+                    roundTrip.recordFile().recordFileContents(),
+                    "V6 fixture read from disk should round-trip to original record file bytes");
+            assertEquals(6, roundTrip.recordFile().recordFormatVersion(), "Record format version should be 6");
+            assertEquals(1, roundTrip.sidecarFiles().size(), "V6 round-trip should preserve 1 sidecar file");
+        }
+    }
+
     // === Helper Methods ==============================================================================================
 
     /**
@@ -236,6 +311,21 @@ class WrbFixtureGeneratorTest {
             }
         }
         return result;
+    }
+
+    /**
+     * Loads a gzipped Block protobuf from a classpath resource.
+     *
+     * @param resourcePath the classpath resource path (e.g. "/record-files/wrb/v2-block.blk.gz")
+     * @return the parsed Block
+     */
+    private static Block loadBlockFromResource(String resourcePath) throws Exception {
+        try (InputStream is = WrbFixtureGeneratorTest.class.getResourceAsStream(resourcePath)) {
+            Objects.requireNonNull(is, "Missing resource: " + resourcePath);
+            try (GZIPInputStream gzipIn = new GZIPInputStream(is)) {
+                return Block.PROTOBUF.parse(Bytes.wrap(gzipIn.readAllBytes()));
+            }
+        }
     }
 
     /**
