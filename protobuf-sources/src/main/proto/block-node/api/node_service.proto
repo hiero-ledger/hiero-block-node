@@ -212,9 +212,13 @@ message TssRoster {
 }
 
 /**
- * Roster information for a TSS Roster
+ * A single TSS Roster entry.
  *
- * `RosterEntry` contains a node id, weight, and schnorr public key for the Roster
+ * All fields are REQUIRED.<br/>
+ * The `node_id` field SHALL match the same field for an entry in the Node Store
+ * in consensus network state.<br/>
+ * The `schnorr_public_key` MAY be a placeholder value if the associated node failed
+ * to participate in the roster election within the required time limit.
  */
 message RosterEntry {
     /**
