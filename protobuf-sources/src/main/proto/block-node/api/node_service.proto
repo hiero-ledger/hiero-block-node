@@ -200,7 +200,7 @@ message TssData {
 }
 
 /**
- * TSS Roster information for TSS Data.
+ * TSS Roster information.
  *
  * `TssRoster` contains a list of roster entry
  */
