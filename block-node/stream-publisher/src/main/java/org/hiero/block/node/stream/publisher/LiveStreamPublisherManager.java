@@ -81,8 +81,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// process, if needed.
     private final AtomicReference<Future<Long>> queueForwarderResult = new AtomicReference<>(null);
 
-    private final AtomicLong currentStreamingBlockNumber;
-    private final AtomicLong lastStreamedBlockNumber;
+    private final AtomicLong lastForwardedBlockNumber;
     private final AtomicLong nextUnstreamedBlockNumber;
     private final AtomicLong lastPersistedBlockNumber;
 
@@ -99,8 +98,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         handlers = new ConcurrentSkipListMap<>();
         nextHandlerId = new AtomicLong(0);
         queueByBlockMap = new ConcurrentSkipListMap<>();
-        currentStreamingBlockNumber = new AtomicLong(-1);
-        lastStreamedBlockNumber = new AtomicLong(-1);
+        lastForwardedBlockNumber = new AtomicLong(-1);
         nextUnstreamedBlockNumber = new AtomicLong(-1);
         lastPersistedBlockNumber = new AtomicLong(-1);
         dataReadyLock = new ReentrantLock();
@@ -317,7 +315,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 final long blockNumber = notification.blockNumber();
                 // @todo(2198): We have an extremely rare race condition here
                 nextUnstreamedBlockNumber.set(blockNumber);
-                currentStreamingBlockNumber.set(blockNumber);
                 handlers.values().parallelStream().unordered().forEach(PublisherHandler::handleFailedPersistence);
             }
         }
@@ -458,13 +455,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // if we have entered here, then we have no blocks available.
             // treat anything up to the earliest managed block as the "next"
             // block.
-            currentStreamingBlockNumber.set(earliestManagedBlock);
             nextUnstreamedBlockNumber.set(earliestManagedBlock);
         } else if (latestKnownBlock < earliestManagedBlock) {
             // We haven't caught up to the earliest block the operator wants
             // to treat as the start of history, so accept anything up to that
             // block as the "next" block.
-            currentStreamingBlockNumber.set(earliestManagedBlock);
             nextUnstreamedBlockNumber.set(earliestManagedBlock);
         } else {
             // if we have entered here, we know what the latest known block is,
@@ -472,11 +467,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // next unstreamed block number to one greater pretend the next
             // unstreamed block is streaming initially, that ensures that the
             // first block accepted is correctly handled.
-            currentStreamingBlockNumber.set(latestKnownBlock + 1L);
             nextUnstreamedBlockNumber.set(latestKnownBlock + 1L);
         }
-        // initially, the latest streaming block number is always the same as the current streaming block number
-        lastStreamedBlockNumber.set(currentStreamingBlockNumber.get());
     }
 
     /// This method schedules the publisher unavailability timeout task.
@@ -608,12 +600,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // Except when we're awaiting the first block after restart and earliest
         // managed block is higher than what the publisher offered here.
         if (blockNumber < earliestManagedBlock
-                && nextUnstreamedBlockNumber.get() == currentStreamingBlockNumber.get()
                 // Handle an edge case where we need to accept a block before the earliest
                 // managed block right after the node (re)started.
+                && lastForwardedBlockNumber.get() == UNKNOWN_BLOCK_NUMBER
                 && nextUnstreamedBlockNumber.compareAndSet(earliestManagedBlock, blockNumber)) {
-            currentStreamingBlockNumber.set(blockNumber);
-            lastStreamedBlockNumber.set(blockNumber);
             metrics.lowestBlockNumber.set(blockNumber);
             return resolveActionForHeader(blockNumber);
         } else {
@@ -790,8 +780,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     // If the current block number has no more batches to send,
                     // then block on a condition variable until more data is
                     // _probably_ available, or until a timeout elapses.
-                    if (publisherManager.currentStreamingBlockNumber.get() == currentBlockNumber
-                            && queueToForward.isEmpty()) {
+                    if (queueToForward.isEmpty()) {
                         publisherManager.waitForDataReady();
                     }
                 } else {
@@ -807,9 +796,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                             publisherManager.endBlocksReceived.remove(currentBlockNumber);
                             // Send the last item set to internal messaging
                             sendBlockItems(itemSet, currentBlockNumber, true);
-                            // Now potentially increment the current streaming block
-                            publisherManager.currentStreamingBlockNumber.compareAndSet(
-                                    currentBlockNumber, currentBlockNumber + 1);
                             // Finally, update metrics
                             publisherManager
                                     .metrics
@@ -829,12 +815,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
 
         private long determineCurrentBlockNumber() {
             final long result;
-            final long publisherCurrentStreamingNumber = publisherManager.currentStreamingBlockNumber.get();
-            final long publisherLatestStreamingNumber = publisherManager.lastStreamedBlockNumber.get();
-            if (publisherManager.queueByBlockMap.containsKey(publisherLatestStreamingNumber)) {
+            final long publisherLastForwardedBlockNumber = publisherManager.lastForwardedBlockNumber.get();
+            if (publisherManager.queueByBlockMap.containsKey(publisherLastForwardedBlockNumber)) {
                 // If we are still streaming the current block, we need to
                 // continue.
-                result = publisherLatestStreamingNumber;
+                result = publisherLastForwardedBlockNumber;
             } else {
                 // Else, we either continue with the next one in line or proceed to
                 // supply a block that was resent.
@@ -843,11 +828,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 if (firstEntry != null) {
                     result = firstEntry.getKey();
                 } else {
-                    result = publisherCurrentStreamingNumber;
+                    result = UNKNOWN_BLOCK_NUMBER;
                 }
             }
             // Always set the latest streaming block number to the result here
-            publisherManager.lastStreamedBlockNumber.set(result);
+            publisherManager.lastForwardedBlockNumber.set(result);
             return result;
         }
 
