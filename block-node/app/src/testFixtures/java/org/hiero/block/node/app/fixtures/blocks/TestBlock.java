@@ -9,6 +9,7 @@ import java.util.Objects;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
@@ -85,5 +86,11 @@ public final class TestBlock {
 
     public BlockAccessor asBlockAccessor() {
         return new MinimalBlockAccessor(number, block);
+    }
+
+    public PublishStreamRequestUnparsed asPublishStreamRequestUnparsed() {
+        return PublishStreamRequestUnparsed.newBuilder()
+                .blockItems(asItemSetUnparsed())
+                .build();
     }
 }
