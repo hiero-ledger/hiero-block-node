@@ -95,7 +95,14 @@ jobs:
   publish-app:
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
-
+    strategy:
+      matrix:
+        # Define the images you want to build
+        include:
+          - image: ${{ github.repository }}
+            target: base-image
+          - image: ${{ github.repository }}-lfh
+            target: lfh
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
@@ -152,11 +159,12 @@ jobs:
         with:
           context: ./block-node/app/docker
           file: ./block-node/app/docker/Dockerfile
+          target: ${{ matrix.target }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64, linux/arm64
           push: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
-          tags: ${{ env.REGISTRY }}/${{ github.repository }}:${{ env.VERSION }}
+          tags: ${{ env.REGISTRY }}/${{ matrix.image }}:${{ env.VERSION }}
           build-args: |
             VERSION=${{ env.VERSION }}
             SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}

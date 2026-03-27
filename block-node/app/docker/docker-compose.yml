@@ -1,11 +1,25 @@
 services:
-  block-node-server:
-    container_name: block-node-server
-    image: block-node-server:${VERSION}
+#  block-node-server:
+#    container_name: block-node-server
+#    image: block-node-server:${VERSION}
+#    volumes:
+#      - ./logging.properties:/opt/hiero/block-node/logs/config/logging.properties
+#      - ./backfill-sources.json:/opt/hiero/block-node/backfill/backfill-sources.json
+#      - ./plugins:/opt/hiero/block-node/app-${VERSION}/plugins:ro
+#    env_file:
+#      - .env
+#    ports:
+#      - "40840:40840"
+#      - "5005:5005"
+#      - "16007:16007"
+#      - "8849:8849"
+
+  block-node-server-lfh:
+    container_name: block-node-server-lfh
+    image: block-node-server-lfh:${VERSION}
     volumes:
       - ./logging.properties:/opt/hiero/block-node/logs/config/logging.properties
       - ./backfill-sources.json:/opt/hiero/block-node/backfill/backfill-sources.json
-      - ./plugins:/opt/hiero/block-node/app-${VERSION}/plugins:ro
     env_file:
       - .env
     ports:
@@ -13,6 +27,7 @@ services:
       - "5005:5005"
       - "16007:16007"
       - "8849:8849"
+
 
   cadvisor:
     image: "gcr.io/cadvisor/cadvisor:v0.47.0"
