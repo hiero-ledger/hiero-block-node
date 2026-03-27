@@ -1280,9 +1280,11 @@ public class DownloadLive2 implements Runnable {
         for (ListingRecordFile alt : alternatives) {
             try {
                 String blobName = DownloadConstants.BUCKET_PATH_PREFIX + alt.path();
+                // Use timeout to avoid blocking forever when the thread pool is saturated
+                // by batch downloads competing for the same fixed pool and AIMD gate
                 InMemoryFile downloaded = downloadManager
                         .downloadAsync(DownloadConstants.BUCKET_NAME, blobName)
-                        .join();
+                        .get(60, java.util.concurrent.TimeUnit.SECONDS);
 
                 boolean md5Valid = checkMd5(alt.md5Hex(), downloaded.data());
                 if (!md5Valid) {
@@ -1294,6 +1296,9 @@ public class DownloadLive2 implements Runnable {
                 System.out.println("[" + modeLabel + "] Successfully downloaded from alternative node: " + alt.path()
                         + " (replacing " + failed.path() + ")");
                 return downloaded;
+            } catch (java.util.concurrent.TimeoutException te) {
+                System.err.println("[" + modeLabel + "] Alternative node download timed out after 60s for " + alt.path()
+                        + ", trying next...");
             } catch (Exception ex) {
                 System.err.println(
                         "[" + modeLabel + "] Alternative node also failed for " + alt.path() + ": " + ex.getMessage());
