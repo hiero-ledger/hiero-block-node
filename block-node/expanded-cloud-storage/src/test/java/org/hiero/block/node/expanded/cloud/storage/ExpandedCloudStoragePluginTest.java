@@ -115,22 +115,6 @@ class ExpandedCloudStoragePluginTest
     // ---- Tests --------------------------------------------------------------
 
     @Test
-    @DisplayName("Plugin is disabled when endpointUrl is blank — handleVerification is a no-op")
-    void pluginDisabledWhenNoEndpoint() {
-        final CapturingS3Client capturing = new CapturingS3Client();
-        start(
-                new ExpandedCloudStoragePlugin(capturing),
-                new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("expanded.cloud.storage.endpointUrl", ""));
-
-        plugin.handleVerification(verifiedNotification(0L, testBlock(0).blockUnparsed()));
-        // Plugin is disabled — handleVerification is a synchronous no-op; no upload task submitted.
-
-        assertEquals(0, capturing.uploads.size(), "No uploads when plugin is disabled");
-        assertTrue(blockMessaging.getSentPersistedNotifications().isEmpty(), "No PersistedNotification when disabled");
-    }
-
-    @Test
     @DisplayName("Plugin skips upload for a failed VerificationNotification")
     void skipsUploadOnFailedVerification() {
         final CapturingS3Client capturing = new CapturingS3Client();

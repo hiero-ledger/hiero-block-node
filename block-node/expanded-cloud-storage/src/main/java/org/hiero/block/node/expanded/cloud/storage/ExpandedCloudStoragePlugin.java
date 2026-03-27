@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.expanded.cloud.storage;
 
-import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
@@ -10,6 +9,7 @@ import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
@@ -17,7 +17,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -58,10 +57,6 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  * Block  108273182 → blocks/0000/0000/0010/8273/182.blk.zstd
  * </pre>
  *
- * <h2>Enable / disable</h2>
- * The plugin is disabled when {@code expanded.cloud.storage.endpointUrl} is blank (the
- * default). Set it to a non-empty URL to activate uploads.
- *
  * <h2>S3 client implementation</h2>
  * Uploads are performed via {@link S3UploadClient}, a package-private abstract class whose
  * production instance wraps {@code com.hedera.bucky.S3Client} directly.
@@ -77,7 +72,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     private BlockMessagingFacility blockMessaging;
 
     /**
-     * The active S3 upload client. {@code null} when the plugin is disabled.
+     * The active S3 upload client. {@code null} when the plugin is misconfigured or not yet started.
      * May be pre-set by the package-private test constructor.
      */
     private S3UploadClient s3Client;
@@ -85,16 +80,16 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** CompletionService for async block upload tasks. */
     private CompletionService<SingleBlockStoreTask.UploadResult> completionService;
 
-    /** Virtual-thread executor sourced from the thread-pool manager. Non-null only when enabled. */
+    /** Virtual-thread executor sourced from the thread-pool manager. */
     private ExecutorService virtualThreadExecutor;
 
     /** Count of tasks submitted but not yet drained; used to bound the drain in {@link #stop()}. */
-    private final AtomicInteger inFlightCount = new AtomicInteger();
+    private final AtomicInteger inFlightCount = new AtomicInteger(0);
 
     /** Metrics instance, saved in {@link #init} for use in {@link #start}. */
     private Metrics metrics;
 
-    /** Counters for upload events; non-null only when the plugin is enabled. */
+    /** Counters for upload events; non-null only when the plugin is active. */
     private MetricsHolder metricsHolder;
 
     // ---- Constructors -------------------------------------------------------
@@ -127,11 +122,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         this.config = context.configuration().getConfigData(ExpandedCloudStorageConfig.class);
         this.blockMessaging = context.blockMessaging();
 
-        if (StringUtilities.isBlank(config.endpointUrl())) {
-            LOGGER.log(INFO, "Expanded Cloud Storage plugin is disabled. No endpoint URL configured.");
-            return;
-        }
-
         metrics = context.metrics();
         blockMessaging.registerBlockNotificationHandler(this, false, name());
         virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
@@ -140,19 +130,15 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /** {@inheritDoc} */
     @Override
     public void start() {
-        if (virtualThreadExecutor == null) {
-            return; // disabled — endpointUrl was blank in init()
-        }
-        if (s3Client == null) {
-            try {
+        try {
+            if (s3Client == null) {
                 s3Client = S3UploadClient.forConfig(config);
-            } catch (final com.hedera.bucky.S3ClientException e) {
-                LOGGER.log(WARNING, "Failed to create S3 client; plugin will be disabled.", e);
-                return;
             }
+            completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
+            metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metrics));
+        } catch (final com.hedera.bucky.S3ClientException e) {
+            LOGGER.log(WARNING, "Failed to create S3 client; plugin will be inactive.", e);
         }
-        completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
-        metricsHolder = MetricsHolder.createMetrics(metrics);
     }
 
     /** {@inheritDoc} */
@@ -165,7 +151,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             final long deadline = System.currentTimeMillis() + (long) config.uploadTimeoutSeconds() * 1_000L;
             while (inFlightCount.get() > 0 && System.currentTimeMillis() < deadline) {
                 final long remainingMs = deadline - System.currentTimeMillis();
-                if (remainingMs <= 0) break;
                 try {
                     final Future<SingleBlockStoreTask.UploadResult> completed =
                             completionService.poll(Math.min(remainingMs, 200L), TimeUnit.MILLISECONDS);
@@ -264,26 +249,21 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             blockMessaging.sendBlockPersisted(
                     new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
             if (!result.succeeded()) {
-                if (metricsHolder != null) metricsHolder.uploadFailuresTotal().increment();
+                metricsHolder.uploadFailuresTotal().increment();
                 LOGGER.log(
                         WARNING,
                         "Block {0}: upload failed; PersistedNotification sent with succeeded=false.",
                         result.blockNumber());
             } else {
-                if (metricsHolder != null) {
-                    metricsHolder.uploadsTotal().increment();
-                    metricsHolder.uploadBytesTotal().add(result.bytesUploaded());
-                }
+                metricsHolder.uploadsTotal().increment();
+                metricsHolder.uploadBytesTotal().add(result.bytesUploaded());
                 LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
             }
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
             LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
         } catch (final ExecutionException e) {
-            LOGGER.log(
-                    WARNING,
-                    "Unexpected exception in upload task: {0}",
-                    e.getCause().getMessage());
+            LOGGER.log(WARNING, "Unexpected exception in upload task: ", e.getCause() != null ? e.getCause() : e);
         }
     }
 
@@ -291,7 +271,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      * Builds the S3 object key for the given block number using the 4‑digit folder hierarchy.
      *
      * <p>Format: {@code {prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd}
-     * <p>The 19-digit zero-padded block number is split as 4/4/4/4/3 characters:
+     * <p>The 19-digit zero-padded block number is split as 4/4/4/4/3 digits:
      * <ul>
      *   <li>Block 1 → {@code blocks/0000/0000/0000/0000/001.blk.zstd}</li>
      *   <li>Block 108273182 → {@code blocks/0000/0000/0010/8273/182.blk.zstd}</li>
@@ -301,17 +281,12 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      * @return the S3 object key
      */
     String buildObjectKey(final long blockNumber) {
-        final char[] buf = new char[19];
-        long n = blockNumber;
-        for (int i = 18; i >= 0; i--) {
-            buf[i] = (char) ('0' + (n % 10));
-            n /= 10;
-        }
-        final String folderPath = new String(buf, 0, 4)
-                + "/" + new String(buf, 4, 4)
-                + "/" + new String(buf, 8, 4)
-                + "/" + new String(buf, 12, 4)
-                + "/" + new String(buf, 16, 3);
+        final long seg1 = blockNumber / 1_000_000_000_000_000L;
+        final long seg2 = blockNumber / 100_000_000_000L % 10_000L;
+        final long seg3 = blockNumber / 10_000_000L % 10_000L;
+        final long seg4 = blockNumber / 1_000L % 10_000L;
+        final long seg5 = blockNumber % 1_000L;
+        final String folderPath = String.format("%04d/%04d/%04d/%04d/%03d", seg1, seg2, seg3, seg4, seg5);
         final String prefix = config.objectKeyPrefix();
         return (prefix == null || prefix.isEmpty())
                 ? folderPath + ".blk.zstd"
