@@ -129,4 +129,14 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         // Register this service
         serviceBuilder.registerGrpcService(this);
     }
+
+    /**
+     * Handle an update to the {@link BlockNodeContext}
+     *
+     * @param context the updated {@link BlockNodeContext}
+     */
+    @Override
+    public void onContextUpdate(BlockNodeContext context) {
+        this.context = context;
+    }
 }

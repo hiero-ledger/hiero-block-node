@@ -3,6 +3,7 @@ package org.hiero.block.node.spi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -48,8 +49,11 @@ public class BlockNodePluginTest {
     private static final HttpService testHttpService = rules -> {};
 
     private static class TestBlockNodePlugin implements BlockNodePlugin {
+        BlockNodeContext context;
+
         @Override
         public void init(@NonNull BlockNodeContext context, @NonNull ServiceBuilder serviceBuilder) {
+            this.context = context;
             serviceBuilder.registerGrpcService(testServiceInterface);
             serviceBuilder.registerHttpService("foo", testHttpService);
         }
@@ -105,5 +109,31 @@ public class BlockNodePluginTest {
         BlockNodePlugin plugin = new TestBlockNodePlugin();
         plugin.stop();
         // No exception means the default implementation is a no-op
+    }
+
+    @Test
+    @DisplayName("Test default onContextUpdate method")
+    void testDefaultOnContextUpdate() {
+        TestBlockNodePlugin plugin = new TestBlockNodePlugin();
+        plugin.init(null, new ServiceBuilder() {
+
+            @Override
+            public void registerHttpService(String path, HttpService... service) {
+                assertEquals("foo", path);
+                assertEquals(1, service.length);
+                assertEquals(testHttpService, service[0]);
+            }
+
+            @Override
+            public void registerGrpcService(@NonNull ServiceInterface service) {
+                assertEquals(testServiceInterface, service);
+            }
+        });
+
+        BlockNodeContext context = new BlockNodeContext(null, null, null, null, null, null, null, null);
+
+        plugin.onContextUpdate(context);
+
+        assertNull(plugin.context);
     }
 }

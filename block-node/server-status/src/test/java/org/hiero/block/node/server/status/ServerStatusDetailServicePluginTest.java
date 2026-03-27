@@ -22,6 +22,7 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -61,8 +62,8 @@ public class ServerStatusDetailServicePluginTest
     }
 
     /**
-     * Tests that the server status detail response is valid when requested.
-     * Verifies the block node version and the plugin versions.
+     * Tests that the server status detail response is valid when requested. Verifies the block node version and the
+     * plugin versions.
      *
      * @throws ParseException if there is an error parsing the response
      */
@@ -108,5 +109,39 @@ public class ServerStatusDetailServicePluginTest
         assertEquals(semanticVersion, pluginVersion.pluginSoftwareVersion());
         // Features default to empty list
         assertEquals(0, pluginVersion.pluginFeatureNames().size());
+    }
+
+    /**
+     * Tests that the server status detail response changes when
+     * {@link org.hiero.block.node.spi.BlockNodePlugin#onContextUpdate} is called,
+     *
+     * @throws ParseException if there is an error parsing the response
+     */
+    @Test
+    @DisplayName("Should return changed Server Detail Status when the BlockNodeContext is updated")
+    void shouldReturnValidServerStatusOnContextUpdate() throws ParseException {
+        // notify the plugin of an update to the block node plugin
+        BlockNodeContext newBlockNodeContext = new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metrics(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                BlockNodeVersions.DEFAULT);
+        plugin.onContextUpdate(newBlockNodeContext);
+
+        ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        assertEquals(1, fromPluginBytes.size());
+
+        ServerStatusDetailResponse response = ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
+
+        BlockNodeVersions blockNodeVersions = response.versionInformation();
+        assertNotNull(blockNodeVersions);
+        assertFalse(blockNodeVersions.hasStreamProtoVersion());
+        assertFalse(blockNodeVersions.hasBlockNodeVersion());
+        assertTrue(blockNodeVersions.installedPluginVersions().isEmpty());
     }
 }
