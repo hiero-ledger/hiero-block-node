@@ -227,7 +227,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 block,
                 s3Client,
                 objectKey,
-                config.storageClass(),
+                config.storageClass().name(),
                 config.uploadTimeoutSeconds(),
                 notification.source()));
     }
