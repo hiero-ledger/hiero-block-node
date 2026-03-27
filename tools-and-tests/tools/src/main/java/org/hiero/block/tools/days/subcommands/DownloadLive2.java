@@ -899,12 +899,18 @@ public class DownloadLive2 implements Runnable {
         final long blockNumber;
         final LocalDateTime blockTime;
         final List<ListingRecordFile> orderedFiles;
+        final List<ListingRecordFile> fullGroupFiles; // all files from all nodes for this block
         final List<java.util.concurrent.CompletableFuture<InMemoryFile>> futures = new java.util.ArrayList<>();
 
-        BlockWork(long blockNumber, LocalDateTime blockTime, List<ListingRecordFile> orderedFiles) {
+        BlockWork(
+                long blockNumber,
+                LocalDateTime blockTime,
+                List<ListingRecordFile> orderedFiles,
+                List<ListingRecordFile> fullGroupFiles) {
             this.blockNumber = blockNumber;
             this.blockTime = blockTime;
             this.orderedFiles = orderedFiles;
+            this.fullGroupFiles = fullGroupFiles;
         }
     }
 
@@ -994,7 +1000,8 @@ public class DownloadLive2 implements Runnable {
                 context.writer(),
                 blocksToDownload.size(),
                 downloadStartTime,
-                config.modeLabel());
+                config.modeLabel(),
+                context.downloadManager());
 
         long totalTime = System.currentTimeMillis() - downloadStartTime;
         int processedCount = blocksToDownload.size();
@@ -1094,7 +1101,7 @@ public class DownloadLive2 implements Runnable {
             List<ListingRecordFile> orderedFiles =
                     DownloadDayLiveImpl.computeFilesToDownload(mostCommonRecord, mostCommonSidecars, group);
 
-            BlockWork bw = new BlockWork(blockNum, blockTime, orderedFiles);
+            BlockWork bw = new BlockWork(blockNum, blockTime, orderedFiles, group);
             for (ListingRecordFile lr : orderedFiles) {
                 String blobName = DownloadConstants.BUCKET_PATH_PREFIX + lr.path();
                 bw.futures.add(downloadManager.downloadAsync(DownloadConstants.BUCKET_NAME, blobName));
@@ -1115,7 +1122,8 @@ public class DownloadLive2 implements Runnable {
             ConcurrentTarZstdWriter writer,
             int totalBlocks,
             long downloadStartTime,
-            String modeLabel)
+            String modeLabel,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager)
             throws Exception {
         System.out.println("[" + modeLabel + "] Phase 2: Processing downloads...");
         byte[] hash = currentHash;
@@ -1125,7 +1133,8 @@ public class DownloadLive2 implements Runnable {
             BlockWork ready = pending.pollFirst();
             if (ready == null) continue;
 
-            hash = processSingleBlock(ready, hash, mostCommonFiles, addressBookRegistry, stats, writer, modeLabel);
+            hash = processSingleBlock(
+                    ready, hash, mostCommonFiles, addressBookRegistry, stats, writer, modeLabel, downloadManager);
             processedCount++;
 
             if (processedCount % PROGRESS_LOG_INTERVAL == 0) {
@@ -1145,46 +1154,40 @@ public class DownloadLive2 implements Runnable {
             AddressBookRegistry addressBookRegistry,
             SignatureStats stats,
             ConcurrentTarZstdWriter writer,
-            String modeLabel)
+            String modeLabel,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager)
             throws Exception {
-        try {
-            java.util.concurrent.CompletableFuture.allOf(
-                            ready.futures.toArray(new java.util.concurrent.CompletableFuture[0]))
-                    .join();
+        List<InMemoryFile> inMemoryFiles = convertDownloadedFiles(ready, mostCommonFiles, modeLabel, downloadManager);
+        byte[] newHash = DownloadDayLiveImpl.validateBlockHashes(ready.blockNumber, inMemoryFiles, hash, null);
 
-            List<InMemoryFile> inMemoryFiles = convertDownloadedFiles(ready, mostCommonFiles, modeLabel);
-            byte[] newHash = DownloadDayLiveImpl.validateBlockHashes(ready.blockNumber, inMemoryFiles, hash, null);
+        DownloadDayLiveImpl.BlockDownloadResult result =
+                new DownloadDayLiveImpl.BlockDownloadResult(ready.blockNumber, inMemoryFiles, newHash);
+        Instant recordFileTime = ready.blockTime.atZone(ZoneOffset.UTC).toInstant();
+        boolean valid = fullBlockValidate(addressBookRegistry, hash, recordFileTime, result, null);
 
-            DownloadDayLiveImpl.BlockDownloadResult result =
-                    new DownloadDayLiveImpl.BlockDownloadResult(ready.blockNumber, inMemoryFiles, newHash);
-            Instant recordFileTime = ready.blockTime.atZone(ZoneOffset.UTC).toInstant();
-            boolean valid = fullBlockValidate(addressBookRegistry, hash, recordFileTime, result, null);
-
-            if (!valid) {
-                System.err.println(
-                        "[" + modeLabel + "] WARNING: Full block validation failed for block " + ready.blockNumber);
-            }
-
-            int nodeCount = addressBookRegistry
-                    .getAddressBookForBlock(recordFileTime)
-                    .nodeAddress()
-                    .size();
-            stats.recordBlock(result.files, nodeCount);
-
-            for (InMemoryFile file : inMemoryFiles) {
-                writer.putEntry(file);
-            }
-            return newHash;
-
-        } catch (java.util.concurrent.CompletionException ce) {
+        if (!valid) {
             System.err.println(
-                    "[" + modeLabel + "] Download failed for block " + ready.blockNumber + ": " + ce.getMessage());
-            throw new IllegalStateException("Download failed for block " + ready.blockNumber, ce.getCause());
+                    "[" + modeLabel + "] WARNING: Full block validation failed for block " + ready.blockNumber);
         }
+
+        int nodeCount = addressBookRegistry
+                .getAddressBookForBlock(recordFileTime)
+                .nodeAddress()
+                .size();
+        stats.recordBlock(result.files, nodeCount);
+
+        for (InMemoryFile file : inMemoryFiles) {
+            writer.putEntry(file);
+        }
+        return newHash;
     }
 
     private List<InMemoryFile> convertDownloadedFiles(
-            BlockWork ready, java.util.Set<ListingRecordFile> mostCommonFiles, String modeLabel) throws IOException {
+            BlockWork ready,
+            java.util.Set<ListingRecordFile> mostCommonFiles,
+            String modeLabel,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager)
+            throws IOException {
         List<InMemoryFile> inMemoryFiles = new java.util.ArrayList<>();
         for (int i = 0; i < ready.orderedFiles.size(); i++) {
             ListingRecordFile lr = ready.orderedFiles.get(i);
@@ -1207,13 +1210,97 @@ public class DownloadLive2 implements Runnable {
 
                 Path newFilePath = DownloadDayLiveImpl.computeNewFilePath(lr, mostCommonFiles, filename);
                 inMemoryFiles.add(new InMemoryFile(newFilePath, contentBytes));
-            } catch (java.io.EOFException eofe) {
-                System.err.println("[" + modeLabel + "] Skipping corrupted file: " + filename);
             } catch (Exception e) {
-                System.err.println("[" + modeLabel + "] Error processing file " + filename + ": " + e.getMessage());
+                // Try fallback from alternative node before giving up
+                System.err.println("[" + modeLabel + "] Failed to download " + lr.path() + ": " + e.getMessage()
+                        + ", trying alternative node...");
+                InMemoryFile fallback = tryAlternativeNode(lr, ready.fullGroupFiles, downloadManager, modeLabel);
+                if (fallback != null) {
+                    byte[] fallbackBytes = fallback.data();
+                    String fallbackFilename = filename;
+                    if (fallbackFilename.endsWith(".gz")) {
+                        fallbackBytes = org.hiero.block.tools.utils.Gzip.ungzipInMemory(fallbackBytes);
+                        fallbackFilename = fallbackFilename.replaceAll("\\.gz$", "");
+                    }
+                    Path newFilePath = DownloadDayLiveImpl.computeNewFilePath(lr, mostCommonFiles, fallbackFilename);
+                    inMemoryFiles.add(new InMemoryFile(newFilePath, fallbackBytes));
+                    continue;
+                }
+                // No alternative node had this file — fail the block
+                throw new IOException(
+                        "Failed to download " + lr.path() + " and no alternative node had the file: " + e.getMessage(),
+                        e);
             }
         }
         return inMemoryFiles;
+    }
+
+    /**
+     * Attempts to download a file from an alternative node when the primary download fails.
+     * Filters fullGroupFiles to the same type as the failed file, skips entries with the same
+     * path, prefers entries with the same MD5 (same content, different node), and tries
+     * downloading each alternative synchronously.
+     *
+     * @param failed the file that failed to download
+     * @param fullGroupFiles all files from all nodes for this block
+     * @param downloadManager the download manager
+     * @param modeLabel label for log messages
+     * @return the downloaded file from an alternative node, or null if all fail
+     */
+    private InMemoryFile tryAlternativeNode(
+            ListingRecordFile failed,
+            List<ListingRecordFile> fullGroupFiles,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            String modeLabel) {
+        if (fullGroupFiles == null || fullGroupFiles.isEmpty()) {
+            return null;
+        }
+
+        ListingRecordFile.Type failedType = failed.type();
+
+        // Find alternatives: same type, different path
+        // Prefer entries with the same MD5 (same content on a different node)
+        List<ListingRecordFile> sameMd5 = new java.util.ArrayList<>();
+        List<ListingRecordFile> differentMd5 = new java.util.ArrayList<>();
+
+        for (ListingRecordFile candidate : fullGroupFiles) {
+            if (candidate.path().equals(failed.path())) continue;
+            if (candidate.type() != failedType) continue;
+            if (candidate.md5Hex().equals(failed.md5Hex())) {
+                sameMd5.add(candidate);
+            } else {
+                differentMd5.add(candidate);
+            }
+        }
+
+        // Try same-MD5 candidates first, then different-MD5
+        List<ListingRecordFile> alternatives = new java.util.ArrayList<>(sameMd5);
+        alternatives.addAll(differentMd5);
+
+        for (ListingRecordFile alt : alternatives) {
+            try {
+                String blobName = DownloadConstants.BUCKET_PATH_PREFIX + alt.path();
+                InMemoryFile downloaded = downloadManager
+                        .downloadAsync(DownloadConstants.BUCKET_NAME, blobName)
+                        .join();
+
+                boolean md5Valid = checkMd5(alt.md5Hex(), downloaded.data());
+                if (!md5Valid) {
+                    System.err.println(
+                            "[" + modeLabel + "] Alternative node MD5 mismatch for " + alt.path() + ", trying next...");
+                    continue;
+                }
+
+                System.out.println("[" + modeLabel + "] Successfully downloaded from alternative node: " + alt.path()
+                        + " (replacing " + failed.path() + ")");
+                return downloaded;
+            } catch (Exception ex) {
+                System.err.println(
+                        "[" + modeLabel + "] Alternative node also failed for " + alt.path() + ": " + ex.getMessage());
+            }
+        }
+
+        return null;
     }
 
     /**
