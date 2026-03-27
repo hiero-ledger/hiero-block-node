@@ -67,7 +67,7 @@ final class BlockStagingFileAccessor implements BlockAccessor {
         Objects.requireNonNull(format);
         try {
             return getBytesFromPath(format, blockFilePath, compressionType);
-        } catch (final UncheckedIOException | IOException e) {
+        } catch (final RuntimeException e) {
             LOGGER.log(WARNING, FAILED_TO_READ_MESSAGE.formatted(blockFilePath), e);
             return null;
         }
@@ -96,11 +96,9 @@ final class BlockStagingFileAccessor implements BlockAccessor {
      * @param sourcePath the path to the source file
      * @param sourceCompression the compression type of the source data
      * @return the bytes of the block in the desired format, or null if the block cannot be read
-     * @throws IOException if unable to read or decompress the data.
      */
     private Bytes getBytesFromPath(
-            final Format responseFormat, final Path sourcePath, final CompressionType sourceCompression)
-            throws IOException {
+            final Format responseFormat, final Path sourcePath, final CompressionType sourceCompression) {
         try (final InputStream in = Files.newInputStream(sourcePath);
                 final InputStream wrapped = sourceCompression.wrapStream(in)) {
             Bytes sourceData =
@@ -119,6 +117,9 @@ final class BlockStagingFileAccessor implements BlockAccessor {
             } else {
                 return sourceData;
             }
+        } catch (final RuntimeException | IOException e) {
+            LOGGER.log(WARNING, FAILED_TO_READ_MESSAGE.formatted(blockFilePath), e);
+            return null;
         }
     }
 
