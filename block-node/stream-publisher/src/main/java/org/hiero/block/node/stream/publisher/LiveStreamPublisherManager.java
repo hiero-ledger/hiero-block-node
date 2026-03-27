@@ -298,8 +298,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final long newLastPersistedBlock = notification.blockNumber();
             if (notification.succeeded()) {
                 // If we are currently streaming any blocks < newLastPersistedBlock, then do not send acknowledgement
-                if (newLastPersistedBlock > lastPersistedBlockNumber.get()
-                        && isBeforeEarliestActiveBlock(newLastPersistedBlock)) {
+                // There was a test, isBeforeEarliestActiveBlock(newLastPersistedBlock) here
+                // but this must be removed for now.
+                // @todo(#1841) reconsider this conditional in light of other changes.
+                if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
                     handlers.values().parallelStream().unordered().forEach(handler -> {
                         // _Important_, we only need the last persisted block number
                         // all previous blocks are implicitly acknowledged.
@@ -313,7 +315,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             } else {
                 queueByBlockMap.clear();
                 final long blockNumber = notification.blockNumber();
-                // @todo(2198): We have an extremely rare race condition here
+                // @todo(2198): We may have an extremely rare race condition here
                 nextUnstreamedBlockNumber.set(blockNumber);
                 handlers.values().parallelStream().unordered().forEach(PublisherHandler::handleFailedPersistence);
             }
