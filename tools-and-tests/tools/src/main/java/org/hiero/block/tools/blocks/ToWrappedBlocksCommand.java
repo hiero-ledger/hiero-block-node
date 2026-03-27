@@ -560,6 +560,14 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                                                 .filter(psf -> psf.isValid(signedHash, ab))
                                                 .map(psf -> psf.toRecordFileSignature(ab))
                                                 .toList();
+                                        if (sigs.isEmpty()) {
+                                            throw new RuntimeException("Zero verified signatures for block at "
+                                                    + parsed.blockTime()
+                                                    + " (sig files in archive: "
+                                                    + parsed.signatureFiles().size()
+                                                    + ", address book nodes: "
+                                                    + ab.nodeAddress().size() + ")");
+                                        }
                                         return new PreVerifiedBlock(parsed, ab, sigs);
                                     },
                                     parseAndVerifyPool));
