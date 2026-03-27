@@ -360,13 +360,11 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
-    @DisplayName("Invalid storageClass is rejected at config construction time")
-    void invalidStorageClassRejected() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000", "bucket", "blocks", "INVALID_CLASS", "us-east-1", "", "", 60),
-                "Invalid storageClass must throw IllegalArgumentException");
+    @DisplayName("StorageClass enum only contains defined values")
+    void storageClassEnumValues() {
+        final ExpandedCloudStorageConfig.StorageClass[] values = ExpandedCloudStorageConfig.StorageClass.values();
+        assertEquals(1, values.length, "Expected exactly one StorageClass value");
+        assertEquals(ExpandedCloudStorageConfig.StorageClass.STANDARD, values[0]);
     }
 
     @Test
@@ -375,18 +373,18 @@ class ExpandedCloudStoragePluginTest
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000", "bucket", "blocks", "STANDARD", "us-east-1", "", "", 0),
+                        "http://fake:9000", "bucket", "blocks", ExpandedCloudStorageConfig.StorageClass.STANDARD, "us-east-1", "", "", 0),
                 "uploadTimeoutSeconds=0 must throw IllegalArgumentException");
     }
 
     @Test
-    @DisplayName("All valid S3 storage classes are accepted by config")
+    @DisplayName("All defined StorageClass enum values are accepted by config")
     void allValidStorageClassesAccepted() {
-        for (final String storageClass : ExpandedCloudStorageConfig.VALID_STORAGE_CLASSES) {
+        for (final ExpandedCloudStorageConfig.StorageClass sc : ExpandedCloudStorageConfig.StorageClass.values()) {
             assertDoesNotThrow(
                     () -> new ExpandedCloudStorageConfig(
-                            "http://fake:9000", "bucket", "blocks", storageClass, "us-east-1", "", "", 60),
-                    "Valid storageClass '" + storageClass + "' must not throw");
+                            "http://fake:9000", "bucket", "blocks", sc, "us-east-1", "", "", 60),
+                    "StorageClass " + sc + " must not throw");
         }
     }
 
