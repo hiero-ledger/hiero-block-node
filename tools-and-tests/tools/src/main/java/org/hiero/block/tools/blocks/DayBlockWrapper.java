@@ -9,6 +9,7 @@ import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.
 import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Transaction;
@@ -24,7 +25,9 @@ import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
+import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -35,6 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.hiero.block.tools.blocks.model.BlockArchiveType;
+import org.hiero.block.tools.blocks.model.BlockReader;
 import org.hiero.block.tools.blocks.model.BlockWriter;
 import org.hiero.block.tools.blocks.model.BlockWriter.BlockPath;
 import org.hiero.block.tools.blocks.model.BlockWriter.BlockZipAppender;
@@ -188,6 +192,9 @@ public class DayBlockWrapper implements AutoCloseable {
      */
     public boolean wrapDay(Path dayArchivePath, DayBlockInfo dayBlockInfo) throws Exception {
         long effectiveHighest = blockRegistry.highestBlockNumberStored();
+        final long preWrapHighestBlock = effectiveHighest;
+        final byte[] preWrapLastBlockHash =
+                preWrapHighestBlock >= 0 ? blockRegistry.getBlockHash(preWrapHighestBlock) : null;
 
         // Skip if this day's blocks are already fully wrapped
         if (effectiveHighest >= dayBlockInfo.lastBlockNumber) {
@@ -372,7 +379,25 @@ public class DayBlockWrapper implements AutoCloseable {
         saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
         addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
 
-        // Save jumpstart data
+        // --- Post-wrap boundary validation ---
+        final long postWrapHighestBlock = durableWatermark.get();
+        if (postWrapHighestBlock > preWrapHighestBlock) {
+            final long firstNewBlock = preWrapHighestBlock + 1;
+            try {
+                BlockReader.closeCachedZipFs(); // ensure fresh read from finalized zip
+                validateBoundary(firstNewBlock, preWrapLastBlockHash);
+                System.out.println("[WRAP] Post-wrap boundary validation PASSED for block " + firstNewBlock);
+            } catch (Exception e) {
+                System.err.println("[WRAP] " + e.getMessage());
+                rollbackDay(preWrapHighestBlock, postWrapHighestBlock);
+                throw new IllegalStateException(
+                        "Post-wrap validation failed for " + dayArchivePath.getFileName() + ". Rolled back to block "
+                                + preWrapHighestBlock + ". Investigate and restart.",
+                        e);
+            }
+        }
+
+        // Save jumpstart data (only after validation passes)
         if (jumpstartBlockHash.get() != null) {
             ToWrappedBlocksCommand.saveJumpstartData(
                     jumpstartFile, jumpstartBlockNumber.get(), jumpstartBlockHash.get(), streamingHasher);
@@ -442,6 +467,98 @@ public class DayBlockWrapper implements AutoCloseable {
     }
 
     // ---- Private helpers ----
+
+    /**
+     * Reads the first newly wrapped block back from disk and verifies that its
+     * {@code previousBlockRootHash} (in the {@link com.hedera.hapi.block.stream.output.BlockFooter})
+     * matches the expected hash of the last pre-existing block.
+     *
+     * <p>For block 0 (first-ever wrap), the check is skipped because there is no
+     * previous block to compare against.
+     *
+     * @param firstNewBlock the block number of the first newly wrapped block
+     * @param expectedPreviousHash the expected previous block root hash (from the pre-existing chain)
+     * @throws Exception if the boundary hash does not match or the block cannot be read
+     */
+    private void validateBoundary(long firstNewBlock, byte[] expectedPreviousHash) throws Exception {
+        if (firstNewBlock == 0) {
+            // First-ever wrap: no previous block to compare against
+            return;
+        }
+        if (expectedPreviousHash == null) {
+            throw new IllegalStateException(
+                    "No previous block hash available for boundary check at block " + firstNewBlock);
+        }
+
+        final Block block = BlockReader.readBlock(outputBlocksDir, firstNewBlock);
+        byte[] actualPreviousHash = null;
+        for (final BlockItem item : block.items()) {
+            if (item.hasBlockFooter()) {
+                actualPreviousHash = item.blockFooter().previousBlockRootHash().toByteArray();
+                break;
+            }
+        }
+
+        if (actualPreviousHash == null) {
+            throw new IllegalStateException(
+                    "Block " + firstNewBlock + " has no BlockFooter — cannot verify boundary hash");
+        }
+
+        if (!Arrays.equals(expectedPreviousHash, actualPreviousHash)) {
+            throw new IllegalStateException("Boundary hash mismatch at block " + firstNewBlock
+                    + ": expected previousBlockRootHash=" + HexFormat.of().formatHex(expectedPreviousHash)
+                    + " but found=" + HexFormat.of().formatHex(actualPreviousHash));
+        }
+    }
+
+    /**
+     * Rolls back a failed wrap by deleting entirely-new zip files, truncating the block
+     * hash registry, and resetting the watermark and block counter.
+     *
+     * <p>Mixed zips (containing both old and new blocks) are intentionally left in place;
+     * {@link #reconcileRegistryWithWatermark()} handles mid-zip cleanup on the next startup.
+     *
+     * @param preWrapHighestBlock the highest block number before the wrap started (-1 if none)
+     * @param postWrapHighestBlock the highest block number after the (failed) wrap
+     */
+    private void rollbackDay(long preWrapHighestBlock, long postWrapHighestBlock) {
+        System.err.println(
+                "[WRAP] Rolling back: deleting new zips and truncating state to block " + preWrapHighestBlock);
+
+        final long blocksPerZip = (long) Math.pow(10, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+        final long firstNewBlock = preWrapHighestBlock + 1;
+        final long firstNewZipStart = BlockWriter.zipRangeFirstBlock(firstNewBlock, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+        // Only delete zips that are entirely new — skip the mixed zip (if any)
+        final long deleteStartBlock =
+                (firstNewZipStart == firstNewBlock) ? firstNewZipStart : firstNewZipStart + blocksPerZip;
+
+        for (long zipStart = deleteStartBlock; zipStart <= postWrapHighestBlock; zipStart += blocksPerZip) {
+            final BlockPath blockPath =
+                    BlockWriter.computeBlockPath(outputBlocksDir, zipStart, BlockArchiveType.UNCOMPRESSED_ZIP);
+            try {
+                if (Files.deleteIfExists(blockPath.zipFilePath())) {
+                    System.err.println("[WRAP]   Deleted " + blockPath.zipFilePath());
+                }
+            } catch (IOException e) {
+                System.err.println(
+                        "[WRAP]   Warning: could not delete " + blockPath.zipFilePath() + ": " + e.getMessage());
+            }
+        }
+
+        // Truncate registry and reset counters
+        blockRegistry.truncateTo(preWrapHighestBlock);
+        durableWatermark.set(preWrapHighestBlock);
+        blockCounter.set(preWrapHighestBlock + 1);
+        if (preWrapHighestBlock >= 0) {
+            saveWatermark(watermarkFile, preWrapHighestBlock);
+        } else {
+            try {
+                Files.deleteIfExists(watermarkFile);
+            } catch (IOException e) {
+                System.err.println("[WRAP]   Warning: could not delete watermark file: " + e.getMessage());
+            }
+        }
+    }
 
     /**
      * Reconcile block hash registry with durable watermark on startup.
