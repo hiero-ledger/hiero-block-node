@@ -8,12 +8,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -85,10 +79,10 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     /**
      * Compresses the block to ZSTD protobuf bytes and uploads it to S3.
      *
-     * <p>The task is submitted to a virtual-thread executor; the upload runs to completion or
-     * times out after {@code uploadTimeoutSeconds}. Failures are captured as
-     * {@code succeeded=false} results rather than thrown exceptions so the
-     * {@link java.util.concurrent.CompletionService} always receives a result.
+     * <p>Calls {@code S3UploadClient.uploadFile()} directly, relying on S3 SDK
+     * connection/socket timeouts. Failures are captured as {@code succeeded=false} results
+     * rather than thrown exceptions so the {@link java.util.concurrent.CompletionService}
+     * always receives a result.
      *
      * @return the upload result (never {@code null})
      */
@@ -103,55 +97,38 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
                 return new UploadResult(blockNumber, false, 0L, blockSource);
             }
 
-            final byte[] payload = compressed;
-            final long payloadBytes = compressed.length;
-            final ExecutorService uploadExecutor = Executors.newVirtualThreadPerTaskExecutor();
-            final Future<Void> upload = uploadExecutor.submit(() -> {
-                s3Client.uploadFile(
-                        objectKey,
-                        storageClass,
-                        new Iterator<>() {
-                            private boolean hasNext = true;
-
-                            @Override
-                            public boolean hasNext() {
-                                return hasNext;
-                            }
-
-                            @Override
-                            public byte[] next() {
-                                if (!hasNext) throw new NoSuchElementException();
-                                hasNext = false;
-                                return payload;
-                            }
-                        },
-                        CONTENT_TYPE);
-                return null;
-            });
-            uploadExecutor.shutdown();
-            try {
-                upload.get(uploadTimeoutSeconds, TimeUnit.SECONDS);
-            } catch (final TimeoutException e) {
-                upload.cancel(true);
-                LOGGER.log(WARNING, "Block {0}: upload timed out after {1}s.", blockNumber, uploadTimeoutSeconds);
-                return new UploadResult(blockNumber, false, 0L, blockSource);
-            } catch (final ExecutionException e) {
-                LOGGER.log(
-                        WARNING,
-                        "Block {0}: upload failed: {1}",
-                        blockNumber,
-                        e.getCause().getMessage());
-                return new UploadResult(blockNumber, false, 0L, blockSource);
-            } finally {
-                uploadExecutor.shutdownNow();
-            }
-
+            s3Client.uploadFile(objectKey, storageClass, new PayloadIterator(compressed), CONTENT_TYPE);
             LOGGER.log(TRACE, "Block {0}: uploaded to {1}", blockNumber, objectKey);
-            return new UploadResult(blockNumber, true, payloadBytes, blockSource);
+            return new UploadResult(blockNumber, true, compressed.length, blockSource);
 
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
+        } catch (final com.hedera.bucky.S3ClientException e) {
+            LOGGER.log(WARNING, "Block {0}: S3 upload failed: ", blockNumber, e);
             return new UploadResult(blockNumber, false, 0L, blockSource);
+        } catch (final java.io.IOException e) {
+            LOGGER.log(WARNING, "Block {0}: I/O error during upload: ", blockNumber, e);
+            return new UploadResult(blockNumber, false, 0L, blockSource);
+        }
+    }
+
+    /** Single-use iterator that delivers one byte array and then reports exhausted. */
+    private static final class PayloadIterator implements Iterator<byte[]> {
+        private final byte[] payload;
+        private boolean delivered = false;
+
+        PayloadIterator(final byte[] payload) {
+            this.payload = payload;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return !delivered;
+        }
+
+        @Override
+        public byte[] next() {
+            if (delivered) throw new NoSuchElementException();
+            delivered = true;
+            return payload;
         }
     }
 }
