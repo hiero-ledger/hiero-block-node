@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import org.hiero.block.tools.blocks.DayBlockWrapper;
+import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.download.DownloadConstants;
 import org.hiero.block.tools.days.download.DownloadDayImplV2;
 import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
@@ -78,8 +79,8 @@ public class DownloadLive2 implements Runnable {
     private static final long MIN_BLOCK_TIME_REFRESH_INTERVAL_MS = 30_000;
 
     private static final File CACHE_DIR = new File("metadata/gcp-cache");
-    private static final int MIN_NODE_ACCOUNT_ID = 3;
-    private static final int MAX_NODE_ACCOUNT_ID = 37;
+    private static final int MIN_NODE_ACCOUNT_ID = NetworkConfig.current().minNodeAccountId();
+    private static final int MAX_NODE_ACCOUNT_ID = NetworkConfig.current().maxNodeAccountId();
 
     @Option(
             names = {"-l", "--listing-dir"},
@@ -1103,8 +1104,9 @@ public class DownloadLive2 implements Runnable {
 
             BlockWork bw = new BlockWork(blockNum, blockTime, orderedFiles, group);
             for (ListingRecordFile lr : orderedFiles) {
-                String blobName = DownloadConstants.BUCKET_PATH_PREFIX + lr.path();
-                bw.futures.add(downloadManager.downloadAsync(DownloadConstants.BUCKET_NAME, blobName));
+                String blobName = NetworkConfig.current().bucketPathPrefix() + lr.path();
+                bw.futures.add(
+                        downloadManager.downloadAsync(NetworkConfig.current().gcsBucketName(), blobName));
             }
             pending.add(bw);
         }
@@ -1279,11 +1281,11 @@ public class DownloadLive2 implements Runnable {
 
         for (ListingRecordFile alt : alternatives) {
             try {
-                String blobName = DownloadConstants.BUCKET_PATH_PREFIX + alt.path();
+                String blobName = NetworkConfig.current().bucketPathPrefix() + alt.path();
                 // Use timeout to avoid blocking forever when the thread pool is saturated
                 // by batch downloads competing for the same fixed pool and AIMD gate
                 InMemoryFile downloaded = downloadManager
-                        .downloadAsync(DownloadConstants.BUCKET_NAME, blobName)
+                        .downloadAsync(NetworkConfig.current().gcsBucketName(), blobName)
                         .get(60, java.util.concurrent.TimeUnit.SECONDS);
 
                 boolean md5Valid = checkMd5(alt.md5Hex(), downloaded.data());
