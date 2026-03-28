@@ -203,7 +203,7 @@ public abstract class PluginTestBase<
      */
     @AfterEach
     public void tearDown() {
-        if (metricsProvider != null) metricsProvider.stop();
+        metricsProvider.stop();
         testThreadPoolManager.shutdownNow();
         metricsRegistry.close();
     }
