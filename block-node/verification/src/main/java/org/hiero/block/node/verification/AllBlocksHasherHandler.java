@@ -305,28 +305,28 @@ public class AllBlocksHasherHandler {
     private byte[] calculateBlockHashFromBlockNumber(long blockNumber) throws ParseException {
         final HistoricalBlockFacility blockProvider = context.historicalBlockProvider();
         if (blockProvider != null) {
-            final BlockAccessor blockReader = blockProvider.block(blockNumber);
-            if (blockReader != null) {
-                final BlockUnparsed block = blockReader.blockUnparsed();
-                // is safe to assume first item is always block header
-                final BlockHeader blockHeader =
-                        BlockHeader.PROTOBUF.parse(block.blockItems().getFirst().blockHeader());
-                BlockItems blockItemsMessage = new BlockItems(block.blockItems(), blockNumber, true, true);
-
-                // Pass null, null so the session uses the block footer's authoritative values
-                final VerificationSession session = HapiVersionSessionFactory.createSession(
-                        blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion(), null, null, null);
-                final VerificationNotification result = session.processBlockItems(blockItemsMessage);
-                return result.blockHash().toByteArray();
-            } else {
-                return new byte[0];
+            try (final BlockAccessor blockReader = blockProvider.block(blockNumber)) {
+                if (blockReader != null) {
+                    final BlockUnparsed block = blockReader.blockUnparsed();
+                    // is safe to assume first item is always block header
+                    final BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
+                            block.blockItems().getFirst().blockHeader());
+                    BlockItems blockItemsMessage = new BlockItems(block.blockItems(), blockNumber, true, true);
+                    // Pass null, null so the session uses the block footer's authoritative values
+                    final VerificationSession session = HapiVersionSessionFactory.createSession(
+                            blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion(), null, null, null);
+                    final VerificationNotification result = session.processBlockItems(blockItemsMessage);
+                    return result.blockHash().toByteArray();
+                } else {
+                    return new byte[0];
+                }
             }
         } else {
             return new byte[0];
         }
     }
 
-    /***
+    /**
      * Validate that the streaming hasher state matches the expected max block.
      * maxBlock is inclusive and counts from 0, so N blocks produces leaf count N.
      */
