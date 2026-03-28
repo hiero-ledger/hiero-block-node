@@ -24,7 +24,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
@@ -88,29 +87,6 @@ public class BlockNodeApp implements HealthFacility {
      */
     public BlockNodeApp(final ServiceLoaderFunction serviceLoader, final boolean shouldExitJvmOnShutdown)
             throws IOException {
-        this(serviceLoader, shouldExitJvmOnShutdown, System::getenv);
-    }
-
-    /**
-     * Constructor for the BlockNodeApp class with a custom environment variable getter.
-     *
-     * <p><b>Note:</b> This overload exists to support integration and E2E tests that need to
-     * inject S3 or other environment-variable-driven config without mutating the real JVM
-     * environment. It should not be used in production code; production should use
-     * {@link #BlockNodeApp(ServiceLoaderFunction, boolean)} which defaults to
-     * {@code System::getenv}.
-     *
-     * @param serviceLoader Optional function to load the service loader, if null then the default will be used
-     * @param shouldExitJvmOnShutdown if true, the JVM will exit on shutdown, otherwise it will not
-     * @param envVarGetter function to retrieve environment variable values; {@code System::getenv}
-     *                     in production, or a custom map lookup in tests
-     * @throws IOException if there is an error starting the server
-     */
-    public BlockNodeApp(
-            final ServiceLoaderFunction serviceLoader,
-            final boolean shouldExitJvmOnShutdown,
-            final Function<String, String> envVarGetter)
-            throws IOException {
         this.shouldExitJvmOnShutdown = shouldExitJvmOnShutdown;
         // ==== LOAD LOGGING CONFIG ====================================================================================
         final boolean externalLogging = System.getProperty("java.util.logging.config.file") != null;
@@ -173,7 +149,7 @@ public class BlockNodeApp implements HealthFacility {
         //noinspection unchecked
         final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .autoDiscoverExtensions()
-                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, envVarGetter))
+                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, this::getEnvVar))
                 .withSource(SystemPropertiesConfigSource.getInstance())
                 .withSources(new ClasspathFileConfigSource(Path.of(appProperties)))
                 .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
@@ -354,6 +330,19 @@ public class BlockNodeApp implements HealthFacility {
     public static void main(final String[] args) throws IOException {
         BlockNodeApp server = new BlockNodeApp(new ServiceLoaderFunction(), true);
         server.start();
+    }
+
+    /**
+     * Returns the value of the named environment variable.
+     *
+     * <p>Subclasses may override this method to inject config values in tests without
+     * mutating the real JVM environment or using the public constructor API.
+     *
+     * @param name the environment variable name
+     * @return the value, or {@code null} if not set
+     */
+    protected String getEnvVar(final String name) {
+        return System.getenv(name);
     }
 
     /**
