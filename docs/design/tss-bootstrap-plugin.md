@@ -19,13 +19,13 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 
 ## Goals
 
-- Deliver TSS booststrap information to a block node that does not have access to the network Block 0 transactions.
+- Deliver TSS booststrap information to a Block Node that does not have access to the network Block 0 transactions.
   - A new Block Node needs to learn the current TSS state (roster, verification key, ledger ID)
     - Plugin implements the existing BlockNodePlugin interfaces
     - The planned plugin queries a peer BN's serverStatusDetail gRPC endpoint to retrieve TSS information
       - gRPC peer communication follows the same WebClient pattern used elsewhere in the codebase
     - The planned plugin will persist the TSS data locally and load it during plugin init() allowing it to be ready when block proofs arrive with TSS Signatures.
-    - If TSS data is not present locally, the plugin will check to see if the TSS Data is stored in its config. TssBootstrapPlugin config can be used for both testing and temporary initialization for a block node
+    - If TSS data is not present locally, the plugin will check to see if the TSS Data is stored in its config. TssBootstrapPlugin config can be used for both testing and temporary initialization for a Block Node
     - The planned plugin will periodically query its peers for TSS data updates.
   - TSS data is exposed to other plugins
     - The BlockNode plugin interface will be refactored to have an onContextUpdated method that will be called by the BlockNode application when the context is updated.
