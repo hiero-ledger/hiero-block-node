@@ -3,7 +3,13 @@ package org.hiero.block.tools.commands.days.model;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.hedera.hapi.node.addressbook.NodeCreateTransactionBody;
+import com.hedera.hapi.node.addressbook.NodeDeleteTransactionBody;
+import com.hedera.hapi.node.addressbook.NodeUpdateTransactionBody;
+import com.hedera.hapi.node.base.AccountID;
+import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -13,8 +19,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -286,5 +295,298 @@ public class AddressBookRegistryTest {
         Path corruptFile = tempDir.resolve("corrupt.json");
         Files.writeString(corruptFile, "this is not valid json");
         assertThrows(UncheckedIOException.class, () -> registry.reloadFromFile(corruptFile));
+    }
+
+    @Nested
+    @DisplayName("Dynamic Address Book (DAB) Transaction Tests")
+    class DabTransactionTests {
+
+        /** Sample DER-encoded certificate bytes for testing (fake but realistic length). */
+        private static final byte[] SAMPLE_CERT_BYTES = new byte[256];
+
+        static {
+            // Fill with non-zero bytes so hex encoding produces a meaningful string
+            for (int i = 0; i < SAMPLE_CERT_BYTES.length; i++) {
+                SAMPLE_CERT_BYTES[i] = (byte) (i & 0xFF);
+            }
+        }
+
+        private static final String SAMPLE_CERT_HEX = HexFormat.of().formatHex(SAMPLE_CERT_BYTES);
+
+        @Test
+        @DisplayName("NODEUPDATE with gossip CA certificate rotates node key")
+        public void testNodeUpdateCertificateRotation() throws ParseException {
+            AddressBookRegistry registry = new AddressBookRegistry();
+            NodeAddressBook genesisBook = registry.getCurrentAddressBook();
+            // Pick first node from genesis book
+            NodeAddress firstNode = genesisBook.nodeAddress().getFirst();
+            long nodeAcctNum = AddressBookRegistry.getNodeAccountId(firstNode);
+            String originalKey = firstNode.rsaPubKey();
+
+            // Create a NODEUPDATE transaction that rotates the gossip CA certificate
+            TransactionBody updateBody = TransactionBody.newBuilder()
+                    .nodeUpdate(NodeUpdateTransactionBody.newBuilder()
+                            .nodeId(firstNode.nodeId())
+                            .gossipCaCertificate(Bytes.wrap(SAMPLE_CERT_BYTES))
+                            .build())
+                    .build();
+
+            String changes = registry.updateAddressBook(Instant.now(), List.of(updateBody));
+            assertNotNull(changes, "Should detect address book change from NODEUPDATE");
+            assertTrue(changes.contains("node lifecycle (DAB)"), "Change source should be DAB");
+            assertTrue(changes.contains("key changed"), "Should report key change");
+
+            // Verify the node's key was updated
+            NodeAddressBook updatedBook = registry.getCurrentAddressBook();
+            String updatedKey = AddressBookRegistry.publicKeyForNode(updatedBook, 0, 0, nodeAcctNum);
+            assertNotEquals(originalKey, updatedKey, "Key should have changed after NODEUPDATE");
+            assertEquals(SAMPLE_CERT_HEX, updatedKey, "Key should be hex-encoded certificate");
+        }
+
+        @Test
+        @DisplayName("NODEUPDATE updates description and account ID when provided")
+        public void testNodeUpdatePartialFields() throws ParseException {
+            AddressBookRegistry registry = new AddressBookRegistry();
+            NodeAddressBook genesisBook = registry.getCurrentAddressBook();
+            NodeAddress firstNode = genesisBook.nodeAddress().getFirst();
+
+            TransactionBody updateBody = TransactionBody.newBuilder()
+                    .nodeUpdate(NodeUpdateTransactionBody.newBuilder()
+                            .nodeId(firstNode.nodeId())
+                            .description("Updated node description")
+                            .build())
+                    .build();
+
+            String changes = registry.updateAddressBook(Instant.now(), List.of(updateBody));
+            // Description change alone doesn't change keys, so address book still "changes" via equals
+            NodeAddressBook updatedBook = registry.getCurrentAddressBook();
+            NodeAddress updatedNode = updatedBook.nodeAddress().stream()
+                    .filter(n -> n.nodeId() == firstNode.nodeId())
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals("Updated node description", updatedNode.description());
+            // Key should remain unchanged
+            assertEquals(firstNode.rsaPubKey(), updatedNode.rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("NODEUPDATE for non-existent node returns unchanged book")
+        public void testNodeUpdateNonExistentNode() throws ParseException {
+            AddressBookRegistry registry = new AddressBookRegistry();
+            int initialCount = registry.getAddressBookCount();
+
+            TransactionBody updateBody = TransactionBody.newBuilder()
+                    .nodeUpdate(NodeUpdateTransactionBody.newBuilder()
+                            .nodeId(99999)
+                            .gossipCaCertificate(Bytes.wrap(SAMPLE_CERT_BYTES))
+                            .build())
+                    .build();
+
+            String changes = registry.updateAddressBook(Instant.now(), List.of(updateBody));
+            assertNull(changes, "Should not detect changes when node not found");
+            assertEquals(initialCount, registry.getAddressBookCount());
+        }
+
+        @Test
+        @DisplayName("NODECREATE adds a new node to the address book")
+        public void testNodeCreate() throws ParseException {
+            AddressBookRegistry registry = new AddressBookRegistry();
+            NodeAddressBook genesisBook = registry.getCurrentAddressBook();
+            int initialNodeCount = genesisBook.nodeAddress().size();
+
+            // Create a new node with account 0.0.50 (nodeId = 47)
+            AccountID newAcctId = AccountID.newBuilder().accountNum(50).build();
+            TransactionBody createBody = TransactionBody.newBuilder()
+                    .nodeCreate(NodeCreateTransactionBody.newBuilder()
+                            .accountId(newAcctId)
+                            .gossipCaCertificate(Bytes.wrap(SAMPLE_CERT_BYTES))
+                            .description("New test node")
+                            .build())
+                    .build();
+
+            String changes = registry.updateAddressBook(Instant.now(), List.of(createBody));
+            assertNotNull(changes, "Should detect address book change from NODECREATE");
+            assertTrue(changes.contains("node lifecycle (DAB)"), "Change source should be DAB");
+            assertTrue(changes.contains("Node 50 added"), "Should report node addition");
+
+            NodeAddressBook updatedBook = registry.getCurrentAddressBook();
+            assertEquals(initialNodeCount + 1, updatedBook.nodeAddress().size(), "Should have one more node");
+
+            // Verify the new node's properties
+            NodeAddress newNode = updatedBook.nodeAddress().stream()
+                    .filter(n -> AddressBookRegistry.getNodeAccountId(n) == 50)
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("New node not found"));
+            assertEquals(47, newNode.nodeId(), "nodeId should be accountNum - 3");
+            assertEquals(SAMPLE_CERT_HEX, newNode.rsaPubKey());
+            assertEquals("New test node", newNode.description());
+            assertEquals("0.0.50", newNode.memo().asUtf8String());
+        }
+
+        @Test
+        @DisplayName("NODECREATE replaces existing node with same account ID")
+        public void testNodeCreateReplacesExisting() throws ParseException {
+            AddressBookRegistry registry = new AddressBookRegistry();
+            NodeAddressBook genesisBook = registry.getCurrentAddressBook();
+            // Get account number of the first node
+            NodeAddress firstNode = genesisBook.nodeAddress().getFirst();
+            long existingAcctNum = AddressBookRegistry.getNodeAccountId(firstNode);
+            int initialNodeCount = genesisBook.nodeAddress().size();
+
+            // Create a node with the same account ID — should replace
+            AccountID existingAcctId =
+                    AccountID.newBuilder().accountNum(existingAcctNum).build();
+            TransactionBody createBody = TransactionBody.newBuilder()
+                    .nodeCreate(NodeCreateTransactionBody.newBuilder()
+                            .accountId(existingAcctId)
+                            .gossipCaCertificate(Bytes.wrap(SAMPLE_CERT_BYTES))
+                            .description("Replacement node")
+                            .build())
+                    .build();
+
+            String changes = registry.updateAddressBook(Instant.now(), List.of(createBody));
+            assertNotNull(changes);
+
+            NodeAddressBook updatedBook = registry.getCurrentAddressBook();
+            // Node count should be the same (replaced, not added)
+            assertEquals(initialNodeCount, updatedBook.nodeAddress().size());
+            // Verify the replacement
+            String newKey = AddressBookRegistry.publicKeyForNode(updatedBook, 0, 0, existingAcctNum);
+            assertEquals(SAMPLE_CERT_HEX, newKey);
+        }
+
+        @Test
+        @DisplayName("NODEDELETE removes a node from the address book")
+        public void testNodeDelete() throws ParseException {
+            AddressBookRegistry registry = new AddressBookRegistry();
+
+            // First, create a node with a known unique nodeId via NODECREATE
+            AccountID newAcctId = AccountID.newBuilder().accountNum(50).build();
+            TransactionBody createBody = TransactionBody.newBuilder()
+                    .nodeCreate(NodeCreateTransactionBody.newBuilder()
+                            .accountId(newAcctId)
+                            .gossipCaCertificate(Bytes.wrap(SAMPLE_CERT_BYTES))
+                            .description("Node to delete")
+                            .build())
+                    .build();
+            registry.updateAddressBook(Instant.parse("2026-01-01T00:00:00Z"), List.of(createBody));
+            NodeAddressBook bookAfterCreate = registry.getCurrentAddressBook();
+            int nodeCountAfterCreate = bookAfterCreate.nodeAddress().size();
+
+            // Now delete that node by its nodeId (50 - 3 = 47)
+            TransactionBody deleteBody = TransactionBody.newBuilder()
+                    .nodeDelete(
+                            NodeDeleteTransactionBody.newBuilder().nodeId(47).build())
+                    .build();
+
+            String changes = registry.updateAddressBook(Instant.parse("2026-01-02T00:00:00Z"), List.of(deleteBody));
+            assertNotNull(changes, "Should detect address book change from NODEDELETE");
+            assertTrue(changes.contains("node lifecycle (DAB)"), "Change source should be DAB");
+            assertTrue(changes.contains("removed"), "Should report node removal");
+
+            NodeAddressBook updatedBook = registry.getCurrentAddressBook();
+            assertEquals(nodeCountAfterCreate - 1, updatedBook.nodeAddress().size(), "Should have one fewer node");
+            assertTrue(
+                    updatedBook.nodeAddress().stream().noneMatch(n -> n.nodeId() == 47),
+                    "Deleted node should not be present");
+        }
+
+        @Test
+        @DisplayName("NODEDELETE for non-existent node returns unchanged book")
+        public void testNodeDeleteNonExistentNode() throws ParseException {
+            AddressBookRegistry registry = new AddressBookRegistry();
+            int initialCount = registry.getAddressBookCount();
+
+            TransactionBody deleteBody = TransactionBody.newBuilder()
+                    .nodeDelete(
+                            NodeDeleteTransactionBody.newBuilder().nodeId(99999).build())
+                    .build();
+
+            String changes = registry.updateAddressBook(Instant.now(), List.of(deleteBody));
+            assertNull(changes, "Should not detect changes when node not found");
+            assertEquals(initialCount, registry.getAddressBookCount());
+        }
+
+        @Test
+        @DisplayName("filterToJustAddressBookTransactions includes DAB transactions")
+        public void testFilterIncludesNodeLifecycleTransactions() throws ParseException {
+            TransactionBody nodeUpdateBody = TransactionBody.newBuilder()
+                    .nodeUpdate(NodeUpdateTransactionBody.newBuilder().nodeId(0).build())
+                    .build();
+            TransactionBody nodeCreateBody = TransactionBody.newBuilder()
+                    .nodeCreate(NodeCreateTransactionBody.newBuilder()
+                            .accountId(AccountID.newBuilder().accountNum(50).build())
+                            .build())
+                    .build();
+            TransactionBody nodeDeleteBody = TransactionBody.newBuilder()
+                    .nodeDelete(NodeDeleteTransactionBody.newBuilder().nodeId(0).build())
+                    .build();
+
+            // Wrap each in a Transaction with body set directly
+            List<Transaction> transactions = List.of(
+                    Transaction.newBuilder().body(nodeUpdateBody).build(),
+                    Transaction.newBuilder().body(nodeCreateBody).build(),
+                    Transaction.newBuilder().body(nodeDeleteBody).build());
+
+            List<TransactionBody> filtered = AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
+            assertEquals(3, filtered.size(), "All three DAB transaction types should be included");
+            assertTrue(filtered.get(0).hasNodeUpdate());
+            assertTrue(filtered.get(1).hasNodeCreate());
+            assertTrue(filtered.get(2).hasNodeDelete());
+        }
+
+        @Test
+        @DisplayName("filterToJustAddressBookTransactions excludes non-address-book transactions")
+        public void testFilterExcludesNonAddressBookTransactions() throws ParseException {
+            // A transaction with no relevant fields (empty body)
+            TransactionBody emptyBody = TransactionBody.newBuilder().build();
+            List<Transaction> transactions =
+                    List.of(Transaction.newBuilder().body(emptyBody).build());
+
+            List<TransactionBody> filtered = AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
+            assertEquals(0, filtered.size(), "Non-address-book transactions should be excluded");
+        }
+
+        @Test
+        @DisplayName("Multiple DAB transactions in same block are applied sequentially")
+        public void testMultipleDabTransactionsInSameBlock() throws ParseException {
+            AddressBookRegistry registry = new AddressBookRegistry();
+            NodeAddressBook genesisBook = registry.getCurrentAddressBook();
+            NodeAddress firstNode = genesisBook.nodeAddress().getFirst();
+            int initialNodeCount = genesisBook.nodeAddress().size();
+
+            // Transaction 1: Update first node's cert
+            TransactionBody updateBody = TransactionBody.newBuilder()
+                    .nodeUpdate(NodeUpdateTransactionBody.newBuilder()
+                            .nodeId(firstNode.nodeId())
+                            .gossipCaCertificate(Bytes.wrap(SAMPLE_CERT_BYTES))
+                            .build())
+                    .build();
+
+            // Transaction 2: Create a new node
+            AccountID newAcctId = AccountID.newBuilder().accountNum(100).build();
+            TransactionBody createBody = TransactionBody.newBuilder()
+                    .nodeCreate(NodeCreateTransactionBody.newBuilder()
+                            .accountId(newAcctId)
+                            .gossipCaCertificate(Bytes.wrap(SAMPLE_CERT_BYTES))
+                            .description("Another new node")
+                            .build())
+                    .build();
+
+            String changes = registry.updateAddressBook(Instant.now(), List.of(updateBody, createBody));
+            assertNotNull(changes);
+
+            NodeAddressBook updatedBook = registry.getCurrentAddressBook();
+            // Should have original count + 1 new node
+            assertEquals(initialNodeCount + 1, updatedBook.nodeAddress().size());
+            // First node should have updated key
+            long firstNodeAcct = AddressBookRegistry.getNodeAccountId(firstNode);
+            assertEquals(SAMPLE_CERT_HEX, AddressBookRegistry.publicKeyForNode(updatedBook, 0, 0, firstNodeAcct));
+            // New node should exist
+            assertNotNull(updatedBook.nodeAddress().stream()
+                    .filter(n -> AddressBookRegistry.getNodeAccountId(n) == 100)
+                    .findFirst()
+                    .orElse(null));
+        }
     }
 }
