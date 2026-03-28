@@ -27,7 +27,6 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
@@ -57,11 +56,9 @@ import org.junit.jupiter.api.Timeout;
  * use a real S3-compatible server (SeaweedFS, Apache 2.0). The {@link S3Client} verification
  * and all assertions remain identical.
  *
- * <p>Config injection uses the
- * {@link BlockNodeApp#BlockNodeApp(ServiceLoaderFunction, boolean, Function)} constructor
- * overload which accepts a custom {@code envVarGetter}, passing S3Mock coordinates into
- * {@code AutomaticEnvironmentVariableConfigSource} without touching JVM system properties or
- * real environment variables.
+ * <p>Config injection overrides {@link BlockNodeApp#getEnvVar(String)} via an anonymous
+ * subclass, passing S3Mock coordinates into {@code AutomaticEnvironmentVariableConfigSource}
+ * without touching JVM system properties or real environment variables.
  */
 @Tag("api")
 @Timeout(value = 120, unit = TimeUnit.SECONDS)
@@ -103,15 +100,14 @@ class BlockNodeCloudStorageTests {
         s3Endpoint = s3MockContainer.getHttpEndpoint();
         s3Client = new S3Client("us-east-1", s3Endpoint, BUCKET, ACCESS_KEY, SECRET_KEY);
 
-        // Inject S3Mock coordinates via envVarGetter so config picks them up without
+        // Inject S3Mock coordinates via getEnvVar override so config picks them up without
         // touching real env vars or system properties.
-        final Map<String, String> overrides = Map.of(
+        final Map<String, String> s3Overrides = Map.of(
                 "EXPANDED_CLOUD_STORAGE_ENDPOINT_URL", s3Endpoint,
                 "EXPANDED_CLOUD_STORAGE_BUCKET_NAME", BUCKET,
                 "EXPANDED_CLOUD_STORAGE_OBJECT_KEY_PREFIX", PREFIX,
                 "EXPANDED_CLOUD_STORAGE_ACCESS_KEY", ACCESS_KEY,
                 "EXPANDED_CLOUD_STORAGE_SECRET_KEY", SECRET_KEY);
-        final Function<String, String> envVarGetter = key -> overrides.getOrDefault(key, System.getenv(key));
 
         // Clear local block data directory (same pattern as BlockNodeAPITests)
         final Path dataDir = Paths.get("build/tmp/data").toAbsolutePath();
@@ -122,7 +118,12 @@ class BlockNodeCloudStorageTests {
                     .forEach(File::delete);
         }
 
-        app = new BlockNodeApp(new ServiceLoaderFunction(), false, envVarGetter);
+        app = new BlockNodeApp(new ServiceLoaderFunction(), false) {
+            @Override
+            protected String getEnvVar(final String name) {
+                return s3Overrides.getOrDefault(name, System.getenv(name));
+            }
+        };
         app.start();
         final long startDeadline = System.currentTimeMillis() + 10_000L;
         while (app.blockNodeState() != State.RUNNING && System.currentTimeMillis() < startDeadline) {
