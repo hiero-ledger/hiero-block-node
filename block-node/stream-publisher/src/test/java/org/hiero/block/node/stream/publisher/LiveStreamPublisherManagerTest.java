@@ -1540,43 +1540,52 @@ class LiveStreamPublisherManagerTest {
             /// That being said, this test aims to assert the only case where we _could_ possibly reach
             /// a situation where we are currently streaming block X and we start streaming the same block X
             /// while we are still currently streaming. In those cases, we do not need to ask for a resend
-            /// of block X. The message forwarder will be able to continue streaming this block, if it is
+            /// of block X. The message forwarder will be able to continue forwarding this block, if it is
             /// currently streaming it. Otherwise, it must expect it as a resent block, or a block that
             /// is higher than the current streaming.
             @Test
-            @Disabled("2026/03/27 - because of a removal of signaling of data ready in actions, this fails")
             @DisplayName(
                     "Test blockIsEnding() when receiving premature header for same publisher, no resend if same block")
             void testBlockIsEndingWhenReceivingPrematureHeaderSamePublisherSameBlock() {
                 // First, we need to build and stream the next block in line
                 final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
                 // Now we need to stream the block but not end it
-                final PublishStreamRequestUnparsed request = block0.asPublishStreamRequestUnparsed();
-                publisherHandler.onNext(request);
+                final PublishStreamRequestUnparsed block0Request = block0.asPublishStreamRequestUnparsed();
+                publisherHandler.onNext(block0Request);
+                // End this block, this will start the forwarder
+                endThisBlock(publisherHandler, block0.number());
                 // Run the message forwarding task, this will propagate the items to messaging. Sleep for a second.
                 threadPoolManager.executor().executeAsync(500L, false);
-                // Now assert that the block has been sent to messaging, but is incomplete because we have not ended it
-                final List<BlockItemUnparsed> block0Items =
-                        block0.asBlockItems().blockItems();
-                final List<BlockItemUnparsed> expectedItemsSent = block0Items.subList(0, block0Items.size() - 1);
-                final BlockItems expectedBlockItems = new BlockItems(expectedItemsSent, block0.number(), true, false);
                 final List<BlockItems> sentBlockItems = messagingFacility.getSentBlockItems();
+                // Now clear the block items sent to ease later asserts, we just streamed and forwarded block0
+                assertThat(sentBlockItems).hasSize(2);
+                sentBlockItems.clear();
+                assertThat(sentBlockItems).isEmpty();
+                // Now start sending the next block in line
+                final TestBlock block1 = TestBlockBuilder.generateBlockWithNumber(block0.number() + 1);
+                final PublishStreamRequestUnparsed block1Request = block1.asPublishStreamRequestUnparsed();
+                publisherHandler.onNext(block1Request);
+                // Give some time for the message forwarder to forward the items
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(500L));
+                final List<BlockItemUnparsed> block1Items =
+                        block1.asBlockItems().blockItems();
+                final List<BlockItemUnparsed> expectedItemsSent = block1Items.subList(0, block1Items.size() - 1);
+                final BlockItems expectedBlockItems = new BlockItems(expectedItemsSent, block1.number(), true, false);
                 assertThat(sentBlockItems).hasSize(1).first().isEqualTo(expectedBlockItems);
                 // Now clear the block items sent to ease later asserts
                 sentBlockItems.clear();
                 assertThat(sentBlockItems).isEmpty();
                 // Now start sending the same block from the same publisher prematurely
-                publisherHandler.onNext(request);
+                publisherHandler.onNext(block1Request);
                 // Give some time for the message forwarder to forward the items
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(500L));
-                // Run the message forwarding task, this will propagate the items to messaging
                 // Now assert that the block has been sent to messaging
                 assertThat(sentBlockItems).hasSize(1).first().isEqualTo(expectedBlockItems);
                 // Now assert that if we end the block, we will not get a resend, because we do not expect
                 // a resend to have been scheduled when we were streaming block x and then start streaming the same
                 // block again
-                final ActionForBlock actionForBlock = toTest.endOfBlock(block0.number());
-                final ActionForBlock expected = new ActionForBlock(BlockAction.ACCEPT, block0.number());
+                final ActionForBlock actionForBlock = toTest.endOfBlock(block1.number());
+                final ActionForBlock expected = new ActionForBlock(BlockAction.ACCEPT, block1.number());
                 assertThat(actionForBlock).isEqualTo(expected);
             }
 

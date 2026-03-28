@@ -16,9 +16,11 @@ import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.Counter.Config;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.net.SocketException;
 import java.util.Deque;
 import java.util.List;
 import java.util.NavigableSet;
@@ -154,6 +156,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             LOGGER.log(INFO, "Error processing request: %s".formatted(e), e);
             sendEndAndResetState(Code.ERROR);
         }
+        // @todo check the current backlog by calling a manager method to
+        //    check backlog and pause for a few milliseconds if difference
+        //    between latest streamed and latest persisted gets too large.
     }
 
     /// This method returns the ID of this handler.
@@ -571,11 +576,12 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private BatchHandleResult handleAccept(
             final long blockNumber, final boolean requestContainsHeader, final BlockItemSetUnparsed itemSetUnparsed) {
         if (requestContainsHeader) {
-            final ConcurrentLinkedDeque<BlockItemSetUnparsed> newBlockQueue = new ConcurrentLinkedDeque<>();
+            final Deque<BlockItemSetUnparsed> newBlockQueue = new ConcurrentLinkedDeque<>();
             currentBlockQueue.set(newBlockQueue);
             publisherManager.registerQueueForBlock(handlerId, newBlockQueue, blockNumber);
         }
         currentBlockQueue.get().offer(itemSetUnparsed);
+        publisherManager.signalDataReady();
         metrics.liveBlockItemsReceived.add(itemSetUnparsed.blockItems().size()); // @todo(1415) add label
         return new BatchHandleResult(false, false);
     }
@@ -727,28 +733,32 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             publisherManager.removeHandler(handlerId);
         } catch (final RuntimeException e) {
             // this should not happen
-            LOGGER.log(WARNING, "Exception during removal of handler %d from manager".formatted(handlerId), e);
+            LOGGER.log(WARNING, "RuntimeException during removal of handler %d from manager".formatted(handlerId), e);
         } finally {
             try {
-                // onComplete call in finally block to ensure it is called
                 replies.onComplete();
-                LOGGER.log(TRACE, "Handler {0} issued onComplete", handlerId);
-            } catch (final RuntimeException e) {
-                LOGGER.log(DEBUG, "Exception during calling onComplete for handler %d".formatted(handlerId), e);
-            }
-            try {
-                // closeConnection call in finally block to ensure it is called
                 replies.closeConnection();
-                LOGGER.log(TRACE, "Handler {0} issued closeConnection", handlerId);
+                // @todo() Add labeled metric when possible.
+                //    Metric: "handler-closed" Labels: "clean" or "with-exception"
+                //    with-exception should be set in all exception cases, even if not logged.
+            } catch (final UncheckedIOException wrapper) {
+                IOException wrapped = wrapper.getCause();
+                if (!(wrapped instanceof SocketException)) {
+                    LOGGER.log(DEBUG, "IO Exception during shutdown for handler %d".formatted(handlerId), wrapper);
+                }
             } catch (final RuntimeException e) {
-                LOGGER.log(DEBUG, "Exception during calling closeConnection for handler %d".formatted(handlerId), e);
+                LOGGER.log(DEBUG, "RuntimeException during shutdown for handler %d".formatted(handlerId), e);
             }
+            LOGGER.log(TRACE, "Handler {0} issued onComplete/closeConnection", handlerId);
         }
     }
 
     /// Check if we have a block in progress. The parameter should be used to supply the
     /// [#currentStreamingBlockNumber] value.
     private boolean isCurrentlyMidBlock(final long blockInProgress) {
+        if (blockInProgress != currentStreamingBlockNumber.get()) {
+            LOGGER.log(DEBUG, "Ending mid block, but block number does not match.");
+        }
         return blockInProgress > UNKNOWN_BLOCK_NUMBER && currentBlockQueue.get() != null;
     }
 

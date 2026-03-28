@@ -709,14 +709,14 @@ class StreamPublisherPluginTest {
             streamBlockAndAwaitAcknowledgement(secondPublisher.toPluginPipe(), ackReceivers, blocks0To3.get(0));
             final TestBlock block1 = blocks0To3.get(1);
             sendBlock(secondPublisher.toPluginPipe(), block1);
-            // Now we have to start streaming the next expected block from the first publisher, we want to leave it
-            // in a state where it is mid-block. Do not end this yet.
-            final TestBlock block2 = blocks0To3.get(2);
-            sendBlock(toPluginPipe, block2);
             // Now tell the test verification plugin that we want to fail the verification of block 1, this will also
             // result in the block not being persisted. The publisher that supplied the block will receive the
             // bad block proof end of stream code.
             verificationPlugin.failBlocks(block1.number());
+            // Now we have to start streaming the next expected block from the first publisher, we want to leave it
+            // in a state where it is mid-block. Do not end this yet.
+            final TestBlock block2 = blocks0To3.get(2);
+            sendBlock(toPluginPipe, block2);
             // End block 1, this will trigger the test verification plugin to fail the verification of block 1.
             endThisBlock(secondPublisher.toPluginPipe(), block1.number());
             // Await and ensure block has failed and the publisher is now closed

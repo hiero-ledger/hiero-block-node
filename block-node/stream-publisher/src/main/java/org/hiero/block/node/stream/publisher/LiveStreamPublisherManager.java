@@ -232,6 +232,41 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         serverContext.blockMessaging().sendNewestBlockKnownToNetwork(notification);
     }
 
+    @Override
+    public void shutdown() {
+        // Shut down all handlers and clear the queues.
+        // Order is important here, we want to stop the handlers before
+        // we stop the forwarding task and that must happen before we clear the
+        // queue maps.
+        for (final Long nextKey : handlers.keySet()) {
+            final PublisherHandler value = handlers.remove(nextKey);
+            if (value != null) {
+                value.closeCommunication();
+                value.onComplete();
+            }
+        }
+        handlers.clear();
+        // Cancel the queue forwarder task if it is running.
+        final var lastResult = queueForwarderResult.getAndSet(null);
+        if (lastResult != null) {
+            lastResult.cancel(true);
+        }
+        queueByBlockMap.clear();
+        // We can safely shut down the scheduled executor abruptly. The timeout
+        // tasks can be ignored completely as we shut down the manager.
+        scheduledExecutor.shutdownNow();
+    }
+
+    @Override
+    public void signalDataReady() {
+        dataReadyLock.lock();
+        try {
+            dataReadyLatch.signal();
+        } finally {
+            dataReadyLock.unlock();
+        }
+    }
+
     /// {@inheritDoc}
     ///
     /// This method handles verification notifications from the block messaging
@@ -418,31 +453,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
-    @Override
-    public void shutdown() {
-        // Shut down all handlers and clear the queues.
-        // Order is important here, we want to stop the handlers before
-        // we stop the forwarding task and that must happen before we clear the
-        // queue maps.
-        for (final Long nextKey : handlers.keySet()) {
-            final PublisherHandler value = handlers.remove(nextKey);
-            if (value != null) {
-                value.closeCommunication();
-                value.onComplete();
-            }
-        }
-        handlers.clear();
-        // Cancel the queue forwarder task if it is running.
-        final var lastResult = queueForwarderResult.getAndSet(null);
-        if (lastResult != null) {
-            lastResult.cancel(true);
-        }
-        queueByBlockMap.clear();
-        // We can safely shut down the scheduled executor abruptly. The timeout
-        // tasks can be ignored completely as we shut down the manager.
-        scheduledExecutor.shutdownNow();
-    }
-
+    /// todo(1420) add documentation
     private void initializeBlockNumbers(final BlockNodeContext serverContext) {
         // The current streaming should be the next block to be
         // streamed, but _only_ on startup. After that there should always be
@@ -565,6 +576,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         }
     }
 
+    /// todo(1420) add documentation
     private long ensureNextGreaterThanPersisted(final long lastPersisted) {
         long nextUnstreamed = nextUnstreamedBlockNumber.get();
         if (lastPersisted >= nextUnstreamed) {
@@ -581,10 +593,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// todo(1420) add documentation
     private BlockAction getActionForCurrentlyStreaming(final long blockNumber, final long handlerId) {
         if (queueByBlockMap.containsKey(blockNumber)) {
-            signalDataReady();
-            if (blockNumber > metrics.highestBlockNumber.get()) {
-                metrics.highestBlockNumber.set(blockNumber);
-            }
+            updateHighestBlockMetric(blockNumber);
             // We're one of the handlers currently streaming, keep going.
             return BlockAction.ACCEPT;
         } else {
@@ -594,6 +603,24 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             LOGGER.log(WARNING, message, handlerId, blockNumber);
             return BlockAction.END_ERROR;
         }
+    }
+
+    /// Update the highest block metric.
+    ///
+    /// This method only updates the metric based on next unstreamed block
+    /// number.
+    ///
+    /// For now, this means checking the block queue map, when we upgrade
+    /// to a newer version of the metrics API, we will query the metric
+    /// instead (which is more reliable).
+    private void updateHighestBlockMetric(final long blockNumber) {
+        final long candidateValue;
+        if (blockNumber >= nextUnstreamedBlockNumber.get()) {
+            candidateValue = blockNumber;
+        } else {
+            candidateValue = nextUnstreamedBlockNumber.get() - 1;
+        }
+        metrics.highestBlockNumber.set(candidateValue);
     }
 
     /// todo(1420) add documentation
@@ -616,30 +643,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// todo(1420) add documentation
     private BlockAction resolveActionForHeader(final long blockNumber) {
         if (nextUnstreamedBlockNumber.compareAndSet(blockNumber, blockNumber + 1L)) {
-            if (blockNumber > metrics.highestBlockNumber.get()) {
-                metrics.highestBlockNumber.set(blockNumber);
-            }
+            updateHighestBlockMetric(blockNumber + 1);
             return BlockAction.ACCEPT;
         } else {
             // If the CAS does not succeed, we have either a SKIP or SEND_BEHIND
             return blockNumber < nextUnstreamedBlockNumber.get() ? BlockAction.SKIP : BlockAction.SEND_BEHIND;
-        }
-    }
-
-    /*
-     * Signal the data ready condition.
-     * <p>
-     * This method is called to indicate that data _might_ be available to be
-     * sent to the messaging facility.<br/>
-     * The messaging thread may wait on this condition to limit spin cycles
-     * and still have a low impact on latency.
-     */
-    private void signalDataReady() {
-        dataReadyLock.lock();
-        try {
-            dataReadyLatch.signal();
-        } finally {
-            dataReadyLock.unlock();
         }
     }
 

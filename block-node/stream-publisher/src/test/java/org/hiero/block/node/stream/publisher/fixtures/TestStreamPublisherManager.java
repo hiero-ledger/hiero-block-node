@@ -133,6 +133,11 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     }
 
     @Override
+    public void signalDataReady() {
+        // do nothing
+    }
+
+    @Override
     public void handleVerification(final VerificationNotification notification) {
         throw new UnsupportedOperationException("implement handleVerification in test fixture if needed");
     }
