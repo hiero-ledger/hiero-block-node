@@ -81,12 +81,76 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 - It will be notified of ```BlockNodeContext``` changes by the ```TssBootstrapPlugin``` and the ```VerificationPlugin```
 - It will be the central entity, part of the BlockNodeApp that is responsible for notifying plugins of ```BlockNodeContext``` changes
 
+### TssData
+
+- The protobuf TssData used in the serverStatusDetailsResponse
+
+```markdown
+/**
+* TSS information for a Block-Node.<br/>
+* `TssData` contains the Ledger Id, wraps validation key, and TssRoster information
+*
+* All fields in this message SHALL be filled in, or none.
+*/
+  message TssData {
+  /**
+    * The ledger id
+    */
+      bytes ledger_id = 1;
+   /**
+    * The wraps verification key
+    */
+      bytes wraps_verification_key = 2;
+   /**
+    * The current TSS roster
+    */
+      TssRoster current_roster = 3;
+    }
+
+/**
+* TSS Roster information.
+*
+* `TssRoster` contains a list of roster entry
+*/
+  message TssRoster {
+    /**
+     * The list of `RosterEntry`
+     */
+      repeated RosterEntry roster_entries = 1;
+      }
+
+/**
+* A single TSS Roster entry.
+*
+* All fields are REQUIRED.<br/>
+* The `node_id` field SHALL match the same field for an entry in the Node Store
+* in consensus network state.<br/>
+* The `schnorr_public_key` MAY be a placeholder value if the associated node failed
+* to participate in the roster election within the required time limit.
+*/
+  message RosterEntry {
+  /**
+   * The node id
+   */
+      uint64 node_id = 1;
+   /**
+    * The node weight
+    */
+      uint64 weight = 2;
+   /**
+    * The schnorr public key
+    */
+      bytes schnorr_public_key = 3;
+}
+```
+
 ## Design
 
 - Oustanding design decisions
   - How should the plugin manager be contacted by plugins for context changes?
     - ContextChangeNotification?
     - Passed to plugins via BlockNodeContext and direct method access
+  - Should the TssData or TssRoster messages have the starting block number that the TssData is valid from. Either
 
 ## Diagram
 
