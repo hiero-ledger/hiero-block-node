@@ -9,6 +9,7 @@ import org.hiero.block.tools.days.subcommands.DownloadDaysV2;
 import org.hiero.block.tools.days.subcommands.DownloadDaysV3;
 import org.hiero.block.tools.days.subcommands.DownloadLive;
 import org.hiero.block.tools.days.subcommands.DownloadLive2;
+import org.hiero.block.tools.days.subcommands.DownloadSequential;
 import org.hiero.block.tools.days.subcommands.FixMissingSignatures;
 import org.hiero.block.tools.days.subcommands.FixSignatureFileNames;
 import org.hiero.block.tools.days.subcommands.Ls;
@@ -43,6 +44,7 @@ import picocli.CommandLine.Spec;
             DownloadDays.class,
             DownloadLive.class,
             DownloadLive2.class,
+            DownloadSequential.class,
             PrintListing.class,
             LsDayListing.class,
             SplitJsonToDayFiles.class,

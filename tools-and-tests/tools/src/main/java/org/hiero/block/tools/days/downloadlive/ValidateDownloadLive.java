@@ -44,7 +44,7 @@ public class ValidateDownloadLive {
      * @param result the block download result containing all downloaded files
      * @return the primary record file, or null if not found
      */
-    private static InMemoryFile findPrimaryRecord(final DownloadDayLiveImpl.BlockDownloadResult result) {
+    public static InMemoryFile findPrimaryRecord(final DownloadDayLiveImpl.BlockDownloadResult result) {
         return result.files.stream()
                 .filter(f -> {
                     final String name = f.path().getFileName().toString();
@@ -71,7 +71,7 @@ public class ValidateDownloadLive {
      * @param result the block download result containing all downloaded files
      * @return a list of all signature files found; may be empty if none exist
      */
-    private static List<InMemoryFile> findSignatures(final DownloadDayLiveImpl.BlockDownloadResult result) {
+    public static List<InMemoryFile> findSignatures(final DownloadDayLiveImpl.BlockDownloadResult result) {
         return result.files.stream()
                 .filter(f -> {
                     final String name = f.path().getFileName().toString();
@@ -112,7 +112,7 @@ public class ValidateDownloadLive {
      * @return a list of sidecar files matching the primary record's timestamp, or an empty list
      *         if primaryRecord is null or no sidecars are found
      */
-    private static List<InMemoryFile> findSidecars(
+    public static List<InMemoryFile> findSidecars(
             final DownloadDayLiveImpl.BlockDownloadResult result, final InMemoryFile primaryRecord) {
 
         if (primaryRecord == null) {
