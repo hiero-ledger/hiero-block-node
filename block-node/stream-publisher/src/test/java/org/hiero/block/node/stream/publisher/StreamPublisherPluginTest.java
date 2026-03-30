@@ -3,7 +3,6 @@ package org.hiero.block.node.stream.publisher;
 
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
 import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
@@ -17,7 +16,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -699,38 +697,34 @@ class StreamPublisherPluginTest {
         @DisplayName(
                 "Test receive the ResendBlock message on block that failed verification when a publisher ends it's current block")
         void testResendBlockReceived() {
-            try {
-                // First, tell the verification plugin to fail once we get block 1. This will also result in the
-                // block not being persisted.
-                verificationPlugin.failBlocks(1L);
-                // Create a second publisher, the first one is automatically created by the plugin test base
-                final TestPipeline secondPublisher = createNewPipeline();
-                // In the first stage, both publishers expect an acknowledgement for the first streamed block that
-                // successfully passes verification and is persisted successfully
-                final List<List<Bytes>> ackReceivers = List.of(fromPluginBytes, secondPublisher.fromPluginBytes());
-                // Create the test blocks
-                final List<TestBlock> blocks0To2 = TestBlockBuilder.generateBlocksInRange(0, 2);
-                // Stream block 0, verification will be successful, also the block will be persisted, this will trigger
-                // the acknowledgement of the block, we expect every connected publisher to receive the acknowledgement
-                streamBlockAndAwaitAcknowledgement(secondPublisher.toPluginPipe(), ackReceivers, blocks0To2.get(0));
-                // Now start streaming block 1, do not end it yet
-                final TestBlock block1 = blocks0To2.get(1);
-                sendBlock(secondPublisher.toPluginPipe(), block1);
-                // Now we have to start streaming the next expected block from the first publisher, we want to leave it
-                // in a state where it is mid-block. Do not end this yet.
-                final TestBlock block2 = blocks0To2.get(2);
-                sendBlock(toPluginPipe, block2);
-                // End block 1, this will trigger the test verification plugin to fail the verification of block 1.
-                endThisBlock(secondPublisher.toPluginPipe(), block1.number());
-                // Await and ensure block has failed and the publisher is now closed
-                awaitBadBlockProof(secondPublisher.fromPluginBytes(), block1);
-                // Now we can end streaming block 2, we expect to receive the ResendBlock message because the block
-                // that failed should be scheduled for a resend.
-                endThisBlock(toPluginPipe, block2.number());
-                awaitResend(fromPluginBytes, block1);
-            } catch (final Exception e) {
-                System.out.println(e.getMessage());
-            }
+            // First, tell the verification plugin to fail once we get block 1. This will also result in the
+            // block not being persisted.
+            verificationPlugin.failBlocks(1L);
+            // Create a second publisher, the first one is automatically created by the plugin test base
+            final TestPipeline secondPublisher = createNewPipeline();
+            // In the first stage, both publishers expect an acknowledgement for the first streamed block that
+            // successfully passes verification and is persisted successfully
+            final List<List<Bytes>> ackReceivers = List.of(fromPluginBytes, secondPublisher.fromPluginBytes());
+            // Create the test blocks
+            final List<TestBlock> blocks0To2 = TestBlockBuilder.generateBlocksInRange(0, 2);
+            // Stream block 0, verification will be successful, also the block will be persisted, this will trigger
+            // the acknowledgement of the block, we expect every connected publisher to receive the acknowledgement
+            streamBlockAndAwaitAcknowledgement(secondPublisher.toPluginPipe(), ackReceivers, blocks0To2.get(0));
+            // Now start streaming block 1, do not end it yet
+            final TestBlock block1 = blocks0To2.get(1);
+            sendBlock(secondPublisher.toPluginPipe(), block1);
+            // Now we have to start streaming the next expected block from the first publisher, we want to leave it
+            // in a state where it is mid-block. Do not end this yet.
+            final TestBlock block2 = blocks0To2.get(2);
+            sendBlock(toPluginPipe, block2);
+            // End block 1, this will trigger the test verification plugin to fail the verification of block 1.
+            endThisBlock(secondPublisher.toPluginPipe(), block1.number());
+            // Await and ensure block has failed and the publisher is now closed
+            awaitBadBlockProof(secondPublisher.fromPluginBytes(), block1);
+            // Now we can end streaming block 2, we expect to receive the ResendBlock message because the block
+            // that failed should be scheduled for a resend.
+            endThisBlock(toPluginPipe, block2.number());
+            awaitResend(fromPluginBytes, block1);
         }
 
         private static void sendBlock(final Pipeline<? super Bytes> requestSender, final TestBlock block) {
@@ -761,8 +755,8 @@ class StreamPublisherPluginTest {
                         .isNotNull()
                         .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                         .returns(block.number(), acknowledgementBlockNumberExtractor);
-                receiver.clear();
             });
+            acknowledgementReceivers.forEach(List::clear);
         }
 
         private void awaitBadBlockProof(final List<Bytes> badBlockProofReceiver, final TestBlock block) {
@@ -793,18 +787,14 @@ class StreamPublisherPluginTest {
             }
             // Assert that the block has failed verification
             assertThat(verificationPlugin.blockFailures(block.number())).isOne();
-            // Assert bad block proof received by publisher that has supplied the failing block
-            assertThat(resendReceiver).satisfies(receiver -> {
-                final Optional<PublishStreamResponse> resendReceived = receiver.stream()
-                        .map(bytesToPublishStreamResponseMapper)
-                        .filter(PublishStreamResponse::hasResendBlock)
-                        .findFirst();
-                assertThat(resendReceived)
-                        .isPresent()
-                        .get()
-                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
-                        .returns(block.number(), resendBlockNumberExtractor);
-            });
+            // Assert resend received
+            assertThat(resendReceiver)
+                    .hasSize(1)
+                    .first()
+                    .extracting(bytesToPublishStreamResponseMapper)
+                    .isNotNull()
+                    .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                    .returns(block.number(), resendBlockNumberExtractor);
             resendReceiver.clear();
         }
     }
