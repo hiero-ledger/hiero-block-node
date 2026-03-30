@@ -16,9 +16,11 @@ import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.Counter.Config;
 import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
+import java.net.SocketException;
 import java.util.Deque;
 import java.util.List;
 import java.util.NavigableSet;
@@ -154,6 +156,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             LOGGER.log(INFO, "Error processing request: %s".formatted(e), e);
             sendEndAndResetState(Code.ERROR);
         }
+        // @todo check the current backlog by calling a manager method to
+        //    check backlog and pause for a few milliseconds if difference
+        //    between latest streamed and latest persisted gets too large.
     }
 
     /// This method returns the ID of this handler.
@@ -276,50 +281,50 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         // in memory, this is now the current streaming block number.
         final boolean requestContainsHeader = first.hasBlockHeader();
         if (requestContainsHeader) {
-            // if we have a block header, this means that we are at the
-            // start of a new block, so we can update the current streaming
-            if (UNKNOWN_BLOCK_NUMBER == blockNumber) {
-                final BlockHeader header;
-                final Bytes headerBytes = first.blockHeader();
-                if (headerBytes != null) {
-                    try {
-                        header = BlockHeader.PROTOBUF.parse(headerBytes);
-                    } catch (final ParseException e) {
-                        LOGGER.log(DEBUG, "Failed to parse BlockHeader due to {0}", e);
-                        // if we have reached this block, this means that the
-                        // request is invalid
-                        sendEndAndResetState(Code.INVALID_REQUEST);
-                        return;
+            // If we have a block header, this means that we are at the
+            // start of a new block.
+            final BlockHeader header;
+            final Bytes headerBytes = first.blockHeader();
+            if (headerBytes != null) {
+                try {
+                    header = BlockHeader.PROTOBUF.parse(headerBytes);
+                } catch (final ParseException e) {
+                    LOGGER.log(DEBUG, "Failed to parse BlockHeader due to {0}", e);
+                    // if we have reached this block, this means that the
+                    // request is invalid
+                    if (isCurrentlyMidBlock(blockNumber)) {
+                        publisherManager.blockIsEnding(blockNumber, handlerId);
                     }
-                } else {
-                    LOGGER.log(DEBUG, "Handler {0} received a BlockHeader with null bytes", handlerId);
-                    // this should never happen
-                    sendEndAndResetState(Code.ERROR);
+                    sendEndAndResetState(Code.INVALID_REQUEST);
                     return;
                 }
-                blockNumber = header.number();
-                currentStreamingBlockNumber.set(blockNumber);
-                // this means that we are starting a new block, so we can
-                // update the current streaming block number
-                final String traceMessage =
-                        "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2}";
-                currentStreamingBlockHeaderReceivedTime = System.nanoTime();
-                LOGGER.log(TRACE, traceMessage, blockNumber, currentStreamingBlockHeaderReceivedTime, handlerId);
             } else {
-                LOGGER.log(
-                        DEBUG,
-                        "Handler {0} received a BlockHeader while already streaming block {1}",
-                        handlerId,
-                        blockNumber);
-                // If we have entered here, we have an invalid request, the
-                // block number is not reset which means that the block
-                // from the request prior to this one has not been streamed in
-                // full. Having a block header indicates that this request
-                // starts streaming a new block, which should not be the case
-                // if the previous block has not been streamed in full.
-                sendEndAndResetState(Code.INVALID_REQUEST);
+                LOGGER.log(DEBUG, "Handler {0} received a BlockHeader with null bytes", handlerId);
+                // this should never happen
+                if (isCurrentlyMidBlock(blockNumber)) {
+                    publisherManager.blockIsEnding(blockNumber, handlerId);
+                }
+                sendEndAndResetState(Code.ERROR);
                 return;
             }
+            if (isCurrentlyMidBlock(blockNumber) && blockNumber != header.number()) {
+                // If we are in the middle of streaming a block, and we have received a new header,
+                // we need to end the current block that we are streaming and start streaming the new one.
+                // We need to schedule the current streaming block to be resent only if it is different than
+                // the new one we are just starting.
+                publisherManager.blockIsEnding(blockNumber, handlerId);
+                // We have to reset the state of the handler before proceeding
+                resetState();
+            }
+            // Now we can update the block number and the current streaming number to match the new block
+            blockNumber = header.number();
+            currentStreamingBlockNumber.set(blockNumber);
+            // this means that we are starting a new block, so we can
+            // update the current streaming block number
+            final String traceMessage =
+                    "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2}";
+            currentStreamingBlockHeaderReceivedTime = System.nanoTime();
+            LOGGER.log(TRACE, traceMessage, blockNumber, currentStreamingBlockHeaderReceivedTime, handlerId);
         } else if (UNKNOWN_BLOCK_NUMBER == blockNumber) {
             // here we should drop the batch, _this is normal_, and can happen
             // in many cases, including if the publisher sent several batches
@@ -571,11 +576,12 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private BatchHandleResult handleAccept(
             final long blockNumber, final boolean requestContainsHeader, final BlockItemSetUnparsed itemSetUnparsed) {
         if (requestContainsHeader) {
-            final ConcurrentLinkedDeque<BlockItemSetUnparsed> newBlockQueue = new ConcurrentLinkedDeque<>();
+            final Deque<BlockItemSetUnparsed> newBlockQueue = new ConcurrentLinkedDeque<>();
             currentBlockQueue.set(newBlockQueue);
             publisherManager.registerQueueForBlock(handlerId, newBlockQueue, blockNumber);
         }
         currentBlockQueue.get().offer(itemSetUnparsed);
+        publisherManager.signalDataReady();
         metrics.liveBlockItemsReceived.add(itemSetUnparsed.blockItems().size()); // @todo(1415) add label
         return new BatchHandleResult(false, false);
     }
@@ -682,7 +688,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private EndStreamResult handleEndStream(final Level logLevel, final String message) {
         LOGGER.log(logLevel, message);
         final long blockInProgress = currentStreamingBlockNumber.get();
-        if (blockInProgress != UNKNOWN_BLOCK_NUMBER && currentBlockQueue.get() != null) {
+        if (isCurrentlyMidBlock(blockInProgress)) {
             // This should generally not happen, we expect an end stream request
             // from a publisher after it has completely streamed a full block.
             publisherManager.blockIsEnding(blockInProgress, handlerId);
@@ -717,9 +723,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private void shutdown() {
         try {
             final long blockInProgress = currentStreamingBlockNumber.getAndSet(UNKNOWN_BLOCK_NUMBER);
-            if (blockInProgress != UNKNOWN_BLOCK_NUMBER && currentBlockQueue.get() != null) {
+            if (isCurrentlyMidBlock(blockInProgress)) {
                 publisherManager.blockIsEnding(blockInProgress, handlerId);
-                publisherManager.closeBlock(handlerId);
             }
             // reset state
             resetState();
@@ -728,20 +733,33 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             publisherManager.removeHandler(handlerId);
         } catch (final RuntimeException e) {
             // this should not happen
-            LOGGER.log(WARNING, "Exception during removal of handler %d from manager".formatted(handlerId), e);
+            LOGGER.log(WARNING, "RuntimeException during removal of handler %d from manager".formatted(handlerId), e);
         } finally {
             try {
-                // onComplete & closeConnection call in finally block to ensure it is called
                 replies.onComplete();
                 replies.closeConnection();
-                LOGGER.log(TRACE, "Handler {0} issued onComplete & closeConnection", handlerId);
+                // @todo() Add labeled metric when possible.
+                //    Metric: "handler-closed" Labels: "clean" or "with-exception"
+                //    with-exception should be set in all exception cases, even if not logged.
+            } catch (final UncheckedIOException wrapper) {
+                IOException wrapped = wrapper.getCause();
+                if (!(wrapped instanceof SocketException)) {
+                    LOGGER.log(DEBUG, "IO Exception during shutdown for handler %d".formatted(handlerId), wrapper);
+                }
             } catch (final RuntimeException e) {
-                LOGGER.log(
-                        DEBUG,
-                        "Exception during calling onComplete/closeConnection for handler %d".formatted(handlerId),
-                        e);
+                LOGGER.log(DEBUG, "RuntimeException during shutdown for handler %d".formatted(handlerId), e);
             }
+            LOGGER.log(TRACE, "Handler {0} issued onComplete/closeConnection", handlerId);
         }
+    }
+
+    /// Check if we have a block in progress. The parameter should be used to supply the
+    /// [#currentStreamingBlockNumber] value.
+    private boolean isCurrentlyMidBlock(final long blockInProgress) {
+        if (blockInProgress != currentStreamingBlockNumber.get()) {
+            LOGGER.log(DEBUG, "Ending mid block, but block number does not match.");
+        }
+        return blockInProgress > UNKNOWN_BLOCK_NUMBER && currentBlockQueue.get() != null;
     }
 
     // ==== Metrics ============================================================
