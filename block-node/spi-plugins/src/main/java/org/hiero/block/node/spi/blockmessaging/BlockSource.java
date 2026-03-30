@@ -9,5 +9,6 @@ public enum BlockSource {
     UNKNOWN,
     PUBLISHER,
     BACKFILL,
-    HISTORY
+    HISTORY,
+    CLOUD_ARCHIVE
 }
