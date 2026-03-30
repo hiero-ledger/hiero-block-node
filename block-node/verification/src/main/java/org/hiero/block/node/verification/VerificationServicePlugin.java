@@ -206,16 +206,6 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 verificationBlocksReceived.increment();
                 // we already checked that firstItem has blockHeader
                 currentBlockNumber = blockItems.blockNumber();
-                // Skip verification for blocks already verified via backfill
-                if (currentBlockNumber <= previousVerifiedBlockNumber) {
-                    LOGGER.log(
-                            INFO,
-                            "Block {0} already verified via backfill (up to {1}), skipping live-stream verification",
-                            currentBlockNumber,
-                            previousVerifiedBlockNumber);
-                    currentSession = null;
-                    return;
-                }
                 BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                         blockItems.blockItems().getFirst().blockHeader());
                 if (currentBlockNumber != blockHeader.number()) {
@@ -225,13 +215,18 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 } else {
                     headerValid = true;
                 }
+                // Only use our tracked previousBlockHash when this block is sequentially
+                // next after the last verified block. Otherwise pass null so the session
+                // falls back to the authoritative values in the block footer.
+                final Bytes previousHash =
+                        currentBlockNumber == previousVerifiedBlockNumber + 1 ? previousBlockHash : null;
                 SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
                 // create a new verification session for the new block based on hapi version on block header.
                 currentSession = HapiVersionSessionFactory.createSession(
                         currentBlockNumber,
                         BlockSource.PUBLISHER,
                         semanticVersion,
-                        previousBlockHash,
+                        previousHash,
                         getRootOfAllPreviousBlocks(),
                         activeLedgerId);
                 LOGGER.log(TRACE, "Started new block verification session for block number {0}", currentBlockNumber);
@@ -294,12 +289,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
 
     private Bytes getRootOfAllPreviousBlocks() {
         if (allBlocksHasherHandler != null && allBlocksHasherHandler.isAvailable()) {
-            // When earliestManagedBlock > 0 the node may not have a continuous chain from genesis.
             // Only use the hasher's computed root when its leaf count matches currentBlockNumber
             // exactly (i.e. it holds hashes for blocks 0 through currentBlockNumber-1). Any other
-            // count means continuity is absent, so defer to the block footer's authoritative value.
-            // When earliestManagedBlock == 0 full genesis continuity is expected; always use hasher.
-            if (earliestManagedBlock > 0 && allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber) {
+            // count means the hasher is out of sync (e.g. backfill advanced it past the live-stream
+            // position, or the node doesn't have a continuous chain from genesis), so defer to the
+            // block footer's authoritative value.
+            if (allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber) {
                 return null;
             }
             return Bytes.wrap(allBlocksHasherHandler.computeRootHash());
