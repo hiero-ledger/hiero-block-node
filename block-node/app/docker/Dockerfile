@@ -24,9 +24,6 @@ ENV LC_ALL=C.UTF-8
 
 RUN groupadd --gid ${GID} hedera && \
     useradd --no-user-group --create-home --uid ${UID} --gid ${GID} --shell /bin/bash hedera
-# Configure SUDO support
-RUN echo >> /etc/sudoers && \
-    echo "%hedera ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Define version
 ARG VERSION
@@ -105,3 +102,8 @@ USER root
 RUN microdnf install -y sudo yum binutils findutils procps-ng && \
     microdnf clean all
 
+# Configure SUDO support
+RUN echo >> /etc/sudoers && \
+    echo "%hedera ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+USER hedera
