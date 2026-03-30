@@ -204,7 +204,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             return;
         }
 
-        final String objectKey = buildObjectKey(blockNumber);
+        final String objectKey = buildBlockObjectKey(blockNumber);
         inFlightCount.incrementAndGet();
         completionService.submit(new SingleBlockStoreTask(
                 blockNumber,
@@ -212,7 +212,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 s3Client,
                 objectKey,
                 config.storageClass().name(),
-                config.uploadTimeoutSeconds(),
                 notification.source()));
     }
 
@@ -258,6 +257,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 metricsHolder.uploadBytesTotal().add(result.bytesUploaded());
                 LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
             }
+
+            metricsHolder.uploadLatencyNs().add(result.uploadDurationNs());
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
             LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
@@ -279,7 +280,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      * @param blockNumber the block number
      * @return the S3 object key
      */
-    String buildObjectKey(final long blockNumber) {
+    String buildBlockObjectKey(final long blockNumber) {
         final long seg1 = blockNumber / 1_000_000_000_000_000L;
         final long seg2 = blockNumber / 100_000_000_000L % 10_000L;
         final long seg3 = blockNumber / 10_000_000L % 10_000L;
@@ -301,7 +302,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      * @param uploadFailuresTotal number of blocks that failed to upload (S3 error, timeout, etc.)
      * @param uploadBytesTotal    total compressed bytes successfully uploaded to S3
      */
-    public record MetricsHolder(Counter uploadsTotal, Counter uploadFailuresTotal, Counter uploadBytesTotal) {
+    public record MetricsHolder(Counter uploadsTotal, Counter uploadFailuresTotal, Counter uploadBytesTotal, Counter uploadLatencyNs) {
 
         /**
          * Registers all counters with the given {@link Metrics} instance.
@@ -319,7 +320,11 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                                             "Number of block uploads that failed (S3 error, timeout, compression error)")),
                     metrics.getOrCreate(new Counter.Config(
                                     METRICS_CATEGORY, "expanded_cloud_storage_upload_bytes_total")
-                            .withDescription("Total compressed bytes successfully uploaded to S3-compatible storage")));
+                            .withDescription("Total compressed bytes successfully uploaded to S3-compatible storage")),
+                metrics.getOrCreate(new Counter.Config(
+                                    METRICS_CATEGORY, "expanded_cloud_storage_upload_time_latency_ns")
+                            .withDescription("Total time spent uploading blocks in expanded_cloud_storage in nanoseconds"))
+            );
         }
     }
 }
