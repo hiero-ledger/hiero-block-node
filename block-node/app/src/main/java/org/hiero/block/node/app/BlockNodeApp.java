@@ -28,6 +28,7 @@ import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -176,7 +177,8 @@ public class BlockNodeApp implements HealthFacility {
                 historicalBlockFacility,
                 serviceLoader,
                 threadPoolManager,
-                versionInfo(loadedPlugins));
+                versionInfo(loadedPlugins),
+                TssData.DEFAULT);
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();

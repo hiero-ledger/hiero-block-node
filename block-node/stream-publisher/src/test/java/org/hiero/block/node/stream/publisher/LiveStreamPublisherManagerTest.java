@@ -24,6 +24,7 @@ import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
+import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -2256,7 +2257,8 @@ class LiveStreamPublisherManagerTest {
                 historicalBlockFacility,
                 serviceLoader,
                 threadPoolManager,
-                BlockNodeVersions.DEFAULT);
+                BlockNodeVersions.DEFAULT,
+                TssData.DEFAULT);
     }
 
     private static Configuration createTestConfiguration() {
