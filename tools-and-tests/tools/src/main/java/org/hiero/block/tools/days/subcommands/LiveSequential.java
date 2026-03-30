@@ -298,10 +298,20 @@ public class LiveSequential implements Runnable {
 
     /**
      * Determines the starting point for block processing.
-     * Priority: 1) Resume from state file, 2) Use --start-date, 3) Auto-detect from mirror node
+     * Priority: 1) Wrap effective highest (accounts for mid-zip truncation), 2) Resume from state file,
+     * 3) Use --start-date, 4) Auto-detect from mirror node
      */
     private State determineStartingPoint(BlockTimeReader blockTimeReader) {
-        // Priority 1: Resume from state file
+        // Priority 1: Resume from wrap state (the authoritative source, accounts for mid-zip truncation)
+        long wrapEffective = computeWrapEffectiveHighest();
+        if (wrapEffective >= 0) {
+            System.out.println("[live-sequential] Resuming from wrap effective highest: block " + wrapEffective);
+            State state = new State();
+            state.blockNumber = wrapEffective;
+            return state;
+        }
+
+        // Priority 2: Resume from state file
         if (Files.exists(stateJsonPath)) {
             try {
                 String json = Files.readString(stateJsonPath, StandardCharsets.UTF_8);
@@ -315,7 +325,7 @@ public class LiveSequential implements Runnable {
             }
         }
 
-        // Priority 2: Use --start-date
+        // Priority 3: Use --start-date
         if (startDate != null && !startDate.isBlank()) {
             LocalDate targetDay = LocalDate.parse(startDate);
             System.out.println("[live-sequential] Using provided start date: " + targetDay);
@@ -331,7 +341,7 @@ public class LiveSequential implements Runnable {
             return state;
         }
 
-        // Priority 3: Auto-detect from mirror node
+        // Priority 4: Auto-detect from mirror node
         System.out.println("[live-sequential] Querying mirror node for current day...");
         List<BlockInfo> latestBlocks = FetchBlockQuery.getLatestBlocks(1, MirrorNodeBlockQueryOrder.DESC);
 
@@ -360,6 +370,48 @@ public class LiveSequential implements Runnable {
         state.blockNumber = firstBlockOfDay - 1;
         state.dayDate = today.toString();
         return state;
+    }
+
+    /**
+     * Computes the wrap thread's effective highest block, including mid-zip truncation.
+     * This mirrors the logic in {@link #runWrapAndValidateThread} so the download thread
+     * starts from the same block the wrap thread expects.
+     *
+     * @return the effective highest block, or -1 if no wrap state exists
+     */
+    private long computeWrapEffectiveHighest() {
+        final Path hashRegistryPath = wrapOutputDir.resolve("blockStreamBlockHashes.bin");
+        final Path watermarkFile = wrapOutputDir.resolve("wrap-commit.bin");
+
+        if (!Files.exists(hashRegistryPath)) {
+            return -1;
+        }
+
+        try (BlockStreamBlockHashRegistry blockRegistry = new BlockStreamBlockHashRegistry(hashRegistryPath)) {
+            long watermark = loadWatermark(watermarkFile);
+            long registryHighest = blockRegistry.highestBlockNumberStored();
+
+            if (watermark >= 0 && registryHighest > watermark) {
+                registryHighest = watermark;
+            } else if (watermark < 0 && registryHighest >= 0) {
+                // trust registry
+            }
+
+            // Mid-zip truncation (same logic as runWrapAndValidateThread)
+            if (registryHighest >= 0) {
+                long zipRangeFirst = BlockWriter.zipRangeFirstBlock(registryHighest, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+                long blocksPerZip = (long) Math.pow(10, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+                long zipRangeLast = zipRangeFirst + blocksPerZip - 1;
+                if (registryHighest < zipRangeLast) {
+                    registryHighest = zipRangeFirst - 1;
+                }
+            }
+
+            return registryHighest;
+        } catch (Exception e) {
+            System.err.println("[live-sequential] Warning: Failed to read wrap state: " + e.getMessage());
+            return -1;
+        }
     }
 
     /**
@@ -426,6 +478,7 @@ public class LiveSequential implements Runnable {
                 if (!blockDay.equals(currentDay)) {
                     if (currentDayWriter != null) {
                         currentDayWriter.close();
+                        currentDayWriter = null;
                         System.out.println("[live-sequential] Day completed: " + currentDay + " ("
                                 + blocksProcessedToday + " blocks in "
                                 + formatDuration((System.currentTimeMillis() - dayStartTime) / 1000) + ")");
@@ -433,22 +486,31 @@ public class LiveSequential implements Runnable {
 
                     // Start new day
                     currentDay = blockDay;
-                    Path dayArchive = outputDir.toPath().resolve(currentDay + ".tar.zstd");
-                    currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
                     blocksProcessedToday = 0;
                     dayStartTime = System.currentTimeMillis();
                     cachedListingFiles = null;
                     cachedListingDay = null;
 
+                    // Only create tar writer if archive doesn't already exist
+                    Path dayArchive = outputDir.toPath().resolve(currentDay + ".tar.zstd");
+                    if (Files.exists(dayArchive)) {
+                        System.out.println(
+                                "[live-sequential] Day archive already exists, skipping tar writes: " + currentDay);
+                    } else {
+                        currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
+                    }
+
                     System.out.println("[live-sequential] Started new day: " + currentDay);
                 }
 
-                // Initialize writer if needed (first block)
-                if (currentDayWriter == null) {
+                // Initialize writer if needed (first block, no day boundary crossed yet)
+                if (currentDayWriter == null && currentDay != null) {
                     Path dayArchive = outputDir.toPath().resolve(currentDay + ".tar.zstd");
-                    currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
-                    dayStartTime = System.currentTimeMillis();
-                    System.out.println("[live-sequential] Started day: " + currentDay);
+                    if (!Files.exists(dayArchive)) {
+                        currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
+                        dayStartTime = System.currentTimeMillis();
+                        System.out.println("[live-sequential] Started day: " + currentDay);
+                    }
                 }
 
                 // Step 3: Load GCS listings if day changed
@@ -584,9 +646,11 @@ public class LiveSequential implements Runnable {
                             "Block gap detected: expected " + (currentBlockNumber + 1) + " but got " + nextBlockNumber);
                 }
 
-                // Step 8: Write to tar.zstd archive
-                for (InMemoryFile file : inMemoryFiles) {
-                    currentDayWriter.putEntry(file);
+                // Step 8: Write to tar.zstd archive (skip if archive already exists)
+                if (currentDayWriter != null) {
+                    for (InMemoryFile file : inMemoryFiles) {
+                        currentDayWriter.putEntry(file);
+                    }
                 }
 
                 // Step 9: Queue for wrapping
@@ -733,20 +797,41 @@ public class LiveSequential implements Runnable {
             // Filter out genesis-required validations when not starting from block 0
             boolean startingFromGenesis = (effectiveHighest < 0);
             if (!startingFromGenesis) {
-                // Try to load checkpoint state
+                // Try to load checkpoint state, but only if it's not ahead of the wrap state.
+                // Mid-zip truncation can push effectiveHighest behind the checkpoint — loading
+                // a checkpoint that is ahead would cause hash mismatches.
                 boolean hasCheckpoint = false;
                 try {
                     Path progressFile = checkpointDir.resolve("validateProgress.json");
                     if (Files.exists(progressFile)) {
-                        for (BlockValidation v : allValidations) {
-                            try {
-                                v.load(checkpointDir);
-                            } catch (Exception e) {
-                                System.err.println(
-                                        "[WRAP] Warning: could not load " + v.name() + " state: " + e.getMessage());
+                        String cpJson = Files.readString(progressFile, StandardCharsets.UTF_8);
+                        com.google.gson.JsonObject cpRoot =
+                                com.google.gson.JsonParser.parseString(cpJson).getAsJsonObject();
+                        long cpBlock = cpRoot.get("lastValidatedBlockNumber").getAsLong();
+
+                        if (cpBlock <= effectiveHighest) {
+                            for (BlockValidation v : allValidations) {
+                                try {
+                                    v.load(checkpointDir);
+                                } catch (Exception e) {
+                                    System.err.println(
+                                            "[WRAP] Warning: could not load " + v.name() + " state: " + e.getMessage());
+                                }
+                            }
+                            hasCheckpoint = true;
+                        } else {
+                            System.out.println("[WRAP] Validate checkpoint (block " + cpBlock
+                                    + ") is ahead of wrap effective highest (" + effectiveHighest
+                                    + "); skipping checkpoint load");
+                            // Initialize chain validation from block hash registry so it
+                            // doesn't treat the first block as genesis
+                            byte[] lastHash = blockRegistry.getBlockHash(effectiveHighest);
+                            if (lastHash != null) {
+                                chainValidation.setPreviousBlockHash(lastHash);
+                                System.out.println("[WRAP] Initialized chain validation from registry at block "
+                                        + effectiveHighest);
                             }
                         }
-                        hasCheckpoint = true;
                     }
                 } catch (Exception e) {
                     System.err.println("[WRAP] Warning: could not load checkpoint: " + e.getMessage());
