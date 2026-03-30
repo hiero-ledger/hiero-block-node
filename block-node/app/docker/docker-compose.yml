@@ -3,12 +3,9 @@ services:
 # PRODUCTION - No Plugins
 #    container_name: block-node-server
 #    image: block-node-server:${VERSION}
-# SOLO - All Plugins
-#    container_name: block-node-server-lfh
-#    image: block-node-server-lfh:${VERSION}
-# DEBUG - All Plugins, sudo, yum, binutils, findutils, procps-ng, microdnf
-    container_name: block-node-server-debug
-    image: block-node-server-debug:${VERSION}
+# DEV - All Plugins, sudo, yum, binutils, findutils, procps-ng, microdnf
+    container_name: block-node-server-dev
+    image: block-node-server-dev:${VERSION}
     volumes:
       - ./logging.properties:/opt/hiero/block-node/logs/config/logging.properties
       - ./backfill-sources.json:/opt/hiero/block-node/backfill/backfill-sources.json

@@ -21,20 +21,11 @@ docker buildx build --target base-image --load -t "block-node-server:${VERSION}"
 echo
 echo "Image [block-node-server:${VERSION}] built successfully!"
 
-# run docker build for lfh stage
-docker buildx build --target lfh --load -t "block-node-server-lfh:${VERSION}" \
+# run docker build for dev stage
+docker buildx build --target dev --load -t "block-node-server-dev:${VERSION}" \
  --build-context distributions=../distributions \
  --build-arg VERSION="${VERSION}" \
  --build-arg SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" . || exit "${?}"
 
 echo
-echo "Image [block-node-server-lfh:${VERSION}] built successfully!"
-
-# run docker build for debug stage
-docker buildx build --target debug --load -t "block-node-server-debug:${VERSION}" \
- --build-context distributions=../distributions \
- --build-arg VERSION="${VERSION}" \
- --build-arg SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" . || exit "${?}"
-
-echo
-echo "Image [block-node-server-debug:${VERSION}] built successfully!"
+echo "Image [block-node-server-dev:${VERSION}] built successfully!"

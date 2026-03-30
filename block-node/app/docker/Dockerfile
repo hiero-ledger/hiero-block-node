@@ -93,18 +93,15 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
 # RUN the bin script for starting the server
 ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/app-${VERSION}/bin/app || sleep 30d"]
 
-# create a second image that has all the plugins loaded in
-FROM base-image AS lfh
+# create a second image dev image with all the plugins and dev tools
+FROM base-image AS dev
 # Copy the plugins from the docker plugin mount directory to the image
 # The `distributions` build context is set on the command line (see docker-build.sh).
 COPY ./plugins app-${VERSION}/plugins
 
-# create a third image for debug that has tools installed on it
-FROM lfh AS debug
-
+# Install sudo, yum (which includes dnf), and basic binary tools
 USER root
 
-# Install sudo, yum (which includes dnf), and basic binary tools
 RUN microdnf install -y sudo yum binutils findutils procps-ng && \
     microdnf clean all
 
