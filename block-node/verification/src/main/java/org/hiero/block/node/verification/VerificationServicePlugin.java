@@ -62,6 +62,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Counter hashingBlockTimeNs;
     /** The previous block hash, used for verification of the current block. */
     private Bytes previousBlockHash;
+    /** The block number of the last successfully verified block (live-stream or sequential backfill). */
+    private long previousVerifiedBlockNumber = -1;
+
     /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
     AllBlocksHasherHandler allBlocksHasherHandler;
     /**
@@ -203,6 +206,16 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 verificationBlocksReceived.increment();
                 // we already checked that firstItem has blockHeader
                 currentBlockNumber = blockItems.blockNumber();
+                // Skip verification for blocks already verified via backfill
+                if (currentBlockNumber <= previousVerifiedBlockNumber) {
+                    LOGGER.log(
+                            INFO,
+                            "Block {0} already verified via backfill (up to {1}), skipping live-stream verification",
+                            currentBlockNumber,
+                            previousVerifiedBlockNumber);
+                    currentSession = null;
+                    return;
+                }
                 BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                         blockItems.blockItems().getFirst().blockHeader());
                 if (currentBlockNumber != blockHeader.number()) {
@@ -250,8 +263,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         // send the notification to the block messaging service
                         LOGGER.log(TRACE, "Sending verification notification for block={0}", currentBlockNumber);
                         context.blockMessaging().sendBlockVerification(notification);
-                        // Update previousBlockHash for next block verification
+                        // Update previousBlockHash and previousVerifiedBlockNumber for next block verification
                         this.previousBlockHash = notification.blockHash();
+                        this.previousVerifiedBlockNumber = currentBlockNumber;
                         // Update streamingHasherAllPreviousBlocks
                         allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                 this.previousBlockHash.toByteArray());
@@ -386,12 +400,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         if (notification.blockNumber() == 0) {
                             persistTssParameters();
                         }
-                        // Update the allBlocksHasher only when this backfilled block is the next
-                        // sequential one (leafCount == blockNumber). Historical backfill can arrive
-                        // out of order, so we must not append blocks that would break the hasher's
-                        // contiguous chain from genesis.
+                        // Only update live-stream verification state when this backfilled block
+                        // is sequentially next after the last verified block (live-tail backfill).
+                        // Historical backfill can arrive out of order and must not alter state
+                        // used by the live-stream verification path.
                         if (backfillNotification.blockHash() != null
-                                && allBlocksHasherHandler.getNumberOfBlocks() == notification.blockNumber()) {
+                                && notification.blockNumber() == previousVerifiedBlockNumber + 1) {
+                            this.previousBlockHash = backfillNotification.blockHash();
+                            this.previousVerifiedBlockNumber = notification.blockNumber();
                             allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                     backfillNotification.blockHash().toByteArray());
                         }
