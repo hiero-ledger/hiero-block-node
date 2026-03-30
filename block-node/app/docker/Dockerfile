@@ -99,3 +99,12 @@ FROM base-image AS lfh
 # The `distributions` build context is set on the command line (see docker-build.sh).
 COPY ./plugins app-${VERSION}/plugins
 
+# create a third image for debug that has tools installed on it
+FROM lfh AS debug
+
+USER root
+
+# Install sudo, yum (which includes dnf), and basic binary tools
+RUN microdnf install -y sudo yum binutils findutils procps-ng && \
+    microdnf clean all
+
