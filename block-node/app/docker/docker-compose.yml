@@ -1,9 +1,10 @@
 services:
-  block-node-server-lfh:
 # PRODUCTION - No Plugins
+#  block-node-server:
 #    container_name: block-node-server
 #    image: block-node-server:${VERSION}
 # DEV - All Plugins, sudo, yum, binutils, findutils, procps-ng, microdnf
+  block-node-server-dev:
     container_name: block-node-server-dev
     image: block-node-server-dev:${VERSION}
     volumes:
