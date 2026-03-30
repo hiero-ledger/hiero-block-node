@@ -206,7 +206,7 @@ public abstract class PluginTestBase<
      */
     @AfterEach
     public void tearDown() {
-        metricsProvider.stop();
+        if (metricsProvider != null) metricsProvider.stop();
         testThreadPoolManager.shutdownNow();
         if (metricsRegistry != null) metricsRegistry.close();
     }

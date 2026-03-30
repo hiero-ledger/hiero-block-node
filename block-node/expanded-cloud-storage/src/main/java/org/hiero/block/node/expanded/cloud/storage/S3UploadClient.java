@@ -7,7 +7,7 @@ import java.util.Iterator;
 /**
  * Minimal abstraction over S3 upload operations used by this plugin.
  *
- * <p>The production instance is obtained via {@link #forConfig}, which wraps
+ * <p>The production instance is obtained via {@link #getInstance}, which wraps
  * {@code com.hedera.bucky.S3Client} directly. Package-private subclasses in the test
  * source tree override {@link #uploadFile} to capture or throw as needed — no Docker
  * or real S3 endpoint required for unit tests.
@@ -39,7 +39,7 @@ abstract class S3UploadClient implements AutoCloseable {
      * @return a new upload client
      * @throws com.hedera.bucky.S3ClientInitializationException if the underlying client cannot be initialised
      */
-    static S3UploadClient forConfig(final ExpandedCloudStorageConfig config)
+    static S3UploadClient getInstance(final ExpandedCloudStorageConfig config)
             throws com.hedera.bucky.S3ClientInitializationException {
         final com.hedera.bucky.S3Client bucky = new com.hedera.bucky.S3Client(
                 config.regionName(), config.endpointUrl(), config.bucketName(), config.accessKey(), config.secretKey());

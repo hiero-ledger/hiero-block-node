@@ -3,7 +3,6 @@ package org.hiero.block.node.expanded.cloud.storage;
 
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
-import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.swirlds.metrics.api.Counter;
 import com.swirlds.metrics.api.Metrics;
@@ -132,7 +131,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     public void start() {
         try {
             if (s3Client == null) {
-                s3Client = S3UploadClient.forConfig(config);
+                s3Client = S3UploadClient.getInstance(config);
             }
             completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
             metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metrics));
