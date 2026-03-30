@@ -92,7 +92,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 /**
- * Sequential block download with inline wrapping and full validation.
+ * Live sequential block download with inline wrapping and full validation.
  *
  * <p>Downloads blocks one at a time, strictly sequentially, failing hard on any gap. Each block is:
  * <ol>
@@ -109,10 +109,10 @@ import picocli.CommandLine.Option;
  */
 @SuppressWarnings("FieldCanBeLocal")
 @Command(
-        name = "download-sequential",
-        description = "Sequential block download with inline validation and wrapping",
+        name = "live-sequential",
+        description = "Live sequential block download with inline validation and wrapping",
         mixinStandardHelpOptions = true)
-public class DownloadSequential implements Runnable {
+public class LiveSequential implements Runnable {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Duration LIVE_POLL_INTERVAL = Duration.ofSeconds(2);
@@ -191,8 +191,7 @@ public class DownloadSequential implements Runnable {
 
     @Override
     public void run() {
-        System.out.println(
-                "[download-sequential] Starting sequential block download with inline wrapping + validation");
+        System.out.println("[live-sequential] Starting sequential block download with inline wrapping + validation");
         System.out.println("Configuration:");
         System.out.println("  listingDir=" + listingDir);
         System.out.println("  outputDir=" + outputDir);
@@ -238,7 +237,7 @@ public class DownloadSequential implements Runnable {
 
             // Determine starting point
             final State initialState = determineStartingPoint(blockTimeReader);
-            System.out.println("[download-sequential] Starting from block " + initialState.blockNumber
+            System.out.println("[live-sequential] Starting from block " + initialState.blockNumber
                     + " hash["
                     + (initialState.endRunningHashHex != null
                             ? initialState.endRunningHashHex.substring(
@@ -270,10 +269,10 @@ public class DownloadSequential implements Runnable {
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
                             () -> {
-                                System.out.println("[download-sequential] Shutdown requested...");
+                                System.out.println("[live-sequential] Shutdown requested...");
                                 downloadManager.close();
                             },
-                            "download-sequential-shutdown"));
+                            "live-sequential-shutdown"));
 
             // Main download loop
             processBlocksSequentially(
@@ -289,9 +288,9 @@ public class DownloadSequential implements Runnable {
                 throw new RuntimeException("Wrap+validate thread failed", wrapErr);
             }
 
-            System.out.println("[download-sequential] Complete.");
+            System.out.println("[live-sequential] Complete.");
         } catch (Exception e) {
-            System.err.println("[download-sequential] Fatal error: " + e.getMessage());
+            System.err.println("[live-sequential] Fatal error: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }
@@ -308,23 +307,23 @@ public class DownloadSequential implements Runnable {
                 String json = Files.readString(stateJsonPath, StandardCharsets.UTF_8);
                 State state = GSON.fromJson(json, State.class);
                 if (state != null && state.blockNumber > 0) {
-                    System.out.println("[download-sequential] Resuming from state file: block " + state.blockNumber);
+                    System.out.println("[live-sequential] Resuming from state file: block " + state.blockNumber);
                     return state;
                 }
             } catch (Exception e) {
-                System.err.println("[download-sequential] Warning: Failed to read state file: " + e.getMessage());
+                System.err.println("[live-sequential] Warning: Failed to read state file: " + e.getMessage());
             }
         }
 
         // Priority 2: Use --start-date
         if (startDate != null && !startDate.isBlank()) {
             LocalDate targetDay = LocalDate.parse(startDate);
-            System.out.println("[download-sequential] Using provided start date: " + targetDay);
+            System.out.println("[live-sequential] Using provided start date: " + targetDay);
 
             LocalDateTime startOfDay = targetDay.atStartOfDay();
             long firstBlockOfDay = blockTimeReader.getNearestBlockAfterTime(startOfDay);
 
-            System.out.println("[download-sequential] First block of " + targetDay + " is " + firstBlockOfDay);
+            System.out.println("[live-sequential] First block of " + targetDay + " is " + firstBlockOfDay);
 
             State state = new State();
             state.blockNumber = firstBlockOfDay - 1;
@@ -333,7 +332,7 @@ public class DownloadSequential implements Runnable {
         }
 
         // Priority 3: Auto-detect from mirror node
-        System.out.println("[download-sequential] Querying mirror node for current day...");
+        System.out.println("[live-sequential] Querying mirror node for current day...");
         List<BlockInfo> latestBlocks = FetchBlockQuery.getLatestBlocks(1, MirrorNodeBlockQueryOrder.DESC);
 
         if (latestBlocks.isEmpty()) {
@@ -352,7 +351,7 @@ public class DownloadSequential implements Runnable {
         Instant blockInstant = Instant.ofEpochSecond(epochSeconds);
         LocalDate today = blockInstant.atZone(ZoneOffset.UTC).toLocalDate();
 
-        System.out.println("[download-sequential] Detected current day: " + today);
+        System.out.println("[live-sequential] Detected current day: " + today);
 
         LocalDateTime startOfDay = today.atStartOfDay();
         long firstBlockOfDay = blockTimeReader.getNearestBlockAfterTime(startOfDay);
@@ -427,7 +426,7 @@ public class DownloadSequential implements Runnable {
                 if (!blockDay.equals(currentDay)) {
                     if (currentDayWriter != null) {
                         currentDayWriter.close();
-                        System.out.println("[download-sequential] Day completed: " + currentDay + " ("
+                        System.out.println("[live-sequential] Day completed: " + currentDay + " ("
                                 + blocksProcessedToday + " blocks in "
                                 + formatDuration((System.currentTimeMillis() - dayStartTime) / 1000) + ")");
                     }
@@ -441,7 +440,7 @@ public class DownloadSequential implements Runnable {
                     cachedListingFiles = null;
                     cachedListingDay = null;
 
-                    System.out.println("[download-sequential] Started new day: " + currentDay);
+                    System.out.println("[live-sequential] Started new day: " + currentDay);
                 }
 
                 // Initialize writer if needed (first block)
@@ -449,7 +448,7 @@ public class DownloadSequential implements Runnable {
                     Path dayArchive = outputDir.toPath().resolve(currentDay + ".tar.zstd");
                     currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
                     dayStartTime = System.currentTimeMillis();
-                    System.out.println("[download-sequential] Started day: " + currentDay);
+                    System.out.println("[live-sequential] Started day: " + currentDay);
                 }
 
                 // Step 3: Load GCS listings if day changed
@@ -466,11 +465,11 @@ public class DownloadSequential implements Runnable {
                             cachedListingFiles =
                                     DayListingFileReader.loadRecordsFileForDay(listingDir.toPath(), year, month, day);
                             cachedListingDay = blockDay;
-                            System.out.println("[download-sequential] Loaded " + cachedListingFiles.size()
+                            System.out.println("[live-sequential] Loaded " + cachedListingFiles.size()
                                     + " listing entries for " + blockDay);
                             break;
                         } catch (NoSuchFileException e) {
-                            System.out.println("[download-sequential] Listings not available yet for " + blockDay
+                            System.out.println("[live-sequential] Listings not available yet for " + blockDay
                                     + ", waiting 15 minutes... (attempt " + attempt + ")");
                             Thread.sleep(15 * 60 * 1000);
                         }
@@ -497,8 +496,8 @@ public class DownloadSequential implements Runnable {
 
                     if (group == null || group.isEmpty()) {
                         // Try fixing block time
-                        System.out.println("[download-sequential] No files found for block " + nextBlockNumber
-                                + " at time " + blockTime + ", fixing block times...");
+                        System.out.println("[live-sequential] No files found for block " + nextBlockNumber + " at time "
+                                + blockTime + ", fixing block times...");
                         FixBlockTime.fixBlockTimeRange(
                                 MetadataFiles.BLOCK_TIMES_FILE, nextBlockNumber, nextBlockNumber + 100);
                         blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
@@ -508,16 +507,16 @@ public class DownloadSequential implements Runnable {
 
                 // If no hash yet, fetch from mirror node
                 if (currentHash == null && nextBlockNumber > 0) {
-                    System.out.println("[download-sequential] Fetching previous hash from mirror node for block "
-                            + nextBlockNumber);
+                    System.out.println(
+                            "[live-sequential] Fetching previous hash from mirror node for block " + nextBlockNumber);
                     try {
                         var prevHashBytes = FetchBlockQuery.getPreviousHashForBlock(nextBlockNumber);
                         currentHash = prevHashBytes.toByteArray();
-                        System.out.println("[download-sequential] Got previous hash: "
+                        System.out.println("[live-sequential] Got previous hash: "
                                 + HexFormat.of().formatHex(currentHash).substring(0, 16) + "...");
                     } catch (Exception e) {
                         System.err.println(
-                                "[download-sequential] Warning: Could not fetch previous hash: " + e.getMessage());
+                                "[live-sequential] Warning: Could not fetch previous hash: " + e.getMessage());
                     }
                 }
 
@@ -546,7 +545,7 @@ public class DownloadSequential implements Runnable {
 
                         boolean md5Valid = checkMd5(lr.md5Hex(), downloadedFile.data());
                         if (!md5Valid) {
-                            System.err.println("[download-sequential] MD5 mismatch for " + lr.path() + ", skipping");
+                            System.err.println("[live-sequential] MD5 mismatch for " + lr.path() + ", skipping");
                             continue;
                         }
 
@@ -560,7 +559,7 @@ public class DownloadSequential implements Runnable {
                         inMemoryFiles.add(new InMemoryFile(newFilePath, contentBytes));
                     } catch (CompletionException ce) {
                         System.err.println(
-                                "[download-sequential] Download failed for " + blobName + ": " + ce.getMessage());
+                                "[live-sequential] Download failed for " + blobName + ": " + ce.getMessage());
                         throw new IllegalStateException("Download failed for block " + nextBlockNumber, ce.getCause());
                     }
                 }
@@ -606,13 +605,13 @@ public class DownloadSequential implements Runnable {
                 if (blocksProcessedTotal % PROGRESS_LOG_INTERVAL == 0) {
                     long elapsed = System.currentTimeMillis() - dayStartTime;
                     double blocksPerSec = blocksProcessedToday / Math.max(1.0, elapsed / 1000.0);
-                    System.out.println("[download-sequential] Block " + currentBlockNumber + " (" + blocksProcessedToday
+                    System.out.println("[live-sequential] Block " + currentBlockNumber + " (" + blocksProcessedToday
                             + " today, " + String.format("%.1f", blocksPerSec) + " blocks/sec)");
                 }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            System.out.println("[download-sequential] Interrupted, saving state...");
+            System.out.println("[live-sequential] Interrupted, saving state...");
         } finally {
             if (currentHash != null) {
                 try {
@@ -620,16 +619,16 @@ public class DownloadSequential implements Runnable {
                     Instant finalRecordTime =
                             finalBlockTime.atZone(ZoneOffset.UTC).toInstant();
                     saveState(new State(currentBlockNumber, currentHash, finalRecordTime, currentDay));
-                    System.out.println("[download-sequential] Saved state at block " + currentBlockNumber);
+                    System.out.println("[live-sequential] Saved state at block " + currentBlockNumber);
                 } catch (Exception e) {
-                    System.err.println("[download-sequential] Error saving final state: " + e.getMessage());
+                    System.err.println("[live-sequential] Error saving final state: " + e.getMessage());
                 }
             }
             if (currentDayWriter != null) {
                 try {
                     currentDayWriter.close();
                 } catch (Exception e) {
-                    System.err.println("[download-sequential] Error closing writer: " + e.getMessage());
+                    System.err.println("[live-sequential] Error closing writer: " + e.getMessage());
                 }
             }
         }
@@ -1050,7 +1049,7 @@ public class DownloadSequential implements Runnable {
             String json = GSON.toJson(state);
             Files.writeString(stateJsonPath, json, StandardCharsets.UTF_8);
         } catch (IOException e) {
-            System.err.println("[download-sequential] Warning: Failed to save state: " + e.getMessage());
+            System.err.println("[live-sequential] Warning: Failed to save state: " + e.getMessage());
         }
     }
 
