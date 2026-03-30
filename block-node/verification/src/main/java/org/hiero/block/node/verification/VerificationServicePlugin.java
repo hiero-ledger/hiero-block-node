@@ -62,6 +62,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private Counter hashingBlockTimeNs;
     /** The previous block hash, used for verification of the current block. */
     private Bytes previousBlockHash;
+    /** The block number of the last successfully verified block (live-stream or sequential backfill). */
+    private long previousVerifiedBlockNumber = -1;
+
     /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
     AllBlocksHasherHandler allBlocksHasherHandler;
     /**
@@ -212,13 +215,18 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 } else {
                     headerValid = true;
                 }
+                // Only use our tracked previousBlockHash when this block is sequentially
+                // next after the last verified block. Otherwise pass null so the session
+                // falls back to the authoritative values in the block footer.
+                final Bytes previousHash =
+                        currentBlockNumber == previousVerifiedBlockNumber + 1 ? previousBlockHash : null;
                 SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
                 // create a new verification session for the new block based on hapi version on block header.
                 currentSession = HapiVersionSessionFactory.createSession(
                         currentBlockNumber,
                         BlockSource.PUBLISHER,
                         semanticVersion,
-                        previousBlockHash,
+                        previousHash,
                         getRootOfAllPreviousBlocks(),
                         activeLedgerId);
                 LOGGER.log(TRACE, "Started new block verification session for block number {0}", currentBlockNumber);
@@ -250,8 +258,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         // send the notification to the block messaging service
                         LOGGER.log(TRACE, "Sending verification notification for block={0}", currentBlockNumber);
                         context.blockMessaging().sendBlockVerification(notification);
-                        // Update previousBlockHash for next block verification
+                        // Update previousBlockHash and previousVerifiedBlockNumber for next block verification
                         this.previousBlockHash = notification.blockHash();
+                        this.previousVerifiedBlockNumber = currentBlockNumber;
                         // Update streamingHasherAllPreviousBlocks
                         allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                 this.previousBlockHash.toByteArray());
@@ -280,12 +289,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
 
     private Bytes getRootOfAllPreviousBlocks() {
         if (allBlocksHasherHandler != null && allBlocksHasherHandler.isAvailable()) {
-            // When earliestManagedBlock > 0 the node may not have a continuous chain from genesis.
             // Only use the hasher's computed root when its leaf count matches currentBlockNumber
             // exactly (i.e. it holds hashes for blocks 0 through currentBlockNumber-1). Any other
-            // count means continuity is absent, so defer to the block footer's authoritative value.
-            // When earliestManagedBlock == 0 full genesis continuity is expected; always use hasher.
-            if (earliestManagedBlock > 0 && allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber) {
+            // count means the hasher is out of sync (e.g. backfill advanced it past the live-stream
+            // position, or the node doesn't have a continuous chain from genesis), so defer to the
+            // block footer's authoritative value.
+            if (allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber) {
                 return null;
             }
             return Bytes.wrap(allBlocksHasherHandler.computeRootHash());
@@ -386,12 +395,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         if (notification.blockNumber() == 0) {
                             persistTssParameters();
                         }
-                        // Update the allBlocksHasher only when this backfilled block is the next
-                        // sequential one (leafCount == blockNumber). Historical backfill can arrive
-                        // out of order, so we must not append blocks that would break the hasher's
-                        // contiguous chain from genesis.
+                        // Only update live-stream verification state when this backfilled block
+                        // is sequentially next after the last verified block (live-tail backfill).
+                        // Historical backfill can arrive out of order and must not alter state
+                        // used by the live-stream verification path.
                         if (backfillNotification.blockHash() != null
-                                && allBlocksHasherHandler.getNumberOfBlocks() == notification.blockNumber()) {
+                                && notification.blockNumber() == previousVerifiedBlockNumber + 1) {
+                            this.previousBlockHash = backfillNotification.blockHash();
+                            this.previousVerifiedBlockNumber = notification.blockNumber();
                             allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                     backfillNotification.blockHash().toByteArray());
                         }
