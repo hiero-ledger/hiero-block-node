@@ -38,14 +38,13 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     private static final System.Logger LOGGER = System.getLogger(SingleBlockStoreTask.class.getName());
 
     /** The outcome of a single block upload attempt. */
-    public record UploadResult(long blockNumber, boolean succeeded, long bytesUploaded, BlockSource blockSource) {}
+    public record UploadResult(long blockNumber, boolean succeeded, long bytesUploaded, BlockSource blockSource, long uploadDurationNs) {}
 
     private final long blockNumber;
     private final BlockUnparsed block;
     private final S3UploadClient s3Client;
     private final String objectKey;
     private final String storageClass;
-    private final int uploadTimeoutSeconds;
     private final BlockSource blockSource;
 
     /**
@@ -56,7 +55,6 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
      * @param s3Client             the upload client to use for the upload
      * @param objectKey            the fully-qualified S3 object key
      * @param storageClass         the S3 storage class
-     * @param uploadTimeoutSeconds max seconds to allow before treating the upload as failed
      * @param blockSource          the source of the block (for the {@code PersistedNotification})
      */
     public SingleBlockStoreTask(
@@ -65,14 +63,12 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             @NonNull final S3UploadClient s3Client,
             @NonNull final String objectKey,
             @NonNull final String storageClass,
-            final int uploadTimeoutSeconds,
             @NonNull final BlockSource blockSource) {
         this.blockNumber = blockNumber;
         this.block = block;
         this.s3Client = s3Client;
         this.objectKey = objectKey;
         this.storageClass = storageClass;
-        this.uploadTimeoutSeconds = uploadTimeoutSeconds;
         this.blockSource = blockSource;
     }
 
@@ -88,25 +84,26 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
      */
     @Override
     public UploadResult call() {
+        long uploadStartNs = System.nanoTime();
         try {
             final byte[] protoBytes = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
             final byte[] compressed = CompressionType.ZSTD.compress(protoBytes);
 
             if (compressed.length == 0) {
                 LOGGER.log(WARNING, "Block {0}: compressed bytes are empty, skipping upload.", blockNumber);
-                return new UploadResult(blockNumber, false, 0L, blockSource);
+                return new UploadResult(blockNumber, false, 0L, blockSource, System.nanoTime() - uploadStartNs);
             }
 
             s3Client.uploadFile(objectKey, storageClass, new PayloadIterator(compressed), CONTENT_TYPE);
             LOGGER.log(TRACE, "Block {0}: uploaded to {1}", blockNumber, objectKey);
-            return new UploadResult(blockNumber, true, compressed.length, blockSource);
+            return new UploadResult(blockNumber, true, compressed.length, blockSource, System.nanoTime() - uploadStartNs);
 
         } catch (final com.hedera.bucky.S3ClientException e) {
             LOGGER.log(WARNING, "Block {0}: S3 upload failed: ", blockNumber, e);
-            return new UploadResult(blockNumber, false, 0L, blockSource);
+            return new UploadResult(blockNumber, false, 0L, blockSource, System.nanoTime() - uploadStartNs);
         } catch (final java.io.IOException e) {
             LOGGER.log(WARNING, "Block {0}: I/O error during upload: ", blockNumber, e);
-            return new UploadResult(blockNumber, false, 0L, blockSource);
+            return new UploadResult(blockNumber, false, 0L, blockSource, System.nanoTime() - uploadStartNs);
         }
     }
 
