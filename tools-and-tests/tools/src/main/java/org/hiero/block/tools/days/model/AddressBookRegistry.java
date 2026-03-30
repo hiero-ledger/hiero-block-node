@@ -3,6 +3,10 @@ package org.hiero.block.tools.days.model;
 
 import static org.hiero.block.tools.utils.TimeUtils.toTimestamp;
 
+import com.hedera.hapi.node.addressbook.NodeCreateTransactionBody;
+import com.hedera.hapi.node.addressbook.NodeDeleteTransactionBody;
+import com.hedera.hapi.node.addressbook.NodeUpdateTransactionBody;
+import com.hedera.hapi.node.base.AccountID;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
@@ -16,11 +20,13 @@ import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -157,9 +163,9 @@ public class AddressBookRegistry {
     public String updateAddressBook(Instant blockInstant, List<TransactionBody> addressBookTransactions) {
         final NodeAddressBook currentBook = getCurrentAddressBook();
         NodeAddressBook newAddressBook = currentBook;
+        String changeSource = "file update";
         // Walk through transactions in order, maintaining a buffer for 0.0.102. Only successful 0.0.102 parses produce
-        // a
-        // new version appended to addressBooks to align with authoritative address book semantics.
+        // a new version appended to addressBooks to align with authoritative address book semantics.
         for (final TransactionBody body : addressBookTransactions) {
             try {
                 // Handle file-based updates for 0.0.102 only
@@ -184,8 +190,17 @@ public class AddressBookRegistry {
                         }
                     }
                 }
-                // Ignore other transaction types (e.g., node lifecycle) in this registry; only file-based updates are
-                // applied to compute new address book versions here.
+                // Handle node lifecycle (DAB) transactions
+                else if (body.hasNodeUpdate()) {
+                    newAddressBook = applyNodeUpdate(newAddressBook, body.nodeUpdate());
+                    changeSource = "node lifecycle (DAB)";
+                } else if (body.hasNodeCreate()) {
+                    newAddressBook = applyNodeCreate(newAddressBook, body.nodeCreate());
+                    changeSource = "node lifecycle (DAB)";
+                } else if (body.hasNodeDelete()) {
+                    newAddressBook = applyNodeDelete(newAddressBook, body.nodeDelete());
+                    changeSource = "node lifecycle (DAB)";
+                }
             } catch (Exception e) {
                 throw new RuntimeException("Error updating address book", e);
             }
@@ -194,10 +209,130 @@ public class AddressBookRegistry {
         // NodeAddressBook has proper equals() implementation that compares content
         if (newAddressBook != null && !newAddressBook.equals(currentBook)) {
             addressBooks.add(new DatedNodeAddressBook(toTimestamp(blockInstant), newAddressBook));
-            // Update changes description
-            return "Address Book Changed, via file update:\n" + addressBookChanges(currentBook, newAddressBook);
+            return "Address Book Changed, via " + changeSource + ":\n"
+                    + addressBookChanges(currentBook, newAddressBook);
         }
         return null;
+    }
+
+    // ==== DAB (Dynamic Address Book) transaction handlers ====
+
+    /**
+     * Apply a NodeUpdate transaction to the current address book. Updates the matching node's fields
+     * (gossip CA certificate, account ID, description, gRPC certificate hash, service endpoints).
+     * The gossip CA certificate is stored as a hex-encoded DER certificate in the rsaPubKey field,
+     * which is decoded by {@code SigFileUtils.decodePublicKey()} during signature verification.
+     *
+     * @param currentBook the current address book
+     * @param updateTx the node update transaction body
+     * @return the updated address book, or the current book if the node was not found
+     */
+    private static NodeAddressBook applyNodeUpdate(NodeAddressBook currentBook, NodeUpdateTransactionBody updateTx) {
+        List<NodeAddress> nodes = new ArrayList<>(currentBook.nodeAddress());
+        int matchIndex = findNodeIndex(nodes, updateTx.nodeId(), updateTx.hasAccountId() ? updateTx.accountId() : null);
+        if (matchIndex < 0) {
+            return currentBook;
+        }
+        NodeAddress.Builder builder = nodes.get(matchIndex).copyBuilder();
+        if (updateTx.hasGossipCaCertificate()) {
+            builder.rsaPubKey(
+                    HexFormat.of().formatHex(updateTx.gossipCaCertificate().toByteArray()));
+        }
+        if (updateTx.hasAccountId()) {
+            builder.nodeAccountId(updateTx.accountId());
+        }
+        if (updateTx.hasDescription()) {
+            builder.description(updateTx.description());
+        }
+        if (updateTx.hasGrpcCertificateHash()) {
+            builder.nodeCertHash(updateTx.grpcCertificateHash());
+        }
+        if (!updateTx.serviceEndpoint().isEmpty()) {
+            builder.serviceEndpoint(updateTx.serviceEndpoint());
+        }
+        nodes.set(matchIndex, builder.build());
+        return new NodeAddressBook(nodes);
+    }
+
+    /**
+     * Apply a NodeCreate transaction to the current address book. Creates a new node entry
+     * with the provided fields and adds it to the book. If a node with the same account ID
+     * already exists, it is replaced.
+     *
+     * @param currentBook the current address book
+     * @param createTx the node create transaction body
+     * @return the updated address book with the new node added
+     */
+    private static NodeAddressBook applyNodeCreate(NodeAddressBook currentBook, NodeCreateTransactionBody createTx) {
+        NodeAddress.Builder builder = NodeAddress.newBuilder();
+        if (createTx.hasAccountId()) {
+            builder.nodeAccountId(createTx.accountId());
+            builder.nodeId(createTx.accountId().accountNum() - 3);
+            builder.memo(Bytes.wrap(("0.0." + createTx.accountId().accountNum()).getBytes(StandardCharsets.UTF_8)));
+        }
+        if (createTx.gossipCaCertificate().length() > 0) {
+            builder.rsaPubKey(
+                    HexFormat.of().formatHex(createTx.gossipCaCertificate().toByteArray()));
+        }
+        builder.description(createTx.description());
+        if (!createTx.serviceEndpoint().isEmpty()) {
+            builder.serviceEndpoint(createTx.serviceEndpoint());
+        }
+        if (createTx.grpcCertificateHash().length() > 0) {
+            builder.nodeCertHash(createTx.grpcCertificateHash());
+        }
+
+        List<NodeAddress> nodes = new ArrayList<>(currentBook.nodeAddress());
+        if (createTx.hasAccountId()) {
+            long acctNum = createTx.accountId().accountNum();
+            nodes.removeIf(n -> getNodeAccountId(n) == acctNum);
+        }
+        nodes.add(builder.build());
+        return new NodeAddressBook(nodes);
+    }
+
+    /**
+     * Apply a NodeDelete transaction to the current address book. Removes the node with the
+     * matching node ID from the book.
+     *
+     * @param currentBook the current address book
+     * @param deleteTx the node delete transaction body
+     * @return the updated address book with the node removed, or the current book if not found
+     */
+    private static NodeAddressBook applyNodeDelete(NodeAddressBook currentBook, NodeDeleteTransactionBody deleteTx) {
+        List<NodeAddress> nodes = new ArrayList<>(currentBook.nodeAddress());
+        nodes.removeIf(n -> n.nodeId() == deleteTx.nodeId());
+        if (nodes.size() == currentBook.nodeAddress().size()) {
+            return currentBook;
+        }
+        return new NodeAddressBook(nodes);
+    }
+
+    /**
+     * Find the index of a node in the list by node ID, falling back to account ID match if the
+     * node ID match fails (legacy nodes may have nodeId=0).
+     *
+     * @param nodes the list of node addresses
+     * @param nodeId the node ID to search for
+     * @param accountId the account ID to use as fallback (may be null)
+     * @return the index of the matching node, or -1 if not found
+     */
+    private static int findNodeIndex(List<NodeAddress> nodes, long nodeId, AccountID accountId) {
+        for (int i = 0; i < nodes.size(); i++) {
+            if (nodes.get(i).nodeId() == nodeId) {
+                return i;
+            }
+        }
+        // Fallback: match by account ID for legacy nodes where nodeId may be 0
+        if (accountId != null && accountId.hasAccountNum()) {
+            long targetAcct = accountId.accountNum();
+            for (int i = 0; i < nodes.size(); i++) {
+                if (getNodeAccountId(nodes.get(i)) == targetAcct) {
+                    return i;
+                }
+            }
+        }
+        return -1;
     }
 
     // ==== Static utility methods for loading address books ====
@@ -234,6 +369,10 @@ public class AddressBookRegistry {
                     || (body.hasFileAppend()
                             && body.fileAppend().hasFileID()
                             && body.fileAppend().fileID().fileNum() == 102)) {
+                result.add(body);
+            }
+            // check if this is a node lifecycle (DAB) transaction
+            else if (body.hasNodeCreate() || body.hasNodeUpdate() || body.hasNodeDelete()) {
                 result.add(body);
             }
         }
