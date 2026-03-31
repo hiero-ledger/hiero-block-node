@@ -190,7 +190,7 @@ public class LiveSequential implements Runnable {
             long blockNumber, Instant recordFileTime, List<InMemoryFile> files, byte[] runningHash) {}
 
     @Override
-    @SuppressWarnings("java:S3776") // Orchestration method — splitting would hurt readability
+    @SuppressWarnings({"PMD.NPathComplexity", "PMD.ExcessiveMethodLength"})
     public void run() {
         System.out.println("[live-sequential] Starting sequential block download with inline wrapping + validation");
         System.out.println("Configuration:");
@@ -302,7 +302,7 @@ public class LiveSequential implements Runnable {
      * Priority: 1) Wrap effective highest (accounts for mid-zip truncation), 2) Resume from state file,
      * 3) Use --start-date, 4) Auto-detect from mirror node
      */
-    @SuppressWarnings("java:S3776") // Multiple priority levels require branching
+    @SuppressWarnings("PMD.NPathComplexity") // Multiple priority levels require branching
     private State determineStartingPoint(BlockTimeReader blockTimeReader) {
         // Priority 1: Resume from wrap state (the authoritative source, accounts for mid-zip truncation)
         long wrapEffective = computeWrapEffectiveHighest();
@@ -420,7 +420,8 @@ public class LiveSequential implements Runnable {
      * Main sequential download loop. Downloads one block at a time, validates, writes to tar.zstd,
      * and queues for wrapping.
      */
-    @SuppressWarnings("java:S3776") // Pipeline orchestration — splitting would scatter sequential logic
+    @SuppressWarnings({"PMD.NPathComplexity", "PMD.CyclomaticComplexity", "PMD.ExcessiveMethodLength"
+    }) // Pipeline orchestration — splitting would scatter sequential logic
     private void processBlocksSequentially(
             State initialState,
             AddressBookRegistry addressBookRegistry,
@@ -705,7 +706,8 @@ public class LiveSequential implements Runnable {
      * Wrap+validate consumer thread. Takes downloaded blocks from the queue, wraps them into
      * block stream format, and runs all 11 BlockValidation checks.
      */
-    @SuppressWarnings("java:S3776") // Pipeline orchestration — splitting would scatter sequential logic
+    @SuppressWarnings({"PMD.NPathComplexity", "PMD.CyclomaticComplexity", "PMD.ExcessiveMethodLength"
+    }) // Pipeline orchestration — splitting would scatter sequential logic
     private void runWrapAndValidateThread(BlockingQueue<ValidatedBlock> queue, AddressBookRegistry addressBookRegistry)
             throws Exception {
 
