@@ -190,8 +190,47 @@ public class LiveSequential implements Runnable {
             long blockNumber, Instant recordFileTime, List<InMemoryFile> files, byte[] runningHash) {}
 
     @Override
-    @SuppressWarnings({"PMD.NPathComplexity", "PMD.ExcessiveMethodLength"})
     public void run() {
+        logConfiguration();
+        try {
+            initializeDirectoriesAndDefaults();
+            final AddressBookRegistry addressBookRegistry =
+                    addressBookPath != null ? new AddressBookRegistry(addressBookPath) : new AddressBookRegistry();
+            final Storage storage = StorageOptions.http()
+                    .setProjectId(DownloadConstants.GCP_PROJECT_ID)
+                    .build()
+                    .getService();
+            final ConcurrentDownloadManagerVirtualThreadsV3 downloadManager =
+                    ConcurrentDownloadManagerVirtualThreadsV3.newBuilder(storage)
+                            .setMaxConcurrency(16)
+                            .build();
+            final BlockTimeReader blockTimeReader = new BlockTimeReader();
+            final State initialState = determineStartingPoint(blockTimeReader);
+            logStartingPoint(initialState);
+
+            final BlockingQueue<ValidatedBlock> queue = new LinkedBlockingQueue<>(32);
+            final AtomicReference<Throwable> wrapError = new AtomicReference<>(null);
+            final Thread wrapThread = startWrapThread(queue, addressBookRegistry, wrapError);
+            addShutdownHook(downloadManager);
+
+            processBlocksSequentially(
+                    initialState, addressBookRegistry, downloadManager, blockTimeReader, queue, wrapError);
+
+            queue.put(POISON_PILL);
+            wrapThread.join(60_000);
+            Throwable wrapErr = wrapError.get();
+            if (wrapErr != null) {
+                throw new IllegalStateException("Wrap+validate thread failed", wrapErr);
+            }
+            System.out.println("[live-sequential] Complete.");
+        } catch (Exception e) {
+            System.err.println("[live-sequential] Fatal error: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
+    private void logConfiguration() {
         System.out.println("[live-sequential] Starting sequential block download with inline wrapping + validation");
         System.out.println("Configuration:");
         System.out.println("  listingDir=" + listingDir);
@@ -200,101 +239,61 @@ public class LiveSequential implements Runnable {
         System.out.println("  stateJsonPath=" + stateJsonPath);
         System.out.println("  addressBookPath=" + addressBookPath);
         System.out.println("  startDate=" + (startDate != null ? startDate : "(auto-detect)"));
+    }
 
-        try {
-            // Create directories
-            Files.createDirectories(outputDir.toPath());
-            Files.createDirectories(wrapOutputDir);
-
-            // Set default state file path
-            if (stateJsonPath == null) {
-                stateJsonPath = outputDir.toPath().resolve("validateCmdStatus.json");
-            }
-            if (stateJsonPath.getParent() != null) {
-                Files.createDirectories(stateJsonPath.getParent());
-            }
-
-            // Initialize address book
-            final AddressBookRegistry addressBookRegistry =
-                    addressBookPath != null ? new AddressBookRegistry(addressBookPath) : new AddressBookRegistry();
-
-            // Use HTTP transport for stability
-            final Storage storage = StorageOptions.http()
-                    .setProjectId(DownloadConstants.GCP_PROJECT_ID)
-                    .build()
-                    .getService();
-
-            final ConcurrentDownloadManagerVirtualThreadsV3 downloadManager =
-                    ConcurrentDownloadManagerVirtualThreadsV3.newBuilder(storage)
-                            .setMaxConcurrency(16)
-                            .build();
-
-            final BlockTimeReader blockTimeReader = new BlockTimeReader();
-
-            // Stats CSV
-            if (statsCsvPath == null) {
-                statsCsvPath = outputDir.toPath().resolve("signature_statistics.csv");
-            }
-
-            // Determine starting point
-            final State initialState = determineStartingPoint(blockTimeReader);
-            System.out.println("[live-sequential] Starting from block " + initialState.blockNumber
-                    + " hash["
-                    + (initialState.endRunningHashHex != null
-                            ? initialState.endRunningHashHex.substring(
-                                    0, Math.min(8, initialState.endRunningHashHex.length()))
-                            : "null")
-                    + "]"
-                    + " day=" + initialState.dayDate);
-
-            // Create producer-consumer queue
-            final BlockingQueue<ValidatedBlock> queue = new LinkedBlockingQueue<>(32);
-            final AtomicReference<Throwable> wrapError = new AtomicReference<>(null);
-
-            // Start wrap+validate thread
-            final Thread wrapThread = new Thread(
-                    () -> {
-                        try {
-                            runWrapAndValidateThread(queue, addressBookRegistry);
-                        } catch (Throwable t) {
-                            wrapError.set(t);
-                            System.err.println("[WRAP] Fatal error in wrap+validate thread: " + t.getMessage());
-                            t.printStackTrace();
-                        }
-                    },
-                    "wrap-validate-thread");
-            wrapThread.setDaemon(true);
-            wrapThread.start();
-
-            // Add shutdown hook
-            Runtime.getRuntime()
-                    .addShutdownHook(new Thread(
-                            () -> {
-                                System.out.println("[live-sequential] Shutdown requested...");
-                                downloadManager.close();
-                            },
-                            "live-sequential-shutdown"));
-
-            // Main download loop
-            processBlocksSequentially(
-                    initialState, addressBookRegistry, downloadManager, blockTimeReader, queue, wrapError);
-
-            // Signal wrap thread to exit and wait
-            queue.put(POISON_PILL);
-            wrapThread.join(60_000);
-
-            // Check for wrap errors
-            Throwable wrapErr = wrapError.get();
-            if (wrapErr != null) {
-                throw new IllegalStateException("Wrap+validate thread failed", wrapErr);
-            }
-
-            System.out.println("[live-sequential] Complete.");
-        } catch (Exception e) {
-            System.err.println("[live-sequential] Fatal error: " + e.getMessage());
-            e.printStackTrace();
-            System.exit(1);
+    private void initializeDirectoriesAndDefaults() throws IOException {
+        Files.createDirectories(outputDir.toPath());
+        Files.createDirectories(wrapOutputDir);
+        if (stateJsonPath == null) {
+            stateJsonPath = outputDir.toPath().resolve("validateCmdStatus.json");
         }
+        if (stateJsonPath.getParent() != null) {
+            Files.createDirectories(stateJsonPath.getParent());
+        }
+        if (statsCsvPath == null) {
+            statsCsvPath = outputDir.toPath().resolve("signature_statistics.csv");
+        }
+    }
+
+    private static void logStartingPoint(State initialState) {
+        System.out.println("[live-sequential] Starting from block " + initialState.blockNumber
+                + " hash["
+                + (initialState.endRunningHashHex != null
+                        ? initialState.endRunningHashHex.substring(
+                                0, Math.min(8, initialState.endRunningHashHex.length()))
+                        : "null")
+                + "]"
+                + " day=" + initialState.dayDate);
+    }
+
+    private Thread startWrapThread(
+            BlockingQueue<ValidatedBlock> queue,
+            AddressBookRegistry addressBookRegistry,
+            AtomicReference<Throwable> wrapError) {
+        final Thread wrapThread = new Thread(
+                () -> {
+                    try {
+                        runWrapAndValidateThread(queue, addressBookRegistry);
+                    } catch (Throwable t) {
+                        wrapError.set(t);
+                        System.err.println("[WRAP] Fatal error in wrap+validate thread: " + t.getMessage());
+                        t.printStackTrace();
+                    }
+                },
+                "wrap-validate-thread");
+        wrapThread.setDaemon(true);
+        wrapThread.start();
+        return wrapThread;
+    }
+
+    private static void addShutdownHook(ConcurrentDownloadManagerVirtualThreadsV3 downloadManager) {
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            System.out.println("[live-sequential] Shutdown requested...");
+                            downloadManager.close();
+                        },
+                        "live-sequential-shutdown"));
     }
 
     /**
@@ -420,8 +419,7 @@ public class LiveSequential implements Runnable {
      * Main sequential download loop. Downloads one block at a time, validates, writes to tar.zstd,
      * and queues for wrapping.
      */
-    @SuppressWarnings({"PMD.NPathComplexity", "PMD.CyclomaticComplexity", "PMD.ExcessiveMethodLength"
-    }) // Pipeline orchestration — splitting would scatter sequential logic
+    @SuppressWarnings("PMD.NPathComplexity")
     private void processBlocksSequentially(
             State initialState,
             AddressBookRegistry addressBookRegistry,
@@ -435,27 +433,21 @@ public class LiveSequential implements Runnable {
         byte[] currentHash = initialState.getHashBytes();
         LocalDate currentDay = initialState.getDayDate();
         BlockTimeReader blockTimeReader = initialBlockTimeReader;
-
         ConcurrentTarZstdWriter currentDayWriter = null;
         long blocksProcessedTotal = 0;
         long blocksProcessedToday = 0;
         long dayStartTime = System.currentTimeMillis();
         long lastBlockTimeRefreshMs = 0;
-
-        // Cache for listing files - reload only when day changes
         List<ListingRecordFile> cachedListingFiles = null;
         LocalDate cachedListingDay = null;
-
         final NetworkConfig netConfig = NetworkConfig.current();
 
         try {
             while (true) {
-                // Check for wrap thread errors
                 Throwable wrapErr = wrapError.get();
                 if (wrapErr != null) {
                     throw new IllegalStateException("Wrap+validate thread failed, stopping download", wrapErr);
                 }
-
                 long nextBlockNumber = currentBlockNumber + 1;
 
                 // Step 1: Get block timestamp
@@ -475,43 +467,22 @@ public class LiveSequential implements Runnable {
                     Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
                     continue;
                 }
-
                 LocalDate blockDay = blockTime.toLocalDate();
 
                 // Step 2: Handle day boundary
                 if (!blockDay.equals(currentDay)) {
-                    if (currentDayWriter != null) {
-                        currentDayWriter.close();
-                        currentDayWriter = null;
-                        System.out.println("[live-sequential] Day completed: " + currentDay + " ("
-                                + blocksProcessedToday + " blocks in "
-                                + formatDuration((System.currentTimeMillis() - dayStartTime) / 1000) + ")");
-                    }
-
-                    // Start new day
+                    closeDayWriter(currentDayWriter, currentDay, blocksProcessedToday, dayStartTime);
+                    currentDayWriter = openDayWriterIfNeeded(blockDay);
                     currentDay = blockDay;
                     blocksProcessedToday = 0;
                     dayStartTime = System.currentTimeMillis();
                     cachedListingFiles = null;
                     cachedListingDay = null;
-
-                    // Only create tar writer if archive doesn't already exist
-                    Path dayArchive = outputDir.toPath().resolve(currentDay + ".tar.zstd");
-                    if (Files.exists(dayArchive)) {
-                        System.out.println(
-                                "[live-sequential] Day archive already exists, skipping tar writes: " + currentDay);
-                    } else {
-                        currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
-                    }
-
                     System.out.println("[live-sequential] Started new day: " + currentDay);
                 }
-
-                // Initialize writer if needed (first block, no day boundary crossed yet)
                 if (currentDayWriter == null && currentDay != null) {
-                    Path dayArchive = outputDir.toPath().resolve(currentDay + ".tar.zstd");
-                    if (!Files.exists(dayArchive)) {
-                        currentDayWriter = new ConcurrentTarZstdWriter(dayArchive);
+                    currentDayWriter = openDayWriterIfNeeded(currentDay);
+                    if (currentDayWriter != null) {
                         dayStartTime = System.currentTimeMillis();
                         System.out.println("[live-sequential] Started day: " + currentDay);
                     }
@@ -519,49 +490,18 @@ public class LiveSequential implements Runnable {
 
                 // Step 3: Load GCS listings if day changed
                 if (!blockDay.equals(cachedListingDay)) {
-                    int year = blockTime.getYear();
-                    int month = blockTime.getMonthValue();
-                    int day = blockTime.getDayOfMonth();
-
-                    int attempt = 0;
-                    while (true) {
-                        attempt++;
-                        refreshListingsForDay(blockDay, netConfig);
-                        try {
-                            cachedListingFiles =
-                                    DayListingFileReader.loadRecordsFileForDay(listingDir.toPath(), year, month, day);
-                            cachedListingDay = blockDay;
-                            System.out.println("[live-sequential] Loaded " + cachedListingFiles.size()
-                                    + " listing entries for " + blockDay);
-                            break;
-                        } catch (NoSuchFileException e) {
-                            System.out.println("[live-sequential] Listings not available yet for " + blockDay
-                                    + ", waiting 15 minutes... (attempt " + attempt + ")");
-                            Thread.sleep(15 * 60 * 1000);
-                        }
-                    }
+                    cachedListingFiles = loadListingsWithRetry(blockDay, blockTime, netConfig);
+                    cachedListingDay = blockDay;
                 }
 
-                // Step 4: Find files for this block
-                Map<LocalDateTime, List<ListingRecordFile>> filesByBlock =
-                        cachedListingFiles.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
-
-                List<ListingRecordFile> group = filesByBlock.get(blockTime);
-                if (group == null || group.isEmpty()) {
-                    // Refresh listings and retry
+                // Step 4: Find files for this block (refresh if not found)
+                List<ListingRecordFile> group = findBlockGroup(blockTime, cachedListingFiles);
+                if (group == null) {
                     refreshListingsForDay(blockDay, netConfig);
-                    cachedListingFiles = DayListingFileReader.loadRecordsFileForDay(
-                            listingDir.toPath(),
-                            blockTime.getYear(),
-                            blockTime.getMonthValue(),
-                            blockTime.getDayOfMonth());
+                    cachedListingFiles = reloadListings(blockTime);
                     cachedListingDay = blockDay;
-                    filesByBlock =
-                            cachedListingFiles.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
-                    group = filesByBlock.get(blockTime);
-
-                    if (group == null || group.isEmpty()) {
-                        // Try fixing block time
+                    group = findBlockGroup(blockTime, cachedListingFiles);
+                    if (group == null) {
                         System.out.println("[live-sequential] No files found for block " + nextBlockNumber + " at time "
                                 + blockTime + ", fixing block times...");
                         FixBlockTime.fixBlockTimeRange(
@@ -571,133 +511,203 @@ public class LiveSequential implements Runnable {
                     }
                 }
 
-                // If no hash yet, fetch from mirror node
-                if (currentHash == null && nextBlockNumber > 0) {
-                    System.out.println(
-                            "[live-sequential] Fetching previous hash from mirror node for block " + nextBlockNumber);
-                    try {
-                        var prevHashBytes = FetchBlockQuery.getPreviousHashForBlock(nextBlockNumber);
-                        currentHash = prevHashBytes.toByteArray();
-                        System.out.println("[live-sequential] Got previous hash: "
-                                + HexFormat.of().formatHex(currentHash).substring(0, 16) + "...");
-                    } catch (Exception e) {
-                        System.err.println(
-                                "[live-sequential] Warning: Could not fetch previous hash: " + e.getMessage());
-                    }
-                }
-
-                // Step 5: Download one block
-                ListingRecordFile mostCommonRecord =
-                        RecordFileUtils.findMostCommonByType(group, ListingRecordFile.Type.RECORD);
-                ListingRecordFile[] mostCommonSidecars = RecordFileUtils.findMostCommonSidecars(group);
-                List<ListingRecordFile> orderedFiles =
-                        DownloadDayLiveImpl.computeFilesToDownload(mostCommonRecord, mostCommonSidecars, group);
-
-                Set<ListingRecordFile> mostCommonFilesSet = new HashSet<>();
-                if (mostCommonRecord != null) mostCommonFilesSet.add(mostCommonRecord);
-                ListingRecordFile mostCommonSidecarSingle =
-                        RecordFileUtils.findMostCommonByType(group, ListingRecordFile.Type.RECORD_SIDECAR);
-                if (mostCommonSidecarSingle != null) mostCommonFilesSet.add(mostCommonSidecarSingle);
-
-                List<InMemoryFile> inMemoryFiles = new ArrayList<>();
-                for (ListingRecordFile lr : orderedFiles) {
-                    String blobName = netConfig.bucketPathPrefix() + lr.path();
-                    try {
-                        InMemoryFile downloadedFile = downloadManager
-                                .downloadAsync(netConfig.gcsBucketName(), blobName)
-                                .join();
-
-                        String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
-
-                        boolean md5Valid = checkMd5(lr.md5Hex(), downloadedFile.data());
-                        if (!md5Valid) {
-                            System.err.println("[live-sequential] MD5 mismatch for " + lr.path() + ", skipping");
-                            continue;
-                        }
-
-                        byte[] contentBytes = downloadedFile.data();
-                        if (filename.endsWith(".gz")) {
-                            contentBytes = Gzip.ungzipInMemory(contentBytes);
-                            filename = filename.replaceAll("\\.gz$", "");
-                        }
-
-                        Path newFilePath = DownloadDayLiveImpl.computeNewFilePath(lr, mostCommonFilesSet, filename);
-                        inMemoryFiles.add(new InMemoryFile(newFilePath, contentBytes));
-                    } catch (CompletionException ce) {
-                        System.err.println(
-                                "[live-sequential] Download failed for " + blobName + ": " + ce.getMessage());
-                        throw new IllegalStateException("Download failed for block " + nextBlockNumber, ce.getCause());
-                    }
-                }
-
-                // Step 6: Validate hash chain
+                // Step 5: Download, validate, write, and queue
+                currentHash = fetchPreviousHashIfNeeded(currentHash, nextBlockNumber);
+                List<InMemoryFile> inMemoryFiles =
+                        downloadBlockFiles(group, netConfig, downloadManager, nextBlockNumber);
                 byte[] newHash =
                         DownloadDayLiveImpl.validateBlockHashes(nextBlockNumber, inMemoryFiles, currentHash, null);
-
-                // Validate signatures
-                DownloadDayLiveImpl.BlockDownloadResult result =
-                        new DownloadDayLiveImpl.BlockDownloadResult(nextBlockNumber, inMemoryFiles, newHash);
+                validateBlock(addressBookRegistry, currentHash, blockTime, nextBlockNumber, inMemoryFiles, newHash);
+                assertSequentialOrdering(nextBlockNumber, currentBlockNumber);
+                writeToDayArchive(currentDayWriter, inMemoryFiles);
                 Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
-                boolean valid = fullBlockValidate(addressBookRegistry, currentHash, recordFileTime, result, null);
-                if (!valid) {
-                    throw new IllegalStateException(
-                            "Full block validation failed for block " + nextBlockNumber + " — aborting");
-                }
-
-                // Step 7: Assert sequential ordering
-                if (nextBlockNumber != currentBlockNumber + 1) {
-                    throw new IllegalStateException(
-                            "Block gap detected: expected " + (currentBlockNumber + 1) + " but got " + nextBlockNumber);
-                }
-
-                // Step 8: Write to tar.zstd archive (skip if archive already exists)
-                if (currentDayWriter != null) {
-                    for (InMemoryFile file : inMemoryFiles) {
-                        currentDayWriter.putEntry(file);
-                    }
-                }
-
-                // Step 9: Queue for wrapping
                 queue.put(new ValidatedBlock(nextBlockNumber, recordFileTime, inMemoryFiles, newHash));
 
-                // Step 10: Update state
+                // Step 6: Update state and log progress
                 currentBlockNumber = nextBlockNumber;
                 currentHash = newHash;
                 blocksProcessedTotal++;
                 blocksProcessedToday++;
-
-                // Save state every block
                 saveState(new State(currentBlockNumber, currentHash, recordFileTime, currentDay));
-
-                // Progress logging
-                if (blocksProcessedTotal % PROGRESS_LOG_INTERVAL == 0) {
-                    long elapsed = System.currentTimeMillis() - dayStartTime;
-                    double blocksPerSec = blocksProcessedToday / Math.max(1.0, elapsed / 1000.0);
-                    System.out.println("[live-sequential] Block " + currentBlockNumber + " (" + blocksProcessedToday
-                            + " today, " + String.format("%.1f", blocksPerSec) + " blocks/sec)");
-                }
+                logProgress(blocksProcessedTotal, blocksProcessedToday, currentBlockNumber, dayStartTime);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.out.println("[live-sequential] Interrupted, saving state...");
         } finally {
-            if (currentHash != null) {
-                try {
-                    LocalDateTime finalBlockTime = blockTimeReader.getBlockLocalDateTime(currentBlockNumber);
-                    Instant finalRecordTime =
-                            finalBlockTime.atZone(ZoneOffset.UTC).toInstant();
-                    saveState(new State(currentBlockNumber, currentHash, finalRecordTime, currentDay));
-                    System.out.println("[live-sequential] Saved state at block " + currentBlockNumber);
-                } catch (Exception e) {
-                    System.err.println("[live-sequential] Error saving final state: " + e.getMessage());
-                }
+            saveFinalState(currentBlockNumber, currentHash, currentDay, blockTimeReader);
+            closeQuietly(currentDayWriter);
+        }
+    }
+
+    private static void closeDayWriter(
+            ConcurrentTarZstdWriter writer, LocalDate day, long blocksToday, long dayStartTime) throws Exception {
+        if (writer != null) {
+            writer.close();
+            System.out.println("[live-sequential] Day completed: " + day + " (" + blocksToday + " blocks in "
+                    + formatDuration((System.currentTimeMillis() - dayStartTime) / 1000) + ")");
+        }
+    }
+
+    private ConcurrentTarZstdWriter openDayWriterIfNeeded(LocalDate day) throws Exception {
+        Path dayArchive = outputDir.toPath().resolve(day + ".tar.zstd");
+        if (Files.exists(dayArchive)) {
+            System.out.println("[live-sequential] Day archive already exists, skipping tar writes: " + day);
+            return null;
+        }
+        return new ConcurrentTarZstdWriter(dayArchive);
+    }
+
+    private List<ListingRecordFile> loadListingsWithRetry(
+            LocalDate blockDay, LocalDateTime blockTime, NetworkConfig netConfig) throws Exception {
+        int attempt = 0;
+        while (true) {
+            attempt++;
+            refreshListingsForDay(blockDay, netConfig);
+            try {
+                List<ListingRecordFile> listings = DayListingFileReader.loadRecordsFileForDay(
+                        listingDir.toPath(), blockTime.getYear(), blockTime.getMonthValue(), blockTime.getDayOfMonth());
+                System.out.println("[live-sequential] Loaded " + listings.size() + " listing entries for " + blockDay);
+                return listings;
+            } catch (NoSuchFileException e) {
+                System.out.println("[live-sequential] Listings not available yet for " + blockDay
+                        + ", waiting 15 minutes... (attempt " + attempt + ")");
+                Thread.sleep(15 * 60 * 1000);
             }
-            if (currentDayWriter != null) {
-                try {
-                    currentDayWriter.close();
-                } catch (Exception e) {
-                    System.err.println("[live-sequential] Error closing writer: " + e.getMessage());
+        }
+    }
+
+    private List<ListingRecordFile> reloadListings(LocalDateTime blockTime) throws Exception {
+        return DayListingFileReader.loadRecordsFileForDay(
+                listingDir.toPath(), blockTime.getYear(), blockTime.getMonthValue(), blockTime.getDayOfMonth());
+    }
+
+    private static List<ListingRecordFile> findBlockGroup(LocalDateTime blockTime, List<ListingRecordFile> listings) {
+        Map<LocalDateTime, List<ListingRecordFile>> filesByBlock =
+                listings.stream().collect(Collectors.groupingBy(ListingRecordFile::timestamp));
+        List<ListingRecordFile> group = filesByBlock.get(blockTime);
+        return (group == null || group.isEmpty()) ? null : group;
+    }
+
+    private static byte[] fetchPreviousHashIfNeeded(byte[] currentHash, long nextBlockNumber) {
+        if (currentHash == null && nextBlockNumber > 0) {
+            System.out.println(
+                    "[live-sequential] Fetching previous hash from mirror node for block " + nextBlockNumber);
+            try {
+                var prevHashBytes = FetchBlockQuery.getPreviousHashForBlock(nextBlockNumber);
+                byte[] hash = prevHashBytes.toByteArray();
+                System.out.println("[live-sequential] Got previous hash: "
+                        + HexFormat.of().formatHex(hash).substring(0, 16) + "...");
+                return hash;
+            } catch (Exception e) {
+                System.err.println("[live-sequential] Warning: Could not fetch previous hash: " + e.getMessage());
+            }
+        }
+        return currentHash;
+    }
+
+    private List<InMemoryFile> downloadBlockFiles(
+            List<ListingRecordFile> group,
+            NetworkConfig netConfig,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            long blockNumber)
+            throws Exception {
+        ListingRecordFile mostCommonRecord = RecordFileUtils.findMostCommonByType(group, ListingRecordFile.Type.RECORD);
+        ListingRecordFile[] mostCommonSidecars = RecordFileUtils.findMostCommonSidecars(group);
+        List<ListingRecordFile> orderedFiles =
+                DownloadDayLiveImpl.computeFilesToDownload(mostCommonRecord, mostCommonSidecars, group);
+        Set<ListingRecordFile> mostCommonFilesSet = new HashSet<>();
+        if (mostCommonRecord != null) mostCommonFilesSet.add(mostCommonRecord);
+        ListingRecordFile mostCommonSidecarSingle =
+                RecordFileUtils.findMostCommonByType(group, ListingRecordFile.Type.RECORD_SIDECAR);
+        if (mostCommonSidecarSingle != null) mostCommonFilesSet.add(mostCommonSidecarSingle);
+
+        List<InMemoryFile> inMemoryFiles = new ArrayList<>();
+        for (ListingRecordFile lr : orderedFiles) {
+            String blobName = netConfig.bucketPathPrefix() + lr.path();
+            try {
+                InMemoryFile downloadedFile = downloadManager
+                        .downloadAsync(netConfig.gcsBucketName(), blobName)
+                        .join();
+                String filename = lr.path().substring(lr.path().lastIndexOf('/') + 1);
+                if (!checkMd5(lr.md5Hex(), downloadedFile.data())) {
+                    System.err.println("[live-sequential] MD5 mismatch for " + lr.path() + ", skipping");
+                    continue;
                 }
+                byte[] contentBytes = downloadedFile.data();
+                if (filename.endsWith(".gz")) {
+                    contentBytes = Gzip.ungzipInMemory(contentBytes);
+                    filename = filename.replaceAll("\\.gz$", "");
+                }
+                Path newFilePath = DownloadDayLiveImpl.computeNewFilePath(lr, mostCommonFilesSet, filename);
+                inMemoryFiles.add(new InMemoryFile(newFilePath, contentBytes));
+            } catch (CompletionException ce) {
+                System.err.println("[live-sequential] Download failed for " + blobName + ": " + ce.getMessage());
+                throw new IllegalStateException("Download failed for block " + blockNumber, ce.getCause());
+            }
+        }
+        return inMemoryFiles;
+    }
+
+    private static void validateBlock(
+            AddressBookRegistry addressBookRegistry,
+            byte[] currentHash,
+            LocalDateTime blockTime,
+            long blockNumber,
+            List<InMemoryFile> files,
+            byte[] newHash)
+            throws Exception {
+        DownloadDayLiveImpl.BlockDownloadResult result =
+                new DownloadDayLiveImpl.BlockDownloadResult(blockNumber, files, newHash);
+        Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
+        if (!fullBlockValidate(addressBookRegistry, currentHash, recordFileTime, result, null)) {
+            throw new IllegalStateException("Full block validation failed for block " + blockNumber + " — aborting");
+        }
+    }
+
+    private static void assertSequentialOrdering(long nextBlockNumber, long currentBlockNumber) {
+        if (nextBlockNumber != currentBlockNumber + 1) {
+            throw new IllegalStateException(
+                    "Block gap detected: expected " + (currentBlockNumber + 1) + " but got " + nextBlockNumber);
+        }
+    }
+
+    private static void writeToDayArchive(ConcurrentTarZstdWriter writer, List<InMemoryFile> files) throws IOException {
+        if (writer != null) {
+            for (InMemoryFile file : files) {
+                writer.putEntry(file);
+            }
+        }
+    }
+
+    private static void logProgress(long total, long today, long blockNumber, long dayStartTime) {
+        if (total % PROGRESS_LOG_INTERVAL == 0) {
+            long elapsed = System.currentTimeMillis() - dayStartTime;
+            double blocksPerSec = today / Math.max(1.0, elapsed / 1000.0);
+            System.out.println("[live-sequential] Block " + blockNumber + " (" + today + " today, "
+                    + String.format("%.1f", blocksPerSec) + " blocks/sec)");
+        }
+    }
+
+    private void saveFinalState(long blockNumber, byte[] hash, LocalDate day, BlockTimeReader blockTimeReader) {
+        if (hash != null) {
+            try {
+                LocalDateTime finalBlockTime = blockTimeReader.getBlockLocalDateTime(blockNumber);
+                Instant finalRecordTime = finalBlockTime.atZone(ZoneOffset.UTC).toInstant();
+                saveState(new State(blockNumber, hash, finalRecordTime, day));
+                System.out.println("[live-sequential] Saved state at block " + blockNumber);
+            } catch (Exception e) {
+                System.err.println("[live-sequential] Error saving final state: " + e.getMessage());
+            }
+        }
+    }
+
+    private static void closeQuietly(ConcurrentTarZstdWriter writer) {
+        if (writer != null) {
+            try {
+                writer.close();
+            } catch (Exception e) {
+                System.err.println("[live-sequential] Error closing writer: " + e.getMessage());
             }
         }
     }
@@ -706,12 +716,10 @@ public class LiveSequential implements Runnable {
      * Wrap+validate consumer thread. Takes downloaded blocks from the queue, wraps them into
      * block stream format, and runs all 11 BlockValidation checks.
      */
-    @SuppressWarnings({"PMD.NPathComplexity", "PMD.CyclomaticComplexity", "PMD.ExcessiveMethodLength"
-    }) // Pipeline orchestration — splitting would scatter sequential logic
+    @SuppressWarnings("PMD.NPathComplexity")
     private void runWrapAndValidateThread(BlockingQueue<ValidatedBlock> queue, AddressBookRegistry addressBookRegistry)
             throws Exception {
 
-        // Initialize wrapping state
         final Path hashRegistryPath = wrapOutputDir.resolve("blockStreamBlockHashes.bin");
         final Path streamingMerkleTreeFile = wrapOutputDir.resolve("streamingMerkleTree.bin");
         final Path watermarkFile = wrapOutputDir.resolve("wrap-commit.bin");
@@ -720,8 +728,6 @@ public class LiveSequential implements Runnable {
 
         Files.createDirectories(wrapOutputDir);
         Files.createDirectories(checkpointDir);
-
-        // Copy address book to wrap output if needed
         if (!Files.exists(addressBookFile) && addressBookPath != null && Files.exists(addressBookPath)) {
             Files.copy(addressBookPath, addressBookFile);
         }
@@ -730,136 +736,29 @@ public class LiveSequential implements Runnable {
                 createAmendmentProvider(NetworkConfig.current().networkName());
 
         try (BlockStreamBlockHashRegistry blockRegistry = new BlockStreamBlockHashRegistry(hashRegistryPath)) {
-
-            // Load watermark and reconcile
-            long watermark = loadWatermark(watermarkFile);
-            long registryHighest = blockRegistry.highestBlockNumberStored();
-
-            if (watermark >= 0 && registryHighest > watermark) {
-                System.out.println(
-                        "[WRAP] Registry at " + registryHighest + " but watermark at " + watermark + "; truncating.");
-                blockRegistry.truncateTo(watermark);
-            } else if (watermark < 0 && registryHighest >= 0) {
-                watermark = registryHighest;
-            }
-
-            long effectiveHighest = blockRegistry.highestBlockNumberStored();
-
-            // Mid-zip resume: back up to zip range start if needed
-            if (effectiveHighest >= 0) {
-                long zipRangeFirst = BlockWriter.zipRangeFirstBlock(effectiveHighest, DEFAULT_POWERS_OF_TEN_PER_ZIP);
-                long blocksPerZip = (long) Math.pow(10, DEFAULT_POWERS_OF_TEN_PER_ZIP);
-                long zipRangeLast = zipRangeFirst + blocksPerZip - 1;
-                if (effectiveHighest < zipRangeLast) {
-                    long truncateTo = zipRangeFirst - 1;
-                    System.out.println("[WRAP] Mid-zip resume: truncating to " + truncateTo);
-                    BlockPath partialZipPath = BlockWriter.computeBlockPath(
-                            wrapOutputDir, effectiveHighest, BlockArchiveType.UNCOMPRESSED_ZIP);
-                    Files.deleteIfExists(partialZipPath.zipFilePath());
-                    blockRegistry.truncateTo(truncateTo);
-                    saveWatermark(watermarkFile, truncateTo);
-                    effectiveHighest = blockRegistry.highestBlockNumberStored();
-                }
-            }
+            long[] state = reconcileWrapState(blockRegistry, watermarkFile);
+            long effectiveHighest = state[0];
+            long watermark = state[1];
 
             System.out.println("[WRAP] Starting from block: " + effectiveHighest);
+            final StreamingHasher streamingHasher = replayHasher(blockRegistry, effectiveHighest);
 
-            // Create streaming hasher and replay from registry
-            final StreamingHasher streamingHasher = new StreamingHasher();
-            if (effectiveHighest >= 0) {
-                System.out.println("[WRAP] Replaying " + (effectiveHighest + 1) + " block hashes into hasher");
-                for (long bn = 0; bn <= effectiveHighest; bn++) {
-                    byte[] hash = blockRegistry.getBlockHash(bn);
-                    streamingHasher.addNodeByHash(hash);
-                }
-                System.out.println("[WRAP] Hasher replay complete. leafCount=" + streamingHasher.leafCount());
-            }
-
-            // Build validation list (same as ValidateBlocksCommand)
             BlockChainValidation chainValidation = new BlockChainValidation();
-            HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chainValidation);
-            HbarSupplyValidation supplyValidation = new HbarSupplyValidation();
-
-            List<BlockValidation> parallelValidations = new ArrayList<>();
-            parallelValidations.add(new RequiredItemsValidation());
-            parallelValidations.add(new BlockStructureValidation());
-            SignatureValidation signatureValidation = new SignatureValidation(addressBookRegistry);
-            parallelValidations.add(signatureValidation);
-
-            List<BlockValidation> sequentialValidations = new ArrayList<>();
-            sequentialValidations.add(new AddressBookUpdateValidation(addressBookRegistry));
-            sequentialValidations.add(chainValidation);
-            sequentialValidations.add(treeValidation);
-            sequentialValidations.add(supplyValidation);
-            sequentialValidations.add(new HashRegistryValidation(blockRegistry, chainValidation));
-            sequentialValidations.add(new StreamingMerkleTreeValidation(streamingMerkleTreeFile, treeValidation));
-            Path jumpstartPath = wrapOutputDir.resolve("jumpstart.bin");
-            sequentialValidations.add(new JumpstartValidation(jumpstartPath, treeValidation, blockRegistry));
-
+            List<BlockValidation> parallelValidations = buildParallelValidations(addressBookRegistry);
+            List<BlockValidation> sequentialValidations = buildSequentialValidations(
+                    addressBookRegistry, blockRegistry, chainValidation, streamingMerkleTreeFile);
             List<BlockValidation> allValidations = new ArrayList<>();
             allValidations.addAll(parallelValidations);
             allValidations.addAll(sequentialValidations);
 
-            // Filter out genesis-required validations when not starting from block 0
-            boolean startingFromGenesis = (effectiveHighest < 0);
-            if (!startingFromGenesis) {
-                // Try to load checkpoint state, but only if it's not ahead of the wrap state.
-                // Mid-zip truncation can push effectiveHighest behind the checkpoint — loading
-                // a checkpoint that is ahead would cause hash mismatches.
-                boolean hasCheckpoint = false;
-                try {
-                    Path progressFile = checkpointDir.resolve("validateProgress.json");
-                    if (Files.exists(progressFile)) {
-                        String cpJson = Files.readString(progressFile, StandardCharsets.UTF_8);
-                        com.google.gson.JsonObject cpRoot =
-                                com.google.gson.JsonParser.parseString(cpJson).getAsJsonObject();
-                        long cpBlock = cpRoot.get("lastValidatedBlockNumber").getAsLong();
+            initializeCheckpointState(
+                    effectiveHighest,
+                    checkpointDir,
+                    blockRegistry,
+                    chainValidation,
+                    sequentialValidations,
+                    allValidations);
 
-                        if (cpBlock <= effectiveHighest) {
-                            for (BlockValidation v : allValidations) {
-                                try {
-                                    v.load(checkpointDir);
-                                } catch (Exception e) {
-                                    System.err.println(
-                                            "[WRAP] Warning: could not load " + v.name() + " state: " + e.getMessage());
-                                }
-                            }
-                            hasCheckpoint = true;
-                        } else {
-                            System.out.println("[WRAP] Validate checkpoint (block " + cpBlock
-                                    + ") is ahead of wrap effective highest (" + effectiveHighest
-                                    + "); skipping checkpoint load");
-                            // Initialize chain validation from block hash registry so it
-                            // doesn't treat the first block as genesis
-                            byte[] lastHash = blockRegistry.getBlockHash(effectiveHighest);
-                            if (lastHash != null) {
-                                chainValidation.setPreviousBlockHash(lastHash);
-                                System.out.println("[WRAP] Initialized chain validation from registry at block "
-                                        + effectiveHighest);
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    System.err.println("[WRAP] Warning: could not load checkpoint: " + e.getMessage());
-                }
-
-                if (!hasCheckpoint) {
-                    List<BlockValidation> genesisSkipped = new ArrayList<>();
-                    sequentialValidations.removeIf(v -> {
-                        if (v.requiresGenesisStart()) {
-                            genesisSkipped.add(v);
-                            return true;
-                        }
-                        return false;
-                    });
-                    allValidations.removeIf(genesisSkipped::contains);
-                    for (BlockValidation skipped : genesisSkipped) {
-                        System.out.println("[WRAP] Skipping: " + skipped.name() + " (requires genesis start)");
-                    }
-                }
-            }
-
-            // Zip writing state
             BlockZipAppender currentZip = null;
             Path currentZipPath = null;
             long durableWatermark = watermark;
@@ -870,51 +769,11 @@ public class LiveSequential implements Runnable {
             try {
                 while (true) {
                     ValidatedBlock vb = queue.take();
-                    if (vb == POISON_PILL) {
-                        break;
-                    }
-
+                    if (vb == POISON_PILL) break;
                     long blockNum = vb.blockNumber();
+                    if (blockNum <= effectiveHighest) continue;
 
-                    // Skip if already wrapped
-                    if (blockNum <= effectiveHighest) {
-                        continue;
-                    }
-
-                    // Classify files and build UnparsedRecordBlock
-                    DownloadDayLiveImpl.BlockDownloadResult downloadResult =
-                            new DownloadDayLiveImpl.BlockDownloadResult(blockNum, vb.files(), vb.runningHash());
-                    InMemoryFile primaryRecord = findPrimaryRecord(downloadResult);
-                    List<InMemoryFile> signatures = findSignatures(downloadResult);
-                    List<InMemoryFile> sidecars = findSidecars(downloadResult, primaryRecord);
-
-                    if (primaryRecord == null) {
-                        throw new IllegalStateException("No primary record found for block " + blockNum);
-                    }
-
-                    UnparsedRecordBlock unparsedBlock = UnparsedRecordBlock.newInMemoryBlock(
-                            vb.recordFileTime(), primaryRecord, List.of(), signatures, sidecars, List.of());
-
-                    // Parse and verify signatures
-                    ParsedRecordBlock parsedBlock = unparsedBlock.parse();
-                    NodeAddressBook ab = addressBookRegistry.getAddressBookForBlock(parsedBlock.blockTime());
-                    byte[] signedHash = parsedBlock.recordFile().signedHash();
-                    List<RecordFileSignature> verifiedSigs = parsedBlock.signatureFiles().stream()
-                            .filter(psf -> psf.isValid(signedHash, ab))
-                            .map(psf -> psf.toRecordFileSignature(ab))
-                            .toList();
-
-                    PreVerifiedBlock preVerified = new PreVerifiedBlock(parsedBlock, ab, verifiedSigs);
-
-                    // Address book auto-update
-                    try {
-                        preVerified = updateAddressBookAndReverify(preVerified, blockNum, addressBookRegistry);
-                    } catch (Exception e) {
-                        System.err.printf(
-                                "[WRAP] Warning: address book auto-update failed at block %d: %s%n", blockNum, e);
-                    }
-
-                    // Convert to wrapped block
+                    PreVerifiedBlock preVerified = parseAndVerifyBlock(vb, addressBookRegistry, blockNum);
                     Block wrapped = RecordBlockConverter.toBlock(
                             preVerified,
                             blockNum,
@@ -922,19 +781,15 @@ public class LiveSequential implements Runnable {
                             streamingHasher.computeRootHash(),
                             amendmentProvider);
 
-                    // Hash and update chain state
                     byte[] blockStreamBlockHash = hashBlock(wrapped);
                     streamingHasher.addNodeByHash(blockStreamBlockHash);
                     blockRegistry.addBlock(blockNum, blockStreamBlockHash);
 
-                    // Compute block path and write to zip
+                    // Write to zip archive
                     BlockPath blockPath =
                             BlockWriter.computeBlockPath(wrapOutputDir, blockNum, BlockArchiveType.UNCOMPRESSED_ZIP);
                     Files.createDirectories(blockPath.dirPath());
-
                     byte[] serializedBytes = BlockWriter.serializeBlockToBytes(wrapped, DEFAULT_COMPRESSION);
-
-                    // Switch zip file if needed
                     if (!blockPath.zipFilePath().equals(currentZipPath)) {
                         if (currentZip != null) {
                             currentZip.close();
@@ -945,7 +800,6 @@ public class LiveSequential implements Runnable {
                         currentZipPath = blockPath.zipFilePath();
                     }
                     BlockWriter.writeBlockEntry(currentZip, blockPath, serializedBytes);
-
                     durableWatermark = blockNum;
                     blocksSinceWatermarkFlush++;
                     if (blocksSinceWatermarkFlush >= WATERMARK_BATCH_SIZE) {
@@ -953,57 +807,27 @@ public class LiveSequential implements Runnable {
                         blocksSinceWatermarkFlush = 0;
                     }
 
-                    // Run BlockValidation checks
-                    // Convert Block to BlockUnparsed for validation
-                    Bytes wrappedBytes = Block.PROTOBUF.toBytes(wrapped);
-                    BlockUnparsed blockUnparsed = BlockUnparsed.PROTOBUF.parse(wrappedBytes);
-
-                    // Phase 1: Parallel validations
-                    for (BlockValidation v : parallelValidations) {
-                        try {
-                            v.validate(blockUnparsed, blockNum);
-                        } catch (ValidationException e) {
-                            throw new IllegalStateException(
-                                    "Validation '" + v.name() + "' failed at block " + blockNum + ": " + e.getMessage(),
-                                    e);
-                        }
-                    }
-
-                    // Phase 2: Sequential validations
-                    for (BlockValidation v : sequentialValidations) {
-                        try {
-                            v.validate(blockUnparsed, blockNum);
-                        } catch (ValidationException e) {
-                            // Save checkpoint before failing
-                            saveValidationCheckpoint(checkpointDir, blockNum - 1, allValidations);
-                            throw new IllegalStateException(
-                                    "Validation '" + v.name() + "' failed at block " + blockNum + ": " + e.getMessage(),
-                                    e);
-                        }
-                    }
-
-                    // Phase 3: Commit state for all validations
-                    for (BlockValidation v : allValidations) {
-                        v.commitState(blockUnparsed, blockNum);
-                    }
-
+                    // Validate wrapped block
+                    runBlockValidations(
+                            wrapped,
+                            blockNum,
+                            parallelValidations,
+                            sequentialValidations,
+                            allValidations,
+                            checkpointDir);
                     blocksValidated++;
 
-                    // Periodic checkpoint save
-                    long nowMs = System.currentTimeMillis();
-                    if (nowMs - lastCheckpointSaveMs >= 60_000L) {
+                    if (System.currentTimeMillis() - lastCheckpointSaveMs >= 60_000L) {
                         saveValidationCheckpoint(checkpointDir, blockNum, allValidations);
-                        lastCheckpointSaveMs = nowMs;
+                        lastCheckpointSaveMs = System.currentTimeMillis();
                     }
-
-                    // Progress
                     if (blocksValidated % PROGRESS_LOG_INTERVAL == 0) {
-                        System.out.println("[WRAP] Wrapped + validated block " + blockNum + " (" + blocksValidated
-                                + " total, sigs=" + verifiedSigs.size() + ")");
+                        System.out.println("[WRAP] Wrapped + validated block " + blockNum + " ("
+                                + blocksValidated + " total, sigs="
+                                + preVerified.verifiedSignatures().size() + ")");
                     }
                 }
             } finally {
-                // Close zip and save state
                 if (currentZip != null) {
                     try {
                         currentZip.close();
@@ -1014,17 +838,205 @@ public class LiveSequential implements Runnable {
                 saveWatermark(watermarkFile, durableWatermark);
                 saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
                 addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-
-                // Save validation checkpoint
                 saveValidationCheckpoint(checkpointDir, durableWatermark, allValidations);
-
-                // Close all validations
-                for (BlockValidation v : allValidations) {
-                    v.close();
-                }
-
+                for (BlockValidation v : allValidations) v.close();
                 System.out.println("[WRAP] Shutdown complete. Wrapped " + blocksValidated + " blocks.");
             }
+        }
+    }
+
+    private long[] reconcileWrapState(BlockStreamBlockHashRegistry blockRegistry, Path watermarkFile)
+            throws IOException {
+        long watermark = loadWatermark(watermarkFile);
+        long registryHighest = blockRegistry.highestBlockNumberStored();
+
+        if (watermark >= 0 && registryHighest > watermark) {
+            System.out.println(
+                    "[WRAP] Registry at " + registryHighest + " but watermark at " + watermark + "; truncating.");
+            blockRegistry.truncateTo(watermark);
+        } else if (watermark < 0 && registryHighest >= 0) {
+            watermark = registryHighest;
+        }
+
+        long effectiveHighest = blockRegistry.highestBlockNumberStored();
+        if (effectiveHighest >= 0) {
+            long zipRangeFirst = BlockWriter.zipRangeFirstBlock(effectiveHighest, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+            long blocksPerZip = (long) Math.pow(10, DEFAULT_POWERS_OF_TEN_PER_ZIP);
+            long zipRangeLast = zipRangeFirst + blocksPerZip - 1;
+            if (effectiveHighest < zipRangeLast) {
+                long truncateTo = zipRangeFirst - 1;
+                System.out.println("[WRAP] Mid-zip resume: truncating to " + truncateTo);
+                BlockPath partialZipPath = BlockWriter.computeBlockPath(
+                        wrapOutputDir, effectiveHighest, BlockArchiveType.UNCOMPRESSED_ZIP);
+                Files.deleteIfExists(partialZipPath.zipFilePath());
+                blockRegistry.truncateTo(truncateTo);
+                saveWatermark(watermarkFile, truncateTo);
+                effectiveHighest = blockRegistry.highestBlockNumberStored();
+            }
+        }
+        return new long[] {effectiveHighest, watermark};
+    }
+
+    private static StreamingHasher replayHasher(BlockStreamBlockHashRegistry blockRegistry, long effectiveHighest) {
+        StreamingHasher streamingHasher = new StreamingHasher();
+        if (effectiveHighest >= 0) {
+            System.out.println("[WRAP] Replaying " + (effectiveHighest + 1) + " block hashes into hasher");
+            for (long bn = 0; bn <= effectiveHighest; bn++) {
+                streamingHasher.addNodeByHash(blockRegistry.getBlockHash(bn));
+            }
+            System.out.println("[WRAP] Hasher replay complete. leafCount=" + streamingHasher.leafCount());
+        }
+        return streamingHasher;
+    }
+
+    private static List<BlockValidation> buildParallelValidations(AddressBookRegistry addressBookRegistry) {
+        List<BlockValidation> validations = new ArrayList<>();
+        validations.add(new RequiredItemsValidation());
+        validations.add(new BlockStructureValidation());
+        validations.add(new SignatureValidation(addressBookRegistry));
+        return validations;
+    }
+
+    private List<BlockValidation> buildSequentialValidations(
+            AddressBookRegistry addressBookRegistry,
+            BlockStreamBlockHashRegistry blockRegistry,
+            BlockChainValidation chainValidation,
+            Path streamingMerkleTreeFile) {
+        HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chainValidation);
+        List<BlockValidation> validations = new ArrayList<>();
+        validations.add(new AddressBookUpdateValidation(addressBookRegistry));
+        validations.add(chainValidation);
+        validations.add(treeValidation);
+        validations.add(new HbarSupplyValidation());
+        validations.add(new HashRegistryValidation(blockRegistry, chainValidation));
+        validations.add(new StreamingMerkleTreeValidation(streamingMerkleTreeFile, treeValidation));
+        Path jumpstartPath = wrapOutputDir.resolve("jumpstart.bin");
+        validations.add(new JumpstartValidation(jumpstartPath, treeValidation, blockRegistry));
+        return validations;
+    }
+
+    @SuppressWarnings("PMD.NPathComplexity")
+    private static void initializeCheckpointState(
+            long effectiveHighest,
+            Path checkpointDir,
+            BlockStreamBlockHashRegistry blockRegistry,
+            BlockChainValidation chainValidation,
+            List<BlockValidation> sequentialValidations,
+            List<BlockValidation> allValidations) {
+        if (effectiveHighest < 0) return; // starting from genesis
+
+        boolean hasCheckpoint = false;
+        try {
+            Path progressFile = checkpointDir.resolve("validateProgress.json");
+            if (Files.exists(progressFile)) {
+                String cpJson = Files.readString(progressFile, StandardCharsets.UTF_8);
+                com.google.gson.JsonObject cpRoot =
+                        com.google.gson.JsonParser.parseString(cpJson).getAsJsonObject();
+                long cpBlock = cpRoot.get("lastValidatedBlockNumber").getAsLong();
+
+                if (cpBlock <= effectiveHighest) {
+                    for (BlockValidation v : allValidations) {
+                        try {
+                            v.load(checkpointDir);
+                        } catch (Exception e) {
+                            System.err.println(
+                                    "[WRAP] Warning: could not load " + v.name() + " state: " + e.getMessage());
+                        }
+                    }
+                    hasCheckpoint = true;
+                } else {
+                    System.out.println("[WRAP] Validate checkpoint (block " + cpBlock
+                            + ") is ahead of wrap effective highest (" + effectiveHighest
+                            + "); skipping checkpoint load");
+                    byte[] lastHash = blockRegistry.getBlockHash(effectiveHighest);
+                    if (lastHash != null) {
+                        chainValidation.setPreviousBlockHash(lastHash);
+                        System.out.println(
+                                "[WRAP] Initialized chain validation from registry at block " + effectiveHighest);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[WRAP] Warning: could not load checkpoint: " + e.getMessage());
+        }
+
+        if (!hasCheckpoint) {
+            List<BlockValidation> genesisSkipped = new ArrayList<>();
+            sequentialValidations.removeIf(v -> {
+                if (v.requiresGenesisStart()) {
+                    genesisSkipped.add(v);
+                    return true;
+                }
+                return false;
+            });
+            allValidations.removeIf(genesisSkipped::contains);
+            for (BlockValidation skipped : genesisSkipped) {
+                System.out.println("[WRAP] Skipping: " + skipped.name() + " (requires genesis start)");
+            }
+        }
+    }
+
+    private PreVerifiedBlock parseAndVerifyBlock(
+            ValidatedBlock vb, AddressBookRegistry addressBookRegistry, long blockNum) throws Exception {
+        DownloadDayLiveImpl.BlockDownloadResult downloadResult =
+                new DownloadDayLiveImpl.BlockDownloadResult(blockNum, vb.files(), vb.runningHash());
+        InMemoryFile primaryRecord = findPrimaryRecord(downloadResult);
+        List<InMemoryFile> signatures = findSignatures(downloadResult);
+        List<InMemoryFile> sidecars = findSidecars(downloadResult, primaryRecord);
+
+        if (primaryRecord == null) {
+            throw new IllegalStateException("No primary record found for block " + blockNum);
+        }
+
+        UnparsedRecordBlock unparsedBlock = UnparsedRecordBlock.newInMemoryBlock(
+                vb.recordFileTime(), primaryRecord, List.of(), signatures, sidecars, List.of());
+        ParsedRecordBlock parsedBlock = unparsedBlock.parse();
+        NodeAddressBook ab = addressBookRegistry.getAddressBookForBlock(parsedBlock.blockTime());
+        byte[] signedHash = parsedBlock.recordFile().signedHash();
+        List<RecordFileSignature> verifiedSigs = parsedBlock.signatureFiles().stream()
+                .filter(psf -> psf.isValid(signedHash, ab))
+                .map(psf -> psf.toRecordFileSignature(ab))
+                .toList();
+
+        PreVerifiedBlock preVerified = new PreVerifiedBlock(parsedBlock, ab, verifiedSigs);
+        try {
+            preVerified = updateAddressBookAndReverify(preVerified, blockNum, addressBookRegistry);
+        } catch (Exception e) {
+            System.err.printf("[WRAP] Warning: address book auto-update failed at block %d: %s%n", blockNum, e);
+        }
+        return preVerified;
+    }
+
+    private static void runBlockValidations(
+            Block wrapped,
+            long blockNum,
+            List<BlockValidation> parallelValidations,
+            List<BlockValidation> sequentialValidations,
+            List<BlockValidation> allValidations,
+            Path checkpointDir)
+            throws Exception {
+        Bytes wrappedBytes = Block.PROTOBUF.toBytes(wrapped);
+        BlockUnparsed blockUnparsed = BlockUnparsed.PROTOBUF.parse(wrappedBytes);
+
+        for (BlockValidation v : parallelValidations) {
+            try {
+                v.validate(blockUnparsed, blockNum);
+            } catch (ValidationException e) {
+                throw new IllegalStateException(
+                        "Validation '" + v.name() + "' failed at block " + blockNum + ": " + e.getMessage(), e);
+            }
+        }
+        for (BlockValidation v : sequentialValidations) {
+            try {
+                v.validate(blockUnparsed, blockNum);
+            } catch (ValidationException e) {
+                saveValidationCheckpoint(checkpointDir, blockNum - 1, allValidations);
+                throw new IllegalStateException(
+                        "Validation '" + v.name() + "' failed at block " + blockNum + ": " + e.getMessage(), e);
+            }
+        }
+        for (BlockValidation v : allValidations) {
+            v.commitState(blockUnparsed, blockNum);
         }
     }
 
