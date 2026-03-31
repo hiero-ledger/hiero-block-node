@@ -450,11 +450,9 @@ public class LiveSequential implements Runnable {
                 }
                 long nextBlockNumber = currentBlockNumber + 1;
 
-                // Step 1: Get block timestamp
-                LocalDateTime blockTime;
-                try {
-                    blockTime = blockTimeReader.getBlockLocalDateTime(nextBlockNumber);
-                } catch (Exception e) {
+                // Step 1: Get block timestamp (poll if not yet available)
+                LocalDateTime blockTime = resolveBlockTime(blockTimeReader, nextBlockNumber);
+                if (blockTime == null) {
                     long now = System.currentTimeMillis();
                     if (now - lastBlockTimeRefreshMs >= MIN_BLOCK_TIME_REFRESH_INTERVAL_MS) {
                         System.out.println(
@@ -469,7 +467,7 @@ public class LiveSequential implements Runnable {
                 }
                 LocalDate blockDay = blockTime.toLocalDate();
 
-                // Step 2: Handle day boundary
+                // Step 2: Handle day boundary and initialize writer
                 if (!blockDay.equals(currentDay)) {
                     closeDayWriter(currentDayWriter, currentDay, blocksProcessedToday, dayStartTime);
                     currentDayWriter = openDayWriterIfNeeded(blockDay);
@@ -479,8 +477,7 @@ public class LiveSequential implements Runnable {
                     cachedListingFiles = null;
                     cachedListingDay = null;
                     System.out.println("[live-sequential] Started new day: " + currentDay);
-                }
-                if (currentDayWriter == null && currentDay != null) {
+                } else if (currentDayWriter == null && currentDay != null) {
                     currentDayWriter = openDayWriterIfNeeded(currentDay);
                     if (currentDayWriter != null) {
                         dayStartTime = System.currentTimeMillis();
@@ -488,30 +485,21 @@ public class LiveSequential implements Runnable {
                     }
                 }
 
-                // Step 3: Load GCS listings if day changed
+                // Step 3: Load/refresh GCS listings and find files for this block
                 if (!blockDay.equals(cachedListingDay)) {
                     cachedListingFiles = loadListingsWithRetry(blockDay, blockTime, netConfig);
                     cachedListingDay = blockDay;
                 }
-
-                // Step 4: Find files for this block (refresh if not found)
-                List<ListingRecordFile> group = findBlockGroup(blockTime, cachedListingFiles);
+                List<ListingRecordFile> group =
+                        findBlockGroupWithRefresh(blockTime, blockDay, nextBlockNumber, cachedListingFiles, netConfig);
                 if (group == null) {
-                    refreshListingsForDay(blockDay, netConfig);
-                    cachedListingFiles = reloadListings(blockTime);
-                    cachedListingDay = blockDay;
-                    group = findBlockGroup(blockTime, cachedListingFiles);
-                    if (group == null) {
-                        System.out.println("[live-sequential] No files found for block " + nextBlockNumber + " at time "
-                                + blockTime + ", fixing block times...");
-                        FixBlockTime.fixBlockTimeRange(
-                                MetadataFiles.BLOCK_TIMES_FILE, nextBlockNumber, nextBlockNumber + 100);
-                        blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
-                        continue;
-                    }
+                    blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                    continue;
                 }
+                cachedListingFiles = reloadListings(blockTime); // keep cache in sync after refresh
+                cachedListingDay = blockDay;
 
-                // Step 5: Download, validate, write, and queue
+                // Step 4: Download, validate, write, and queue
                 currentHash = fetchPreviousHashIfNeeded(currentHash, nextBlockNumber);
                 List<InMemoryFile> inMemoryFiles =
                         downloadBlockFiles(group, netConfig, downloadManager, nextBlockNumber);
@@ -523,7 +511,7 @@ public class LiveSequential implements Runnable {
                 Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
                 queue.put(new ValidatedBlock(nextBlockNumber, recordFileTime, inMemoryFiles, newHash));
 
-                // Step 6: Update state and log progress
+                // Step 5: Update state and log progress
                 currentBlockNumber = nextBlockNumber;
                 currentHash = newHash;
                 blocksProcessedTotal++;
@@ -538,6 +526,35 @@ public class LiveSequential implements Runnable {
             saveFinalState(currentBlockNumber, currentHash, currentDay, blockTimeReader);
             closeQuietly(currentDayWriter);
         }
+    }
+
+    private static LocalDateTime resolveBlockTime(BlockTimeReader reader, long blockNumber) {
+        try {
+            return reader.getBlockLocalDateTime(blockNumber);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private List<ListingRecordFile> findBlockGroupWithRefresh(
+            LocalDateTime blockTime,
+            LocalDate blockDay,
+            long blockNumber,
+            List<ListingRecordFile> cachedListingFiles,
+            NetworkConfig netConfig)
+            throws Exception {
+        List<ListingRecordFile> group = findBlockGroup(blockTime, cachedListingFiles);
+        if (group != null) return group;
+
+        refreshListingsForDay(blockDay, netConfig);
+        List<ListingRecordFile> refreshed = reloadListings(blockTime);
+        group = findBlockGroup(blockTime, refreshed);
+        if (group != null) return group;
+
+        System.out.println("[live-sequential] No files found for block " + blockNumber + " at time " + blockTime
+                + ", fixing block times...");
+        FixBlockTime.fixBlockTimeRange(MetadataFiles.BLOCK_TIMES_FILE, blockNumber, blockNumber + 100);
+        return null;
     }
 
     private static void closeDayWriter(
@@ -759,10 +776,9 @@ public class LiveSequential implements Runnable {
                     sequentialValidations,
                     allValidations);
 
-            BlockZipAppender currentZip = null;
-            Path currentZipPath = null;
-            long durableWatermark = watermark;
-            long blocksSinceWatermarkFlush = 0;
+            long[] zipState = {watermark, 0}; // [durableWatermark, blocksSinceFlush]
+            BlockZipAppender[] zipHolder = {null};
+            Path[] zipPathHolder = {null};
             long blocksValidated = 0;
             long lastCheckpointSaveMs = System.currentTimeMillis();
 
@@ -785,29 +801,8 @@ public class LiveSequential implements Runnable {
                     streamingHasher.addNodeByHash(blockStreamBlockHash);
                     blockRegistry.addBlock(blockNum, blockStreamBlockHash);
 
-                    // Write to zip archive
-                    BlockPath blockPath =
-                            BlockWriter.computeBlockPath(wrapOutputDir, blockNum, BlockArchiveType.UNCOMPRESSED_ZIP);
-                    Files.createDirectories(blockPath.dirPath());
-                    byte[] serializedBytes = BlockWriter.serializeBlockToBytes(wrapped, DEFAULT_COMPRESSION);
-                    if (!blockPath.zipFilePath().equals(currentZipPath)) {
-                        if (currentZip != null) {
-                            currentZip.close();
-                            saveWatermark(watermarkFile, durableWatermark);
-                            blocksSinceWatermarkFlush = 0;
-                        }
-                        currentZip = BlockWriter.openZipForAppend(blockPath.zipFilePath());
-                        currentZipPath = blockPath.zipFilePath();
-                    }
-                    BlockWriter.writeBlockEntry(currentZip, blockPath, serializedBytes);
-                    durableWatermark = blockNum;
-                    blocksSinceWatermarkFlush++;
-                    if (blocksSinceWatermarkFlush >= WATERMARK_BATCH_SIZE) {
-                        saveWatermark(watermarkFile, durableWatermark);
-                        blocksSinceWatermarkFlush = 0;
-                    }
+                    writeToZipArchive(blockNum, wrapped, watermarkFile, zipHolder, zipPathHolder, zipState);
 
-                    // Validate wrapped block
                     runBlockValidations(
                             wrapped,
                             blockNum,
@@ -828,20 +823,49 @@ public class LiveSequential implements Runnable {
                     }
                 }
             } finally {
-                if (currentZip != null) {
+                if (zipHolder[0] != null) {
                     try {
-                        currentZip.close();
+                        zipHolder[0].close();
                     } catch (IOException e) {
                         System.err.println("[WRAP] Error closing zip: " + e.getMessage());
                     }
                 }
-                saveWatermark(watermarkFile, durableWatermark);
+                saveWatermark(watermarkFile, zipState[0]);
                 saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
                 addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-                saveValidationCheckpoint(checkpointDir, durableWatermark, allValidations);
+                saveValidationCheckpoint(checkpointDir, zipState[0], allValidations);
                 for (BlockValidation v : allValidations) v.close();
                 System.out.println("[WRAP] Shutdown complete. Wrapped " + blocksValidated + " blocks.");
             }
+        }
+    }
+
+    private void writeToZipArchive(
+            long blockNum,
+            Block wrapped,
+            Path watermarkFile,
+            BlockZipAppender[] zipHolder,
+            Path[] zipPathHolder,
+            long[] zipState)
+            throws Exception {
+        BlockPath blockPath = BlockWriter.computeBlockPath(wrapOutputDir, blockNum, BlockArchiveType.UNCOMPRESSED_ZIP);
+        Files.createDirectories(blockPath.dirPath());
+        byte[] serializedBytes = BlockWriter.serializeBlockToBytes(wrapped, DEFAULT_COMPRESSION);
+        if (!blockPath.zipFilePath().equals(zipPathHolder[0])) {
+            if (zipHolder[0] != null) {
+                zipHolder[0].close();
+                saveWatermark(watermarkFile, zipState[0]);
+                zipState[1] = 0;
+            }
+            zipHolder[0] = BlockWriter.openZipForAppend(blockPath.zipFilePath());
+            zipPathHolder[0] = blockPath.zipFilePath();
+        }
+        BlockWriter.writeBlockEntry(zipHolder[0], blockPath, serializedBytes);
+        zipState[0] = blockNum;
+        zipState[1]++;
+        if (zipState[1] >= WATERMARK_BATCH_SIZE) {
+            saveWatermark(watermarkFile, zipState[0]);
+            zipState[1] = 0;
         }
     }
 
