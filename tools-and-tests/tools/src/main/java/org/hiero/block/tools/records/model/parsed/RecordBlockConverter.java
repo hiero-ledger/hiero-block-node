@@ -16,6 +16,7 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Timestamp;
+import com.hedera.hapi.streams.RecordStreamFile;
 import com.hedera.hapi.streams.RecordStreamItem;
 import com.hedera.hapi.streams.SidecarFile;
 import com.hedera.pbj.runtime.OneOf;
@@ -99,8 +100,19 @@ public class RecordBlockConverter {
         }
 
         // create RecordFileItem with amendments
-        final RecordFileItem recordFileItem = new RecordFileItem(
-                recordFileTimestamp, universalRecordFile.recordStreamFile(), recordBlock.sidecarFiles(), amendments);
+        // Ensure the RecordStreamFile has the correct block number (v2/v5 record files set it to -1)
+        RecordStreamFile recordStreamFile = universalRecordFile.recordStreamFile();
+        if (recordStreamFile.blockNumber() < 0) {
+            recordStreamFile = new RecordStreamFile(
+                    recordStreamFile.hapiProtoVersion(),
+                    recordStreamFile.startObjectRunningHash(),
+                    recordStreamFile.recordStreamItems(),
+                    recordStreamFile.endObjectRunningHash(),
+                    blockNumber,
+                    recordStreamFile.sidecars());
+        }
+        final RecordFileItem recordFileItem =
+                new RecordFileItem(recordFileTimestamp, recordStreamFile, recordBlock.sidecarFiles(), amendments);
         // For block 0, use EMPTY_TREE_HASH for stateRootHash since there's no previous state.
         // For subsequent blocks, use also use EMPTY_TREE_HASH to indicate there is no state hash available
         // in the wrapped record files (state hashes were not included in the original format).
@@ -185,8 +197,19 @@ public class RecordBlockConverter {
         }
 
         // create RecordFileItem with amendments
-        final RecordFileItem recordFileItem = new RecordFileItem(
-                recordFileTimestamp, universalRecordFile.recordStreamFile(), recordBlock.sidecarFiles(), amendments);
+        // Ensure the RecordStreamFile has the correct block number (v2/v5 record files set it to -1)
+        RecordStreamFile recordStreamFile = universalRecordFile.recordStreamFile();
+        if (recordStreamFile.blockNumber() < 0) {
+            recordStreamFile = new RecordStreamFile(
+                    recordStreamFile.hapiProtoVersion(),
+                    recordStreamFile.startObjectRunningHash(),
+                    recordStreamFile.recordStreamItems(),
+                    recordStreamFile.endObjectRunningHash(),
+                    blockNumber,
+                    recordStreamFile.sidecars());
+        }
+        final RecordFileItem recordFileItem =
+                new RecordFileItem(recordFileTimestamp, recordStreamFile, recordBlock.sidecarFiles(), amendments);
         final byte[] stateRootHash = EMPTY_TREE_HASH;
         // create footer
         final BlockFooter blockFooter = new BlockFooter(
