@@ -152,7 +152,7 @@ class SignatureDataExtractorTest {
     @Test
     void testV2SignedHashMatchesFullParse() throws Exception {
         final byte[] previousHash = fakeHash(0xEE);
-        final SemanticVersion hapi = new SemanticVersion(3, 0, 0, null, null);
+        final SemanticVersion hapi = new SemanticVersion(0, 3, 0, null, null);
 
         final List<RecordStreamItem> items =
                 List.of(new RecordStreamItem(fakeTransaction(42), fakeTransactionRecord(42)));

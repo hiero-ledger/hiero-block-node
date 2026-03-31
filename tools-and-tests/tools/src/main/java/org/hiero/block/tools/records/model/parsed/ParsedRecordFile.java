@@ -142,8 +142,8 @@ public record ParsedRecordFile(
         switch (recordFormatVersion) {
             case 2 -> {
                 // V2 is a bit more complex, need to write the header and then all transactions and records
-                // write HAPI major version
-                out.writeInt(hapiProtoVersion.major());
+                // write HAPI minor version (v2 stores the HAPI minor version as a single integer)
+                out.writeInt(hapiProtoVersion.minor());
                 // write previous file hash marker
                 out.writeByte(V2_PREVIOUS_FILE_HASH_MAKER);
                 // write previous file hash
@@ -211,8 +211,8 @@ public record ParsedRecordFile(
             // This is a minimal parser for all record file formats only extracting the necessary information
             return switch (recordFormatVersion) {
                 case 2 -> {
-                    final int hapiMajorVersion = in.readInt();
-                    final SemanticVersion hapiVersion = new SemanticVersion(hapiMajorVersion, 0, 0, null, null);
+                    final int hapiVersion = in.readInt();
+                    final SemanticVersion hapiProtoVersion = new SemanticVersion(0, hapiVersion, 0, null, null);
                     final byte previousFileHashMarker = in.readByte();
                     if (previousFileHashMarker != V2_PREVIOUS_FILE_HASH_MAKER) {
                         throw new IllegalStateException("Invalid previous file hash marker in v2 record file");
@@ -254,7 +254,7 @@ public record ParsedRecordFile(
                     }
                     // build a RecordStreamFile
                     final RecordStreamFile recordStreamFile = new RecordStreamFile(
-                            hapiVersion,
+                            hapiProtoVersion,
                             new HashObject(HashAlgorithm.SHA_384, SHA_384_HASH_SIZE, Bytes.wrap(previousHash)),
                             recordStreamItems,
                             null, // V2 record files do not have a streaming hash, so there is no end hash
@@ -264,7 +264,7 @@ public record ParsedRecordFile(
                     yield new ParsedRecordFile(
                             blockTime,
                             recordFormatVersion,
-                            hapiVersion,
+                            hapiProtoVersion,
                             previousHash,
                             blockHash, // TODO is the block hash on mirror node really the signed hash?
                             blockHash,
