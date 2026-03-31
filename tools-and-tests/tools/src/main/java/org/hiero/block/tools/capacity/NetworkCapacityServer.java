@@ -37,8 +37,6 @@ public class NetworkCapacityServer {
 
     public void start() {
         System.out.printf("Starting Network Capacity Server on port %d%n", port);
-        RequestOptions testOptions =
-                new RequestOptions(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
         // No explicit start; metrics begins on first data arrival.
 
         final PbjConfig pbjConfig = PbjConfig.builder()
