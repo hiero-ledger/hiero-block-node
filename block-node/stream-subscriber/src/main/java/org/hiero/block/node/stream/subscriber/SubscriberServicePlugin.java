@@ -14,6 +14,7 @@ import java.lang.System.Logger.Level;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -29,6 +30,7 @@ import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -57,6 +59,8 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
+    /** The application state facility, for updating application state. */
+    private ApplicationStateFacility applicationStateFacility;
     /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
 
@@ -66,8 +70,12 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
      * {@inheritDoc}
      */
     @Override
-    public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
+    public void init(
+            @NonNull final BlockNodeContext context,
+            @NonNull final ServiceBuilder serviceBuilder,
+            @NonNull final ApplicationStateFacility applicationStateFacility) {
         this.context = requireNonNull(context);
+        this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
         // register us as a service
         serviceBuilder.registerGrpcService(this);
     }

@@ -51,13 +51,17 @@ public interface BlockNodePlugin {
      *
      * @param context        the block node context
      * @param serviceBuilder the service builder that will be used to create the HTTP/GRPC routing for the block node
+     * @param applicationStateFacility a facility for updating application state
      */
-    default void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {}
+    default void init(
+            BlockNodeContext context,
+            ServiceBuilder serviceBuilder,
+            ApplicationStateFacility applicationStateFacility) {}
 
     /**
      * Start the plugin. This method is called when the block node is starting up after all initialization is complete.
      * At this point all facilities are available and the plugin can use them. Any background threads should be started
-     * here. This method is called after the {@link #init(BlockNodeContext, ServiceBuilder)} method.
+     * here. This method is called after the {@link #init(BlockNodeContext, ServiceBuilder, ApplicationStateFacility)} method.
      * <p>
      * The default implementation does nothing. This is to be overridden by the plugin if it needs to do
      * anything on start.
