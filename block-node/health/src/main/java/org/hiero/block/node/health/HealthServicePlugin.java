@@ -10,6 +10,8 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import java.lang.System.Logger;
+import java.util.Objects;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -22,6 +24,8 @@ public class HealthServicePlugin implements BlockNodePlugin {
     protected static final String LIVEZ_PATH = "/livez";
     protected static final String READYZ_PATH = "/readyz";
 
+    /** The application state facility, for updating application state. */
+    private ApplicationStateFacility applicationStateFacility;
     /** The health facility, used for getting server status */
     private HealthFacility healthFacility;
 
@@ -29,7 +33,11 @@ public class HealthServicePlugin implements BlockNodePlugin {
      * {@inheritDoc}
      */
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+    public void init(
+            BlockNodeContext context,
+            ServiceBuilder serviceBuilder,
+            @NonNull final ApplicationStateFacility applicationStateFacility) {
+        this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
         healthFacility = context.serverHealth();
         serviceBuilder.registerHttpService(
                 HEALTHZ_PATH,
