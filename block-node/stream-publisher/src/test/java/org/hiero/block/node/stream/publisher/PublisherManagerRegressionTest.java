@@ -23,6 +23,7 @@ import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -42,7 +43,7 @@ import org.junit.jupiter.api.Test;
 /// Regression tests for [LiveStreamPublisherManager]: backfill gap
 /// advancement and stall detection when the ACCEPT winner goes silent.
 @DisplayName("PublisherManager Regression Tests")
-class PublisherManagerRegressionTest {
+class PublisherManagerRegressionTest implements ApplicationStateFacility {
 
     private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
     private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
@@ -66,7 +67,7 @@ class PublisherManagerRegressionTest {
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         messagingFacility = new TestBlockMessagingFacility();
         final BlockNodeContext context = generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
-        historicalBlockFacility.init(context, null);
+        historicalBlockFacility.init(context, null, this);
 
         managerMetrics = MetricsHolder.createMetrics(TestUtils.createMetrics());
         toTest = new LiveStreamPublisherManager(context, managerMetrics);

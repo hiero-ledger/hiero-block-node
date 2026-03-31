@@ -12,6 +12,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.List;
+import org.hiero.block.api.TssData;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +53,10 @@ public class BlockNodePluginTest {
         BlockNodeContext context;
 
         @Override
-        public void init(@NonNull BlockNodeContext context, @NonNull ServiceBuilder serviceBuilder) {
+        public void init(
+                @NonNull BlockNodeContext context,
+                @NonNull ServiceBuilder serviceBuilder,
+                @NonNull final ApplicationStateFacility applicationStateFacility) {
             this.context = context;
             serviceBuilder.registerGrpcService(testServiceInterface);
             serviceBuilder.registerHttpService("foo", testHttpService);
@@ -92,7 +96,7 @@ public class BlockNodePluginTest {
             public void registerGrpcService(@NonNull ServiceInterface service) {
                 assertEquals(testServiceInterface, service);
             }
-        });
+        }, null);
     }
 
     @Test
@@ -128,9 +132,10 @@ public class BlockNodePluginTest {
             public void registerGrpcService(@NonNull ServiceInterface service) {
                 assertEquals(testServiceInterface, service);
             }
-        });
+        }, null);
 
-        BlockNodeContext context = new BlockNodeContext(null, null, null, null, null, null, null, null, null);
+        BlockNodeContext context =
+                new BlockNodeContext(null, null, null, null, null, null, null, null, TssData.DEFAULT);
 
         plugin.onContextUpdate(context);
 

@@ -19,7 +19,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Objects;
 import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -63,6 +65,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, for access to core facilities. */
     private BlockNodeContext context;
+    /** The application state facility, for updating application state. */
+    private ApplicationStateFacility applicationStateFacility;
     /** The configuration for verification */
     @SuppressWarnings("FieldCanBeLocal")
     private VerificationConfig verificationConfig;
@@ -147,9 +151,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
      * {@inheritDoc}
      */
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+    public void init(
+            BlockNodeContext context,
+            ServiceBuilder serviceBuilder,
+            @NonNull final ApplicationStateFacility applicationStateFacility) {
         // setting config and context
         this.context = context;
+        this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
+
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);
         earliestManagedBlock =
                 context.configuration().getConfigData(NodeConfig.class).earliestManagedBlock();

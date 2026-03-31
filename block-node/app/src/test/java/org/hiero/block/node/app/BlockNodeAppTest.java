@@ -117,10 +117,10 @@ class BlockNodeAppTest {
     void testStart() {
         blockNodeApp.start();
         // check plugins have been started
-        verify(plugin1, times(1)).init(any(), any());
-        verify(plugin2, times(1)).init(any(), any());
-        verify(providerPlugin1, times(1)).init(any(), any());
-        verify(providerPlugin2, times(1)).init(any(), any());
+        verify(plugin1, times(1)).init(any(), any(), any());
+        verify(plugin2, times(1)).init(any(), any(), any());
+        verify(providerPlugin1, times(1)).init(any(), any(), any());
+        verify(providerPlugin2, times(1)).init(any(), any(), any());
         // check plugins have been started
         verify(plugin1, times(1)).start();
         verify(plugin2, times(1)).start();

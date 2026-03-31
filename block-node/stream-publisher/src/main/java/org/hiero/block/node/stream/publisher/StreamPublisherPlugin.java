@@ -14,6 +14,7 @@ import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.config.ServerConfig;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -149,7 +150,10 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     }
 
     @Override
-    public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
+    public void init(
+            @NonNull final BlockNodeContext context,
+            @NonNull final ServiceBuilder serviceBuilder,
+            @NonNull ApplicationStateFacility applicationStateFacility) {
         this.context = Objects.requireNonNull(context);
         // register us as a service, we need to register the gRPC service in
         // the init method, otherwise the server will be started and we will not

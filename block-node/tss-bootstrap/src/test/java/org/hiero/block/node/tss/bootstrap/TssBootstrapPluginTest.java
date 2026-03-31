@@ -7,13 +7,13 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
-import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 public class TssBootstrapPluginTest
-        extends GrpcPluginTestBase<TssBootstrapPlugin, BlockingExecutor, ScheduledExecutorService> {
+        extends PluginTestBase<TssBootstrapPlugin, BlockingExecutor, ScheduledExecutorService> {
 
     public TssBootstrapPluginTest() {
         super(
