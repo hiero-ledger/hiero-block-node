@@ -5,6 +5,8 @@ description = "Hiero Block Node Roster Bootstrap Tss Service"
 
 dependencies { implementation(project(":base")) }
 
+dependencies { implementation(project(":base")) }
+
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
 // and then fix the reported issues.
 tasks.withType<JavaCompile>().configureEach { options.compilerArgs.add("-Xlint:-exports") }
