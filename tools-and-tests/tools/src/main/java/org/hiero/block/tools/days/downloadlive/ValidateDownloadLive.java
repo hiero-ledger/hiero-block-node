@@ -112,6 +112,7 @@ public class ValidateDownloadLive {
      * @return a list of sidecar files matching the primary record's timestamp, or an empty list
      *         if primaryRecord is null or no sidecars are found
      */
+    @SuppressWarnings("java:S3776") // NPath complexity inherent to multi-criteria filtering
     public static List<InMemoryFile> findSidecars(
             final DownloadDayLiveImpl.BlockDownloadResult result, final InMemoryFile primaryRecord) {
 
