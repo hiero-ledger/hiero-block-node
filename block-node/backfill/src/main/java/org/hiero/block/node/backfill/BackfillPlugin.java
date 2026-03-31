@@ -78,6 +78,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     private ScheduledExecutorService historicalExecutor;
     private ScheduledExecutorService liveTailExecutor;
 
+    // Dedicated fetcher for the autonomous scan's peer availability queries.
+    // Must be separate from scheduler fetchers because HTTP/2 connections (Helidon WebClient)
+    // are not thread-safe and the autonomous scan runs concurrently with the scheduler drains.
+    private BackfillFetcher autonomousFetcher;
+
     // State touched by multiple threads
     private final AtomicLong pendingBackfillBlocks = new AtomicLong(0);
     // Deduplication: highest block scheduled for live-tail (prevents overlapping submissions)
@@ -186,6 +191,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillHistoricalExecutor", handler);
         liveTailExecutor =
                 context.threadPoolManager().createSingleThreadScheduledExecutor("BackfillLiveTailExecutor", handler);
+
+        // Create a dedicated fetcher for the autonomous scan's peer availability queries.
+        // This avoids sharing HTTP/2 connections with the scheduler fetchers, which run
+        // concurrently on different threads and cause HPACK dynamic table corruption.
+        autonomousFetcher = new BackfillFetcher(blockNodeSources, backfillConfiguration, metricsHolder);
 
         historicalScheduler =
                 createScheduler(historicalExecutor, backfillConfiguration.historicalQueueCapacity(), "Historical");
@@ -331,10 +341,11 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
     /**
      * Query peers for the maximum available block number.
+     * Uses a dedicated fetcher to avoid sharing HTTP/2 connections with the scheduler fetchers.
      */
     private long getPeerMaxAvailableBlock(long baseline) {
         try {
-            LongRange peerRange = liveTailScheduler.getFetcher().getNewAvailableRange(baseline);
+            LongRange peerRange = autonomousFetcher.getNewAvailableRange(baseline);
             return peerRange != null && peerRange.size() > 0 ? peerRange.end() : -1;
         } catch (RuntimeException e) {
             final String peerAvailabilityFailedMsg = "Failed to get peer availability: %s".formatted(e.getMessage());
