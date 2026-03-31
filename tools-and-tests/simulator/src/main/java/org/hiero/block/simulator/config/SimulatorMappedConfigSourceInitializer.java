@@ -55,8 +55,8 @@ public final class SimulatorMappedConfigSourceInitializer {
             new ConfigMapping("generator.realmNum", "GENERATOR_REALM_NUM"),
 
             // Prometheus configuration
-            new ConfigMapping("prometheus.endpointEnabled", "PROMETHEUS_ENDPOINT_ENABLED"),
-            new ConfigMapping("prometheus.endpointPortNumber", "PROMETHEUS_ENDPOINT_PORT_NUMBER"),
+            new ConfigMapping("metrics.exporter.openmetrics.http.enabled", "PROMETHEUS_ENDPOINT_ENABLED"),
+            new ConfigMapping("metrics.exporter.openmetrics.http.port", "PROMETHEUS_ENDPOINT_PORT_NUMBER"),
 
             // Startup Data Config
             new ConfigMapping("simulator.startup.data.enabled", "SIMULATOR_STARTUP_DATA_ENABLED"),

@@ -18,13 +18,12 @@ module org.hiero.block.simulator {
     exports org.hiero.block.simulator.logging;
 
     requires com.hedera.pbj.runtime;
-    requires com.swirlds.common;
     requires com.swirlds.config.api;
     requires com.swirlds.config.extensions;
-    requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
     requires org.hiero.block.protobuf.pbj;
     requires org.hiero.block.protobuf.protoc;
+    requires org.hiero.metrics;
     requires com.google.protobuf;
     requires dagger;
     requires io.grpc.stub;
@@ -34,6 +33,8 @@ module org.hiero.block.simulator {
     requires static transitive com.github.spotbugs.annotations;
     requires static transitive com.google.auto.service;
     requires static java.compiler; // javax.annotation.processing.Generated
+
+    uses org.hiero.metrics.core.MetricsExporterFactory;
 
     provides com.swirlds.config.api.ConfigurationExtension with
             SimulatorConfigExtension;

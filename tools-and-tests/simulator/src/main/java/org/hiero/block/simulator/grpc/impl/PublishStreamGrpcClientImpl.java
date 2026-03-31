@@ -132,11 +132,8 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
                                 .addAllBlockItems(streamingBatch)
                                 .build())
                         .build());
-                metricsService.get(LiveBlockItemsSent).add(streamingBatch.size());
-                LOGGER.log(
-                        DEBUG,
-                        "Number of block items sent: "
-                                + metricsService.get(LiveBlockItemsSent).get());
+                metricsService.get(LiveBlockItemsSent).increment(streamingBatch.size());
+                LOGGER.log(DEBUG, "Number of block items sent: {0}", metricsService.getValue(LiveBlockItemsSent));
             } else {
                 publishStreamResponseConsumer.accept(publishStreamObserver.getPublishStreamResponse());
                 LOGGER.log(ERROR, "Not allowed to send next batch of block items");
@@ -168,7 +165,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
      */
     @Override
     public long getPublishedBlocks() {
-        return metricsService.get(LiveBlocksSent).get();
+        return metricsService.getValue(LiveBlocksSent);
     }
 
     /**
@@ -196,8 +193,7 @@ public class PublishStreamGrpcClientImpl implements PublishStreamGrpcClient {
         requireNonNull(streamingBatch);
         if (blockStreamConfig.midBlockFailType() == MidBlockFailType.NONE
                 || streamingBatch.size() < 3
-                || blockStreamConfig.midBlockFailOffset()
-                        != metricsService.get(LiveBlocksSent).get()) {
+                || blockStreamConfig.midBlockFailOffset() != metricsService.getValue(LiveBlocksSent)) {
             return;
         }
         final int failIndex = new Random().nextInt(1, streamingBatch.size() - 1);

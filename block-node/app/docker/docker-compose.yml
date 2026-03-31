@@ -1,18 +1,25 @@
 services:
-  block-node-server:
-    container_name: block-node-server
-    image: block-node-server:${VERSION}
+# PRODUCTION - No Plugins
+#  block-node-server:
+#    container_name: block-node-server
+#    image: block-node-server:${VERSION}
+# DEV - All Plugins, sudo, yum, binutils, findutils, procps-ng, microdnf
+  block-node-server-dev:
+    container_name: block-node-server-dev
+    image: block-node-server-dev:${VERSION}
     volumes:
       - ./logging.properties:/opt/hiero/block-node/logs/config/logging.properties
       - ./backfill-sources.json:/opt/hiero/block-node/backfill/backfill-sources.json
-      - ./plugins:/opt/hiero/block-node/app-${VERSION}/plugins:ro
     env_file:
       - .env
+    environment:
+      JAVA_TOOL_OPTIONS: "-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0"
     ports:
       - "40840:40840"
       - "5005:5005"
       - "16007:16007"
       - "8849:8849"
+
 
   cadvisor:
     image: "gcr.io/cadvisor/cadvisor:v0.47.0"

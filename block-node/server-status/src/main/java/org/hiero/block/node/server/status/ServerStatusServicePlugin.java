@@ -4,7 +4,6 @@ package org.hiero.block.node.server.status;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.util.Objects.requireNonNull;
 
-import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,11 +17,21 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
  */
 public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServiceInterface {
+    /** Metric key for the number of server status requests */
+    public static final MetricKey<LongCounter> METRIC_SERVER_STATUS_REQUESTS =
+            MetricKey.of("server_status_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the number of server status details requests */
+    public static final MetricKey<LongCounter> METRIC_SERVER_STATUS_DETAILS_REQUESTS =
+            MetricKey.of("server_status_details_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
+
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The block provider */
@@ -30,9 +39,9 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
     /** Counter for the number of status requests */
-    private Counter requestStatusCounter;
+    private LongCounter.Measurement requestStatusCounter;
     /** Counter for the number of detail requests */
-    private Counter requestDetailCounter;
+    private LongCounter.Measurement requestDetailCounter;
 
     /**
      * Handle a request for server status
@@ -116,15 +125,19 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
         this.context = requireNonNull(context);
         this.blockProvider = requireNonNull(context.historicalBlockProvider());
 
-        // Create the metrics for server status
-        requestStatusCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "server_status_requests")
-                        .withDescription("Number of server status requests"));
+        final MetricRegistry metricRegistry = context.metricRegistry();
 
         // Create the metrics for server status
-        requestDetailCounter = context.metrics()
-                .getOrCreate(new Counter.Config(METRICS_CATEGORY, "server_status_details_requests")
-                        .withDescription("Number of server status details requests"));
+        requestStatusCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_SERVER_STATUS_REQUESTS)
+                        .setDescription("Number of server status requests"))
+                .getOrCreateNotLabeled();
+
+        // Create the metrics for server status
+        requestDetailCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_SERVER_STATUS_DETAILS_REQUESTS)
+                        .setDescription("Number of server status details requests"))
+                .getOrCreateNotLabeled();
 
         // Register this service
         serviceBuilder.registerGrpcService(this);

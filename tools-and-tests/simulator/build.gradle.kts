@@ -20,6 +20,7 @@ mainModuleInfo {
     annotationProcessor("dagger.compiler")
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.grpc.netty")
+    runtimeOnly("org.hiero.metrics.openmetrics.httpserver")
 }
 
 testModuleInfo {

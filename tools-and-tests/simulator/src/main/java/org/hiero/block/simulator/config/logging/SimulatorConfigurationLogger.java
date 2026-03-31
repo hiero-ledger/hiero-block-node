@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.simulator.config.logging;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.util.Objects.requireNonNull;
 
-import com.swirlds.common.metrics.config.MetricsConfig;
-import com.swirlds.common.metrics.platform.prometheus.PrometheusConfig;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.Configuration;
@@ -34,10 +33,6 @@ public final class SimulatorConfigurationLogger implements ConfigurationLogging 
     @Inject
     public SimulatorConfigurationLogger(@NonNull final Configuration configuration) {
         this.configuration = requireNonNull(configuration);
-        // The configuration properties in the following packages
-        // are out of our control. So allow them to be logged.
-        loggablePackages.add(configuration.getConfigData(MetricsConfig.class));
-        loggablePackages.add(configuration.getConfigData(PrometheusConfig.class));
     }
 
     /**
@@ -94,7 +89,13 @@ public final class SimulatorConfigurationLogger implements ConfigurationLogging 
                                 // loggablePackages.
                                 config.put(configDataAnnotation.value() + "." + fieldName, value);
                             }
-                        } catch (final IllegalAccessException | InvocationTargetException e) {
+                        } catch (final IllegalAccessException e) {
+                            // Third-party modules (e.g. openmetrics-httpserver) may register config
+                            // types whose packages are not exported to this module. Skip the entire
+                            // config type gracefully rather than crashing the application.
+                            LOGGER.log(DEBUG, "Cannot log config type {0}: {1}", configType.getName(), e.getMessage());
+                            break;
+                        } catch (final InvocationTargetException e) {
                             throw new RuntimeException(e);
                         }
                     }

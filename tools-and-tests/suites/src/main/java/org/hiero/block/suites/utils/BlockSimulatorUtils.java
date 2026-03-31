@@ -64,6 +64,9 @@ public final class BlockSimulatorUtils {
                 .withSource(SystemPropertiesConfigSource.getInstance())
                 .withSource(new ClasspathFileConfigSource(Path.of("app.properties")))
                 .autoDiscoverExtensions();
+        // Disable metrics server: it causes port bind exception, while metrics are never scraped
+        configurationBuilder.withSource(
+                new SimpleConfigSource("metrics.exporter.openmetrics.http.enabled", "false").withOrdinal(600));
 
         for (Map.Entry<String, String> entry : customProperties.entrySet()) {
             final String key = entry.getKey();

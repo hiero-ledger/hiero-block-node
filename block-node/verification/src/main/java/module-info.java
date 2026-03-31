@@ -15,8 +15,8 @@ module org.hiero.block.node.verification {
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
+    requires transitive org.hiero.metrics;
     requires com.hedera.cryptography.wraps;
-    requires com.swirlds.metrics.api;
     requires org.hiero.block.common;
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;

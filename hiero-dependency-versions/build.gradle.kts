@@ -11,7 +11,7 @@ dependencies.constraints {
     val helidonVersion = "4.4.0"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
     val protobufVersion = "4.34.0"
-    val swirldsVersion = "0.61.3"
+    val hederaVersion = "0.72.0-rc.1"
     val eclipseCollectionsVersion = "13.0.0"
     val mockitoVersion = "5.23.0"
     val testContainersVersion = "1.21.4"
@@ -36,8 +36,20 @@ dependencies.constraints {
     }
     api("com.hedera.pbj:pbj-runtime:${pbjVersion}") { because("com.hedera.pbj.runtime") }
     api("com.lmax:disruptor:4.0.0") { because("com.lmax.disruptor") }
-    api("com.swirlds:swirlds-common:$swirldsVersion") { because("com.swirlds.common") }
-    api("com.swirlds:swirlds-config-impl:$swirldsVersion") { because("com.swirlds.config.impl") }
+    api("com.hedera.hashgraph:swirlds-base:$hederaVersion") { because("com.swirlds.base") }
+    api("com.hedera.hashgraph:swirlds-config-api:$hederaVersion") {
+        because("com.swirlds.config.api")
+    }
+    api("com.hedera.hashgraph:swirlds-config-extensions:$hederaVersion") {
+        because("com.swirlds.config.extensions")
+    }
+    api("com.hedera.hashgraph:swirlds-config-impl:$hederaVersion") {
+        because("com.swirlds.config.impl")
+    }
+    api("com.hedera.hashgraph:hiero-metrics:$hederaVersion") { because("org.hiero.metrics") }
+    api("com.hedera.hashgraph:openmetrics-httpserver:$hederaVersion") {
+        because("org.hiero.metrics.openmetrics.httpserver")
+    }
     api("com.hedera.cryptography:hedera-cryptography-wraps:$hederaCryptographyVersion") {
         because("com.hedera.cryptography.wraps")
     }

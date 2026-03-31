@@ -3,13 +3,12 @@ package org.hiero.block.node.app.fixtures.plugintest;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
-import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
-import com.swirlds.metrics.api.Metrics;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -18,6 +17,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -28,6 +28,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterEach;
 
 /**
@@ -54,7 +56,9 @@ public abstract class PluginTestBase<
     /** The test thread pool manager */
     protected final TestThreadPoolManager<E, S> testThreadPoolManager;
     /** The metrics provider for the test. */
-    private DefaultMetricsProvider metricsProvider;
+    private MetricRegistry metricsRegistry;
+    /** The metrics exporter for the test, used to read metric values. */
+    private final TestMetricsExporter testMetricsExporter = new TestMetricsExporter();
     /** The block node context, for access to core facilities. */
     protected BlockNodeContext blockNodeContext;
     /** The test block messaging facility, for mocking out the messaging service. */
@@ -110,28 +114,24 @@ public abstract class PluginTestBase<
         // Build the configuration
         //noinspection unchecked
         ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
-                .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
                 .withConfigDataType(org.hiero.block.node.app.config.node.NodeConfig.class)
                 .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]))
-                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
-                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class)
-                .withValue("prometheus.endpointEnabled", "false");
+                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class);
         if (configOverrides != null) {
             for (Entry<String, String> override : configOverrides.entrySet()) {
                 configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
             }
         }
         final Configuration configuration = configurationBuilder.build();
-        // create metrics provider
-        metricsProvider = new DefaultMetricsProvider(configuration);
-        final Metrics metrics = metricsProvider.createGlobalMetrics();
-        metricsProvider.start();
+        // create metrics
+        metricsRegistry =
+                MetricRegistry.builder().setMetricsExporter(testMetricsExporter).build();
         // mock health facility
         final HealthFacility healthFacility = new TestHealthFacility();
         // create block node context
         blockNodeContext = new BlockNodeContext(
                 configuration,
-                metrics,
+                metricsRegistry,
                 healthFacility,
                 blockMessaging,
                 historicalBlockFacility,
@@ -179,9 +179,34 @@ public abstract class PluginTestBase<
      * Teardown after each.
      */
     @AfterEach
-    public void tearDown() {
-        metricsProvider.stop();
+    public void tearDown() throws IOException {
         testThreadPoolManager.shutdownNow();
+        metricsRegistry.close();
+    }
+
+    /**
+     * Returns the current value of a metric by its fully-qualified name.
+     *
+     * <p>The name must match the form used at registration, i.e.
+     * {@code METRICS_CATEGORY + ":" + metricShortName} when {@link MetricKey#addCategory} is used.
+     *
+     * @param metricName the fully-qualified metric name
+     * @return the current long value of the metric
+     * @throws IllegalArgumentException if no metric with the given name exists in the registry
+     */
+    protected long getMetricValue(@NonNull final String metricName) {
+        return testMetricsExporter.getMetricValue(metricName);
+    }
+
+    /**
+     * Returns the current value of a metric by its MetricKey.
+     *
+     * @param metricKey the MetricKey identifying the metric
+     * @return the current long value of the metric
+     * @throws IllegalArgumentException if no metric with the given name exists in the registry
+     */
+    protected long getMetricValue(@NonNull final MetricKey<?> metricKey) {
+        return testMetricsExporter.getMetricValue(metricKey.name());
     }
 
     /**
