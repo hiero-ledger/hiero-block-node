@@ -35,6 +35,7 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -83,6 +84,8 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private ExecutorService zipMoveExecutorService;
     /** The block node context. */
     private BlockNodeContext context;
+    /** The application state facility, for updating application state. */
+    private ApplicationStateFacility applicationStateFacility;
     /** The zip block archive. */
     private ZipBlockArchive zipBlockArchive;
     /** The number of blocks per zip file. */
@@ -130,9 +133,13 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
      * {@inheritDoc}
      */
     @Override
-    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
+    public void init(
+            final BlockNodeContext context,
+            final ServiceBuilder serviceBuilder,
+            @NonNull final ApplicationStateFacility applicationStateFacility) {
         try {
             this.context = Objects.requireNonNull(context);
+            this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
             config = context.configuration().getConfigData(FilesHistoricConfig.class);
             blockRetentionThreshold = config.blockRetentionThreshold();
             // Initialize metrics

@@ -19,6 +19,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
@@ -37,6 +38,7 @@ import org.hiero.block.node.base.s3.S3Client;
 import org.hiero.block.node.base.s3.S3ClientInitializationException;
 import org.hiero.block.node.base.s3.S3ResponseException;
 import org.hiero.block.node.base.tar.TaredBlockIterator;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -70,6 +72,8 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
     private static final DateTimeFormatter FILE_PREFIX_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss_");
     /** The block node context, for access to core facilities. */
     private BlockNodeContext context;
+    /** The application state facility, for updating application state. */
+    private ApplicationStateFacility applicationStateFacility;
     /** The configuration for the archive plugin. */
     private S3ArchiveConfig archiveConfig;
     /** Plugin enabled flag. */
@@ -98,8 +102,12 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
      * {@inheritDoc}
      */
     @Override
-    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
+    public void init(
+            final BlockNodeContext context,
+            final ServiceBuilder serviceBuilder,
+            @NonNull final ApplicationStateFacility applicationStateFacility) {
         this.context = context;
+        this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
         this.archiveConfig = context.configuration().getConfigData(S3ArchiveConfig.class);
         // check if enabled by the "endpointUrl" property being non-empty in config
         if (StringUtilities.isBlank(archiveConfig.endpointUrl())) {
