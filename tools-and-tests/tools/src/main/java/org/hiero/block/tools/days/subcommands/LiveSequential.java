@@ -285,7 +285,7 @@ public class LiveSequential implements Runnable {
             // Check for wrap errors
             Throwable wrapErr = wrapError.get();
             if (wrapErr != null) {
-                throw new RuntimeException("Wrap+validate thread failed", wrapErr);
+                throw new IllegalStateException("Wrap+validate thread failed", wrapErr);
             }
 
             System.out.println("[live-sequential] Complete.");
@@ -346,14 +346,14 @@ public class LiveSequential implements Runnable {
         List<BlockInfo> latestBlocks = FetchBlockQuery.getLatestBlocks(1, MirrorNodeBlockQueryOrder.DESC);
 
         if (latestBlocks.isEmpty()) {
-            throw new RuntimeException("Failed to get latest block from mirror node");
+            throw new IllegalStateException("Failed to get latest block from mirror node");
         }
 
         BlockInfo latestBlock = latestBlocks.getFirst();
         String timestamp = latestBlock.timestampFrom != null ? latestBlock.timestampFrom : latestBlock.timestampTo;
 
         if (timestamp == null) {
-            throw new RuntimeException("Latest block has no timestamp");
+            throw new IllegalStateException("Latest block has no timestamp");
         }
 
         String[] parts = timestamp.split("\\.");
@@ -449,7 +449,7 @@ public class LiveSequential implements Runnable {
                 // Check for wrap thread errors
                 Throwable wrapErr = wrapError.get();
                 if (wrapErr != null) {
-                    throw new RuntimeException("Wrap+validate thread failed, stopping download", wrapErr);
+                    throw new IllegalStateException("Wrap+validate thread failed, stopping download", wrapErr);
                 }
 
                 long nextBlockNumber = currentBlockNumber + 1;
@@ -969,8 +969,7 @@ public class LiveSequential implements Runnable {
                             v.validate(blockUnparsed, blockNum);
                         } catch (ValidationException e) {
                             // Save checkpoint before failing
-                            saveValidationCheckpoint(
-                                    checkpointDir, blocksValidated, blockNum - 1, chainValidation, allValidations);
+                            saveValidationCheckpoint(checkpointDir, blockNum - 1, allValidations);
                             throw new IllegalStateException(
                                     "Validation '" + v.name() + "' failed at block " + blockNum + ": " + e.getMessage(),
                                     e);
@@ -987,8 +986,7 @@ public class LiveSequential implements Runnable {
                     // Periodic checkpoint save
                     long nowMs = System.currentTimeMillis();
                     if (nowMs - lastCheckpointSaveMs >= 60_000L) {
-                        saveValidationCheckpoint(
-                                checkpointDir, blocksValidated, blockNum, chainValidation, allValidations);
+                        saveValidationCheckpoint(checkpointDir, blockNum, allValidations);
                         lastCheckpointSaveMs = nowMs;
                     }
 
@@ -1012,8 +1010,7 @@ public class LiveSequential implements Runnable {
                 addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
 
                 // Save validation checkpoint
-                saveValidationCheckpoint(
-                        checkpointDir, blocksValidated, durableWatermark, chainValidation, allValidations);
+                saveValidationCheckpoint(checkpointDir, durableWatermark, allValidations);
 
                 // Close all validations
                 for (BlockValidation v : allValidations) {
@@ -1029,13 +1026,13 @@ public class LiveSequential implements Runnable {
      * Saves validation checkpoint state.
      */
     private static void saveValidationCheckpoint(
-            Path checkpointDir,
-            long blocksValidated,
-            long lastValidatedBlockNumber,
-            BlockChainValidation chainValidation,
-            List<BlockValidation> validations) {
+            Path checkpointDir, long lastValidatedBlockNumber, List<BlockValidation> validations) {
         try {
             Files.createDirectories(checkpointDir);
+            // Save progress file so resume can detect checkpoint position
+            Path progressFile = checkpointDir.resolve("validateProgress.json");
+            String progressJson = "{\"lastValidatedBlockNumber\":" + lastValidatedBlockNumber + "}";
+            Files.writeString(progressFile, progressJson, StandardCharsets.UTF_8);
             for (BlockValidation v : validations) {
                 try {
                     v.save(checkpointDir);
