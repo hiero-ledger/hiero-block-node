@@ -90,7 +90,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "(rate(hiero_block_node_verification_block_time_total[$__rate_interval]) / rate(hiero_block_node_verification_blocks_verified_total[$__rate_interval]))",
+          "expr": "(rate(hiero_block_node:verification_block_time_total[$__rate_interval]) / rate(hiero_block_node:verification_blocks_verified_total[$__rate_interval]))",
           "refId": "A"
         }
       ],
@@ -184,7 +184,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "(rate(hiero_block_node_verification_block_time_total[$__rate_interval]) / rate(hiero_block_node_verification_blocks_verified_total[$__rate_interval]))",
+          "expr": "(rate(hiero_block_node:verification_block_time_total[$__rate_interval]) / rate(hiero_block_node:verification_blocks_verified_total[$__rate_interval]))",
           "refId": "A"
         }
       ],
@@ -239,7 +239,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "increase(hiero_block_node_verification_block_time_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_block_time_total[$__range])",
           "refId": "A"
         }
       ],
@@ -330,7 +330,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "increase(hiero_block_node_verification_block_time_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_block_time_total[$__range])",
           "range": true,
           "refId": "A"
         }
@@ -409,7 +409,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "rate(hiero_block_node_verification_blocks_received_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:verification_blocks_received_total[$__rate_interval])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -501,7 +501,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_verification_blocks_received_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:verification_blocks_received_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -566,7 +566,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "rate(hiero_block_node_verification_blocks_verified_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:verification_blocks_verified_total[$__rate_interval])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -658,7 +658,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_verification_blocks_verified_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:verification_blocks_verified_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -717,7 +717,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_verification_blocks_failed_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:verification_blocks_failed_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -807,7 +807,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_verification_blocks_failed_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:verification_blocks_failed_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -866,7 +866,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_verification_blocks_error_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:verification_blocks_error_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -956,7 +956,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_verification_blocks_error_total[$__rate_interval])",
+          "expr": "rate(hiero_block_node:verification_blocks_error_total[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -1026,7 +1026,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_verification_blocks_received_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_blocks_received_total[$__range])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1119,7 +1119,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "increase(hiero_block_node_verification_blocks_received_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_blocks_received_total[$__range])",
           "range": true,
           "refId": "A"
         }
@@ -1177,7 +1177,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_verification_blocks_verified_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_blocks_verified_total[$__range])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1270,7 +1270,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "increase(hiero_block_node_verification_blocks_verified_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_blocks_verified_total[$__range])",
           "range": true,
           "refId": "A"
         }
@@ -1332,7 +1332,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_verification_blocks_failed_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_blocks_failed_total[$__range])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1425,7 +1425,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "increase(hiero_block_node_verification_blocks_failed_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_blocks_failed_total[$__range])",
           "range": true,
           "refId": "A"
         }
@@ -1487,7 +1487,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_verification_blocks_error_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_blocks_error_total[$__range])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1580,7 +1580,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "increase(hiero_block_node_verification_blocks_error_total[$__range])",
+          "expr": "increase(hiero_block_node:verification_blocks_error_total[$__range])",
           "range": true,
           "refId": "A"
         }

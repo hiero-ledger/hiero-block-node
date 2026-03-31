@@ -124,7 +124,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "max by (instance) (hiero_block_node_backfill_status{job=~\"$job\", instance=~\"$instance\"})",
+          "expr": "max by (instance) (hiero_block_node:backfill_status{job=~\"$job\", instance=~\"$instance\"})",
           "range": true,
           "refId": "A"
         }
@@ -188,7 +188,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "max by (instance) (hiero_block_node_backfill_pending_blocks{job=~\"$job\", instance=~\"$instance\"})",
+          "expr": "max by (instance) (hiero_block_node:backfill_pending_blocks{job=~\"$job\", instance=~\"$instance\"})",
           "refId": "A"
         }
       ],
@@ -254,7 +254,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "100 * rate(hiero_block_node_backfill_blocks_backfilled_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]) / clamp_min(rate(hiero_block_node_backfill_blocks_fetched_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]), 1e-9)",
+          "expr": "100 * rate(hiero_block_node:backfill_blocks_backfilled_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]) / clamp_min(rate(hiero_block_node:backfill_blocks_fetched_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]), 1e-9)",
           "refId": "A"
         }
       ],
@@ -318,7 +318,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "sum by (instance) (rate(hiero_block_node_backfill_fetch_errors_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (instance) (rate(hiero_block_node:backfill_fetch_errors_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval]))",
           "refId": "A"
         }
       ],
@@ -408,7 +408,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_backfill_blocks_fetched_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(hiero_block_node:backfill_blocks_fetched_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} fetched",
           "refId": "A"
         }
@@ -499,7 +499,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_backfill_blocks_backfilled_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(hiero_block_node:backfill_blocks_backfilled_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} backfilled",
           "refId": "A"
         }
@@ -590,7 +590,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_backfill_retries_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(hiero_block_node:backfill_retries_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} retries",
           "refId": "A"
         }
@@ -681,7 +681,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_backfill_fetch_errors_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
+          "expr": "rate(hiero_block_node:backfill_fetch_errors_total{job=~\"$job\", instance=~\"$instance\"}[$__rate_interval])",
           "legendFormat": "{{instance}} errors",
           "refId": "A"
         }
@@ -741,7 +741,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "sum by (instance) (increase(hiero_block_node_backfill_gaps_detected_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
+          "expr": "sum by (instance) (increase(hiero_block_node:backfill_gaps_detected_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
           "refId": "A"
         }
       ],
@@ -800,7 +800,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "sum by (instance) (increase(hiero_block_node_backfill_blocks_fetched_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
+          "expr": "sum by (instance) (increase(hiero_block_node:backfill_blocks_fetched_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
           "refId": "A"
         }
       ],
@@ -859,7 +859,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "sum by (instance) (increase(hiero_block_node_backfill_blocks_backfilled_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
+          "expr": "sum by (instance) (increase(hiero_block_node:backfill_blocks_backfilled_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
           "refId": "A"
         }
       ],
@@ -918,7 +918,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "sum by (instance) (increase(hiero_block_node_backfill_retries_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
+          "expr": "sum by (instance) (increase(hiero_block_node:backfill_retries_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
           "refId": "A"
         }
       ],
@@ -977,7 +977,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "sum by (instance) (increase(hiero_block_node_backfill_fetch_errors_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
+          "expr": "sum by (instance) (increase(hiero_block_node:backfill_fetch_errors_total{job=~\"$job\", instance=~\"$instance\"}[$__range]))",
           "refId": "A"
         }
       ],
@@ -1094,7 +1094,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "hiero_block_node_backfill_status{job=~\"$job\", instance=~\"$instance\"}",
+          "expr": "hiero_block_node:backfill_status{job=~\"$job\", instance=~\"$instance\"}",
           "legendFormat": "Status Timeline",
           "range": true,
           "refId": "A"
@@ -1143,7 +1143,7 @@
         "multi": true,
         "name": "job",
         "options": [],
-        "query": "label_values(hiero_block_node_backfill_status, job)",
+        "query": "label_values(hiero_block_node:backfill_status, job)",
         "refresh": 1,
         "sort": 1,
         "type": "query"
@@ -1166,7 +1166,7 @@
         "multi": true,
         "name": "instance",
         "options": [],
-        "query": "label_values(hiero_block_node_backfill_status{job=~\"$job\"}, instance)",
+        "query": "label_values(hiero_block_node:backfill_status{job=~\"$job\"}, instance)",
         "refresh": 1,
         "sort": 1,
         "type": "query"
