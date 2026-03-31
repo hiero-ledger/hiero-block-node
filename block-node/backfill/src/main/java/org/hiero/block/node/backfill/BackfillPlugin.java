@@ -6,8 +6,6 @@ import static java.lang.System.Logger.Level.TRACE;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.metrics.api.Counter;
-import com.swirlds.metrics.api.LongGauge;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,6 +29,10 @@ import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotifica
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.ObservableGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * BackfillPlugin is a BlockNodePlugin that detects gaps in historical blocks and
@@ -39,6 +41,23 @@ import org.hiero.block.node.spi.historicalblocks.LongRange;
  * historical blocks, and on-demand for live blocks.
  */
 public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler {
+
+    public static final MetricKey<ObservableGauge> METRIC_BACKFILL_STATUS =
+            MetricKey.of("backfill_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<ObservableGauge> METRIC_BACKFILL_PENDING_BLOCKS =
+            MetricKey.of("backfill_pending_blocks", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<ObservableGauge> METRIC_BACKFILL_INFLIGHT_BLOCKS =
+            MetricKey.of("backfill_inflight_blocks", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_BACKFILL_GAPS_DETECTED =
+            MetricKey.of("backfill_gaps_detected", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_BACKFILL_BLOCKS_FETCHED =
+            MetricKey.of("backfill_blocks_fetched", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_BACKFILL_BLOCKS_BACKFILLED =
+            MetricKey.of("backfill_blocks_backfilled", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_BACKFILL_FETCH_ERRORS =
+            MetricKey.of("backfill_fetch_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_BACKFILL_RETRIES =
+            MetricKey.of("backfill_retries", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -80,18 +99,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * Initializes the metrics for the backfill process.
      */
     private void initMetrics() {
-        metricsHolder = MetricsHolder.createMetrics(context.metrics());
-        context.metrics().addUpdater(this::updateMetrics);
-    }
-
-    private void updateMetrics() {
-        long pending = Math.max(pendingBackfillBlocks.get(), 0);
-        metricsHolder.backfillPendingBlocksGauge().set(pending);
-        metricsHolder.backfillInFlightGauge().set(pending);
-
-        final BackfillStatus status = pending > 0 ? BackfillStatus.RUNNING : BackfillStatus.IDLE;
-        // rely on ordinal for metric value, as enum names are not supported in metrics
-        metricsHolder.backfillStatus().set(status.ordinal());
+        metricsHolder = MetricsHolder.createMetrics(context.metricRegistry(), pendingBackfillBlocks);
     }
 
     // Backfill status enum for metrics, using ordinal values
@@ -501,41 +509,57 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * allowing them to be passed as a single parameter.
      */
     public record MetricsHolder(
-            Counter backfillGapsDetected,
-            Counter backfillFetchedBlocks,
-            Counter backfillBlocksBackfilled,
-            Counter backfillFetchErrors,
-            Counter backfillRetries,
-            LongGauge backfillStatus,
-            LongGauge backfillPendingBlocksGauge,
-            LongGauge backfillInFlightGauge) {
+            LongCounter.Measurement backfillGapsDetected,
+            LongCounter.Measurement backfillFetchedBlocks,
+            LongCounter.Measurement backfillBlocksBackfilled,
+            LongCounter.Measurement backfillFetchErrors,
+            LongCounter.Measurement backfillRetries) {
 
         /**
          * Factory method to create a MetricsHolder with all metrics registered.
          *
-         * @param metrics the metrics instance to register metrics with
+         * @param metricRegistry the metrics registry instance to register metrics with
          * @return a new MetricsHolder with all metrics created
          */
-        public static MetricsHolder createMetrics(@NonNull final com.swirlds.metrics.api.Metrics metrics) {
+        public static MetricsHolder createMetrics(
+                @NonNull final MetricRegistry metricRegistry, @NonNull final AtomicLong pendingBackfillBlocks) {
+            metricRegistry.register(ObservableGauge.builder(METRIC_BACKFILL_STATUS)
+                    .setDescription("Current status of the backfill process (e.g., idle = 0, running = 1, error = 2).")
+                    .observe(() -> determineStatus(pendingBackfillBlocks)));
+            metricRegistry.register(ObservableGauge.builder(METRIC_BACKFILL_PENDING_BLOCKS)
+                    .setDescription("Current amount of blocks pending to be backfilled.")
+                    .observe(() -> Math.max(pendingBackfillBlocks.get(), 0)));
+            metricRegistry.register(ObservableGauge.builder(METRIC_BACKFILL_INFLIGHT_BLOCKS)
+                    .setDescription("Current in-flight backfill blocks awaiting verification/persistence.")
+                    .observe(() -> Math.max(pendingBackfillBlocks.get(), 0)));
+
             return new MetricsHolder(
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_gaps_detected")
-                            .withDescription("Number of gaps detected during the backfill process.")),
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_fetched")
-                            .withDescription("Number of blocks fetched during the backfill process.")),
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_blocks_backfilled")
-                            .withDescription("Number of blocks backfilled during the backfill process.")),
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_fetch_errors")
-                            .withDescription("Number of errors encountered during the backfill process.")),
-                    metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "backfill_retries")
-                            .withDescription("Number of retries during the backfill process.")),
-                    metrics.getOrCreate(
-                            new LongGauge.Config(METRICS_CATEGORY, "backfill_status")
-                                    .withDescription(
-                                            "Current status of the backfill process (e.g., idle = 0, running = 1, error = 2).")),
-                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_pending_blocks")
-                            .withDescription("Current amount of blocks pending to be backfilled.")),
-                    metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "backfill_inflight_blocks")
-                            .withDescription("Current in-flight backfill blocks awaiting verification/persistence.")));
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_BACKFILL_GAPS_DETECTED)
+                                    .setDescription("Number of gaps detected during the backfill process."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_BACKFILL_BLOCKS_FETCHED)
+                                    .setDescription("Number of blocks fetched during the backfill process."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_BACKFILL_BLOCKS_BACKFILLED)
+                                    .setDescription("Number of blocks backfilled during the backfill process."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_BACKFILL_FETCH_ERRORS)
+                                    .setDescription("Number of errors encountered during the backfill process."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_BACKFILL_RETRIES)
+                                    .setDescription("Number of retries during the backfill process."))
+                            .getOrCreateNotLabeled());
+        }
+
+        private static int determineStatus(AtomicLong pendingBackfillBlocks) {
+            long pending = Math.max(pendingBackfillBlocks.get(), 0);
+            final BackfillStatus status = pending > 0 ? BackfillStatus.RUNNING : BackfillStatus.IDLE;
+            return status.ordinal();
         }
     }
 }

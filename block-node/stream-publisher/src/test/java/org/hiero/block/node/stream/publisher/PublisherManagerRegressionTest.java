@@ -6,7 +6,6 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
-import com.swirlds.metrics.api.Metrics;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.PublishStreamResponse;
@@ -32,6 +31,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.stream.publisher.LiveStreamPublisherManager.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
@@ -233,7 +233,7 @@ class PublisherManagerRegressionTest {
         final Configuration configuration = TestUtils.createTestConfiguration()
                 .withConfigDataType(PublisherConfig.class)
                 .build();
-        final Metrics metrics = TestUtils.createMetrics();
+        final MetricRegistry metrics = TestUtils.createMetrics();
         final HealthFacility serverHealth = null;
         final ServiceLoaderFunction serviceLoader = null;
         return new BlockNodeContext(

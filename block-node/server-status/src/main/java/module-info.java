@@ -6,8 +6,8 @@ module org.hiero.block.node.server.status {
 
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
+    requires transitive org.hiero.metrics;
     requires com.hedera.pbj.runtime;
-    requires com.swirlds.metrics.api;
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with

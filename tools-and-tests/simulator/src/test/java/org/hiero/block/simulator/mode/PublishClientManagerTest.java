@@ -6,7 +6,6 @@ import static org.hiero.block.simulator.config.types.EndStreamMode.RESET;
 import static org.hiero.block.simulator.config.types.EndStreamMode.TIMEOUT;
 import static org.hiero.block.simulator.config.types.EndStreamMode.TOO_FAR_BEHIND;
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestConfiguration;
-import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.hiero.block.simulator.fixtures.blocks.BlockBuilder.createBlocks;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -66,7 +65,7 @@ class PublishClientManagerTest {
         final BlockGeneratorConfig blockGeneratorConfig = configuration.getConfigData(BlockGeneratorConfig.class);
         final UnorderedStreamConfig unorderedStreamConfig = configuration.getConfigData(UnorderedStreamConfig.class);
 
-        final MetricsService metricsService = new MetricsServiceImpl(getTestMetrics(configuration));
+        final MetricsService metricsService = new MetricsServiceImpl(configuration);
         final SimulatorStartupData startupData =
                 new SimulatorStartupDataImpl(simulatorStartupDataConfig, blockGeneratorConfig);
         blockStreamManager = new CraftBlockStreamManager(blockGeneratorConfig, startupData, unorderedStreamConfig);

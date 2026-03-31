@@ -5,6 +5,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}:${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}"
     env_file:
@@ -12,6 +14,7 @@ services:
     environment:
       - BLOCK_STREAM_SIMULATOR_MODE=${PUBLISHER_BLOCK_STREAM_SIMULATOR_MODE}
       - PROMETHEUS_ENDPOINT_PORT_NUMBER=${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}
+      - JAVA_TOOL_OPTIONS=-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PUBLISHER_PROMETHEUS_ENDPOINT_PORT_NUMBER}/metrics"]
       interval: 3s
@@ -26,6 +29,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: hedera-block-simulator:latest
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER}:${CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER}"
     env_file:
@@ -33,6 +38,7 @@ services:
     environment:
       - BLOCK_STREAM_SIMULATOR_MODE=${CONSUMER_BLOCK_STREAM_SIMULATOR_MODE}
       - PROMETHEUS_ENDPOINT_PORT_NUMBER=${CONSUMER_PROMETHEUS_ENDPOINT_PORT_NUMBER}
+      - JAVA_TOOL_OPTIONS=-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0
     depends_on:
       simulator-publisher:
         condition: service_healthy

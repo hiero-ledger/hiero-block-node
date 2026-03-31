@@ -100,7 +100,7 @@ public class PublishStreamGrpcServerImpl implements PublishStreamGrpcServer {
      */
     @Override
     public long getProcessedBlocks() {
-        return metricsService.get(LiveBlocksProcessed).get();
+        return metricsService.getValue(LiveBlocksProcessed);
     }
 
     /**

@@ -5,11 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
-import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
-import com.swirlds.metrics.api.Counter.Config;
-import com.swirlds.metrics.impl.DefaultCounter;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
@@ -27,6 +24,7 @@ import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -38,6 +36,7 @@ import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.ActionForBlock;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
 import org.hiero.block.node.stream.publisher.fixtures.TestStreamPublisherManager;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -50,6 +49,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 /// Tests for [PublisherHandler].
 @DisplayName("PublisherHandler Tests")
 class PublisherHandlerTest {
+
+    private TestMetricsExporter metricsExporter;
+
     /**
      * Constructor tests for {@link PublisherHandler}.
      */
@@ -285,15 +287,23 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(block.asBlockItemUnparsedArray().length);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(block.asBlockItemUnparsedArray().length);
                 // Assert other metrics unchanged
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the [PublisherHandler] correctly
@@ -419,7 +429,8 @@ class PublisherHandlerTest {
                 // First call
                 toTest.onNext(request1);
                 // Assert metrics updated
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(mid);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(mid);
                 // Build the second request with the second half of the block items
                 final BlockItemSetUnparsed blockItemSet2 = BlockItemSetUnparsed.newBuilder()
                         .blockItems(Arrays.copyOfRange(blockItems, mid, blockItems.length))
@@ -432,15 +443,23 @@ class PublisherHandlerTest {
                 manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
                 endThisBlock(toTest, block.number());
                 // Assert metrics updated
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(blockItems.length);
                 // Assert other metrics unchanged
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isZero();
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isZero();
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isZero();
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isZero();
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isZero();
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isZero();
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isZero();
             }
 
             /// This test aims to assert that the {@link PublisherHandler} correctly handles a received request
@@ -538,15 +557,23 @@ class PublisherHandlerTest {
                 toTest.onNext(request);
                 // No end block, should get SKIP _before_ ending the block
                 // Assert metrics updated
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(1);
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the {@link PublisherHandler} correctly handles a received request
@@ -652,15 +679,23 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.streamErrors().get()).isEqualTo(1);
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(1);
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the [PublisherHandler] correctly
@@ -765,15 +800,23 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(1);
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the {@link PublisherHandler} correctly handles a received request
@@ -868,16 +911,25 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.nodeBehindSent().get()).isEqualTo(1);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_NODE_BEHIND_SENT))
+                        .isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the {@link PublisherHandler} correctly handles a received request
@@ -980,15 +1032,23 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
-                assertThat(metrics.streamErrors().get()).isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(1);
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the [PublisherHandler] correctly
@@ -1079,14 +1139,22 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert no metrics updated
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the [PublisherHandler] correctly
@@ -1218,14 +1286,22 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert no metrics updated
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
                 // Now send a valid request, which contains a block header
                 final BlockItemSetUnparsed validBlockItemSet =
                         BlockItemSetUnparsed.newBuilder().blockItems(blockItems).build();
@@ -1239,15 +1315,23 @@ class PublisherHandlerTest {
                 // Send a PersistedNotification for the streamed block number
                 manager.handlePersisted(new PersistedNotification(block.number(), true, 0, BlockSource.PUBLISHER));
                 // Assert live items received updated and acknowledgement sent updated
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(blockItems.length);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(blockItems.length);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(1);
                 // Assert other metrics unchanged
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the [PublisherHandler] correctly
@@ -1433,15 +1517,23 @@ class PublisherHandlerTest {
                         .build();
                 toTest.onNext(requestBlock0);
                 // Assert metrics updated
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(block1.blockSize() + block0.blockSize());
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(block1.blockSize() + block0.blockSize());
                 // Assert other metrics unchanged
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the [PublisherHandler] correctly
@@ -1526,15 +1618,23 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(1);
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to assert that the [PublisherHandler] correctly
@@ -1617,15 +1717,23 @@ class PublisherHandlerTest {
                 // Call
                 toTest.onNext(request);
                 // Assert metrics updated
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(1);
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
 
             /// This test aims to verify that the
@@ -1884,15 +1992,23 @@ class PublisherHandlerTest {
                 // Call onError with an arbitrary Throwable
                 toTest.onError(new RuntimeException());
                 // Assert metrics updated
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(1);
                 // Assert other metrics unchanged
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
             }
         }
 
@@ -2021,7 +2137,7 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
-                final long beforeAcks = metrics.blockAcknowledgementsSent().get();
+                final long beforeAcks = getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT);
 
                 // Act
                 final long blockNumber = 123L;
@@ -2035,14 +2151,22 @@ class PublisherHandlerTest {
                         .returns(blockNumber, acknowledgementBlockNumberExtractor);
 
                 // Metrics: +1 ack, others unchanged
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(beforeAcks + 1);
-                assertThat(metrics.liveBlockItemsReceived().get()).isEqualTo(0);
-                assertThat(metrics.streamErrors().get()).isEqualTo(0);
-                assertThat(metrics.blockSkipsSent().get()).isEqualTo(0);
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
-                assertThat(metrics.endOfStreamsSent().get()).isEqualTo(0);
-                assertThat(metrics.sendResponseFailed().get()).isEqualTo(0);
-                assertThat(metrics.endStreamsReceived().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(beforeAcks + 1);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_SKIPS_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
+                        .isEqualTo(0);
 
                 // No other pipeline interactions
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
@@ -2056,7 +2180,7 @@ class PublisherHandlerTest {
             @DisplayName("multiple calls produce multiple ACKs in order and increment metrics per call")
             void testSendAcknowledgementMultipleCalls() {
                 // Pre-assert: capture baseline for ack metric
-                final long beforeAcks = metrics.blockAcknowledgementsSent().get();
+                final long beforeAcks = getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT);
 
                 // Act: two acknowledgements
                 final long b0 = 1L;
@@ -2074,7 +2198,8 @@ class PublisherHandlerTest {
                         .returns(b1, acknowledgementBlockNumberExtractor);
 
                 // Metrics increment by 2
-                assertThat(metrics.blockAcknowledgementsSent().get()).isEqualTo(beforeAcks + 2);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_ACK_SENT))
+                        .isEqualTo(beforeAcks + 2);
 
                 // No completion/error side effects from acks
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
@@ -2100,7 +2225,8 @@ class PublisherHandlerTest {
                 toTest.handleFailedVerification(expectedResponseBlockNumber);
                 // Assert no response is sent and shared metrics is not updated
                 assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
-                assertThat(metrics.blockResendsSent().get()).isEqualTo(0);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
+                        .isEqualTo(0);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -2388,17 +2514,12 @@ class PublisherHandlerTest {
     /// Creates a new [MetricsHolder] with default counters for testing.
     /// These counters could be queried to verify the metrics' states.
     private MetricsHolder createMetrics() {
-        return new MetricsHolder(
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_items_received")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_ack_sent")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_sets_dropped")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_stream_errors")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_skips_sent")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_blocks_resend_sent")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_endofstream_sent")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_node_behind_sent")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_send_response_failed")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_block_endstream_received")),
-                new DefaultCounter(new Config(METRICS_CATEGORY, "publisher_receive_latency_ns")));
+        metricsExporter = new TestMetricsExporter();
+        return MetricsHolder.createMetrics(
+                MetricRegistry.builder().setMetricsExporter(metricsExporter).build());
+    }
+
+    private long getMetricValue(org.hiero.metrics.core.MetricKey<?> metricKey) {
+        return metricsExporter.getMetricValue(metricKey.name());
     }
 }

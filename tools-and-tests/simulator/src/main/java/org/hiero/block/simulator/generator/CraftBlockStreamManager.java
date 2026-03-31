@@ -199,7 +199,7 @@ public class CraftBlockStreamManager implements BlockStreamManager {
      * @throws BlockSimulatorParsingException if there is an error parsing block components
      */
     @Override
-    public Block getNextBlock() throws IOException, BlockSimulatorParsingException, ParseException {
+    public Block getNextBlock() throws IOException, BlockSimulatorParsingException {
         if (endBlockNumber > 0 && currentBlockNumber > endBlockNumber) {
             return null;
         }
@@ -210,7 +210,11 @@ public class CraftBlockStreamManager implements BlockStreamManager {
             }
             return null;
         } else {
-            return createNextBlock();
+            try {
+                return createNextBlock();
+            } catch (ParseException e) {
+                throw new BlockSimulatorParsingException(e);
+            }
         }
     }
 

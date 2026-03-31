@@ -4,7 +4,6 @@ package org.hiero.block.simulator.grpc.impl;
 import static org.hiero.block.simulator.config.types.EndStreamMode.NONE;
 import static org.hiero.block.simulator.config.types.EndStreamMode.TOO_FAR_BEHIND;
 import static org.hiero.block.simulator.fixtures.TestUtils.findFreePort;
-import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -156,7 +155,7 @@ class PublishStreamGrpcClientImplTest {
         blockStreamConfig = BlockStreamConfig.builder().blockItemsBatchSize(2).build();
 
         Configuration config = TestUtils.getTestConfiguration();
-        metricsService = new MetricsServiceImpl(getTestMetrics(config));
+        metricsService = new MetricsServiceImpl(config);
         streamEnabled = new AtomicBoolean(true);
 
         when(grpcConfig.serverAddress()).thenReturn("localhost");

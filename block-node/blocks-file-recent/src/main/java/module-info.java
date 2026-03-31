@@ -14,8 +14,8 @@ module org.hiero.block.node.blocks.files.recent {
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.base;
     requires transitive org.hiero.block.node.spi;
+    requires transitive org.hiero.metrics;
     requires com.hedera.pbj.runtime;
-    requires com.swirlds.metrics.api;
     requires org.hiero.block.protobuf.pbj;
     requires com.github.spotbugs.annotations;
 
