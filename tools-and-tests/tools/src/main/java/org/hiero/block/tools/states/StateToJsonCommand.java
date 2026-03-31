@@ -4,6 +4,7 @@ package org.hiero.block.tools.states;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.BlockItem;
 import java.io.File;
+import java.io.PrintWriter;
 import java.util.List;
 import org.hiero.block.tools.states.model.CompleteSavedState;
 import picocli.CommandLine.Command;
@@ -30,10 +31,12 @@ public class StateToJsonCommand implements Runnable {
             spec.commandLine().usage(spec.commandLine().getOut());
             return;
         }
+        final PrintWriter out = spec.commandLine().getOut();
         for (File savedStateDir : savedStateDirectories) {
             final CompleteSavedState completeSavedState = SavedStateConverter.loadState(savedStateDir.toPath());
             final List<BlockItem> blockItems = SavedStateConverter.signedStateToStateChanges(completeSavedState);
-            System.out.println(Block.JSON.toJSON(new Block(blockItems)));
+            out.println(Block.JSON.toJSON(new Block(blockItems)));
         }
+        out.flush();
     }
 }
