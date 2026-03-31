@@ -92,6 +92,7 @@ class WrbFixtureGeneratorTest {
 
         // Validate block structure
         assertBlockStructure(block, 2);
+        assertBlockNumber(block, V2_TEST_BLOCK_NUMBER);
 
         // Serialize and save
         final Path outputPath = saveBlockAsGzip(block, "v2-block.blk.gz");
@@ -142,6 +143,7 @@ class WrbFixtureGeneratorTest {
 
         // Validate block structure
         assertBlockStructure(block, 5);
+        assertBlockNumber(block, V5_TEST_BLOCK_NUMBER);
 
         // Serialize and save
         final Path outputPath = saveBlockAsGzip(block, "v5-block.blk.gz");
@@ -196,6 +198,7 @@ class WrbFixtureGeneratorTest {
 
         // Validate block structure
         assertBlockStructure(block, 6);
+        assertBlockNumber(block, V6_TEST_BLOCK_NUMBER);
         assertEquals(
                 1,
                 block.items().stream()
@@ -232,6 +235,7 @@ class WrbFixtureGeneratorTest {
         void readV2WrbFromDisk() throws Exception {
             final Block block = loadBlockFromResource("/record-files/wrb/v2-block.blk.gz");
             assertBlockStructure(block, 2);
+            assertBlockNumber(block, V2_TEST_BLOCK_NUMBER);
             assertEquals(
                     V2_TEST_BLOCK_NUMBER,
                     block.items().get(0).blockHeaderOrThrow().number());
@@ -249,6 +253,7 @@ class WrbFixtureGeneratorTest {
         void readV5WrbFromDisk() throws Exception {
             final Block block = loadBlockFromResource("/record-files/wrb/v5-block.blk.gz");
             assertBlockStructure(block, 5);
+            assertBlockNumber(block, V5_TEST_BLOCK_NUMBER);
             assertEquals(
                     V5_TEST_BLOCK_NUMBER,
                     block.items().get(0).blockHeaderOrThrow().number());
@@ -266,6 +271,7 @@ class WrbFixtureGeneratorTest {
         void readV6WrbFromDisk() throws Exception {
             final Block block = loadBlockFromResource("/record-files/wrb/v6-block.blk.gz");
             assertBlockStructure(block, 6);
+            assertBlockNumber(block, V6_TEST_BLOCK_NUMBER);
             assertEquals(
                     V6_TEST_BLOCK_NUMBER,
                     block.items().get(0).blockHeaderOrThrow().number());
@@ -326,6 +332,26 @@ class WrbFixtureGeneratorTest {
                 return Block.PROTOBUF.parse(Bytes.wrap(gzipIn.readAllBytes()));
             }
         }
+    }
+
+    /**
+     * Asserts that the RecordFileItem's block_number matches the expected value.
+     *
+     * @param block the block to validate
+     * @param expectedBlockNumber the expected block number
+     */
+    private static void assertBlockNumber(Block block, long expectedBlockNumber) {
+        final long actualBlockNumber = block.items().stream()
+                .filter(item -> item.hasRecordFile())
+                .findFirst()
+                .orElseThrow()
+                .recordFileOrThrow()
+                .recordFileContents()
+                .blockNumber();
+        assertEquals(
+                expectedBlockNumber,
+                actualBlockNumber,
+                "RecordFileItem.record_file_contents.block_number should match expected block number");
     }
 
     /**
