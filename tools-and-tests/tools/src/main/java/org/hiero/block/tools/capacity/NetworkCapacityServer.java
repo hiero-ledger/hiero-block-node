@@ -5,6 +5,8 @@ import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
@@ -13,6 +15,7 @@ import java.net.SocketException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Flow;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
@@ -42,8 +45,7 @@ public class NetworkCapacityServer {
                 .build();
 
         final PbjRouting.Builder pbjRoutingBuilder = PbjRouting.builder();
-        pbjRoutingBuilder.service((BlockStreamPublishServiceInterface)
-                (replies) -> new StreamHandler((Pipeline<PublishStreamResponse>) replies));
+        pbjRoutingBuilder.service(new TestPublishInterface());
 
         Http2Config h2 = Http2Config.builder()
                 .initialWindowSize(config.initialWindowSize())
@@ -75,6 +77,19 @@ public class NetworkCapacityServer {
         // Do not report final here; each stream reports its own final cleanly.
         if (webServer != null) {
             webServer.stop();
+        }
+    }
+
+    private static record RequestOptions(Optional<String> authority, String contentType)
+            implements ServiceInterface.RequestOptions {}
+
+    private static class TestPublishInterface implements BlockStreamPublishServiceInterface {
+        @NonNull
+        @Override
+        public Pipeline<? super PublishStreamRequest> publishBlockStream(
+                @NonNull final Pipeline<? super PublishStreamResponse> replies,
+                @NonNull final RequestOptions requestOptions) {
+            return BlockStreamPublishServiceInterface.super.publishBlockStream(replies, requestOptions);
         }
     }
 

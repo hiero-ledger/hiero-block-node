@@ -14,6 +14,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
 import org.hiero.block.api.SubscribeStreamRequest;
@@ -86,7 +87,8 @@ public class BlockStreamSubscribeUnparsedClient {
                 FULL_NAME + "/subscribeBlockStream",
                 SubscribeStreamRequest.PROTOBUF,
                 SubscribeStreamResponseUnparsed.PROTOBUF,
-                pipeline);
+                pipeline,
+                Map.of());
 
         call.sendRequest(request, true);
 
