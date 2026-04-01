@@ -185,6 +185,35 @@ public class LiveSequential implements Runnable {
         }
     }
 
+    /** Mutable state for the download loop, enabling extraction of the loop body into a helper method. */
+    private static class DownloadLoopState {
+        long currentBlockNumber;
+        byte[] currentHash;
+        LocalDate currentDay;
+        BlockTimeReader blockTimeReader;
+        ConcurrentTarZstdWriter dayWriter;
+        long blocksProcessedTotal;
+        long blocksProcessedToday;
+        long dayStartTime;
+        long lastBlockTimeRefreshMs;
+        List<ListingRecordFile> cachedListingFiles;
+        LocalDate cachedListingDay;
+        final NetworkConfig netConfig;
+
+        DownloadLoopState(State initialState, BlockTimeReader reader) {
+            this.currentBlockNumber = initialState.blockNumber;
+            this.currentHash = initialState.getHashBytes();
+            this.currentDay = initialState.getDayDate();
+            this.blockTimeReader = reader;
+            this.dayStartTime = System.currentTimeMillis();
+            this.netConfig = NetworkConfig.current();
+        }
+    }
+
+    /** Immutable container for the three validation lists used by the wrap+validate thread. */
+    private record WrapValidations(
+            List<BlockValidation> parallel, List<BlockValidation> sequential, List<BlockValidation> all) {}
+
     /** Block data passed from the download thread to the wrap+validate thread. */
     private record ValidatedBlock(
             long blockNumber, Instant recordFileTime, List<InMemoryFile> files, byte[] runningHash) {}
@@ -428,104 +457,117 @@ public class LiveSequential implements Runnable {
             BlockingQueue<ValidatedBlock> queue,
             AtomicReference<Throwable> wrapError)
             throws Exception {
-
-        long currentBlockNumber = initialState.blockNumber;
-        byte[] currentHash = initialState.getHashBytes();
-        LocalDate currentDay = initialState.getDayDate();
-        BlockTimeReader blockTimeReader = initialBlockTimeReader;
-        ConcurrentTarZstdWriter currentDayWriter = null;
-        long blocksProcessedTotal = 0;
-        long blocksProcessedToday = 0;
-        long dayStartTime = System.currentTimeMillis();
-        long lastBlockTimeRefreshMs = 0;
-        List<ListingRecordFile> cachedListingFiles = null;
-        LocalDate cachedListingDay = null;
-        final NetworkConfig netConfig = NetworkConfig.current();
-
+        final DownloadLoopState state = new DownloadLoopState(initialState, initialBlockTimeReader);
         try {
             while (true) {
                 Throwable wrapErr = wrapError.get();
                 if (wrapErr != null) {
                     throw new IllegalStateException("Wrap+validate thread failed, stopping download", wrapErr);
                 }
-                long nextBlockNumber = currentBlockNumber + 1;
-
-                // Step 1: Get block timestamp (poll if not yet available)
-                LocalDateTime blockTime = resolveBlockTime(blockTimeReader, nextBlockNumber);
-                if (blockTime == null) {
-                    long now = System.currentTimeMillis();
-                    if (now - lastBlockTimeRefreshMs >= MIN_BLOCK_TIME_REFRESH_INTERVAL_MS) {
-                        System.out.println(
-                                "[LIVE] Block " + nextBlockNumber + " not in BlockTimeReader, refreshing...");
-                        UpdateBlockData.updateMirrorNodeData(
-                                MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
-                        blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
-                        lastBlockTimeRefreshMs = now;
-                    }
-                    Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
-                    continue;
-                }
-                LocalDate blockDay = blockTime.toLocalDate();
-
-                // Step 2: Handle day boundary and initialize writer
-                if (!blockDay.equals(currentDay)) {
-                    closeDayWriter(currentDayWriter, currentDay, blocksProcessedToday, dayStartTime);
-                    currentDayWriter = openDayWriterIfNeeded(blockDay);
-                    currentDay = blockDay;
-                    blocksProcessedToday = 0;
-                    dayStartTime = System.currentTimeMillis();
-                    cachedListingFiles = null;
-                    cachedListingDay = null;
-                    System.out.println("[live-sequential] Started new day: " + currentDay);
-                } else if (currentDayWriter == null && currentDay != null) {
-                    currentDayWriter = openDayWriterIfNeeded(currentDay);
-                    if (currentDayWriter != null) {
-                        dayStartTime = System.currentTimeMillis();
-                        System.out.println("[live-sequential] Started day: " + currentDay);
-                    }
-                }
-
-                // Step 3: Load/refresh GCS listings and find files for this block
-                if (!blockDay.equals(cachedListingDay)) {
-                    cachedListingFiles = loadListingsWithRetry(blockDay, blockTime, netConfig);
-                    cachedListingDay = blockDay;
-                }
-                List<ListingRecordFile> group =
-                        findBlockGroupWithRefresh(blockTime, blockDay, nextBlockNumber, cachedListingFiles, netConfig);
-                if (group == null) {
-                    blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
-                    continue;
-                }
-                cachedListingFiles = reloadListings(blockTime); // keep cache in sync after refresh
-                cachedListingDay = blockDay;
-
-                // Step 4: Download, validate, write, and queue
-                currentHash = fetchPreviousHashIfNeeded(currentHash, nextBlockNumber);
-                List<InMemoryFile> inMemoryFiles =
-                        downloadBlockFiles(group, netConfig, downloadManager, nextBlockNumber);
-                byte[] newHash =
-                        DownloadDayLiveImpl.validateBlockHashes(nextBlockNumber, inMemoryFiles, currentHash, null);
-                validateBlock(addressBookRegistry, currentHash, blockTime, nextBlockNumber, inMemoryFiles, newHash);
-                assertSequentialOrdering(nextBlockNumber, currentBlockNumber);
-                writeToDayArchive(currentDayWriter, inMemoryFiles);
-                Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
-                queue.put(new ValidatedBlock(nextBlockNumber, recordFileTime, inMemoryFiles, newHash));
-
-                // Step 5: Update state and log progress
-                currentBlockNumber = nextBlockNumber;
-                currentHash = newHash;
-                blocksProcessedTotal++;
-                blocksProcessedToday++;
-                saveState(new State(currentBlockNumber, currentHash, recordFileTime, currentDay));
-                logProgress(blocksProcessedTotal, blocksProcessedToday, currentBlockNumber, dayStartTime);
+                processOneBlock(state, addressBookRegistry, downloadManager, queue);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             System.out.println("[live-sequential] Interrupted, saving state...");
         } finally {
-            saveFinalState(currentBlockNumber, currentHash, currentDay, blockTimeReader);
-            closeQuietly(currentDayWriter);
+            saveFinalState(state.currentBlockNumber, state.currentHash, state.currentDay, state.blockTimeReader);
+            closeQuietly(state.dayWriter);
         }
+    }
+
+    private void processOneBlock(
+            DownloadLoopState state,
+            AddressBookRegistry addressBookRegistry,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            BlockingQueue<ValidatedBlock> queue)
+            throws Exception {
+        long nextBlockNumber = state.currentBlockNumber + 1;
+        LocalDateTime blockTime = resolveBlockTime(state.blockTimeReader, nextBlockNumber);
+        if (blockTime == null) {
+            state.blockTimeReader =
+                    refreshBlockTimeIfNeeded(state.blockTimeReader, nextBlockNumber, state.lastBlockTimeRefreshMs);
+            state.lastBlockTimeRefreshMs = System.currentTimeMillis();
+            Thread.sleep(LIVE_POLL_INTERVAL.toMillis());
+            return;
+        }
+        LocalDate blockDay = blockTime.toLocalDate();
+        if (!blockDay.equals(state.currentDay)) {
+            closeDayWriter(state.dayWriter, state.currentDay, state.blocksProcessedToday, state.dayStartTime);
+            state.dayWriter = openDayWriterIfNeeded(blockDay);
+            state.currentDay = blockDay;
+            state.blocksProcessedToday = 0;
+            state.dayStartTime = System.currentTimeMillis();
+            state.cachedListingFiles = null;
+            state.cachedListingDay = null;
+        } else if (state.dayWriter == null && state.currentDay != null) {
+            state.dayWriter = openDayWriterIfNeeded(state.currentDay);
+            if (state.dayWriter != null) state.dayStartTime = System.currentTimeMillis();
+        }
+        if (!blockDay.equals(state.cachedListingDay)) {
+            state.cachedListingFiles = loadListingsWithRetry(blockDay, blockTime, state.netConfig);
+            state.cachedListingDay = blockDay;
+        }
+        List<ListingRecordFile> group = findBlockGroupWithRefresh(
+                blockTime, blockDay, nextBlockNumber, state.cachedListingFiles, state.netConfig);
+        if (group == null) {
+            state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+            return;
+        }
+        state.cachedListingFiles = reloadListings(blockTime);
+        state.cachedListingDay = blockDay;
+        byte[] newHash = downloadValidateAndEnqueue(
+                addressBookRegistry,
+                downloadManager,
+                state.netConfig,
+                group,
+                nextBlockNumber,
+                state.currentBlockNumber,
+                state.currentHash,
+                blockTime,
+                state.dayWriter,
+                queue);
+        Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
+        state.currentBlockNumber = nextBlockNumber;
+        state.currentHash = newHash;
+        state.blocksProcessedTotal++;
+        state.blocksProcessedToday++;
+        saveState(new State(state.currentBlockNumber, state.currentHash, recordFileTime, state.currentDay));
+        logProgress(
+                state.blocksProcessedTotal, state.blocksProcessedToday, state.currentBlockNumber, state.dayStartTime);
+    }
+
+    private byte[] downloadValidateAndEnqueue(
+            AddressBookRegistry addressBookRegistry,
+            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
+            NetworkConfig netConfig,
+            List<ListingRecordFile> group,
+            long nextBlockNumber,
+            long currentBlockNumber,
+            byte[] currentHash,
+            LocalDateTime blockTime,
+            ConcurrentTarZstdWriter dayWriter,
+            BlockingQueue<ValidatedBlock> queue)
+            throws Exception {
+        currentHash = fetchPreviousHashIfNeeded(currentHash, nextBlockNumber);
+        List<InMemoryFile> inMemoryFiles = downloadBlockFiles(group, netConfig, downloadManager, nextBlockNumber);
+        byte[] newHash = DownloadDayLiveImpl.validateBlockHashes(nextBlockNumber, inMemoryFiles, currentHash, null);
+        validateBlock(addressBookRegistry, currentHash, blockTime, nextBlockNumber, inMemoryFiles, newHash);
+        assertSequentialOrdering(nextBlockNumber, currentBlockNumber);
+        writeToDayArchive(dayWriter, inMemoryFiles);
+        Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
+        queue.put(new ValidatedBlock(nextBlockNumber, recordFileTime, inMemoryFiles, newHash));
+        return newHash;
+    }
+
+    private static BlockTimeReader refreshBlockTimeIfNeeded(
+            BlockTimeReader reader, long blockNumber, long lastRefreshMs) throws IOException {
+        long now = System.currentTimeMillis();
+        if (now - lastRefreshMs >= MIN_BLOCK_TIME_REFRESH_INTERVAL_MS) {
+            System.out.println("[LIVE] Block " + blockNumber + " not in BlockTimeReader, refreshing...");
+            UpdateBlockData.updateMirrorNodeData(MetadataFiles.BLOCK_TIMES_FILE, MetadataFiles.DAY_BLOCKS_FILE);
+            return new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+        }
+        return reader;
     }
 
     private static LocalDateTime resolveBlockTime(BlockTimeReader reader, long blockNumber) {
@@ -736,47 +778,26 @@ public class LiveSequential implements Runnable {
     @SuppressWarnings("PMD.NPathComplexity")
     private void runWrapAndValidateThread(BlockingQueue<ValidatedBlock> queue, AddressBookRegistry addressBookRegistry)
             throws Exception {
-
-        final Path hashRegistryPath = wrapOutputDir.resolve("blockStreamBlockHashes.bin");
         final Path streamingMerkleTreeFile = wrapOutputDir.resolve("streamingMerkleTree.bin");
         final Path watermarkFile = wrapOutputDir.resolve("wrap-commit.bin");
         final Path addressBookFile = wrapOutputDir.resolve("addressBookHistory.json");
         final Path checkpointDir = wrapOutputDir.resolve("validateCheckpoint");
 
-        Files.createDirectories(wrapOutputDir);
-        Files.createDirectories(checkpointDir);
-        if (!Files.exists(addressBookFile) && addressBookPath != null && Files.exists(addressBookPath)) {
-            Files.copy(addressBookPath, addressBookFile);
-        }
-
+        initializeWrapDirectories(addressBookFile, checkpointDir);
         final AmendmentProvider amendmentProvider =
                 createAmendmentProvider(NetworkConfig.current().networkName());
-
-        try (BlockStreamBlockHashRegistry blockRegistry = new BlockStreamBlockHashRegistry(hashRegistryPath)) {
+        try (BlockStreamBlockHashRegistry blockRegistry =
+                new BlockStreamBlockHashRegistry(wrapOutputDir.resolve("blockStreamBlockHashes.bin"))) {
             long[] state = reconcileWrapState(blockRegistry, watermarkFile);
             long effectiveHighest = state[0];
-            long watermark = state[1];
 
             System.out.println("[WRAP] Starting from block: " + effectiveHighest);
             final StreamingHasher streamingHasher = replayHasher(blockRegistry, effectiveHighest);
 
-            BlockChainValidation chainValidation = new BlockChainValidation();
-            List<BlockValidation> parallelValidations = buildParallelValidations(addressBookRegistry);
-            List<BlockValidation> sequentialValidations = buildSequentialValidations(
-                    addressBookRegistry, blockRegistry, chainValidation, streamingMerkleTreeFile);
-            List<BlockValidation> allValidations = new ArrayList<>();
-            allValidations.addAll(parallelValidations);
-            allValidations.addAll(sequentialValidations);
+            WrapValidations wv = setupValidations(
+                    addressBookRegistry, blockRegistry, streamingMerkleTreeFile, effectiveHighest, checkpointDir);
 
-            initializeCheckpointState(
-                    effectiveHighest,
-                    checkpointDir,
-                    blockRegistry,
-                    chainValidation,
-                    sequentialValidations,
-                    allValidations);
-
-            long[] zipState = {watermark, 0}; // [durableWatermark, blocksSinceFlush]
+            long[] zipState = {state[1], 0};
             BlockZipAppender[] zipHolder = {null};
             Path[] zipPathHolder = {null};
             long blocksValidated = 0;
@@ -797,23 +818,15 @@ public class LiveSequential implements Runnable {
                             streamingHasher.computeRootHash(),
                             amendmentProvider);
 
-                    byte[] blockStreamBlockHash = hashBlock(wrapped);
-                    streamingHasher.addNodeByHash(blockStreamBlockHash);
-                    blockRegistry.addBlock(blockNum, blockStreamBlockHash);
-
+                    byte[] blockHash = hashBlock(wrapped);
+                    streamingHasher.addNodeByHash(blockHash);
+                    blockRegistry.addBlock(blockNum, blockHash);
                     writeToZipArchive(blockNum, wrapped, watermarkFile, zipHolder, zipPathHolder, zipState);
-
-                    runBlockValidations(
-                            wrapped,
-                            blockNum,
-                            parallelValidations,
-                            sequentialValidations,
-                            allValidations,
-                            checkpointDir);
+                    runBlockValidations(wrapped, blockNum, wv.parallel(), wv.sequential(), wv.all(), checkpointDir);
                     blocksValidated++;
 
                     if (System.currentTimeMillis() - lastCheckpointSaveMs >= 60_000L) {
-                        saveValidationCheckpoint(checkpointDir, blockNum, allValidations);
+                        saveValidationCheckpoint(checkpointDir, blockNum, wv.all());
                         lastCheckpointSaveMs = System.currentTimeMillis();
                     }
                     if (blocksValidated % PROGRESS_LOG_INTERVAL == 0) {
@@ -823,21 +836,69 @@ public class LiveSequential implements Runnable {
                     }
                 }
             } finally {
-                if (zipHolder[0] != null) {
-                    try {
-                        zipHolder[0].close();
-                    } catch (IOException e) {
-                        System.err.println("[WRAP] Error closing zip: " + e.getMessage());
-                    }
-                }
-                saveWatermark(watermarkFile, zipState[0]);
-                saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
-                addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
-                saveValidationCheckpoint(checkpointDir, zipState[0], allValidations);
-                for (BlockValidation v : allValidations) v.close();
-                System.out.println("[WRAP] Shutdown complete. Wrapped " + blocksValidated + " blocks.");
+                finalizeWrapState(
+                        zipHolder[0],
+                        zipState[0],
+                        watermarkFile,
+                        streamingMerkleTreeFile,
+                        streamingHasher,
+                        addressBookRegistry,
+                        addressBookFile,
+                        checkpointDir,
+                        wv.all(),
+                        blocksValidated);
             }
         }
+    }
+
+    private WrapValidations setupValidations(
+            AddressBookRegistry addressBookRegistry,
+            BlockStreamBlockHashRegistry blockRegistry,
+            Path streamingMerkleTreeFile,
+            long effectiveHighest,
+            Path checkpointDir) {
+        BlockChainValidation chainValidation = new BlockChainValidation();
+        List<BlockValidation> parallel = buildParallelValidations(addressBookRegistry);
+        List<BlockValidation> sequential = buildSequentialValidations(
+                addressBookRegistry, blockRegistry, chainValidation, streamingMerkleTreeFile);
+        List<BlockValidation> all = new ArrayList<>(parallel);
+        all.addAll(sequential);
+        initializeCheckpointState(effectiveHighest, checkpointDir, blockRegistry, chainValidation, sequential, all);
+        return new WrapValidations(parallel, sequential, all);
+    }
+
+    private void initializeWrapDirectories(Path addressBookFile, Path checkpointDir) throws IOException {
+        Files.createDirectories(wrapOutputDir);
+        Files.createDirectories(checkpointDir);
+        if (!Files.exists(addressBookFile) && addressBookPath != null && Files.exists(addressBookPath)) {
+            Files.copy(addressBookPath, addressBookFile);
+        }
+    }
+
+    private static void finalizeWrapState(
+            BlockZipAppender currentZip,
+            long durableWatermark,
+            Path watermarkFile,
+            Path streamingMerkleTreeFile,
+            StreamingHasher streamingHasher,
+            AddressBookRegistry addressBookRegistry,
+            Path addressBookFile,
+            Path checkpointDir,
+            List<BlockValidation> allValidations,
+            long blocksValidated) {
+        if (currentZip != null) {
+            try {
+                currentZip.close();
+            } catch (IOException e) {
+                System.err.println("[WRAP] Error closing zip: " + e.getMessage());
+            }
+        }
+        saveWatermark(watermarkFile, durableWatermark);
+        saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
+        addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+        saveValidationCheckpoint(checkpointDir, durableWatermark, allValidations);
+        for (BlockValidation v : allValidations) v.close();
+        System.out.println("[WRAP] Shutdown complete. Wrapped " + blocksValidated + " blocks.");
     }
 
     private void writeToZipArchive(
