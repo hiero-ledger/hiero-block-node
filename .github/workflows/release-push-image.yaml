@@ -101,7 +101,7 @@ jobs:
         include:
           - image: ${{ github.repository }}
             target: base-image
-          - image: ${{ github.repository }}-dev
+          - image: ${{ github.repository }}-solo-dev
             target: dev
     steps:
       - name: Harden Runner
