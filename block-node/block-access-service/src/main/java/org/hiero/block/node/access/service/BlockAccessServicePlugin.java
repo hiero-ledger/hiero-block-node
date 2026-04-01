@@ -15,6 +15,7 @@ import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.internal.BlockResponseUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -28,6 +29,9 @@ import org.hiero.metrics.core.MetricRegistry;
  * Plugin that implements the BlockAccessService and provides the 'block' RPC.
  */
 public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessServiceInterface {
+    /** The application state facility, for updating application state. */
+    private ApplicationStateFacility applicationStateFacility;
+
     /** Metric key for the number of get block requests */
     public static final MetricKey<LongCounter> METRIC_GET_BLOCK_REQUESTS =
             MetricKey.of("get_block_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -162,7 +166,12 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
      * {@inheritDoc}
      */
     @Override
-    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+    public void init(
+            BlockNodeContext context,
+            ServiceBuilder serviceBuilder,
+            ApplicationStateFacility applicationStateFacility) {
+        this.applicationStateFacility = applicationStateFacility;
+
         // Create the metrics
         final MetricRegistry metricRegistry = context.metricRegistry();
         requestCounter = metricRegistry
