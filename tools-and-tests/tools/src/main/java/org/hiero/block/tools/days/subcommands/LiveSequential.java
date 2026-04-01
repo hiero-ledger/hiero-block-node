@@ -131,6 +131,9 @@ public class LiveSequential implements Runnable {
     /** Maximum time to wait for all signatures at the live edge before proceeding with what we have. */
     private static final Duration MAX_SIG_WAIT = Duration.ofMinutes(2);
 
+    /** Maximum number of 15-minute retries when waiting for GCS listings for a new day. */
+    private static final int MAX_LISTING_WAIT_ATTEMPTS = 10;
+
     private static final File CACHE_DIR = new File("metadata/gcp-cache");
 
     /** Poison pill to signal the wrap+validate thread to exit. */
@@ -554,8 +557,13 @@ public class LiveSequential implements Runnable {
                                     + " listing entries for " + blockDay);
                             break;
                         } catch (NoSuchFileException e) {
+                            if (attempt >= MAX_LISTING_WAIT_ATTEMPTS) {
+                                throw new IllegalStateException("Listings not available for " + blockDay + " after "
+                                        + attempt + " attempts (waited " + (attempt * 15) + " minutes)");
+                            }
                             System.out.println("[live-sequential] Listings not available yet for " + blockDay
-                                    + ", waiting 15 minutes... (attempt " + attempt + ")");
+                                    + ", waiting 15 minutes... (attempt " + attempt + "/"
+                                    + MAX_LISTING_WAIT_ATTEMPTS + ")");
                             Thread.sleep(15 * 60 * 1000);
                         }
                     }
@@ -811,6 +819,9 @@ public class LiveSequential implements Runnable {
                 }
 
                 // Step 7: Validate hash chain (lightweight, keeps sequential integrity)
+                // TODO: download-live2 also calls UnparsedRecordBlockV6.validate() which verifies sidecar
+                // SHA-384 hashes against the record file metadata. This pipeline only does MD5 at download
+                // time + RSA verification in the wrap thread. Consider adding sidecar hash verification.
                 byte[] newHash =
                         DownloadDayLiveImpl.validateBlockHashes(nextBlockNumber, inMemoryFiles, currentHash, null);
                 Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
