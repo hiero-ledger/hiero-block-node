@@ -1149,18 +1149,8 @@ public class LiveSequential implements Runnable {
                     BlockUnparsed blockUnparsed = BlockUnparsed.PROTOBUF.parse(
                             wrappedBytes.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, 37_748_736);
 
-                    // Phase 1: Parallel validations
-                    for (BlockValidation v : parallelValidations) {
-                        try {
-                            v.validate(blockUnparsed, blockNum);
-                        } catch (ValidationException e) {
-                            throw new IllegalStateException(
-                                    "Validation '" + v.name() + "' failed at block " + blockNum + ": " + e.getMessage(),
-                                    e);
-                        }
-                    }
-
-                    // Phase 2: Sequential validations
+                    // Phase 1: Sequential validations (run first so AddressBookUpdateValidation
+                    // updates the address book before SignatureValidation uses it)
                     for (BlockValidation v : sequentialValidations) {
                         try {
                             v.validate(blockUnparsed, blockNum);
@@ -1168,6 +1158,18 @@ public class LiveSequential implements Runnable {
                             // Save checkpoint before failing
                             saveValidationCheckpoint(
                                     checkpointDir, blocksValidated, blockNum - 1, chainValidation, allValidations);
+                            throw new IllegalStateException(
+                                    "Validation '" + v.name() + "' failed at block " + blockNum + ": " + e.getMessage(),
+                                    e);
+                        }
+                    }
+
+                    // Phase 2: Parallel validations (including SignatureValidation, which now
+                    // sees the up-to-date address book)
+                    for (BlockValidation v : parallelValidations) {
+                        try {
+                            v.validate(blockUnparsed, blockNum);
+                        } catch (ValidationException e) {
                             throw new IllegalStateException(
                                     "Validation '" + v.name() + "' failed at block " + blockNum + ": " + e.getMessage(),
                                     e);
@@ -1225,6 +1227,15 @@ public class LiveSequential implements Runnable {
                 // Save validation checkpoint
                 saveValidationCheckpoint(
                         checkpointDir, blocksValidated, durableWatermark, chainValidation, allValidations);
+
+                // Finalize all validations (end-of-stream checks)
+                for (BlockValidation v : allValidations) {
+                    try {
+                        v.finalize(blocksValidated, durableWatermark);
+                    } catch (ValidationException e) {
+                        System.err.println("[WRAP] Warning: finalize failed for " + v.name() + ": " + e.getMessage());
+                    }
+                }
 
                 // Close all validations
                 for (BlockValidation v : allValidations) {
@@ -1407,8 +1418,9 @@ public class LiveSequential implements Runnable {
                 Files.createDirectories(parentDir);
             }
             String json = GSON.toJson(state);
-            Files.writeString(stateJsonPath, json, StandardCharsets.UTF_8);
-        } catch (IOException e) {
+            HasherStateFiles.saveAtomically(
+                    stateJsonPath, path -> Files.writeString(path, json, StandardCharsets.UTF_8));
+        } catch (Exception e) {
             System.err.println("[live-sequential] Warning: Failed to save state: " + e.getMessage());
         }
     }
