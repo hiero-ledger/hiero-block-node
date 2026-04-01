@@ -77,6 +77,52 @@ public class UpdateBlockData implements Runnable {
     }
 
     /**
+     * Lightweight update that only writes to block_times.bin, starting from its highest block.
+     * Unlike {@link #updateMirrorNodeData}, this does not touch day_blocks.json, making it
+     * suitable for live polling where only block times are needed. It extends the file for
+     * new blocks beyond the current file size.
+     *
+     * @param blockTimesFile the path to the block times file
+     */
+    public static void updateBlockTimesOnly(Path blockTimesFile) {
+        try {
+            long highestBlock = readHighestBlockFromTimesFile(blockTimesFile);
+            long startBlock = highestBlock + 1;
+            long latestBlock = getLatestBlockNumber();
+            if (startBlock > latestBlock) {
+                return; // already up to date
+            }
+            if (blockTimesFile.getParent() != null) {
+                Files.createDirectories(blockTimesFile.getParent());
+            }
+            try (RandomAccessFile raf = new RandomAccessFile(blockTimesFile.toFile(), "rw")) {
+                long currentBlock = startBlock;
+                while (currentBlock <= latestBlock) {
+                    JsonArray blocks = fetchBlockBatch(currentBlock, BATCH_SIZE);
+                    if (blocks.isEmpty()) {
+                        break;
+                    }
+                    long lastProcessed = currentBlock - 1;
+                    for (int i = 0; i < blocks.size(); i++) {
+                        JsonObject block = blocks.get(i).getAsJsonObject();
+                        long blockNumber = block.get("number").getAsLong();
+                        String recordFileName = block.get("name").getAsString();
+                        Instant blockInstant = extractRecordFileTime(recordFileName);
+                        long blockTimeLong = instantToBlockTimeLong(blockInstant);
+                        raf.seek(blockNumber * Long.BYTES);
+                        raf.writeLong(blockTimeLong);
+                        lastProcessed = blockNumber;
+                    }
+                    raf.getChannel().force(false);
+                    currentBlock = lastProcessed + 1;
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[UpdateBlockData] Warning: could not update block times: " + e.getMessage());
+        }
+    }
+
+    /**
      * Update block data files (block_times.bin and day_blocks.json) with newer blocks from the mirror node.
      *
      * @param blockTimesFile the path to the block times file
