@@ -297,6 +297,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 && blockNumber > lastPersistedBlockNumber.get()
                 && blockNumber < nextUnstreamedBlockNumber.get();
         if (shouldHandle) {
+            // Schedule a resend for the block before sending the bad block proof message
+            blocksToResend.add(blockNumber);
             // Iterate over all handlers and attempt to send the
             // bad block proof message.
             // @todo(2339) improve the loop below, find the handler that should send the bad block proof code
@@ -308,9 +310,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     break;
                 }
             }
-            // Now finally schedule the block that failed verification to be
-            // resent.
-            blocksToResend.add(blockNumber);
         }
     }
 
@@ -346,14 +345,15 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // but this must be removed for now.
                 // @todo(#1841) reconsider this conditional in light of other changes.
                 if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
+                    // Update internal manager state before sending acknowledgement
+                    lastPersistedBlockNumber.set(newLastPersistedBlock);
+                    ensureNextGreaterThanPersisted(newLastPersistedBlock);
+                    clearObsoleteQueueItems(newLastPersistedBlock);
                     handlers.values().parallelStream().unordered().forEach(handler -> {
                         // _Important_, we only need the last persisted block number
                         // all previous blocks are implicitly acknowledged.
                         handler.sendAcknowledgement(newLastPersistedBlock);
                     });
-                    lastPersistedBlockNumber.set(newLastPersistedBlock);
-                    ensureNextGreaterThanPersisted(newLastPersistedBlock);
-                    clearObsoleteQueueItems(newLastPersistedBlock);
                     metrics.latestBlockNumberAcknowledged.set(newLastPersistedBlock);
                 }
             } else {
