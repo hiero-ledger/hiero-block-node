@@ -765,6 +765,7 @@ class StreamPublisherPluginTest {
             while (verificationPlugin.blockFailures(block.number()) <= 0 && System.nanoTime() < deadline) {
                 parkNanos(1_000_000L);
             }
+            awaitPluginResponses(List.of(badBlockProofReceiver), 1);
             // Assert that the block has failed verification
             assertThat(verificationPlugin.blockFailures(block.number())).isOne();
             // Assert bad block proof received by publisher that has supplied the failing block
@@ -785,13 +786,17 @@ class StreamPublisherPluginTest {
             while (verificationPlugin.blockFailures(block.number()) <= 0 && System.nanoTime() < deadline) {
                 parkNanos(1_000_000L);
             }
+            awaitPluginResponses(List.of(resendReceiver), 1);
             // Assert that the block has failed verification
             assertThat(verificationPlugin.blockFailures(block.number())).isOne();
+            final List<PublishStreamResponse> filteredResponses = resendReceiver.stream()
+                    .map(bytesToPublishStreamResponseMapper)
+                    .filter(PublishStreamResponse::hasResendBlock)
+                    .toList();
             // Assert resend received
-            assertThat(resendReceiver)
+            assertThat(filteredResponses)
                     .hasSize(1)
                     .first()
-                    .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
                     .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
                     .returns(block.number(), resendBlockNumberExtractor);

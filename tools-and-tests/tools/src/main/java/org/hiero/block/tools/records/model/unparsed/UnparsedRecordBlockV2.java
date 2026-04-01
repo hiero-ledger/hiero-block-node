@@ -82,8 +82,8 @@ public class UnparsedRecordBlockV2 extends UnparsedRecordBlock {
             if (fileVersion != 2) {
                 throw new IllegalStateException("Invalid v2 record file version: " + fileVersion);
             }
-            final int hapiMajorVersion = in.readInt();
-            final SemanticVersion hapiVersion = new SemanticVersion(hapiMajorVersion, 0, 0, null, null);
+            final int hapiVersion = in.readInt();
+            final SemanticVersion hapiProtoVersion = new SemanticVersion(0, hapiVersion, 0, null, null);
             final byte previousFileHashMarker = in.readByte();
             if (previousFileHashMarker != 1) {
                 throw new IllegalStateException("Invalid previous file hash marker in v2 record file");
@@ -158,7 +158,7 @@ public class UnparsedRecordBlockV2 extends UnparsedRecordBlock {
                     isValid,
                     warningMessages.toString(),
                     blockHash,
-                    hapiVersion,
+                    hapiProtoVersion,
                     addressBookTransactions,
                     validSigCount);
         } catch (IOException | NoSuchAlgorithmException | ParseException e) {

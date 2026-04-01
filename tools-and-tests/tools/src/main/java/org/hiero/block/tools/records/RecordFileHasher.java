@@ -32,7 +32,7 @@ public class RecordFileHasher {
             // This is a minimal parser for all record file formats only extracting the necessary information
             return switch (recordFormatVersion) {
                 case 2 -> {
-                    final int hapiMajorVersion = in.readInt();
+                    final int hapiVersion = in.readInt();
                     final byte previousFileHashMarker = in.readByte();
                     if (previousFileHashMarker != 1) {
                         throw new IllegalStateException("Invalid previous file hash marker in v2 record file");
