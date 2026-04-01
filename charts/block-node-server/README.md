@@ -145,6 +145,10 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 The chart includes pre-defined value override files in `values-overrides/`:
 
+##### solo-dev.yaml
+
+Installs the solo-dev docker image that contains all the plugins.
+
 ##### plugin-profile-all.yaml
 
 Full functionality for development and testing.
@@ -200,7 +204,7 @@ Deploy with a profile:
 
 ```bash
 helm install "${RELEASE}" charts/block-node-server \
-  -f charts/block-node-server/values-overrides/plugin-profile-all.yaml
+  -f charts/block-node-server/values-overrides/solo-dev.yaml
 ```
 
 #### Custom Plugin Selection
