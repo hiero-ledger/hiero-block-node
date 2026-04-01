@@ -69,6 +69,7 @@ import org.hiero.block.tools.blocks.validation.HashRegistryValidation;
 import org.hiero.block.tools.blocks.validation.HbarSupplyValidation;
 import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
 import org.hiero.block.tools.blocks.validation.JumpstartValidation;
+import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
@@ -78,6 +79,7 @@ import org.hiero.block.tools.days.download.DownloadDayLiveImpl;
 import org.hiero.block.tools.days.listing.DayListingFileReader;
 import org.hiero.block.tools.days.listing.ListingRecordFile;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.NodeStakeRegistry;
 import org.hiero.block.tools.metadata.MetadataFiles;
 import org.hiero.block.tools.mirrornode.BlockInfo;
 import org.hiero.block.tools.mirrornode.BlockTimeReader;
@@ -949,14 +951,16 @@ public class LiveSequential implements Runnable {
             HistoricalBlockTreeValidation treeValidation = new HistoricalBlockTreeValidation(chainValidation);
             HbarSupplyValidation supplyValidation = new HbarSupplyValidation();
 
+            final NodeStakeRegistry nodeStakeRegistry = new NodeStakeRegistry();
             List<BlockValidation> parallelValidations = new ArrayList<>();
             parallelValidations.add(new RequiredItemsValidation());
             parallelValidations.add(new BlockStructureValidation());
-            SignatureValidation signatureValidation = new SignatureValidation(addressBookRegistry);
+            SignatureValidation signatureValidation = new SignatureValidation(addressBookRegistry, nodeStakeRegistry);
             parallelValidations.add(signatureValidation);
 
             List<BlockValidation> sequentialValidations = new ArrayList<>();
             sequentialValidations.add(new AddressBookUpdateValidation(addressBookRegistry));
+            sequentialValidations.add(new NodeStakeUpdateValidation(nodeStakeRegistry));
             sequentialValidations.add(chainValidation);
             sequentialValidations.add(treeValidation);
             sequentialValidations.add(supplyValidation);
