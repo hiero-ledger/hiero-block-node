@@ -17,6 +17,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -137,7 +138,8 @@ public abstract class PluginTestBase<
                 historicalBlockFacility,
                 new ServiceLoaderFunction(),
                 testThreadPoolManager,
-                buildBlockNodeVersions());
+                buildBlockNodeVersions(),
+                TssData.DEFAULT);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
