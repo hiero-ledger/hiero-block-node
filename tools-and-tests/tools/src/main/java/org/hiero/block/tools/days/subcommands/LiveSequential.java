@@ -166,11 +166,6 @@ public class LiveSequential implements Runnable {
             description = "Start date in YYYY-MM-DD format (default: auto-detect from mirror node)")
     private String startDate;
 
-    @Option(
-            names = {"--stats-csv"},
-            description = "Path to signature statistics CSV file (default: outputDir/signature_statistics.csv)")
-    private Path statsCsvPath;
-
     /** State persisted to JSON for resumability. Compatible with DownloadLive2 format. */
     private static class State {
         String dayDate;
@@ -253,11 +248,6 @@ public class LiveSequential implements Runnable {
                             .build();
 
             final BlockTimeReader blockTimeReader = new BlockTimeReader();
-
-            // Stats CSV
-            if (statsCsvPath == null) {
-                statsCsvPath = outputDir.toPath().resolve("signature_statistics.csv");
-            }
 
             // Determine starting point
             final State initialState = determineStartingPoint(blockTimeReader);
@@ -437,8 +427,6 @@ public class LiveSequential implements Runnable {
 
             if (watermark >= 0 && registryHighest > watermark) {
                 registryHighest = watermark;
-            } else if (watermark < 0 && registryHighest >= 0) {
-                // trust registry
             }
 
             // Mid-zip truncation (same logic as runWrapAndValidateThread)
@@ -741,13 +729,17 @@ public class LiveSequential implements Runnable {
                     continue;
                 }
 
-                // Verify sufficient signature files (need at least 3/7 for consensus)
+                // Verify sufficient signature files (need at least 3/N for consensus)
                 long sigCount = inMemoryFiles.stream()
                         .filter(f -> f.path().getFileName().toString().contains("_sig"))
                         .count();
+                long maxExpectedSigs = addressBookRegistry
+                        .getCurrentAddressBook()
+                        .nodeAddress()
+                        .size();
                 if (sigCount < 3) {
                     System.out.println("[live-sequential] Insufficient signatures for block " + nextBlockNumber + " ("
-                            + sigCount + "/7), waiting for GCS uploads...");
+                            + sigCount + "/" + maxExpectedSigs + "), waiting for GCS uploads...");
                     refreshListingsForSingleDay(blockDay, netConfig);
                     cachedListingFiles = DayListingFileReader.loadRecordsFileForDay(
                             listingDir.toPath(),
@@ -786,10 +778,8 @@ public class LiveSequential implements Runnable {
                         continue;
                     }
                     // Check if more sigs might still be uploading to GCS
-                    long maxExpectedSigs = addressBookRegistry
-                            .getCurrentAddressBook()
-                            .nodeAddress()
-                            .size();
+                    // (reuse maxExpectedSigs computed above)
+
                     if (expectedSigs < maxExpectedSigs) {
                         long waitedMs =
                                 Duration.between(blockInstantUtc, Instant.now()).toMillis();
@@ -963,6 +953,9 @@ public class LiveSequential implements Runnable {
             sequentialValidations.add(new StreamingMerkleTreeValidation(streamingMerkleTreeFile, treeValidation));
             Path jumpstartPath = wrapOutputDir.resolve("jumpstart.bin");
             sequentialValidations.add(new JumpstartValidation(jumpstartPath, treeValidation, blockRegistry));
+            // TODO: BalanceCheckpointValidation is intentionally excluded. It requires genesis start and
+            // sourcing monthly balance checkpoint files, which adds significant complexity in live mode.
+            // See ValidateBlocksCommand for the full pattern if this is needed in the future.
 
             List<BlockValidation> allValidations = new ArrayList<>();
             allValidations.addAll(parallelValidations);
@@ -1384,14 +1377,15 @@ public class LiveSequential implements Runnable {
         return DownloadDayLiveImpl.computeFilesToDownload(mostCommonRecord, mostCommonSidecars, group);
     }
 
-    /** Resolve the set of most-common files (record + sidecar) for path deduplication. */
+    /** Resolve the set of most-common files (record + sidecars) for path deduplication. */
     private static Set<ListingRecordFile> resolveMostCommonFilesSet(List<ListingRecordFile> group) {
         Set<ListingRecordFile> set = new HashSet<>();
         ListingRecordFile mostCommonRecord = RecordFileUtils.findMostCommonByType(group, ListingRecordFile.Type.RECORD);
         if (mostCommonRecord != null) set.add(mostCommonRecord);
-        ListingRecordFile mostCommonSidecar =
-                RecordFileUtils.findMostCommonByType(group, ListingRecordFile.Type.RECORD_SIDECAR);
-        if (mostCommonSidecar != null) set.add(mostCommonSidecar);
+        ListingRecordFile[] mostCommonSidecars = RecordFileUtils.findMostCommonSidecars(group);
+        for (ListingRecordFile sidecar : mostCommonSidecars) {
+            if (sidecar != null) set.add(sidecar);
+        }
         return set;
     }
 
