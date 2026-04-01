@@ -650,8 +650,8 @@ class BackfillFetcherTest {
             }
 
             BackfillSource source = BackfillSource.newBuilder().nodes(nodes).build();
-            // Very short initial retry delay for testing
-            BackfillConfiguration config = createTestConfig(1, 100, 1000, 1000, 300_000L, 1000.0);
+            // Backoff delay must be long enough that it does not expire between the two scans
+            BackfillConfiguration config = createTestConfig(1, 5_000, 1000, 1000, 300_000L, 1000.0);
 
             AtomicInteger connectionAttempts = new AtomicInteger(0);
 
