@@ -9,6 +9,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.grpc.ServiceInterface.Method;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.config.api.converter.ConfigConverter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
@@ -93,7 +94,17 @@ public abstract class GrpcPluginTestBase<
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides) {
-        super.start(plugin, historicalBlockFacility, additionalPlugins, configOverrides);
+        start(plugin, method, historicalBlockFacility, additionalPlugins, configOverrides, Map.of());
+    }
+
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final Method method,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final List<BlockNodePlugin> additionalPlugins,
+            @Nullable final Map<String, String> configOverrides,
+            @Nullable final Map<Class<?>, ConfigConverter<?>> converters) {
+        super.start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, converters);
         this.method = Objects.requireNonNull(method);
         setupNewPipelines();
     }

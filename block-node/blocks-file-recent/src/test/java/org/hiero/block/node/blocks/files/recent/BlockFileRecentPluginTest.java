@@ -96,7 +96,7 @@ class BlockFileRecentPluginTest {
                     Map.of(
                             "files.recent.liveRootPath",
                             filesRecentConfig.liveRootPath().toString()),
-                    fileSystem);
+                    Map.of(Path.class, fileSystem::getPath));
             // Assert that the roots are created
             assertThat(linksRootPath).exists().isDirectory().isEmptyDirectory();
             assertThat(blocksRootPath).exists().isDirectory().isNotEmptyDirectory();
@@ -133,7 +133,7 @@ class BlockFileRecentPluginTest {
                     Map.of(
                             "files.recent.liveRootPath",
                             filesRecentConfig.liveRootPath().toString()),
-                    fileSystem);
+                    Map.of(Path.class, fileSystem::getPath));
             // Assert that the links root directory exists and is empty
             assertThat(linksRootPath).isDirectory().isEmptyDirectory();
         }
@@ -162,7 +162,7 @@ class BlockFileRecentPluginTest {
                                     filesRecentConfig.liveRootPath().toString(),
                             "files.recent.blockRetentionThreshold",
                                     String.valueOf(filesRecentConfig.blockRetentionThreshold())),
-                    fileSystem);
+                    Map.of(Path.class, fileSystem::getPath));
         }
 
         /**
@@ -330,7 +330,7 @@ class BlockFileRecentPluginTest {
                                     filesRecentConfigOverride.liveRootPath().toString(),
                             "files.recent.blockRetentionThreshold",
                                     String.valueOf(filesRecentConfigOverride.blockRetentionThreshold())),
-                    fileSystem);
+                    Map.of(Path.class, fileSystem::getPath));
             // pre-check that there are no blocks stored
             assertThat(toTest.availableBlocks().min()).isEqualTo(UNKNOWN_BLOCK_NUMBER);
             assertThat(toTest.availableBlocks().max()).isEqualTo(UNKNOWN_BLOCK_NUMBER);

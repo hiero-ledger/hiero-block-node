@@ -5,12 +5,11 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.config.api.converter.ConfigConverter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
 import java.io.IOException;
-import java.nio.file.FileSystem;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -95,7 +94,7 @@ public abstract class PluginTestBase<
             @NonNull final P plugin,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins) {
-        start(plugin, historicalBlockFacility, additionalPlugins, null);
+        start(plugin, historicalBlockFacility, additionalPlugins, Map.of());
     }
 
     public void start(
@@ -103,7 +102,7 @@ public abstract class PluginTestBase<
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides) {
-        start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, null);
+        start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, Map.of());
     }
 
     /**
@@ -114,14 +113,14 @@ public abstract class PluginTestBase<
      * @param historicalBlockFacility the historical block facility to be used
      * @param additionalPlugins additional test plugins to be initialized and started
      * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
-     * @param fileSystem an optional {@link FileSystem} to use for resolving {@link Path} values in configuration
+     * @param converters an optional map of custom converters to be used for the configuration
      */
     public void start(
             @NonNull final P plugin,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides,
-            @Nullable final FileSystem fileSystem) {
+            @Nullable final Map<Class<?>, ConfigConverter<?>> converters) {
         this.plugin = plugin;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
@@ -135,8 +134,8 @@ public abstract class PluginTestBase<
                 configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
             }
         }
-        if (fileSystem != null) {
-            configurationBuilder = configurationBuilder.withConverter(Path.class, fileSystem::getPath);
+        for (Entry<Class<?>, ConfigConverter<?>> entry : converters.entrySet()) {
+            configurationBuilder = withConverter(configurationBuilder, entry.getKey(), entry.getValue());
         }
         final Configuration configuration = configurationBuilder.build();
         // create metrics
@@ -223,6 +222,18 @@ public abstract class PluginTestBase<
      */
     protected long getMetricValue(@NonNull final MetricKey<?> metricKey) {
         return testMetricsExporter.getMetricValue(metricKey.name());
+    }
+
+    /**
+     * Wildcard-capture helper: unifies the two independent {@code ?} wildcards from
+     * {@code Map<Class<?>, ConfigConverter<?>>} into a single type parameter {@code T} so that
+     * {@link ConfigurationBuilder#withConverter(Class, ConfigConverter)} can be called without
+     * an "incompatible equality constraint" compile error.
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> ConfigurationBuilder withConverter(
+            ConfigurationBuilder builder, Class<?> type, ConfigConverter<?> converter) {
+        return builder.withConverter((Class<T>) type, (ConfigConverter<T>) converter);
     }
 
     /**
