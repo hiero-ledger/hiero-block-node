@@ -36,10 +36,10 @@ class ExtendedMerkleTreeSessionTest {
     }
 
     @Test
-    @DisplayName("happy path - HAPI 0.72.0 block")
+    @DisplayName("happy path - CN 0.73 block")
     void happyPath() throws IOException, ParseException {
-        BlockUtils.SampleBlockInfo sampleBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
+        // Use block 0 which self-bootstraps TSS state (genesis aggregate Schnorr signature)
+        BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
         List<BlockItemUnparsed> blockItems = sampleBlockInfo.blockUnparsed().blockItems();
 
         BlockHeader blockHeader =
@@ -83,7 +83,7 @@ class ExtendedMerkleTreeSessionTest {
     @Test
     @DisplayName("should verify TssWraps block 0 through the full session pipeline")
     void shouldVerifyTssWrapsBlock_throughSession() throws IOException, ParseException {
-        BlockUnparsed block = loadBlock("test-blocks/tss/TssWraps/0.blk.gz");
+        BlockUnparsed block = loadBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
         List<BlockItemUnparsed> items = block.blockItems();
         long blockNumber = BlockHeader.PROTOBUF
                 .parse(items.getFirst().blockHeaderOrThrow())
@@ -100,7 +100,7 @@ class ExtendedMerkleTreeSessionTest {
     @Test
     @DisplayName("should initialize TSS parameters on plugin when processing block 0")
     void shouldInitializeTssParametersFromBlock0() throws IOException, ParseException {
-        BlockUnparsed block = loadBlock("test-blocks/tss/TssWraps/0.blk.gz");
+        BlockUnparsed block = loadBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
         createAndProcessSession(block, null);
         assertNotNull(
                 VerificationServicePlugin.activeLedgerId,

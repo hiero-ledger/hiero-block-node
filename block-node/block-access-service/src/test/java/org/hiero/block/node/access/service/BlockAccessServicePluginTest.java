@@ -176,10 +176,9 @@ public class BlockAccessServicePluginTest
     }
 
     @Test
-    @DisplayName("TSS Wraps Block (1319) can be retrieved from BlockAccessService")
+    @DisplayName("TSS Wraps Transition Block (466) can be retrieved from BlockAccessService")
     void testGetTssWrapsLargeBlock() throws ParseException, IOException {
-        final BlockUtils.SampleBlockInfo info =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.TSS_WRAPS_BLOCK_1319);
+        final BlockUtils.SampleBlockInfo info = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_466);
         blockMessaging.sendBlockItems(
                 new BlockItems(info.blockUnparsed().blockItems(), info.blockNumber(), true, true));
 
@@ -195,7 +194,7 @@ public class BlockAccessServicePluginTest
                 Codec.DEFAULT_MAX_DEPTH,
                 BlockAccessor.MAX_BLOCK_SIZE_BYTES);
         assertEquals(Code.SUCCESS, response.status());
-        assertEquals(1319, response.block().items().getFirst().blockHeader().number());
+        assertEquals(466, response.block().items().getFirst().blockHeader().number());
     }
 
     private void sendBlocks(int numberOfBlocks) {

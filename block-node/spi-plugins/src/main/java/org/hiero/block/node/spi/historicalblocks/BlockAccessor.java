@@ -16,10 +16,11 @@ import org.hiero.block.internal.BlockUnparsed;
  */
 public interface BlockAccessor extends AutoCloseable {
     /**
-     * Maximum protobuf parse size in bytes (36 MB). This accommodates the largest known
-     * block items (TSS Wraps) which can exceed PBJ's default 2 MB limit.
+     * Maximum protobuf parse size in bytes (100 MB). This accommodates the largest known
+     * block items (TSS Wraps transition blocks) which can exceed PBJ's default 2 MB limit.
      */
-    int MAX_BLOCK_SIZE_BYTES = 37_748_736;
+    int MAX_BLOCK_SIZE_BYTES = 100 * 1024 * 1024;
+
     /**
      * The format of the block data. The consumer can choose the format that is most efficient for them.
      */
