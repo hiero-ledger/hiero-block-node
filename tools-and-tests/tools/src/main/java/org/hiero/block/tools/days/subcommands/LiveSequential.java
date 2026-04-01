@@ -332,12 +332,18 @@ public class LiveSequential implements Runnable {
      */
     @SuppressWarnings("PMD.NPathComplexity") // Multiple priority levels require branching
     private State determineStartingPoint(BlockTimeReader blockTimeReader) {
-        // Priority 1: Resume from wrap state (the authoritative source, accounts for mid-zip truncation)
+        // Priority 1: Resume from wrap state — start download from beginning of the day
+        // so the day archive is complete; the wrap thread skips already-wrapped blocks
         long wrapEffective = computeWrapEffectiveHighest();
         if (wrapEffective >= 0) {
-            System.out.println("[live-sequential] Resuming from wrap effective highest: block " + wrapEffective);
+            LocalDateTime wrapBlockTime = blockTimeReader.getBlockLocalDateTime(wrapEffective);
+            LocalDate wrapDay = wrapBlockTime.toLocalDate();
+            long firstBlockOfDay = blockTimeReader.getNearestBlockAfterTime(wrapDay.atStartOfDay());
+            System.out.println("[live-sequential] Wrap state at block " + wrapEffective
+                    + "; starting download from beginning of day " + wrapDay + " (block " + firstBlockOfDay + ")");
             State state = new State();
-            state.blockNumber = wrapEffective;
+            state.blockNumber = firstBlockOfDay - 1;
+            state.dayDate = wrapDay.toString();
             return state;
         }
 
