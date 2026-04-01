@@ -22,6 +22,7 @@ import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -53,7 +54,8 @@ import org.junit.jupiter.api.AfterEach;
  * @param <P> the type of plugin being tested
  */
 public abstract class PluginTestBase<
-        P extends BlockNodePlugin, E extends ExecutorService, S extends ScheduledExecutorService> {
+                P extends BlockNodePlugin, E extends ExecutorService, S extends ScheduledExecutorService>
+        implements ApplicationStateFacility {
     /** The logger for this class. */
     protected final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The test thread pool manager */
@@ -172,7 +174,7 @@ public abstract class PluginTestBase<
                     public void registerGrpcService(@NonNull ServiceInterface service) {}
                 };
         // initialize the block messaging facility
-        historicalBlockFacility.init(blockNodeContext, mockServiceBuilder);
+        historicalBlockFacility.init(blockNodeContext, mockServiceBuilder, this);
         // if HistoricalBlockFacility is a BlockItemHandler, register it with the messaging facility
         if (historicalBlockFacility instanceof BlockItemHandler blockItemHandler) {
             blockMessaging.registerBlockItemHandler(
@@ -187,12 +189,12 @@ public abstract class PluginTestBase<
         }
         if (additionalPlugins != null) {
             for (final BlockNodePlugin additionalPlugin : additionalPlugins) {
-                additionalPlugin.init(blockNodeContext, mockServiceBuilder);
+                additionalPlugin.init(blockNodeContext, mockServiceBuilder, this);
                 additionalPlugin.start();
             }
         }
         // init plugin
-        plugin.init(blockNodeContext, mockServiceBuilder);
+        plugin.init(blockNodeContext, mockServiceBuilder, this);
         // start everything
         historicalBlockFacility.start();
         plugin.start();
@@ -254,5 +256,25 @@ public abstract class PluginTestBase<
                 .streamProtoVersion(SemanticVersionUtility.from(Block.class))
                 .installedPluginVersions(pluginVersions)
                 .build();
+    }
+
+    /**
+     * Allow plugins to update the TssData for this BlockNodeApp
+     *
+     * @param tssData - The TssData to be updated on the `BlockNodeContext`
+     */
+    @Override
+    public void updateTssData(TssData tssData) {
+        blockNodeContext = new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                tssData);
+        plugin.onContextUpdate(blockNodeContext);
     }
 }

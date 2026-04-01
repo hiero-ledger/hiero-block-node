@@ -26,6 +26,7 @@ import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.messaging.MessagingConfig;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -39,7 +40,7 @@ import org.junit.jupiter.api.Test;
  * Test class for the MessagingService to verify that it can handle block notifications and back pressure. All these
  * tests are super hard to get right as they are highly concurrent. So makes it very hard to not be timing dependent.
  */
-public class BlockNotificationTest {
+public class BlockNotificationTest implements ApplicationStateFacility {
 
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
@@ -85,7 +86,7 @@ public class BlockNotificationTest {
         }
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(context, null);
+        messagingService.init(context, null, this);
         testHandlers.forEach(handler -> messagingService.registerBlockNotificationHandler(handler, false, null));
         // start the messaging service
         messagingService.start();
@@ -130,7 +131,7 @@ public class BlockNotificationTest {
                 new LatchCountdownHandler(expectedCount, counters, latch, 1, holdBackSlowHandler);
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(context, null);
+        messagingService.init(context, null, this);
         messagingService.registerBlockNotificationHandler(fastHandler, false, null);
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
@@ -180,7 +181,7 @@ public class BlockNotificationTest {
                 new LatchCountdownHandler(TEST_DATA_COUNT, counters, latch, 0, holdBackSlowHandler);
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(TestConfig.getBlockNodeContext(), null);
+        messagingService.init(TestConfig.getBlockNodeContext(), null, this);
         messagingService.registerBlockNotificationHandler(slowHandler, false, null);
         // start the messaging service
         messagingService.start();
@@ -247,7 +248,7 @@ public class BlockNotificationTest {
         };
         // create message service to test, add handlers and start the service
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(context, null);
+        messagingService.init(context, null, this);
         messagingService.registerBlockNotificationHandler(handler1, false, null);
         messagingService.registerBlockNotificationHandler(handler2, false, null);
         messagingService.start();

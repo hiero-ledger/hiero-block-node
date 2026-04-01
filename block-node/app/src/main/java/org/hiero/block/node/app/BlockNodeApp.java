@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
@@ -35,6 +36,7 @@ import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
@@ -48,7 +50,10 @@ import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
 /** Main class for the block node server */
-public class BlockNodeApp implements HealthFacility {
+public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
+    /** rentrant lock to allow plugins to update context data for this BlockNodeApp */
+    ReentrantLock lock = new ReentrantLock();
+
     /** Constant mapped to PbjProtocolProvider.CONFIG_NAME in the PBJ Helidon Plugin */
     public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
     /** Metric key for the oldest historical block available */
@@ -73,7 +78,7 @@ public class BlockNodeApp implements HealthFacility {
     /** Should the shutdown() method exit the JVM. */
     private final boolean shouldExitJvmOnShutdown;
     /** The block node context. Package so accessible for testing. */
-    final BlockNodeContext blockNodeContext;
+    BlockNodeContext blockNodeContext;
     /** list of all loaded plugins. Package so accessible for testing. */
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
 
@@ -187,7 +192,7 @@ public class BlockNodeApp implements HealthFacility {
         LOGGER.log(INFO, "Initializing plugins:");
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, "    " + plugin.name());
-            plugin.init(blockNodeContext, serviceBuilder);
+            plugin.init(blockNodeContext, serviceBuilder, this);
         }
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
         // Override the default message size in PBJ
@@ -343,5 +348,30 @@ public class BlockNodeApp implements HealthFacility {
             LOGGER.log(INFO, "    " + plugin.name());
             plugin.start();
         });
+    }
+
+    /**
+     * Allow plugins to update the TssData for this BlockNodeApp
+     *
+     * @param tssData - The TssData to be updated on the `BlockNodeContext`
+     */
+    @Override
+    public void updateTssData(TssData tssData) {
+        lock.lock();
+        try {
+            blockNodeContext = new BlockNodeContext(
+                    blockNodeContext.configuration(),
+                    blockNodeContext.metricRegistry(),
+                    blockNodeContext.serverHealth(),
+                    blockNodeContext.blockMessaging(),
+                    blockNodeContext.historicalBlockProvider(),
+                    blockNodeContext.serviceLoader(),
+                    blockNodeContext.threadPoolManager(),
+                    blockNodeContext.blockNodeVersions(),
+                    tssData);
+            loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
+        } finally {
+            lock.unlock();
+        }
     }
 }

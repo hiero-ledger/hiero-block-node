@@ -9,6 +9,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.util.List;
 import java.util.Objects;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.ApplicationStateFacility;
@@ -18,13 +19,20 @@ import org.hiero.block.node.spi.ServiceBuilder;
 
 public class TssBootstrapPlugin implements BlockNodePlugin {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
-    /** The block node context, for access to core facilities. */
+    /// The block node context, for access to core facilities.
     private BlockNodeContext context;
-    /** The application state facility, for updating application state. */
+    /// The application state facility, for updating application state.
     private ApplicationStateFacility applicationStateFacility;
-    /** The configuration for verification */
+    /// The configuration for verification
     @SuppressWarnings("FieldCanBeLocal")
     private TssBootstrapConfig tssBootstrapConfig;
+
+    /// {@inheritDoc}
+    @NonNull
+    @Override
+    public List<Class<? extends Record>> configDataTypes() {
+        return List.of(TssBootstrapConfig.class);
+    }
 
     /// {@inheritDoc}
     @Override
@@ -51,16 +59,15 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
             }
         } else {
             // get the TssData from the config
-            Bytes ledgerId = tssBootstrapConfig.ledgerId();
-            Bytes wrapsVerificationKey = tssBootstrapConfig.wrapsVerificationId();
-            if (ledgerId != null && wrapsVerificationKey != null) {
+            String ledgerId64 = tssBootstrapConfig.ledgerId();
+            String wrapsVerificationKey64 = tssBootstrapConfig.wrapsVerificationKey();
+            if (ledgerId64 != null && wrapsVerificationKey64 != null) {
                 tssData = TssData.newBuilder()
-                        .ledgerId(ledgerId)
-                        .wrapsVerificationKey(wrapsVerificationKey)
+                        .ledgerId(Bytes.fromBase64(ledgerId64))
+                        .wrapsVerificationKey(Bytes.fromBase64(wrapsVerificationKey64))
                         .build();
+                applicationStateFacility.updateTssData(tssData);
             }
         }
-
-        // todo - update the App
     }
 }
