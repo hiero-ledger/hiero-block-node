@@ -103,7 +103,7 @@ public abstract class GrpcPluginTestBase<
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides,
-            @Nullable final Map<Class<?>, ConfigConverter<?>> converters) {
+            @NonNull final Map<Class<?>, ConfigConverter<?>> converters) {
         super.start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, converters);
         this.method = Objects.requireNonNull(method);
         setupNewPipelines();

@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
@@ -120,7 +121,12 @@ public abstract class PluginTestBase<
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides,
-            @Nullable final Map<Class<?>, ConfigConverter<?>> converters) {
+            @NonNull final Map<Class<?>, ConfigConverter<?>> converters) {
+
+        Objects.requireNonNull(plugin);
+        Objects.requireNonNull(historicalBlockFacility);
+        Objects.requireNonNull(converters);
+
         this.plugin = plugin;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
