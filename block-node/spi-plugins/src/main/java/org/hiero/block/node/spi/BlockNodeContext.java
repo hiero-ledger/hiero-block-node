@@ -3,6 +3,7 @@ package org.hiero.block.node.spi;
 
 import com.swirlds.config.api.Configuration;
 import org.hiero.block.api.BlockNodeVersions;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
@@ -41,4 +42,5 @@ public record BlockNodeContext(
         HistoricalBlockFacility historicalBlockProvider,
         ServiceLoaderFunction serviceLoader,
         ThreadPoolManager threadPoolManager,
-        BlockNodeVersions blockNodeVersions) {}
+        BlockNodeVersions blockNodeVersions,
+        TssData tssData) {}
