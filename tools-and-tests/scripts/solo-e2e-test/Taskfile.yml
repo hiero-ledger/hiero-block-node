@@ -52,10 +52,6 @@ vars:
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
   RELAY_VERSION: '{{.RELAY_VERSION | default "latest"}}'
   TCK_VERSION: '{{.TCK_VERSION | default "latest"}}'
-  # Pinned to v2.81.0: v2.82.0+ bumped @hiero-ledger/proto to 2.27.0 which was never
-  # published to npm. Update this pin once the upstream issue is resolved.
-  # Issue: https://github.com/hiero-ledger/hiero-block-node/issues/2480
-  SDK_VERSION: '{{.SDK_VERSION | default "v2.81.0"}}'
   TSS_ENABLED: '{{.TSS_ENABLED | default "true"}}'
 
   # NLG load generation parameters
@@ -464,7 +460,7 @@ tasks:
         echo "Checking out TCK version: $TCK_RESOLVED"
         git checkout "$TCK_RESOLVED"
 
-        # Clone and checkout JS-SDK at configured version (SDK_VERSION)
+        # Clone and checkout latest tag for JS-SDK
         cd - > /dev/null
         if [[ ! -d "{{.TCK_SDK_DIR}}/sdk-server" ]]; then
           echo "Cloning JS-SDK repository..."
@@ -473,13 +469,9 @@ tasks:
         fi
         cd "{{.TCK_SDK_DIR}}/sdk-server"
         git fetch --tags
-        SDK_VERSION="{{.SDK_VERSION}}"
-        if [[ "$SDK_VERSION" == "latest" ]]; then
-          SDK_VERSION=$(git describe --tags --abbrev=0)
-          echo "Resolved JS-SDK latest -> $SDK_VERSION"
-        fi
-        echo "Checking out JS-SDK version: $SDK_VERSION"
-        git checkout "$SDK_VERSION"
+        LATEST_TAG=$(git describe --tags --abbrev=0)
+        echo "Checking out JS-SDK latest tag: $LATEST_TAG"
+        git checkout "$LATEST_TAG"
 
   tck:check:
     desc: Check if TCK-SDK dependencies are installed
@@ -496,6 +488,13 @@ tasks:
         "{{.SCRIPTS_DIR}}/solo-tck-sdk-install.sh" \
           --sdk-dir "{{.TCK_SDK_DIR}}/sdk-server" \
           --tck-dir "{{.TCK_SDK_DIR}}/regression"
+
+  test:tck-sdk:all:
+    desc: Run ALL TCK-SDK regression tests serially (requires network up)
+    cmds:
+      - task: test:tck-sdk
+        vars:
+          TCK_TEST_FILE: all
 
   test:tck-sdk:
     desc: Run TCK-SDK regression test (requires network up)

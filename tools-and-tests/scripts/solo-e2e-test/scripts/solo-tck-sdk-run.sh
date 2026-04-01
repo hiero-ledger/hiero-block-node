@@ -90,12 +90,17 @@ fi
 
 # Run tests
 echo ""
-echo "Running TCK test: $TEST_FILE"
 cd "${TCK_DIR}"
 cp .env.custom_node .env
-# shellcheck disable=SC2086
-# Word splitting is intentional — TEST_FILE may contain multiple space-separated file paths
-npm run test:file $TEST_FILE
+if [[ "${TEST_FILE}" == "all" ]]; then
+  echo "Running all TCK tests (test:serial)"
+  npm run test:serial
+else
+  echo "Running TCK tests: $TEST_FILE"
+  # shellcheck disable=SC2086
+  # Word splitting is intentional — TEST_FILE may contain multiple space-separated file paths
+  npm run test:file $TEST_FILE
+fi
 
 echo ""
 echo "TCK-SDK test completed successfully"
