@@ -515,18 +515,14 @@ public class LiveSequential implements Runnable {
         }
         state.cachedListingFiles = reloadListings(blockTime);
         state.cachedListingDay = blockDay;
-        byte[] newHash = downloadValidateAndEnqueue(
-                addressBookRegistry,
-                downloadManager,
-                state.netConfig,
-                group,
-                nextBlockNumber,
-                state.currentBlockNumber,
-                state.currentHash,
-                blockTime,
-                state.dayWriter,
-                queue);
+        byte[] resolvedHash = fetchPreviousHashIfNeeded(state.currentHash, nextBlockNumber);
+        List<InMemoryFile> inMemoryFiles = downloadBlockFiles(group, state.netConfig, downloadManager, nextBlockNumber);
+        byte[] newHash = DownloadDayLiveImpl.validateBlockHashes(nextBlockNumber, inMemoryFiles, resolvedHash, null);
+        validateBlock(addressBookRegistry, resolvedHash, blockTime, nextBlockNumber, inMemoryFiles, newHash);
+        assertSequentialOrdering(nextBlockNumber, state.currentBlockNumber);
+        writeToDayArchive(state.dayWriter, inMemoryFiles);
         Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
+        queue.put(new ValidatedBlock(nextBlockNumber, recordFileTime, inMemoryFiles, newHash));
         state.currentBlockNumber = nextBlockNumber;
         state.currentHash = newHash;
         state.blocksProcessedTotal++;
@@ -534,29 +530,6 @@ public class LiveSequential implements Runnable {
         saveState(new State(state.currentBlockNumber, state.currentHash, recordFileTime, state.currentDay));
         logProgress(
                 state.blocksProcessedTotal, state.blocksProcessedToday, state.currentBlockNumber, state.dayStartTime);
-    }
-
-    private byte[] downloadValidateAndEnqueue(
-            AddressBookRegistry addressBookRegistry,
-            ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
-            NetworkConfig netConfig,
-            List<ListingRecordFile> group,
-            long nextBlockNumber,
-            long currentBlockNumber,
-            byte[] currentHash,
-            LocalDateTime blockTime,
-            ConcurrentTarZstdWriter dayWriter,
-            BlockingQueue<ValidatedBlock> queue)
-            throws Exception {
-        currentHash = fetchPreviousHashIfNeeded(currentHash, nextBlockNumber);
-        List<InMemoryFile> inMemoryFiles = downloadBlockFiles(group, netConfig, downloadManager, nextBlockNumber);
-        byte[] newHash = DownloadDayLiveImpl.validateBlockHashes(nextBlockNumber, inMemoryFiles, currentHash, null);
-        validateBlock(addressBookRegistry, currentHash, blockTime, nextBlockNumber, inMemoryFiles, newHash);
-        assertSequentialOrdering(nextBlockNumber, currentBlockNumber);
-        writeToDayArchive(dayWriter, inMemoryFiles);
-        Instant recordFileTime = blockTime.atZone(ZoneOffset.UTC).toInstant();
-        queue.put(new ValidatedBlock(nextBlockNumber, recordFileTime, inMemoryFiles, newHash));
-        return newHash;
     }
 
     private static BlockTimeReader refreshBlockTimeIfNeeded(
@@ -845,8 +818,8 @@ public class LiveSequential implements Runnable {
                         addressBookRegistry,
                         addressBookFile,
                         checkpointDir,
-                        wv.all(),
-                        blocksValidated);
+                        wv.all());
+                System.out.println("[WRAP] Shutdown complete. Wrapped " + blocksValidated + " blocks.");
             }
         }
     }
@@ -884,8 +857,7 @@ public class LiveSequential implements Runnable {
             AddressBookRegistry addressBookRegistry,
             Path addressBookFile,
             Path checkpointDir,
-            List<BlockValidation> allValidations,
-            long blocksValidated) {
+            List<BlockValidation> allValidations) {
         if (currentZip != null) {
             try {
                 currentZip.close();
@@ -898,7 +870,6 @@ public class LiveSequential implements Runnable {
         addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
         saveValidationCheckpoint(checkpointDir, durableWatermark, allValidations);
         for (BlockValidation v : allValidations) v.close();
-        System.out.println("[WRAP] Shutdown complete. Wrapped " + blocksValidated + " blocks.");
     }
 
     private void writeToZipArchive(
