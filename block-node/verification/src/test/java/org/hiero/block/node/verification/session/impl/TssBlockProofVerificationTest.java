@@ -63,7 +63,7 @@ class TssBlockProofVerificationTest {
     }
 
     @Test
-    void shouldVerifyTssWrapsBlock0_beforeSettled() throws ParseException {
+    void shouldVerifyTssWrapsBlock0BeforeSettled() throws ParseException {
         Bytes hash = computeBlockHash(wrapsBlock0, null);
         Bytes signature = extractSignature(wrapsBlock0);
         // genesis: vk (1096) + blsSig (1632) + aggregate Schnorr (192) = 2920
@@ -74,7 +74,7 @@ class TssBlockProofVerificationTest {
     }
 
     @Test
-    void shouldVerifyTssWrapsBlock467_settledPath() throws ParseException {
+    void shouldVerifyTssWrapsBlock467SettledPath() throws ParseException {
         Bytes hash = computeBlockHash(wrapsBlock467, activeLedgerId);
         Bytes signature = extractSignature(wrapsBlock467);
         // settled path: vk (1096) + blsSig (1632) + WRAPS proof (704) = 3432
