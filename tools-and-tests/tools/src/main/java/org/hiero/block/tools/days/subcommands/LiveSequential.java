@@ -513,14 +513,11 @@ public class LiveSequential implements Runnable {
             state.cachedListingFiles = loadListingsWithRetry(blockDay, blockTime, state.netConfig);
             state.cachedListingDay = blockDay;
         }
-        List<ListingRecordFile> group = findBlockGroupWithRefresh(
-                blockTime, blockDay, nextBlockNumber, state.cachedListingFiles, state.netConfig);
+        List<ListingRecordFile> group = findBlockGroupWithRefresh(state, blockTime, blockDay, nextBlockNumber);
         if (group == null) {
             state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
             return;
         }
-        state.cachedListingFiles = reloadListings(blockTime);
-        state.cachedListingDay = blockDay;
         byte[] resolvedHash = fetchPreviousHashIfNeeded(state.currentHash, nextBlockNumber);
         List<InMemoryFile> inMemoryFiles = downloadBlockFiles(group, state.netConfig, downloadManager, nextBlockNumber);
         byte[] newHash = DownloadDayLiveImpl.validateBlockHashes(nextBlockNumber, inMemoryFiles, resolvedHash, null);
@@ -558,18 +555,14 @@ public class LiveSequential implements Runnable {
     }
 
     private List<ListingRecordFile> findBlockGroupWithRefresh(
-            LocalDateTime blockTime,
-            LocalDate blockDay,
-            long blockNumber,
-            List<ListingRecordFile> cachedListingFiles,
-            NetworkConfig netConfig)
-            throws Exception {
-        List<ListingRecordFile> group = findBlockGroup(blockTime, cachedListingFiles);
+            DownloadLoopState state, LocalDateTime blockTime, LocalDate blockDay, long blockNumber) throws Exception {
+        List<ListingRecordFile> group = findBlockGroup(blockTime, state.cachedListingFiles);
         if (group != null) return group;
 
-        refreshListingsForDay(blockDay, netConfig);
-        List<ListingRecordFile> refreshed = reloadListings(blockTime);
-        group = findBlockGroup(blockTime, refreshed);
+        refreshListingsForDay(blockDay, state.netConfig);
+        state.cachedListingFiles = reloadListings(blockTime);
+        state.cachedListingDay = blockDay;
+        group = findBlockGroup(blockTime, state.cachedListingFiles);
         if (group != null) return group;
 
         System.out.println("[live-sequential] No files found for block " + blockNumber + " at time " + blockTime
