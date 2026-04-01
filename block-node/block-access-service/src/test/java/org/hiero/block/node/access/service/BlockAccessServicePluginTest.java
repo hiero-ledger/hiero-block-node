@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.access.service;
 
-import static org.hiero.block.node.app.fixtures.TestUtils.enableDebugLogging;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -40,14 +39,8 @@ public class BlockAccessServicePluginTest
         start(plugin, plugin.methods().getFirst(), new SimpleInMemoryHistoricalBlockFacility());
     }
 
-    /**
-     * Enable debug logging for each test.
-     */
     @BeforeEach
     void setup() {
-        // enable debug System.logger logging
-        enableDebugLogging();
-        // Send some blocks
         sendBlocks(25);
     }
 
