@@ -31,12 +31,22 @@ readonly BN_REPO="hiero-ledger/hiero-block-node"
 readonly RELAY_REPO="hiero-ledger/hiero-json-rpc-relay"
 readonly TCK_REPO="hiero-ledger/hiero-sdk-tck"
 
-# Minimum supported versions — versions below these are rejected.
-# TSS/WRAPS requires CN >= v0.72.0, and the corresponding MN/BN versions
-# that support the TSS-enabled network.
-readonly CN_MIN_VERSION="0.72.0-rc.3"
-readonly MN_MIN_VERSION="0.150.0-rc1"
-readonly BN_MIN_VERSION="0.29.0-rc5"
+# Compatibility matrix: maps CN version ranges to required MN and BN minimums.
+# Tiers are evaluated highest-first; first matching tier wins.
+# CN is also floored at the lowest tier's cn_min.
+#
+# | CN Version      | MN Minimum   | BN Minimum  | Notes                          |
+# |-----------------|--------------|-------------|--------------------------------|
+# | >= 0.73.0       | 0.152.0      | 0.31.0      | Protocol changes in CN 0.73.x  |
+# | >= 0.72.0-rc.3  | 0.150.0-rc1  | 0.29.0-rc5  | TSS/hinTS baseline             |
+#
+readonly COMPAT_CN_MINS=("0.73.0"      "0.72.0-rc.3")
+readonly COMPAT_MN_MINS=("0.152.0"     "0.150.0-rc1")
+readonly COMPAT_BN_MINS=("0.31.0"      "0.29.0-rc5")
+
+# Lowest tier CN floor (used to enforce CN minimum before tier selection)
+# Note: bash 3.2 (macOS default) does not support negative array indices — use explicit last index
+readonly CN_MIN_VERSION="${COMPAT_CN_MINS[${#COMPAT_CN_MINS[@]}-1]}"
 
 function fail {
     printf '%s\n' "$1" >&2
@@ -156,6 +166,35 @@ function enforce_minimum_version {
   else
     echo "${resolved}"
   fi
+}
+
+# Resolves the MN and BN minimum versions required for a given CN version.
+# Evaluates the compatibility matrix tiers from highest to lowest.
+# SNAPSHOT CN versions skip enforcement (unreleased builds may mix freely).
+# Arguments:
+#   $1 - Resolved CN version string
+# Returns (via stdout):
+#   Two lines: "mn_min=<version>" and "bn_min=<version>", or empty strings if no tier matched.
+function resolve_compatibility_mins {
+  local cn_version="${1}"
+
+  if [[ "${cn_version}" == *-SNAPSHOT ]]; then
+    echo "mn_min="
+    echo "bn_min="
+    return
+  fi
+
+  for i in "${!COMPAT_CN_MINS[@]}"; do
+    if [[ "$(compare_semver "${cn_version}" "${COMPAT_CN_MINS[$i]}")" != "-1" ]]; then
+      log_line "Compatibility tier: CN >=${COMPAT_CN_MINS[$i]} -> MN >=${COMPAT_MN_MINS[$i]}, BN >=${COMPAT_BN_MINS[$i]}"
+      echo "mn_min=${COMPAT_MN_MINS[$i]}"
+      echo "bn_min=${COMPAT_BN_MINS[$i]}"
+      return
+    fi
+  done
+
+  echo "mn_min="
+  echo "bn_min="
 }
 
 # Fetches the version from the main branch of a GitHub repository.
@@ -328,10 +367,18 @@ function main {
   mn_resolved=$(resolve_version "${mn_input}" "${MN_REPO}" "Mirror Node")
   bn_resolved=$(resolve_version "${bn_input}" "${BN_REPO}" "Block Node")
 
-  # Enforce minimum version floors (TSS/hinTS compatibility) — upgrades to floor if latest is lower
+  # Enforce CN minimum floor (lowest compatibility tier), then derive MN/BN minimums from CN
   cn_resolved=$(enforce_minimum_version "${cn_resolved}" "${CN_MIN_VERSION}" "Consensus Node")
-  mn_resolved=$(enforce_minimum_version "${mn_resolved}" "${MN_MIN_VERSION}" "Mirror Node")
-  bn_resolved=$(enforce_minimum_version "${bn_resolved}" "${BN_MIN_VERSION}" "Block Node")
+  local compat_out mn_min bn_min
+  compat_out=$(resolve_compatibility_mins "${cn_resolved}")
+  mn_min=$(echo "${compat_out}" | grep "^mn_min=" | cut -d= -f2)
+  bn_min=$(echo "${compat_out}" | grep "^bn_min=" | cut -d= -f2)
+  if [[ -n "${mn_min}" ]]; then
+    mn_resolved=$(enforce_minimum_version "${mn_resolved}" "${mn_min}" "Mirror Node")
+  fi
+  if [[ -n "${bn_min}" ]]; then
+    bn_resolved=$(enforce_minimum_version "${bn_resolved}" "${bn_min}" "Block Node")
+  fi
 
   relay_resolved=$(resolve_version "${relay_input}" "${RELAY_REPO}" "Relay")
   tck_resolved=$(resolve_version "${tck_input}" "${TCK_REPO}" "TCK-SDK")

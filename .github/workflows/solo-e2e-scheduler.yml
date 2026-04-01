@@ -204,11 +204,11 @@ jobs:
             MN_VERSION="latest"
           fi
 
-          # Solo CLI version: use input if provided, otherwise default to 0.63.0 (as latest stable tested)
+          # Solo CLI version: use input if provided, otherwise default to 0.65.0 (as latest stable tested)
           if [[ -n "${{ inputs.solo-version }}" ]]; then
             SOLO_VERSION="${{ inputs.solo-version }}"
           else
-            SOLO_VERSION="0.63.0"
+            SOLO_VERSION="0.65.0"
           fi
 
           # Relay version: use input if provided, otherwise default to latest
@@ -309,7 +309,7 @@ jobs:
     needs: configure
     strategy:
       fail-fast: false
-      max-parallel: 2 # Control resource usage
+      max-parallel: 1 # Run sequentially to avoid resource contention
       matrix:
         include: ${{ fromJson(needs.configure.outputs.matrix) }}
     uses: ./.github/workflows/solo-e2e-test.yml

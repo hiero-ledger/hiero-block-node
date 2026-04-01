@@ -8,7 +8,7 @@ set -euo pipefail
 
 SDK_DIR=""
 TCK_DIR=""
-TEST_FILE="src/tests/crypto-service/test-transfer-transaction.ts"
+TEST_FILE="src/tests/crypto-service/test-transfer-hbar-transaction.ts src/tests/crypto-service/test-account-create-transaction.ts src/tests/crypto-service/test-account-update-transaction.ts src/tests/token-service/test-token-create-transaction.ts src/tests/token-service/test-token-update-transaction.ts src/tests/topic-service/test-topic-create-transaction.ts src/tests/topic-service/test-topic-update-transaction.ts src/tests/contract-service/test-contract-delete-transaction.ts"
 DEPLOYMENT="${DEPLOYMENT:-deployment-solo}"
 NAMESPACE="${NAMESPACE:-solo-network}"
 SERVER_PID=""
