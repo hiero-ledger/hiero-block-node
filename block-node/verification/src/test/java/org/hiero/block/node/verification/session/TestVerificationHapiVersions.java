@@ -18,7 +18,9 @@ import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.verification.session.impl.DummyVerificationSession;
+import org.hiero.block.node.verification.VerificationServicePlugin;
+import org.hiero.block.node.verification.session.impl.ExtendedMerkleTreeSession;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,6 +28,22 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class TestVerificationHapiVersions {
+
+    @BeforeAll
+    static void bootstrapTssState() throws IOException, ParseException {
+        // Process block 0 to initialize TSS static state so non-genesis blocks can verify
+        VerificationServicePlugin.activeLedgerId = null;
+        VerificationServicePlugin.activeTssPublication = null;
+        VerificationServicePlugin.tssParametersPersisted = false;
+        BlockUtils.SampleBlockInfo block0 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
+        List<BlockItemUnparsed> items = block0.blockUnparsed().blockItems();
+        long blockNumber = BlockHeader.PROTOBUF
+                .parse(items.getFirst().blockHeaderOrThrow())
+                .number();
+        ExtendedMerkleTreeSession session =
+                new ExtendedMerkleTreeSession(blockNumber, BlockSource.UNKNOWN, null, null, null);
+        session.processBlockItems(new BlockItems(items, blockNumber, true, true));
+    }
 
     @ParameterizedTest(name = "[{index}] {0}")
     @MethodSource("sampleBlocks")
@@ -49,7 +67,12 @@ class TestVerificationHapiVersions {
         final VerificationSession session = assertTimeoutPreemptively(
                 Duration.ofSeconds(2),
                 () -> HapiVersionSessionFactory.createSession(
-                        blockNumber, BlockSource.UNKNOWN, blockHeader.hapiProtoVersion(), null, null, null),
+                        blockNumber,
+                        BlockSource.UNKNOWN,
+                        blockHeader.hapiProtoVersion(),
+                        null,
+                        null,
+                        VerificationServicePlugin.activeLedgerId),
                 sampleName + ": creating verification session exceeded time budget");
 
         final VerificationNotification note = assertTimeoutPreemptively(
@@ -65,31 +88,20 @@ class TestVerificationHapiVersions {
         assertEquals(blockNumber, note.blockNumber(), sampleName + ": Block number should match");
         assertTrue(note.success(), sampleName + ": Verification should be successful");
 
-        // DummyVerificationSession returns a dummy hash (0x00), so skip hash comparison for it
-        if (!(session instanceof DummyVerificationSession)) {
-            assertEquals(sampleBlockInfo.blockRootHash(), note.blockHash(), sampleName + ": Block hash should match");
-        }
+        assertEquals(sampleBlockInfo.blockRootHash(), note.blockHash(), sampleName + ": Block hash should match");
     }
 
     /** Supply the concrete samples you want to cover. Add more here as they're added to fixtures. */
     private static Stream<Arguments> sampleBlocks() throws IOException, ParseException {
-        // Use readable case names to make failures obvious in the parameterized display
-        final BlockUtils.SampleBlockInfo s1 =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_68_0_BLOCK_14);
+        final BlockUtils.SampleBlockInfo block0 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
 
-        final BlockUtils.SampleBlockInfo s2 =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_66_0_BLOCK_10);
+        final BlockUtils.SampleBlockInfo block1 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_1);
 
-        final BlockUtils.SampleBlockInfo s3 =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_69_0_BLOCK_240);
-
-        final BlockUtils.SampleBlockInfo s4 =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_21);
+        final BlockUtils.SampleBlockInfo block4 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_4);
 
         return Stream.of(
-                Arguments.of("HAPI_0_68_0_BLOCK_14", s1),
-                Arguments.of("HAPI_0_66_0_BLOCK_10", s2),
-                Arguments.of("HAPI_0_69_0_BLOCK_240", s3),
-                Arguments.of("HAPI_0_72_0_BLOCK_21", s4));
+                Arguments.of("CN_0_73_BLOCK_0", block0),
+                Arguments.of("CN_0_73_BLOCK_1", block1),
+                Arguments.of("CN_0_73_BLOCK_4", block4));
     }
 }

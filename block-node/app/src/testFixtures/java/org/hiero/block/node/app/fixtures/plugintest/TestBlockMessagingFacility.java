@@ -161,22 +161,22 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
         final int handlerCount = blockItemHandlers.size() + nonBackpressureBlockItemHandlers.size();
         LOGGER.log(
                 Level.TRACE,
-                "Sending next %d block items for block %d to %d handlers."
-                        .formatted(blockItems.blockItems().size(), blockItems.blockNumber(), handlerCount));
+                "Sending next {0} block items for block {1} to {2} handlers.",
+                blockItems.blockItems().size(),
+                blockItems.blockNumber(),
+                handlerCount);
         sentBlockBlockItems.add(blockItems);
         boolean handlerHasBackpressure = false;
         for (BlockItemHandler handler : blockItemHandlers) {
             if (handlersWithBackpressure.contains(handler)) {
                 handlerHasBackpressure = true;
             }
-            LOGGER.log(Level.TRACE, "Calling Handler %s.".formatted(handler));
             handler.handleBlockItemsReceived(blockItems);
         }
         for (BlockItemHandler handler : nonBackpressureBlockItemHandlers) {
-            LOGGER.log(Level.TRACE, "Calling Handler %s.".formatted(handler));
             handler.handleBlockItemsReceived(blockItems);
         }
-        LOGGER.log(Level.TRACE, "Sent block items:%n%s".formatted(blockItems));
+        LOGGER.log(Level.TRACE, "Sent block items for block {0}.", blockItems.blockNumber());
         if (handlerHasBackpressure) {
             throw new RejectedExecutionException();
         }
@@ -287,6 +287,44 @@ public class TestBlockMessagingFacility implements BlockMessagingFacility {
     }
 
     private void logNotification(final Record notification) {
-        LOGGER.log(Level.TRACE, "Sending block notification: {0}", notification);
+        switch (notification) {
+            case BackfilledBlockNotification backfilled ->
+                LOGGER.log(
+                        Level.TRACE,
+                        "Sending block notification: BackfilledBlockNotification[blockNumber={0}]",
+                        backfilled.blockNumber());
+            case VerificationNotification verification ->
+                LOGGER.log(
+                        Level.TRACE,
+                        "Sending block notification: VerificationNotification[success={0}, blockNumber={1}, blockHash={2}, source={3}]",
+                        verification.success(),
+                        verification.blockNumber(),
+                        verification.blockHash(),
+                        verification.source());
+            case PersistedNotification persisted ->
+                LOGGER.log(
+                        Level.TRACE,
+                        "Sending block notification: PersistedNotification[blockNumber={0}, succeeded={1}, blockProviderPriority={2}, blockSource={3}]",
+                        persisted.blockNumber(),
+                        persisted.succeeded(),
+                        persisted.blockProviderPriority(),
+                        persisted.blockSource());
+            case NewestBlockKnownToNetworkNotification newest ->
+                LOGGER.log(
+                        Level.TRACE,
+                        "Sending block notification: NewestBlockKnownToNetworkNotification[blockNumber={0}]",
+                        newest.blockNumber());
+            case PublisherStatusUpdateNotification publisher ->
+                LOGGER.log(
+                        Level.TRACE,
+                        "Sending block notification: PublisherStatusUpdateNotification[type={0}, activePublishers={1}]",
+                        publisher.type(),
+                        publisher.activePublishers());
+            default ->
+                LOGGER.log(
+                        Level.TRACE,
+                        "Sending block notification: {0}",
+                        notification.getClass().getSimpleName());
+        }
     }
 }
