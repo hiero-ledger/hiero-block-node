@@ -145,15 +145,6 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
      */
     public BlockFileRecentPlugin() {}
 
-    /**
-     * Constructor for the plugin. This is used for testing.
-     *
-     * @param config the config to use
-     */
-    BlockFileRecentPlugin(FilesRecentConfig config) {
-        this.config = config;
-    }
-
     // ==== BlockProviderPlugin Methods ================================================================================
 
     /**
@@ -170,10 +161,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
      */
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
-        // load config if not already set by test
-        if (this.config == null) {
-            this.config = context.configuration().getConfigData(FilesRecentConfig.class);
-        }
+        this.config = context.configuration().getConfigData(FilesRecentConfig.class);
         blockRetentionThreshold = config.blockRetentionThreshold();
         this.blockMessaging = context.blockMessaging();
         // Initialize metrics
