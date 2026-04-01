@@ -22,7 +22,7 @@ echo
 echo "Image [block-node-server:${VERSION}] built successfully!"
 
 # run docker build for dev stage
-docker buildx build --target dev --load -t "block-node-server-dev:${VERSION}" \
+docker buildx build --target solo-dev --load -t "block-node-server-solo-dev:${VERSION}" \
  --build-context distributions=../distributions \
  --build-arg VERSION="${VERSION}" \
  --build-arg SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" . || exit "${?}"

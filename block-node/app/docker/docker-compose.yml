@@ -4,9 +4,9 @@ services:
 #    container_name: block-node-server
 #    image: block-node-server:${VERSION}
 # DEV - All Plugins, sudo, yum, binutils, findutils, procps-ng, microdnf
-  block-node-server-dev:
-    container_name: block-node-server-dev
-    image: block-node-server-dev:${VERSION}
+  block-node-server-solo-dev:
+    container_name: block-node-server-solo-dev
+    image: block-node-server-solo-dev:${VERSION}
     volumes:
       - ./logging.properties:/opt/hiero/block-node/logs/config/logging.properties
       - ./backfill-sources.json:/opt/hiero/block-node/backfill/backfill-sources.json
