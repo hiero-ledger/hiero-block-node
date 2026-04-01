@@ -83,20 +83,23 @@ public class BlockNodePluginTest {
     @DisplayName("Test default init method")
     void testDefaultInit() {
         BlockNodePlugin plugin = new TestBlockNodePlugin();
-        plugin.init(null, new ServiceBuilder() {
+        plugin.init(
+                null,
+                new ServiceBuilder() {
 
-            @Override
-            public void registerHttpService(String path, HttpService... service) {
-                assertEquals("foo", path);
-                assertEquals(1, service.length);
-                assertEquals(testHttpService, service[0]);
-            }
+                    @Override
+                    public void registerHttpService(String path, HttpService... service) {
+                        assertEquals("foo", path);
+                        assertEquals(1, service.length);
+                        assertEquals(testHttpService, service[0]);
+                    }
 
-            @Override
-            public void registerGrpcService(@NonNull ServiceInterface service) {
-                assertEquals(testServiceInterface, service);
-            }
-        }, null);
+                    @Override
+                    public void registerGrpcService(@NonNull ServiceInterface service) {
+                        assertEquals(testServiceInterface, service);
+                    }
+                },
+                null);
     }
 
     @Test
@@ -119,20 +122,23 @@ public class BlockNodePluginTest {
     @DisplayName("Test default onContextUpdate method")
     void testDefaultOnContextUpdate() {
         TestBlockNodePlugin plugin = new TestBlockNodePlugin();
-        plugin.init(null, new ServiceBuilder() {
+        plugin.init(
+                null,
+                new ServiceBuilder() {
 
-            @Override
-            public void registerHttpService(String path, HttpService... service) {
-                assertEquals("foo", path);
-                assertEquals(1, service.length);
-                assertEquals(testHttpService, service[0]);
-            }
+                    @Override
+                    public void registerHttpService(String path, HttpService... service) {
+                        assertEquals("foo", path);
+                        assertEquals(1, service.length);
+                        assertEquals(testHttpService, service[0]);
+                    }
 
-            @Override
-            public void registerGrpcService(@NonNull ServiceInterface service) {
-                assertEquals(testServiceInterface, service);
-            }
-        }, null);
+                    @Override
+                    public void registerGrpcService(@NonNull ServiceInterface service) {
+                        assertEquals(testServiceInterface, service);
+                    }
+                },
+                null);
 
         BlockNodeContext context =
                 new BlockNodeContext(null, null, null, null, null, null, null, null, TssData.DEFAULT);
