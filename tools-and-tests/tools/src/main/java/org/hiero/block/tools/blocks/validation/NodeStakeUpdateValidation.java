@@ -13,6 +13,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.days.model.NodeStakeRegistry;
@@ -32,6 +33,7 @@ public final class NodeStakeUpdateValidation implements BlockValidation {
     private static final String SAVE_FILE_NAME = "nodeStakeHistory.json";
 
     private final NodeStakeRegistry nodeStakeRegistry;
+    private boolean firstStakeUpdateSeen = false;
 
     /**
      * Creates a new node stake update validation.
@@ -82,7 +84,8 @@ public final class NodeStakeUpdateValidation implements BlockValidation {
             return;
         }
         final RecordStreamFile recordStreamFile = recordFileItem.recordFileContentsOrThrow();
-        for (final RecordStreamItem rsi : recordStreamFile.recordStreamItems()) {
+        final List<? extends RecordStreamItem> items = recordStreamFile.recordStreamItems();
+        for (final RecordStreamItem rsi : items) {
             if (!rsi.hasTransaction()) {
                 continue;
             }
@@ -92,6 +95,11 @@ public final class NodeStakeUpdateValidation implements BlockValidation {
                 continue;
             }
             if (body.hasNodeStakeUpdate()) {
+                if (!firstStakeUpdateSeen) {
+                    firstStakeUpdateSeen = true;
+                    System.out.println(Ansi.AUTO.string(
+                            "@|green First NodeStakeUpdate transaction found at block " + blockNumber + "|@"));
+                }
                 // Store with timestamp +1ns so the new stakes apply to blocks AFTER
                 // this one, matching the AddressBookUpdateValidation pattern.
                 final String changes =
