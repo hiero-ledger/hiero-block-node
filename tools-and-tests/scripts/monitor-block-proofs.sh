@@ -11,23 +11,28 @@
 #   WRAPS:   ~3,432 bytes (post-settled TSS)
 #
 # Usage:
-#   ./monitor-block-proofs.sh <proto-path> [grpc-endpoint] [max-block]
+#   ./monitor-block-proofs.sh <proto-path> [grpc-endpoint] [max-block] [port-forward-cmd]
 #
 # Arguments:
-#   proto-path      Path to extracted protobuf files (required)
-#   grpc-endpoint   Block Node gRPC endpoint (default: localhost:40840)
-#   max-block       Stop and fail if this block is reached without WRAPS
-#                   (default: 0 = no limit, wait forever)
+#   proto-path        Path to extracted protobuf files (required)
+#   grpc-endpoint     Block Node gRPC endpoint (default: localhost:40840)
+#   max-block         Stop and fail if this block is reached without WRAPS
+#                     (default: 0 = no limit, wait forever)
+#   port-forward-cmd  Optional shell command to restart port-forwards on connection error.
+#                     When provided, a connection error triggers this command and retries
+#                     instead of failing immediately (max 3 restarts).
 #
 # Exit codes:
 #   0  WRAPS transition found
 #   1  max-block reached without WRAPS, or error
+#   2  connection error with no port-forward-cmd provided
 
 set -euo pipefail
 
-PROTO_DIR="${1:?Usage: $0 <proto-path> [grpc-endpoint] [max-block]}"
+PROTO_DIR="${1:?Usage: $0 <proto-path> [grpc-endpoint] [max-block] [port-forward-cmd]}"
 BN_ENDPOINT="${2:-localhost:40840}"
 MAX_BLOCK="${3:-0}"
+PORT_FORWARD_CMD="${4:-}"
 
 STEP=50
 
@@ -54,6 +59,12 @@ function get_sig_type {
 
   if echo "${raw}" | grep -q '"NOT_FOUND"\|"NOT_AVAILABLE"'; then
     echo "NOT_AVAILABLE 0 0"
+    return
+  fi
+
+  # Connection errors (port-forward down, refused, timeout) — fail fast
+  if echo "${raw}" | grep -qiE "connection refused|failed to dial|context deadline|transport:"; then
+    echo "CONNECTION_ERROR 0 0"
     return
   fi
 
@@ -190,6 +201,7 @@ function print_result {
 # Main: scan every STEP blocks
 echo "Scanning for WRAPS signature (every ${STEP} blocks)..."
 block=0
+pf_restart_count=0
 while true; do
   block=$(( block + STEP ))
 
@@ -207,6 +219,22 @@ while true; do
   sig_bytes=$(echo "$result" | awk '{print $2}')
   block_size=$(echo "$result" | awk '{print $3}')
 
+  if [[ "$sig_type" == "CONNECTION_ERROR" ]]; then
+    if [[ -n "${PORT_FORWARD_CMD}" && "${pf_restart_count}" -lt 3 ]]; then
+      (( pf_restart_count++ )) || true
+      echo ""
+      echo "WARNING: Cannot connect to ${BN_ENDPOINT} — restarting port-forwards (attempt ${pf_restart_count}/3)..." >&2
+      eval "${PORT_FORWARD_CMD}" >&2 || true
+      sleep 5
+      block=$(( block - STEP ))
+      continue
+    fi
+    echo ""
+    echo "ERROR: Cannot connect to Block Node at ${BN_ENDPOINT} (port-forward may be down)" >&2
+    exit 2
+  fi
+  pf_restart_count=0
+
   if [[ "$sig_type" == "NOT_AVAILABLE" ]]; then
     if [[ "${waiting_for:-0}" -ne "$block" ]]; then
       waiting_for=$block
@@ -216,8 +244,8 @@ while true; do
     (( wait_count++ )) || true
     printf "."
     sleep 5
-    # After 60 attempts (~5 min), skip this block and move on
-    if [[ "$wait_count" -ge 60 ]]; then
+    # After 12 attempts (~1 min), skip this block and move on
+    if [[ "$wait_count" -ge 12 ]]; then
       printf " (skipped after %ds)\n" $((wait_count * 5))
       waiting_for=0
     else
