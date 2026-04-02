@@ -2,7 +2,10 @@
 package org.hiero.block.tools.blocks.validation;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -457,6 +460,136 @@ class SignatureValidationTest {
             // 5 nodes all sign → passes equal-weight threshold of 2
             SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry);
             assertDoesNotThrow(() -> validation.validate(toUnparsed(chain.getFirst()), 0));
+        }
+    }
+
+    @Nested
+    @DisplayName("Detailed stats collection")
+    class DetailedStatsCollection {
+
+        @Test
+        @DisplayName("stats collected on successful validation")
+        void statsCollectedOnSuccess(@TempDir Path tempDir) throws Exception {
+            List<Block> chain = TestBlockFactory.createValidChain(1);
+            TestBlockFactory.writeAddressBookHistory(tempDir);
+            AddressBookRegistry abRegistry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
+
+            SignatureValidation validation = new SignatureValidation(abRegistry, null, true);
+            assertDoesNotThrow(() -> validation.validate(toUnparsed(chain.getFirst()), 0));
+
+            SignatureBlockStats stats = validation.popBlockStats(0);
+            assertNotNull(stats, "Should have stats for block 0");
+            assertEquals(0, stats.blockNumber());
+            assertFalse(stats.validatedNodes().isEmpty(), "Should have validated nodes");
+            assertTrue(stats.validatedStake() > 0, "Should have positive validated stake");
+        }
+
+        @Test
+        @DisplayName("stats not collected when disabled")
+        void statsNotCollectedWhenDisabled(@TempDir Path tempDir) throws Exception {
+            List<Block> chain = TestBlockFactory.createValidChain(1);
+            TestBlockFactory.writeAddressBookHistory(tempDir);
+            AddressBookRegistry abRegistry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
+
+            // Default constructor — stats disabled
+            SignatureValidation validation = new SignatureValidation(abRegistry);
+            assertDoesNotThrow(() -> validation.validate(toUnparsed(chain.getFirst()), 0));
+
+            assertNull(validation.popBlockStats(0), "Should not have stats when disabled");
+        }
+
+        @Test
+        @DisplayName("stats not collected on validation failure")
+        void statsNotCollectedOnFailure(@TempDir Path tempDir) throws Exception {
+            List<Block> chain = TestBlockFactory.createValidChain(1);
+            Block block = chain.getFirst();
+            // Keep only 1 signature — below threshold
+            List<BlockItem> items = new ArrayList<>();
+            for (BlockItem item : block.items()) {
+                if (item.hasBlockProof()) {
+                    SignedRecordFileProof orig = item.blockProofOrThrow().signedRecordFileProofOrThrow();
+                    List<RecordFileSignature> oneSig =
+                            List.of(orig.recordFileSignatures().getFirst());
+                    items.add(BlockItem.newBuilder()
+                            .blockProof(BlockProof.newBuilder()
+                                    .signedRecordFileProof(SignedRecordFileProof.newBuilder()
+                                            .version(orig.version())
+                                            .recordFileSignatures(oneSig)
+                                            .build())
+                                    .build())
+                            .build());
+                } else {
+                    items.add(item);
+                }
+            }
+            Block blockWith1Sig = new Block(items);
+
+            TestBlockFactory.writeAddressBookHistory(tempDir);
+            AddressBookRegistry abRegistry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
+
+            SignatureValidation validation = new SignatureValidation(abRegistry, null, true);
+            assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(blockWith1Sig), 0));
+
+            assertNull(validation.popBlockStats(0), "Should not have stats on failure");
+        }
+
+        @Test
+        @DisplayName("popBlockStats removes entry after retrieval")
+        void popBlockStatsRemovesEntry(@TempDir Path tempDir) throws Exception {
+            List<Block> chain = TestBlockFactory.createValidChain(1);
+            TestBlockFactory.writeAddressBookHistory(tempDir);
+            AddressBookRegistry abRegistry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
+
+            SignatureValidation validation = new SignatureValidation(abRegistry, null, true);
+            assertDoesNotThrow(() -> validation.validate(toUnparsed(chain.getFirst()), 0));
+
+            assertNotNull(validation.popBlockStats(0), "First pop should return stats");
+            assertNull(validation.popBlockStats(0), "Second pop should return null");
+        }
+
+        @Test
+        @DisplayName("stats include per-node results with NOT_PRESENT for non-signers")
+        void statsIncludePerNodeResults(@TempDir Path tempDir) throws Exception {
+            List<Block> chain = TestBlockFactory.createValidChain(1);
+            TestBlockFactory.writeAddressBookHistory(tempDir);
+            AddressBookRegistry abRegistry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
+
+            // Remove all but 2 signatures to have some NOT_PRESENT nodes
+            Block block = chain.getFirst();
+            List<BlockItem> items = new ArrayList<>();
+            for (BlockItem item : block.items()) {
+                if (item.hasBlockProof()) {
+                    SignedRecordFileProof orig = item.blockProofOrThrow().signedRecordFileProofOrThrow();
+                    List<RecordFileSignature> twoSigs =
+                            new ArrayList<>(orig.recordFileSignatures().subList(0, 2));
+                    items.add(BlockItem.newBuilder()
+                            .blockProof(BlockProof.newBuilder()
+                                    .signedRecordFileProof(SignedRecordFileProof.newBuilder()
+                                            .version(orig.version())
+                                            .recordFileSignatures(twoSigs)
+                                            .build())
+                                    .build())
+                            .build());
+                } else {
+                    items.add(item);
+                }
+            }
+            Block blockWith2Sigs = new Block(items);
+
+            SignatureValidation validation = new SignatureValidation(abRegistry, null, true);
+            assertDoesNotThrow(() -> validation.validate(toUnparsed(blockWith2Sigs), 0));
+
+            SignatureBlockStats stats = validation.popBlockStats(0);
+            assertNotNull(stats);
+
+            // Should have 5 nodes total (TestBlockFactory creates 5)
+            assertEquals(5, stats.perNodeResults().size(), "Should have results for all 5 address book nodes");
+
+            // Count NOT_PRESENT
+            long notPresent = stats.perNodeResults().values().stream()
+                    .filter(r -> r == SignatureBlockStats.NodeResult.NOT_PRESENT)
+                    .count();
+            assertEquals(3, notPresent, "3 nodes should be NOT_PRESENT");
         }
     }
 }

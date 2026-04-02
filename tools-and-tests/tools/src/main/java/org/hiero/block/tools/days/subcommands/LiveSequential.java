@@ -71,6 +71,8 @@ import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
 import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
+import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
+import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
 import org.hiero.block.tools.config.NetworkConfig;
@@ -958,6 +960,10 @@ public class LiveSequential implements Runnable {
             SignatureValidation signatureValidation = new SignatureValidation(addressBookRegistry, nodeStakeRegistry);
             parallelValidations.add(signatureValidation);
 
+            // Create signature stats collector for CSV output
+            final SignatureStatsCollector statsCollector =
+                    new SignatureStatsCollector(wrapOutputDir.resolve("signature_statistics_live_sequential.csv"));
+
             List<BlockValidation> sequentialValidations = new ArrayList<>();
             sequentialValidations.add(new AddressBookUpdateValidation(addressBookRegistry));
             sequentialValidations.add(new NodeStakeUpdateValidation(nodeStakeRegistry));
@@ -1191,6 +1197,12 @@ public class LiveSequential implements Runnable {
 
                     blocksValidated++;
 
+                    // Collect signature stats from the validation
+                    SignatureBlockStats blockStats = signatureValidation.popBlockStats(blockNum);
+                    if (blockStats != null) {
+                        statsCollector.accept(blockStats);
+                    }
+
                     // Save jumpstart.bin every block (tiny ~1KB write)
                     saveJumpstart(jumpstartPath, blockNum, blockStreamBlockHash, streamingHasher);
 
@@ -1244,6 +1256,11 @@ public class LiveSequential implements Runnable {
                         System.err.println("[WRAP] Warning: finalize failed for " + v.name() + ": " + e.getMessage());
                     }
                 }
+
+                // Finalize and close signature stats collector
+                statsCollector.finalizeDayStats();
+                statsCollector.printFinalSummary();
+                statsCollector.close();
 
                 // Close all validations
                 for (BlockValidation v : allValidations) {

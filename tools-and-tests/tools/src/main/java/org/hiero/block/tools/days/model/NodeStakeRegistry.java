@@ -126,6 +126,14 @@ public class NodeStakeRegistry {
     }
 
     /**
+     * A stake map together with its pre-computed total stake.
+     *
+     * @param stakeMap the nodeId-to-stake mapping
+     * @param totalStake the sum of all stake values
+     */
+    public record StakeMapWithTotal(Map<Long, Long> stakeMap, long totalStake) {}
+
+    /**
      * Get the stake map that was in effect at the given block time.
      * Uses binary search for O(log n) lookup over the chronologically sorted snapshots.
      *
@@ -133,6 +141,18 @@ public class NodeStakeRegistry {
      * @return a map of nodeId to stake weight, or {@code null} if no stake data is available
      */
     public Map<Long, Long> getStakeMapForBlock(Instant blockTime) {
+        final StakeMapWithTotal result = getStakeMapWithTotalForBlock(blockTime);
+        return result != null ? result.stakeMap() : null;
+    }
+
+    /**
+     * Get the stake map and pre-computed total stake for the given block time.
+     * Avoids recomputing the total on every call.
+     *
+     * @param blockTime the block time to look up
+     * @return the stake map with total, or {@code null} if no stake data is available
+     */
+    public StakeMapWithTotal getStakeMapWithTotalForBlock(Instant blockTime) {
         if (stakeSnapshots.isEmpty()) {
             return null;
         }
@@ -155,10 +175,12 @@ public class NodeStakeRegistry {
         }
         final DatedNodeStake selected = stakeSnapshots.get(idx);
         final Map<Long, Long> stakeMap = new LinkedHashMap<>();
+        long totalStake = 0;
         for (NodeStakeEntry entry : selected.entries()) {
             stakeMap.put(entry.nodeId(), entry.stake());
+            totalStake += entry.stake();
         }
-        return Collections.unmodifiableMap(stakeMap);
+        return new StakeMapWithTotal(Collections.unmodifiableMap(stakeMap), totalStake);
     }
 
     /**

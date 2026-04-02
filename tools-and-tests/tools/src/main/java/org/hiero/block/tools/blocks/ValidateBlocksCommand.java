@@ -44,6 +44,8 @@ import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
 import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
+import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
+import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
 import org.hiero.block.tools.blocks.wrapped.BalanceCheckpointValidator;
@@ -546,6 +548,12 @@ public class ValidateBlocksCommand implements Runnable {
             }
         }
 
+        // Create signature stats collector
+        final Path statsOutputDir =
+                Arrays.stream(files).filter(Files::isDirectory).findFirst().orElse(files[0]);
+        final SignatureStatsCollector statsCollector =
+                new SignatureStatsCollector(statsOutputDir.resolve("signature_statistics_validate_block_command.csv"));
+
         // Track validation progress
         final long startNanos = System.nanoTime();
         long blocksValidated = checkpoint != null ? checkpoint.blocksValidated() : 0;
@@ -809,6 +817,14 @@ public class ValidateBlocksCommand implements Runnable {
                         blocksValidatedRef[0] = blocksValidated;
                     }
 
+                    // Collect signature stats from the validation
+                    if (signatureValidation != null) {
+                        SignatureBlockStats blockStats = signatureValidation.popBlockStats(blockNum);
+                        if (blockStats != null) {
+                            statsCollector.accept(blockStats);
+                        }
+                    }
+
                     // Periodic registry sync for crash safety (~every 100 blocks)
                     if (registry != null && blocksValidated % 100 == 0) {
                         registry.sync();
@@ -928,6 +944,10 @@ public class ValidateBlocksCommand implements Runnable {
             for (BlockValidation v : validations) {
                 v.close();
             }
+            // Finalize signature statistics
+            statsCollector.finalizeDayStats();
+            statsCollector.printFinalSummary();
+            statsCollector.close();
         }
 
         // Determine overall result
