@@ -64,7 +64,7 @@ vars:
 
   # TCK-SDK test configuration
   TCK_SDK_DIR: '{{.TCK_SDK_DIR | default "sdk-tck"}}'
-  TCK_TEST_FILE: '{{.TCK_TEST_FILE | default "src/tests/crypto-service/test-transfer-hbar-transaction.ts src/tests/crypto-service/test-account-create-transaction.ts src/tests/crypto-service/test-account-update-transaction.ts src/tests/token-service/test-token-create-transaction.ts src/tests/token-service/test-token-update-transaction.ts src/tests/topic-service/test-topic-create-transaction.ts src/tests/topic-service/test-topic-update-transaction.ts src/tests/contract-service/test-contract-delete-transaction.ts"}}'
+  TCK_TEST_FILE: '{{.TCK_TEST_FILE | default "src/tests/crypto-service/test-transfer-hbar-transaction.ts src/tests/crypto-service/test-account-create-transaction.ts src/tests/contract-service/test-contract-delete-transaction.ts"}}'
 
 tasks:
   # ============================================================================

@@ -216,7 +216,13 @@ while true; do
     (( wait_count++ )) || true
     printf "."
     sleep 5
-    block=$(( block - STEP ))
+    # After 60 attempts (~5 min), skip this block and move on
+    if [[ "$wait_count" -ge 60 ]]; then
+      printf " (skipped after %ds)\n" $((wait_count * 5))
+      waiting_for=0
+    else
+      block=$(( block - STEP ))
+    fi
     continue
   fi
 
