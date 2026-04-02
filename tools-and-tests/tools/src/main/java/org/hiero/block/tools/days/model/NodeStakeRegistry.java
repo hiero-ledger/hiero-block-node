@@ -127,6 +127,7 @@ public class NodeStakeRegistry {
 
     /**
      * Get the stake map that was in effect at the given block time.
+     * Uses binary search for O(log n) lookup over the chronologically sorted snapshots.
      *
      * @param blockTime the block time to look up
      * @return a map of nodeId to stake weight, or {@code null} if no stake data is available
@@ -135,20 +136,24 @@ public class NodeStakeRegistry {
         if (stakeSnapshots.isEmpty()) {
             return null;
         }
-        // Find the most recent snapshot with a timestamp less than or equal to blockTime
-        DatedNodeStake selected = null;
-        for (int i = 0; i < stakeSnapshots.size(); i++) {
-            DatedNodeStake snapshot = stakeSnapshots.get(i);
-            final Timestamp ts = snapshot.blockTimestampOrThrow();
-            final Instant snapshotInstant = Instant.ofEpochSecond(ts.seconds(), ts.nanos());
-            if (snapshotInstant.isAfter(blockTime)) {
-                break;
-            }
-            selected = snapshot;
+        // Binary search using a synthetic probe with the target timestamp
+        final Timestamp probeTs = toTimestamp(blockTime);
+        final DatedNodeStake probe = new DatedNodeStake(probeTs, List.of());
+        int idx = Collections.binarySearch(stakeSnapshots, probe, (a, b) -> {
+            final Timestamp tsA = a.blockTimestampOrThrow();
+            final Timestamp tsB = b.blockTimestampOrThrow();
+            int cmp = Long.compare(tsA.seconds(), tsB.seconds());
+            return cmp != 0 ? cmp : Integer.compare(tsA.nanos(), tsB.nanos());
+        });
+        // If exact match, use that index. Otherwise binarySearch returns -(insertion point) - 1,
+        // and we want the entry just before the insertion point.
+        if (idx < 0) {
+            idx = -idx - 2; // insertion point - 1
         }
-        if (selected == null) {
+        if (idx < 0) {
             return null;
         }
+        final DatedNodeStake selected = stakeSnapshots.get(idx);
         final Map<Long, Long> stakeMap = new LinkedHashMap<>();
         for (NodeStakeEntry entry : selected.entries()) {
             stakeMap.put(entry.nodeId(), entry.stake());

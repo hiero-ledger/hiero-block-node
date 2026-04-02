@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
@@ -125,20 +126,25 @@ public class AddressBookRegistry {
      * @return the address book that was in effect at the given block time
      */
     public NodeAddressBook getAddressBookForBlock(Instant blockTime) {
-        // find the most recent address book with a timestamp less than or equal to the block time
-        for (int i = 0; i < addressBooks.size(); i++) {
-            DatedNodeAddressBook datedBook = addressBooks.get(i);
-            final Timestamp bookTimestamp = datedBook.blockTimestampOrThrow();
-            final Instant bookInstant = Instant.ofEpochSecond(bookTimestamp.seconds(), bookTimestamp.nanos());
-            if (bookInstant.isAfter(blockTime)) {
-                // return the previous address book
-                return i == 0
-                        ? datedBook.addressBook()
-                        : addressBooks.get(i - 1).addressBook();
-            }
+        // Binary search using a synthetic probe with the target timestamp
+        final Timestamp probeTs = toTimestamp(blockTime);
+        final DatedNodeAddressBook probe = new DatedNodeAddressBook(probeTs, NodeAddressBook.DEFAULT);
+        int idx = Collections.binarySearch(addressBooks, probe, (a, b) -> {
+            final Timestamp tsA = a.blockTimestampOrThrow();
+            final Timestamp tsB = b.blockTimestampOrThrow();
+            int cmp = Long.compare(tsA.seconds(), tsB.seconds());
+            return cmp != 0 ? cmp : Integer.compare(tsA.nanos(), tsB.nanos());
+        });
+        // If exact match, use that index. Otherwise binarySearch returns -(insertion point) - 1,
+        // and we want the entry just before the insertion point.
+        if (idx < 0) {
+            idx = -idx - 2; // insertion point - 1
         }
-        // if no address book is found after the block time, return the most recent address book
-        return addressBooks.getLast().addressBook();
+        // If blockTime is before all snapshots, return the earliest address book
+        if (idx < 0) {
+            return addressBooks.getFirst().addressBook();
+        }
+        return addressBooks.get(idx).addressBook();
     }
 
     /**
