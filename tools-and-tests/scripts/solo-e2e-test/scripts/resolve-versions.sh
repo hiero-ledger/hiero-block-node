@@ -35,14 +35,13 @@ readonly TCK_REPO="hiero-ledger/hiero-sdk-tck"
 # Tiers are evaluated highest-first; first matching tier wins.
 # CN is also floored at the lowest tier's cn_min.
 #
-# | CN Version      | MN Minimum   | BN Minimum  | Notes                          |
-# |-----------------|--------------|-------------|--------------------------------|
-# | >= 0.73.0       | 0.152.0      | 0.31.0      | Protocol changes in CN 0.73.x  |
-# | >= 0.72.0-rc.3  | 0.150.0-rc1  | 0.29.0-rc5  | TSS/hinTS baseline             |
+# | CN Version        | MN Minimum    | BN Minimum   | Notes                          |
+# |-------------------|---------------|--------------|--------------------------------|
+# | >= 0.73.0-rc.1    | 0.152.0-rc1   | 0.31.0-rc1   | TSS/WRAPS/hinTS support        |
 #
-readonly COMPAT_CN_MINS=("0.73.0"      "0.72.0-rc.3")
-readonly COMPAT_MN_MINS=("0.152.0"     "0.150.0-rc1")
-readonly COMPAT_BN_MINS=("0.31.0"      "0.29.0-rc5")
+readonly COMPAT_CN_MINS=("0.73.0-rc.1")
+readonly COMPAT_MN_MINS=("0.152.0-rc1")
+readonly COMPAT_BN_MINS=("0.31.0-rc1")
 
 # Lowest tier CN floor (used to enforce CN minimum before tier selection)
 # Note: bash 3.2 (macOS default) does not support negative array indices — use explicit last index
