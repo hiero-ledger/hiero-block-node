@@ -63,6 +63,10 @@ on:
         description: "Run TCK regression tests (enabled by default for daily/weekend/rc)"
         type: boolean
         default: true
+      tck-test-file:
+        description: "TCK test file(s) override ('all' for full suite; default: subset for daily, all for weekend/rc)"
+        type: string
+        default: ""
 
 defaults:
   run:
@@ -93,6 +97,7 @@ jobs:
       tck-version: ${{ steps.config.outputs.tck_version }}
       tss-enabled: ${{ steps.config.outputs.tss_enabled }}
       run-tck-regression-tests: ${{ steps.config.outputs.run_tck_regression_tests }}
+      tck-test-file: ${{ steps.config.outputs.tck_test_file }}
       notify-slack: ${{ steps.config.outputs.notify_slack }}
       matrix-count: ${{ steps.config.outputs.matrix_count }}
       resolved-cn-label: ${{ steps.resolved.outputs.cn_label }}
@@ -204,11 +209,11 @@ jobs:
             MN_VERSION="latest"
           fi
 
-          # Solo CLI version: use input if provided, otherwise default to 0.65.0 (as latest stable tested)
+          # Solo CLI version: use input if provided, otherwise default to 0.67.0 (as latest stable tested)
           if [[ -n "${{ inputs.solo-version }}" ]]; then
             SOLO_VERSION="${{ inputs.solo-version }}"
           else
-            SOLO_VERSION="0.65.0"
+            SOLO_VERSION="0.67.0"
           fi
 
           # Relay version: use input if provided, otherwise default to latest
@@ -227,6 +232,15 @@ jobs:
           RUN_TCK="${{ inputs.run-tck-regression-tests }}"
           RUN_TCK="${RUN_TCK:-true}"
 
+          # TCK test file: daily runs use default subset; weekend/rc run full suite
+          if [[ -n "${{ inputs.tck-test-file }}" ]]; then
+            TCK_TEST_FILE="${{ inputs.tck-test-file }}"
+          elif [[ "${RUN_TYPE}" == "weekend" || "${RUN_TYPE}" == "rc" ]]; then
+            TCK_TEST_FILE="all"
+          else
+            TCK_TEST_FILE=""
+          fi
+
           echo "bn_version=${BN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "cn_version=${CN_VERSION}" >> "$GITHUB_OUTPUT"
           echo "mn_version=${MN_VERSION}" >> "$GITHUB_OUTPUT"
@@ -235,6 +249,7 @@ jobs:
           echo "tck_version=${TCK_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tss_enabled=${TSS_ENABLED}" >> "$GITHUB_OUTPUT"
           echo "run_tck_regression_tests=${RUN_TCK}" >> "$GITHUB_OUTPUT"
+          echo "tck_test_file=${TCK_TEST_FILE}" >> "$GITHUB_OUTPUT"
 
           # Summary
           {
@@ -324,6 +339,7 @@ jobs:
       tck-version: ${{ needs.configure.outputs.tck-version }}
       tss-enabled: ${{ needs.configure.outputs.tss-enabled == 'true' }}
       run-tck-regression-tests: ${{ needs.configure.outputs.run-tck-regression-tests == 'true' }}
+      tck-test-file: ${{ needs.configure.outputs.tck-test-file }}
     secrets: inherit
 
   # ============================================================================
