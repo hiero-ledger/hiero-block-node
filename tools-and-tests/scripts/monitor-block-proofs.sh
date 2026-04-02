@@ -35,6 +35,12 @@ MAX_BLOCK="${3:-0}"
 PORT_FORWARD_CMD="${4:-}"
 
 STEP=50
+# Max gRPC message size to accept. Normal blocks are ~40KB; the TSS genesis
+# block can be ~100MB. Downloading 100MB through kubectl port-forward crashes
+# the SPDY tunnel. A 10MB limit rejects oversized blocks early (via RST_STREAM)
+# before the data flood kills the port-forward. Rejected blocks are treated as
+# NOT_AVAILABLE, which the binary search handles correctly.
+MAX_MSG_SIZE=10000000
 
 if ! command -v grpcurl &>/dev/null; then
   echo "ERROR: grpcurl not found" >&2
@@ -53,7 +59,7 @@ function get_sig_type {
   local raw
   raw=$(cd "${PROTO_DIR}" && grpcurl -plaintext -import-path . \
     -proto "block-node/api/block_access_service.proto" \
-    -max-msg-sz 150000000 \
+    -max-msg-sz "${MAX_MSG_SIZE}" \
     -d "{\"block_number\": ${block_number}}" \
     "${BN_ENDPOINT}" org.hiero.block.api.BlockAccessService/getBlock 2>&1) || true
 
@@ -65,6 +71,12 @@ function get_sig_type {
   # Connection errors (port-forward down, refused, timeout) — fail fast
   if echo "${raw}" | grep -qiE "connection refused|failed to dial|context deadline|transport:"; then
     echo "CONNECTION_ERROR 0 0"
+    return
+  fi
+
+  # Oversized block — grpcurl rejected it before downloading (port-forward survives)
+  if echo "${raw}" | grep -qiE "received message larger than max"; then
+    echo "NOT_AVAILABLE 0 0"
     return
   fi
 
@@ -117,6 +129,37 @@ print(f'{sig_bytes} {binary_size}')
   echo "${sig_type} ${sig_bytes} ${block_size}"
 }
 
+# Wrapper around get_sig_type that recovers from port-forward crashes.
+# If a CONNECTION_ERROR is detected and PORT_FORWARD_CMD is set:
+#   1. Restarts port-forward
+#   2. Retries the request once
+#   3. If retry also fails (oversized block crashing port-forward), returns NOT_AVAILABLE
+# Without PORT_FORWARD_CMD, CONNECTION_ERROR is returned as-is for the caller to handle.
+function get_sig_type_safe {
+  local block_number="$1"
+  local result
+  result=$(get_sig_type "${block_number}")
+  local sig_type="${result%% *}"
+
+  if [[ "${sig_type}" == "CONNECTION_ERROR" && -n "${PORT_FORWARD_CMD}" ]]; then
+    echo "  Port-forward lost at block ${block_number}, restarting..." >&2
+    eval "${PORT_FORWARD_CMD}" >&2 2>/dev/null || true
+    sleep 3
+    result=$(get_sig_type "${block_number}")
+    sig_type="${result%% *}"
+    if [[ "${sig_type}" == "CONNECTION_ERROR" ]]; then
+      # Block itself is crashing the port-forward (likely oversized); recover and skip
+      echo "  Block ${block_number} crashes port-forward (likely oversized), recovering..." >&2
+      eval "${PORT_FORWARD_CMD}" >&2 2>/dev/null || true
+      sleep 3
+      echo "NOT_AVAILABLE 0 0"
+      return
+    fi
+  fi
+
+  echo "${result}"
+}
+
 function format_size {
   local bytes="$1"
   if [[ "$bytes" -ge 1048576 ]]; then
@@ -135,7 +178,7 @@ function binary_search_transition {
   while [[ $((high - low)) -gt 1 ]]; do
     local mid=$(( (low + high) / 2 ))
     local result
-    result=$(get_sig_type "$mid")
+    result=$(get_sig_type_safe "$mid")
     local sig_type="${result%% *}"
     if [[ "$sig_type" == "SCHNORR" ]]; then
       low=$mid
@@ -155,7 +198,7 @@ function find_schnorr_lower_bound {
 
   while [[ $low -gt 0 ]]; do
     local result
-    result=$(get_sig_type "$low")
+    result=$(get_sig_type_safe "$low")
     if [[ "${result%% *}" == "SCHNORR" ]]; then
       echo "$low"
       return
@@ -171,7 +214,7 @@ function format_block_line {
   local result="$2"
   local sig_type="${result%% *}"
 
-  if [[ "$sig_type" == "NOT_AVAILABLE" || "$sig_type" == "UNKNOWN" ]]; then
+  if [[ "$sig_type" == "NOT_AVAILABLE" || "$sig_type" == "UNKNOWN" || "$sig_type" == "CONNECTION_ERROR" ]]; then
     echo "  Block ${block_number}: NOT_AVAILABLE (BN unable to serve — likely oversized WRAPS genesis block)"
   else
     local sig_bytes block_size
@@ -185,9 +228,9 @@ function print_result {
   local transition_block="$1"
 
   local pre_result post_result next_result
-  pre_result=$(get_sig_type "$((transition_block - 1))")
-  post_result=$(get_sig_type "$transition_block")
-  next_result=$(get_sig_type "$((transition_block + 1))")
+  pre_result=$(get_sig_type_safe "$((transition_block - 1))")
+  post_result=$(get_sig_type_safe "$transition_block")
+  next_result=$(get_sig_type_safe "$((transition_block + 1))")
 
   echo ""
   echo "=== Signature Transition ==="
@@ -201,7 +244,6 @@ function print_result {
 # Main: scan every STEP blocks
 echo "Scanning for WRAPS signature (every ${STEP} blocks)..."
 block=0
-pf_restart_count=0
 while true; do
   block=$(( block + STEP ))
 
@@ -214,26 +256,18 @@ while true; do
     exit 1
   fi
 
-  result=$(get_sig_type "$block")
+  result=$(get_sig_type_safe "$block")
   sig_type="${result%% *}"
   sig_bytes=$(echo "$result" | awk '{print $2}')
   block_size=$(echo "$result" | awk '{print $3}')
 
+  # get_sig_type_safe handles port-forward recovery when PORT_FORWARD_CMD is set.
+  # If it still returns CONNECTION_ERROR, there's nothing more we can do.
   if [[ "$sig_type" == "CONNECTION_ERROR" ]]; then
-    if [[ -n "${PORT_FORWARD_CMD}" && "${pf_restart_count}" -lt 3 ]]; then
-      (( pf_restart_count++ )) || true
-      echo ""
-      echo "WARNING: Cannot connect to ${BN_ENDPOINT} — restarting port-forwards (attempt ${pf_restart_count}/3)..." >&2
-      eval "${PORT_FORWARD_CMD}" >&2 || true
-      sleep 5
-      block=$(( block - STEP ))
-      continue
-    fi
     echo ""
     echo "ERROR: Cannot connect to Block Node at ${BN_ENDPOINT} (port-forward may be down)" >&2
     exit 2
   fi
-  pf_restart_count=0
 
   if [[ "$sig_type" == "NOT_AVAILABLE" ]]; then
     if [[ "${waiting_for:-0}" -ne "$block" ]]; then
