@@ -32,7 +32,7 @@ public final class NodeStakeUpdateValidation implements BlockValidation {
 
     private static final String SAVE_FILE_NAME = "nodeStakeHistory.json";
     private static final int MAX_DEPTH = 512;
-    private static final int MAX_RECORD_FILE_SIZE = 8 * 1024 * 1024;
+    private static final int MAX_RECORD_FILE_SIZE = 32 * 1024 * 1024;
 
     private final NodeStakeRegistry nodeStakeRegistry;
     private boolean firstStakeUpdateSeen = false;

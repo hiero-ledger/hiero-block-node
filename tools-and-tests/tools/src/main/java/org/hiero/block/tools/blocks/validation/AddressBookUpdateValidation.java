@@ -33,7 +33,7 @@ public final class AddressBookUpdateValidation implements BlockValidation {
 
     private static final String SAVE_FILE_NAME = "addressBookHistory.json";
     private static final int MAX_DEPTH = 512;
-    private static final int MAX_RECORD_FILE_SIZE = 8 * 1024 * 1024;
+    private static final int MAX_RECORD_FILE_SIZE = 32 * 1024 * 1024;
 
     private final AddressBookRegistry addressBookRegistry;
 
