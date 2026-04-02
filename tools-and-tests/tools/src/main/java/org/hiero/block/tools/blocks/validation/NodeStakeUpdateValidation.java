@@ -31,6 +31,8 @@ import picocli.CommandLine.Help.Ansi;
 public final class NodeStakeUpdateValidation implements BlockValidation {
 
     private static final String SAVE_FILE_NAME = "nodeStakeHistory.json";
+    private static final int MAX_DEPTH = 512;
+    private static final int MAX_RECORD_FILE_SIZE = 8 * 1024 * 1024;
 
     private final NodeStakeRegistry nodeStakeRegistry;
     private boolean firstStakeUpdateSeen = false;
@@ -79,7 +81,8 @@ public final class NodeStakeUpdateValidation implements BlockValidation {
     @SuppressWarnings("DataFlowIssue")
     private void processNodeStakeUpdates(
             final Bytes recordFileBytes, final Instant blockInstant, final long blockNumber) throws Exception {
-        final RecordFileItem recordFileItem = RecordFileItem.PROTOBUF.parse(recordFileBytes);
+        final RecordFileItem recordFileItem = RecordFileItem.PROTOBUF.parse(
+                recordFileBytes.toReadableSequentialData(), false, false, MAX_DEPTH, MAX_RECORD_FILE_SIZE);
         if (!recordFileItem.hasRecordFileContents()) {
             return;
         }
