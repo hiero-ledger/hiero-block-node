@@ -16,48 +16,34 @@ name: node-restart-resilience
 description: "Test BN recovery after restart"
 
 events:
-  - id: early-metrics
-    type: print-metrics
-    description: "Print early metrics"
-    delay: 10
-    args:
-      target: all
-
   - id: pre-restart-metrics
     type: print-metrics
     description: "Print metrics before restart"
-    delay: 30
+    delay: 10
     args:
       target: all
 
   - id: restart-bn
     type: restart
     description: "Restart Block Node 1"
-    delay: 60
+    delay: 15
     target: block-node-1
     timeout: 300
 
   - id: refresh-ports
     type: port-forward
     description: "Refresh port forwards after restart"
-    delay: 90
+    delay: 45
 
   - id: post-restart-status
     type: network-status
     description: "Check network status after restart"
-    delay: 120
-
-  - id: post-restart-metrics
-    type: print-metrics
-    description: "Print metrics after restart recovery"
-    delay: 150
-    args:
-      target: all
+    delay: 60
 
   - id: final-metrics
     type: print-metrics
     description: "Print final metrics"
-    delay: 180
+    delay: 90
     args:
       target: all
 
