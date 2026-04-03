@@ -6,6 +6,8 @@ import { computeBlockRoot } from "./computeBlockRoot.js";
 import { attemptNobleVerification } from "./attemptNobleVerify.js";
 import { assessSnarkjsTractability, attemptWrapsDeserialization } from "./assessWrapsSnarkjs.js";
 import { verifySchnorrSignature } from "./verifySchnorr.js";
+import { verifyWrapsProof } from "./verifyWrapsProof.js";
+import { verifyHintsSignature } from "./verifyHints.js";
 import { buildVerificationReport, formatVerificationReports } from "./report.js";
 import type { BootstrapPublicationSummary, VerificationReport } from "./types.js";
 
@@ -67,6 +69,8 @@ async function buildReports(fixturePaths: string[]): Promise<VerificationReport[
         snarkjsAssessment: assessSnarkjsTractability(parsedBlock.proofLayout),
         wrapsDeserialization: attemptWrapsDeserialization(parsedBlock.proofLayout, bootstrapPublication),
         schnorrVerification: verifySchnorrSignature(parsedBlock.proofLayout, bootstrapPublication),
+        wrapsVerification: verifyWrapsProof(parsedBlock.proofLayout, bootstrapPublication),
+        hintsVerification: verifyHintsSignature(parsedBlock.proofLayout, bootstrapPublication, blockRoot),
       }),
     );
   }

@@ -6,6 +6,8 @@ import type {
   VerificationReport,
   WrapsDeserializationResult,
   SchnorrVerificationResult,
+  WrapsVerificationResult,
+  HintsVerificationResult,
 } from "./types.js";
 
 function buildOracleNotes(parsedBlock: ParsedBlockFixture): string[] {
@@ -33,6 +35,8 @@ export function buildVerificationReport(args: {
   snarkjsAssessment: SnarkjsAssessment;
   wrapsDeserialization?: WrapsDeserializationResult;
   schnorrVerification?: SchnorrVerificationResult;
+  wrapsVerification?: WrapsVerificationResult;
+  hintsVerification?: HintsVerificationResult;
 }): VerificationReport {
   const {
     parsedBlock,
@@ -42,6 +46,8 @@ export function buildVerificationReport(args: {
     snarkjsAssessment,
     wrapsDeserialization,
     schnorrVerification,
+    wrapsVerification,
+    hintsVerification,
   } = args;
   return {
     fixturePath: parsedBlock.fixturePath,
@@ -55,6 +61,8 @@ export function buildVerificationReport(args: {
     snarkjsAssessment,
     wrapsDeserialization,
     schnorrVerification,
+    wrapsVerification,
+    hintsVerification,
     oracleNotes: buildOracleNotes(parsedBlock),
   };
 }
@@ -84,18 +92,42 @@ function formatWrapsDeserialization(result: WrapsDeserializationResult | undefin
   return lines;
 }
 
+function statusLabel(status: "verified" | "failed" | "skipped" | "error"): string {
+  switch (status) {
+    case "verified": return "VERIFIED";
+    case "failed":   return "FAILED";
+    case "error":    return "ERROR";
+    default:         return "SKIPPED";
+  }
+}
+
 function formatSchnorrVerification(result: SchnorrVerificationResult | undefined): string[] {
   if (!result) return [];
+  return [`Schnorr verification: ${statusLabel(result.status)} — ${result.reason}`];
+}
+
+function formatWrapsVerification(result: WrapsVerificationResult | undefined): string[] {
+  if (!result) return [];
   const lines: string[] = [];
-  const statusLabel =
-    result.status === "verified"
-      ? "VERIFIED"
-      : result.status === "failed"
-        ? "FAILED"
-        : result.status === "error"
-          ? "ERROR"
-          : "SKIPPED";
-  lines.push(`Schnorr verification: ${statusLabel} — ${result.reason}`);
+  lines.push(`WRAPS verification: ${statusLabel(result.status)} — ${result.reason}`);
+  if (result.checks) {
+    const c = result.checks;
+    lines.push(`  ledgerIdMatch=${c.ledgerIdMatch} hintsVkHashMatch=${c.hintsVkHashMatch} iterationGuard=${c.iterationGuard} uCmEIsZero=${c.uCmEIsZero}`);
+    lines.push(`  groth16Valid=${c.groth16Valid} kzg0Valid=${c.kzg0Valid} kzg1Valid=${c.kzg1Valid}`);
+  }
+  return lines;
+}
+
+function formatHintsVerification(result: HintsVerificationResult | undefined): string[] {
+  if (!result) return [];
+  const lines: string[] = [];
+  lines.push(`hinTS verification: ${statusLabel(result.status)} — ${result.reason}`);
+  if (result.checks) {
+    const c = result.checks;
+    lines.push(`  threshold=${c.thresholdMet} bls=${c.blsSignatureValid} mergedKzg=${c.mergedKzgValid} parsumKzg=${c.parsumKzgValid}`);
+    lines.push(`  bSk=${c.bSkIdentityValid} parsumAccum=${c.parsumAccumulationValid} parsumConstraint=${c.parsumConstraintValid}`);
+    lines.push(`  bitmapWF=${c.bitmapWellFormednessValid} bitmapConstraint=${c.bitmapConstraintValid} degree=${c.degreeCheckValid}`);
+  }
   return lines;
 }
 
@@ -121,8 +153,18 @@ export function formatVerificationReports(reports: VerificationReport[]): string
       lines.push(line);
     }
 
-    // Schnorr verification (new)
+    // Schnorr verification
     for (const line of formatSchnorrVerification(report.schnorrVerification)) {
+      lines.push(line);
+    }
+
+    // WRAPS cryptographic verification
+    for (const line of formatWrapsVerification(report.wrapsVerification)) {
+      lines.push(line);
+    }
+
+    // hinTS signature verification
+    for (const line of formatHintsVerification(report.hintsVerification)) {
       lines.push(line);
     }
 

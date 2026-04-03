@@ -143,6 +143,49 @@ export interface SchnorrVerificationResult {
   totalNodes?: number;
 }
 
+// --- WRAPS cryptographic verification types ---
+
+export interface WrapsVerificationChecks {
+  ledgerIdMatch: boolean;
+  hintsVkHashMatch: boolean;
+  iterationGuard: boolean;
+  uCmEIsZero: boolean;
+  groth16Valid: boolean;
+  kzg0Valid: boolean;
+  kzg1Valid: boolean;
+}
+
+export interface WrapsVerificationResult {
+  attempted: boolean;
+  status: "verified" | "failed" | "skipped" | "error";
+  reason: string;
+  checks?: WrapsVerificationChecks;
+  timingMs?: number;
+}
+
+// --- hinTS (BLS12-381) verification types ---
+
+export interface HintsVerificationChecks {
+  thresholdMet: boolean;
+  blsSignatureValid: boolean;
+  mergedKzgValid: boolean;
+  parsumKzgValid: boolean;
+  bSkIdentityValid: boolean;
+  parsumAccumulationValid: boolean;
+  parsumConstraintValid: boolean;
+  bitmapWellFormednessValid: boolean;
+  bitmapConstraintValid: boolean;
+  degreeCheckValid: boolean;
+}
+
+export interface HintsVerificationResult {
+  attempted: boolean;
+  status: "verified" | "failed" | "skipped" | "error";
+  reason: string;
+  checks?: HintsVerificationChecks;
+  timingMs?: number;
+}
+
 export interface VerificationReport {
   fixturePath: string;
   blockNumber: string;
@@ -155,5 +198,7 @@ export interface VerificationReport {
   snarkjsAssessment: SnarkjsAssessment;
   wrapsDeserialization?: WrapsDeserializationResult;
   schnorrVerification?: SchnorrVerificationResult;
+  wrapsVerification?: WrapsVerificationResult;
+  hintsVerification?: HintsVerificationResult;
   oracleNotes: string[];
 }

@@ -31,6 +31,7 @@ import { blake2s } from "@noble/hashes/blake2.js";
 import { edwards } from "@noble/curves/abstract/edwards.js";
 import { Field } from "@noble/curves/abstract/modular.js";
 import { poseidonSponge, grainGenConstants } from "@noble/curves/abstract/poseidon.js";
+import { readU256LE, BN254_FR_ORDER } from "./byteReaders.js";
 import type {
   BootstrapPublicationSummary,
   ParsedSchnorrSuffix,
@@ -45,8 +46,6 @@ import type {
 // Parameters match Circom/iden3 BabyJubjub AND ArkWorks ark_ed_on_bn254.
 // Note: ArkWorks uses the same curve constants but a different generator
 // that lies in the prime-order subgroup.
-
-const BN254_FR_ORDER = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001n;
 
 // ArkWorks ark_ed_on_bn254 uses the rescaled twisted Edwards form:
 //   a*x² + y² = 1 + d*x²*y²  with a=1, d=168696/168700 mod p
@@ -100,7 +99,7 @@ const createPoseidonSponge = poseidonSponge({
  * Computes Poseidon hash of an array of BN254 Fr elements.
  * Matches PoseidonCRH::evaluate from ArkWorks (absorb all, squeeze one).
  */
-function poseidonHash(inputs: bigint[]): bigint {
+export function poseidonHash(inputs: bigint[]): bigint {
   const sponge = createPoseidonSponge();
   for (const elem of inputs) {
     sponge.absorb([elem]);
@@ -115,7 +114,7 @@ function poseidonHash(inputs: bigint[]): bigint {
  *   - Convert each chunk to Fr via from_le_bytes_mod_order
  *   - Poseidon hash the resulting Fr elements
  */
-function hashHintsVk(vkBytes: Buffer): bigint {
+export function hashHintsVk(vkBytes: Buffer): bigint {
   const elements: bigint[] = [];
   for (let i = 0; i < vkBytes.length; i += 32) {
     const end = Math.min(i + 32, vkBytes.length);
@@ -131,14 +130,6 @@ function hashHintsVk(vkBytes: Buffer): bigint {
 }
 
 // ─── Parsing ────────────────────────────────────────────────────────────────
-
-function readU256LE(buf: Buffer, offset: number): bigint {
-  let value = 0n;
-  for (let i = 31; i >= 0; i--) {
-    value = (value << 8n) | BigInt(buf[offset + i]);
-  }
-  return value;
-}
 
 export function parseSchnorrSuffix(suffixBytes: Buffer): ParsedSchnorrSuffix {
   if (suffixBytes.length !== 192) {

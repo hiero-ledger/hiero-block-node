@@ -40,33 +40,8 @@ import type {
   WrapsDeserializationResult,
   BootstrapPublicationSummary,
 } from "./types.js";
-
-const BN254_FR_ORDER = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001n;
+import { readU256LE, readU64LE, readFr, BN254_FR_ORDER } from "./byteReaders.js";
 const EXPECTED_PROOF_LENGTH = 704;
-
-/** Read a 32-byte little-endian unsigned integer from a buffer at the given offset. */
-function readU256LE(buf: Buffer, offset: number): bigint {
-  let value = 0n;
-  for (let i = 31; i >= 0; i--) {
-    value = (value << 8n) | BigInt(buf[offset + i]);
-  }
-  return value;
-}
-
-/** Read an 8-byte little-endian u64 from a buffer. */
-function readU64LE(buf: Buffer, offset: number): number {
-  // Safe for lengths that fit in JS number (up to 2^53)
-  let value = 0n;
-  for (let i = 7; i >= 0; i--) {
-    value = (value << 8n) | BigInt(buf[offset + i]);
-  }
-  return Number(value);
-}
-
-/** Read a BN254 Fr element (32 bytes LE). Returns the raw value without the sign flag. */
-function readFr(buf: Buffer, offset: number): bigint {
-  return readU256LE(buf, offset);
-}
 
 /**
  * Read a compressed BN254 G1 point (32 bytes).
