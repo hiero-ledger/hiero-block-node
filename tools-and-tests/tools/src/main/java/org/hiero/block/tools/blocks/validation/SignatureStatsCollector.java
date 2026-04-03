@@ -471,7 +471,7 @@ public class SignatureStatsCollector implements Consumer<SignatureBlockStats>, A
 
             Files.writeString(csvOutputFile, row.toString(), StandardCharsets.UTF_8, APPEND, CREATE);
 
-            System.out.println("[CSV] Written statistics for " + dayStats.date + " to " + csvOutputFile);
+            System.out.println("\n[CSV] Written statistics for " + dayStats.date + " to " + csvOutputFile);
         } catch (IOException e) {
             System.err.println("Failed to write day stats to CSV for " + dayStats.date + ": " + e.getMessage());
         }
