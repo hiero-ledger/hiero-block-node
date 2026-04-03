@@ -144,6 +144,7 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
         }
 
         // Start a new upload task when there is none active
+        // TODO(1166) Is this null because of a new batch or because the previous block failed?
         if (currentUploadFuture == null) {
             currentGroupSize = Math.powExact(10, config.groupingLevel());
             currentGroupStart = (blockNumber / currentGroupSize) * currentGroupSize;
@@ -228,6 +229,7 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
         if (currentUploadFuture != null) {
             currentUploadFuture.cancel(true);
         }
+        // TODO(1166) Should we get the future here or at next verified block reception? Or both
         currentGroupPending.clear();
         currentBlockQueue.clear();
         if (handlerRegistered) {

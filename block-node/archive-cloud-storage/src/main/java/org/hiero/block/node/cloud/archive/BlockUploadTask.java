@@ -103,6 +103,9 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                 // at this point plugin is stopped. The blockQueue.take() call will not throw interrupted
                 // exception until the queue is drained.
                 if (Thread.interrupted()) {
+                    if (blockNum == firstBlock) {
+                        s3.abortMultipartUpload(key, uploadId);
+                    }
                     throw new InterruptedException();
                 }
 
@@ -121,18 +124,18 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                 if (buffer.length >= partSizeBytes) {
                     try {
                         buffer = uploadPart(buffer, s3, uploadId, etags);
-                    } catch (Exception _) {
+                    } catch (Exception e) {
                         // Part upload failed — notify all buffered blocks AND the current block
                         // (whose bytes were also in the failed part) as not persisted, then abort
                         blocksInBuffer.forEach(bn -> blockMessaging.sendBlockPersisted(
-                                new PersistedNotification(bn, false, 1_000, BlockSource.CLOUD_ARCHIVE)));
+                                new PersistedNotification(bn, false, 1_000, BlockSource.UNKNOWN)));
                         blockMessaging.sendBlockPersisted(
-                                new PersistedNotification(blockNum, false, 1_000, BlockSource.CLOUD_ARCHIVE));
+                                new PersistedNotification(blockNum, false, 1_000, BlockSource.UNKNOWN));
                         LOGGER.log(
                                 INFO,
-                                "Failed to upload part containing blocks {0} to {1}",
-                                blocksInBuffer.getFirst(),
-                                blockNum);
+                                "Failed to upload part containing blocks %d to %d"
+                                        .formatted(blocksInBuffer.getFirst(), blockNum),
+                                e);
                         return UploadResult.FAILED;
                     }
 
@@ -144,7 +147,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
 
                     // Send persisted notifications for all blocks whose bytes are now durably uploaded
                     blocksInBuffer.forEach(bn -> blockMessaging.sendBlockPersisted(
-                            new PersistedNotification(bn, true, 1_000, BlockSource.CLOUD_ARCHIVE)));
+                            new PersistedNotification(bn, true, 1_000, BlockSource.UNKNOWN)));
                     blocksInBuffer.clear();
                 }
 
@@ -161,7 +164,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                 final String etag = s3.multipartUploadPart(key, uploadId, partNumber, buffer);
                 etags.add(etag);
                 blocksInBuffer.forEach(bn -> blockMessaging.sendBlockPersisted(
-                        new PersistedNotification(bn, true, 1_000, BlockSource.CLOUD_ARCHIVE)));
+                        new PersistedNotification(bn, true, 1_000, BlockSource.UNKNOWN)));
                 blocksInBuffer.clear();
             }
 
