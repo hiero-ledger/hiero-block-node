@@ -1,7 +1,5 @@
 # Block Verification JS Library — Design Document
 
-> **Template:** Based on [hiero-block-node design-doc-template](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/design/design-doc-template.md)
-
 | Field | Value |
 | --- | --- |
 | **Author** | Ejaz Merchant |
@@ -59,7 +57,7 @@ This supports the community's ability to independently validate Hedera block dat
 - Block streaming or subscription
 - Consensus participation
 - Key management for signing (verification only)
-- WASM compilation as a primary target (Rust can compile to WASM and run in browsers; iOS wrapping has known limitations. Pure JS remains the long-term goal.)
+- WASM compilation (pure TypeScript/JavaScript is the implementation target)
 
 ---
 
@@ -137,55 +135,30 @@ The library consists of five main components:
 
 ---
 
-### Implementation Approach Options
+### Implementation Approach
 
-The deterministic parts of verification include block parsing, item bucketing, Merkle Mountain construction, and proof generation are straightforward TypeScript and are not in dispute. The open question is how to implement full TSS cryptographic verification (hinTS + WRAPS) for the Beta milestone.
+All verification logic is implemented in pure TypeScript/JavaScript. This includes block parsing, Merkle Mountain construction, proof generation, and cryptographic verification (hinTS via BLS12-381, WRAPS via BN254).
 
-**Note on maintenance commitment:** Choosing the library path means committing to a permanently maintained artifact. Once published, developers will use it in production regardless of how it is framed. This means an ongoing release cycle, security responsibility, and a team assigned to keep it current. This is the same commitment as an SDK. The options below should be evaluated with that in mind.
+**Why pure TypeScript:**
+- No native dependencies - standard npm install, no Rust toolchain required
+- Best community buildability and browser support
+- Clean separation of concerns via the `TssVerificationProvider` interface, which allows the crypto backend to be swapped transparently if needed
 
-Both options are documented here with tradeoffs so reviewers and the community can understand what was considered and why a path was chosen.
+**hinTS status:** BLS pairing, B·SK polynomial identity, degree check, and threshold check all pass in pure JS. The remaining 6 checks (KZG proofs + field identities) all depend on the Fiat-Shamir challenge r — transcript construction (compressed re-serialization + hash_to_field) is the remaining debugging surface. 
 
-### Option A: Pure TypeScript/JavaScript
+**WRAPS status:** The 704-byte WRAPS suffix is a Nova IVC ProofData bundle, not a bare Groth16 proof. No JavaScript-native Nova IVC verifier currently exists. Implementation path (pure JS BN254 operations vs. WASM shim) is being worked through with the hedera-cryptography team (Rohit). The `TssVerificationProvider` interface abstracts this so the public API is unaffected regardless of which path is chosen.
 
-Use existing JS cryptographic libraries (SnarkJS, `@noble/bls12-381`) to implement hinTS and WRAPS verification entirely in TypeScript.
+**Note on maintenance commitment:** This library is a permanently maintained artifact. Once published, developers will use it in production. This means an ongoing release cycle, security responsibility, and a team assigned to keep it current as an equivalent to an SDK commitment.
 
-| Dimension | Assessment |
-| --- | --- |
-| Correctness risk | High as BN254 and Groth16 interoperability with ArkWorks proof artifacts is unproven in JS |
-| Serialization compatibility | Unknown as it requires parsing sample TSS proofs to confirm |
-| Community buildability | Best since pure JS/TS, no toolchain beyond npm |
-| Browser support | Best since no native dependencies |
-| Packaging complexity | Lowest via standard npm package |
-| Long-term maintainability | Medium as it depends on JS crypto library health |
+### Phased Delivery
 
-Why not chosen for Beta: Correctness risk is too high without serialization compatibility testing. Remains the target for a future phase once compatibility is confirmed.
+- **Alpha (April 6 – April 17):** Deterministic TypeScript core — block parser, Merkle Mountain, proof generator. `TssVerificationProvider` interface defined, no crypto backend yet.
+- **Beta (April 20 – May 8):** hinTS verifier (BLS12-381), WRAPS verifier (BN254), Schnorr verifier (BabyJubjub). Full TSS verification.
+- **Post-Beta:** npm publish as `@hiero/block-verification`.
 
----
+### Library vs Reference Documentation
 
-### Option B: Rust-Backed Provider via `TssVerificationProvider` Interface *(Recommended for Beta)*
-
-Write all orchestration in pure TypeScript with a clean `TssVerificationProvider` interface for the crypto layer. The initial implementation is backed by `hedera-cryptography` (Rust). The interface allows the Rust backend to be swapped for a pure JS implementation later without any API changes for consumers.
-
-| Dimension | Assessment |
-| --- | --- |
-| Correctness risk | Low with Rust/ArkWorks native, same ecosystem as Consensus Node proof generation |
-| Serialization compatibility | High as assumed guaranteed compatibility with ArkWorks artifacts |
-| Community buildability | Medium since it requires Rust toolchain, but TS orchestration layer is pure JS |
-| Browser support | Deferred to possible via WASM in a future phase; iOS wrapping has known limitations |
-| Packaging complexity | Medium as pre-built binaries can remove Rust toolchain requirement for consumers |
-| Long-term maintainability | Best as clean provider interface; JS implementation can replace Rust transparently |
-
-Why chosen for Beta: Correct by construction. Because the public TypeScript API is stable and the crypto backend is behind an interface, upgrading from Rust to pure JS later is invisible to consumers.
-
-### Recommended Architecture: Phased Hybrid
-
-- **Phase 1 - Alpha (March 31 - April 14):** Deterministic TypeScript core only. Define `TssVerificationProvider` interface. No crypto backend.
-- **Phase 2 - Beta (April 15 - May 1):** Plug in Option B (Rust-backed provider). Full TSS verification, correct by construction.
-- **Phase 3 - Post-Beta:** Evaluate Option A (pure JS) as a drop-in replacement once ArkWorks serialization compatibility is confirmed. Swap is transparent to consumers.
-
-### Open Questions: Library vs Reference Documentation
-
-**Resolved.** The spike run by BlockyDevs (PR #2411) produced approximately 1,100 lines of TypeScript across 10 source files against real block fixtures. This definitively confirms that this is a library, not a code snippet or reference documentation. The library path is locked for Beta scope and beyond.
+**Resolved.** The spoke run by BlockyDevs (PR #2411) produced approximately 1,100 lines of TypeScript across 10 source files against real block fixtures. This definition confirms that this is a library, not a code snippet or reference documentation. The library path is locked for Beta scope and beyond.
 
 ---
 
@@ -208,7 +181,8 @@ The BlockyDevs team (led by Piotr) ran a spike against real block fixtures, the 
 - `block-1000.blk.zstd` is the first confirmed WRAPS fixture (3,432-byte layout). The 704-byte WRAPS suffix is a Nova IVC ProofData bundle containing: IVC step counter, z_0/z_i state vectors, Nova instance commitments, a nested Groth16 decider proof, KZG opening proofs, and fold data.
 - Schnorr verification is fully working in pure JS using BabyJubjub + Blake2s + Poseidon.
 - **snarkjs compatibility question is closed** — not applicable. The WRAPS proof is a Nova IVC envelope, not a bare Groth16 proof. SnarkJS cannot verify it.
-- **New open question:** WASM compilation feasibility of the Rust Nova IVC verifier from `hedera-cryptography` (pending confirmation from Rohit).
+- **Open question:** WRAPS implementation path — pure JS BN254 operations vs. WASM. Being worked through with Rohit.
+- **Fixture compatibility:** `block-0.blk.zstd` and `block-1000.blk.zstd` (from PR #2305) were generated before a hedera-cryptography upgrade that broke backwards compatibility. The 6 KZG/polynomial identity checks that depend on the Fiat-Shamir challenge r fail against these fixtures as a result. New fixtures required for Beta acceptance tests. 
 
 ---
 
@@ -370,7 +344,7 @@ interface ProofVerifier {
 
 **Elliptic Curve:** BLS12-381
 
-The selected library must be audited, actively maintained, and widely adopted in the crypto and web3 ecosystem. Serialization compatibility with ArkWorks must be confirmed by parsing a sample TSS proof before implementation begins.
+The selected library must be audited, actively maintained, and widely adopted in the crypto and web3 ecosystem. BLS pairing, B·SK polynomial identity, degree check, and threshold check all pass in pure JS against Rohit's `forPiotr` branch test vectors. Transcript construction (compressed re-serialization + hash_to_field) for the Fiat-Shamir challenge r is the remaining debugging surface.
 
 ```typescript
 interface HintsVerifier {
@@ -395,13 +369,13 @@ interface HintsVerifier {
 
 The 704-byte WRAPS suffix is a Nova IVC ProofData bundle, not a bare Groth16 proof. This means SnarkJS cannot be used: SnarkJS only supports bare Groth16 inputs, not the Nova IVC envelope. No JavaScript-native Nova IVC verifier currently exists.
 
-Operations are implementable with a BN254 pairing library. WASM remains one path; pure JS is now also in scope. Working closely with team to determine the right approach.
+Implementation path (pure JS BN254 operations vs. WASM shim) is being worked through with the hedera-cryptography team. The `TssVerificationProvider` interface abstracts this so the public API is unaffected regardless of which path is chosen.
 
 ```typescript
 interface WrapsVerifier {
   verify(wrapsProof: Uint8Array): boolean;
   // Verification key is hard-coded internally
-  // Beta: backed by WASM build of hedera-cryptography Rust Nova IVC verifier
+  // Beta: implementation path TBD as pure JS BN254 operations or WASM
 }
 ```
 
@@ -586,7 +560,7 @@ graph LR
     BOOT --> THIRD["3rd curve (TBD, SecP256k1?)"]
 
     BLS --> SNARK["SnarkJS / @noble"]
-    BN --> SNARK2["Nova IVC verifier (WASM / hedera-cryptography)"]
+    BN --> SNARK2["Nova IVC verifier (path TBD - pure JS or WASM)"]
     THIRD --> TBD["JS library TBD"]
 
     style BLS fill:#87ceeb
@@ -642,7 +616,7 @@ graph LR
 
 ## Acceptance Tests
 
-### Alpha Milestone (March 31 - April 14th) - Block Hash Verification
+### Alpha Milestone (April 6 - April 17th) - Block Hash Verification
 
 | Test | Input | Expected Output |
 | --- | --- | --- |
@@ -654,7 +628,7 @@ graph LR
 | Verify hash mismatch | Block + wrong root | `{ valid: false }` |
 | Extract signature components | Block proof bytes | hinTS verification key + hinTS signature + WRAPS proof |
 
-### Beta Milestone (April 15 - May 1st) - TSS Verification + Proofs
+### Beta Milestone (April 20 - May 8th) - TSS Verification + Proofs
 
 | Test | Input | Expected Output |
 | --- | --- | --- |
@@ -704,4 +678,4 @@ const result = verifyBlock(blockBytes, ledgerId);
 
 ## Author
 
-Ejaz Merchant · Last Updated: March 31, 2026 · Status: In Development
+Ejaz Merchant · Last Updated: April 6, 2026 · Status: In Development
