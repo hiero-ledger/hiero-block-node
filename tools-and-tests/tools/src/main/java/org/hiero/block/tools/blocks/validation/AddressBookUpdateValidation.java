@@ -32,6 +32,8 @@ import picocli.CommandLine.Help.Ansi;
 public final class AddressBookUpdateValidation implements BlockValidation {
 
     private static final String SAVE_FILE_NAME = "addressBookHistory.json";
+    private static final int MAX_DEPTH = 512;
+    private static final int MAX_RECORD_FILE_SIZE = 64 * 1024 * 1024;
 
     private final AddressBookRegistry addressBookRegistry;
 
@@ -100,7 +102,8 @@ public final class AddressBookUpdateValidation implements BlockValidation {
     }
 
     private static List<Transaction> extractTransactions(final Bytes recordFileBytes) throws Exception {
-        final RecordFileItem recordFileItem = RecordFileItem.PROTOBUF.parse(recordFileBytes);
+        final RecordFileItem recordFileItem = RecordFileItem.PROTOBUF.parse(
+                recordFileBytes.toReadableSequentialData(), false, false, MAX_DEPTH, MAX_RECORD_FILE_SIZE);
         if (!recordFileItem.hasRecordFileContents()) {
             return List.of();
         }
