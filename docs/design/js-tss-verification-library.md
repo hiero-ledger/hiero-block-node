@@ -4,7 +4,7 @@
 | --- | --- |
 | **Author** | Ejaz Merchant |
 | **Status** | In Development |
-| **Last Updated** | March 31, 2026 |
+| **Last Updated** | April 6, 2026 |
 | **HIPs** | HIP-1056 (Block Streams), HIP-1200 (hinTS/TSS), HIP-1081 (Block Nodes) |
 | **Collaborators** | Fredy - Merkle tree & block structure · Rohit - TSS/BLS cryptography · Nana - Block Node coordination · Piotr - BlockyDevs Tech Lead |
 
@@ -158,7 +158,7 @@ All verification logic is implemented in pure TypeScript/JavaScript. This includ
 
 ### Library vs Reference Documentation
 
-**Resolved.** The spoke run by BlockyDevs (PR #2411) produced approximately 1,100 lines of TypeScript across 10 source files against real block fixtures. This definition confirms that this is a library, not a code snippet or reference documentation. The library path is locked for Beta scope and beyond.
+**Resolved.** The spike run by BlockyDevs (PR #2411) produced approximately 1,100 lines of TypeScript across 10 source files against real block fixtures. This definition confirms that this is a library, not a code snippet or reference documentation. The library path is locked for Beta scope and beyond.
 
 ---
 
@@ -559,7 +559,7 @@ graph LR
     WRAPS --> BN["BN254 curve"]
     BOOT --> THIRD["3rd curve (TBD, SecP256k1?)"]
 
-    BLS --> SNARK["SnarkJS / @noble"]
+    BLS --> SNARK["@noble/bls12-381"]
     BN --> SNARK2["Nova IVC verifier (path TBD - pure JS or WASM)"]
     THIRD --> TBD["JS library TBD"]
 
@@ -629,7 +629,9 @@ graph LR
 | Extract signature components | Block proof bytes | hinTS verification key + hinTS signature + WRAPS proof |
 
 ### Beta Milestone (April 20 - May 8th) - TSS Verification + Proofs
-
+> Note: Beta acceptance tests require updated block fixtures. The existing fixtures (PR #2305) 
+> were generated before a hedera-cryptography upgrade that broke backwards compatibility. 
+> New fixtures must be produced before Beta testing begins.
 | Test | Input | Expected Output |
 | --- | --- | --- |
 | Verify hinTS signature (block 0) | TSS block 0 + extracted key | `{ hintsValid: true }` |
@@ -640,7 +642,7 @@ graph LR
 | Parse valid WRAPS block 50 | WRAPS block 50 `.blk` fixture | Parsed block with settled address book and `trustLevel: 'ledger_id_anchored'` |
 | Verify WRAPS proof (WRAPS block 0) | WRAPS block 0 | `{ wrapsValid: true, trustLevel: 'ledger_id_anchored' }` |
 | Verify WRAPS proof (WRAPS block 50) | WRAPS block 50 | `{ wrapsValid: true, trustLevel: 'ledger_id_anchored' }` |
-| Full TSS verification | GRAPS block + both proofs | `{ valid: true, hintsValid: true, wrapsValid: true }` |
+| Full TSS verification | WRAPS block + both proofs | `{ valid: true, hintsValid: true, wrapsValid: true }` |
 | Generate content proof | Block + item type + item index | Valid proof object with sub-tree + mountain paths |
 | Verify valid content proof | Proof + correct root | `true` |
 | Reject invalid content proof | Proof + wrong root | `false` |
