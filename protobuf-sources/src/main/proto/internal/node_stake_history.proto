@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.internal;
+
+option java_package = "org.hiero.block.internal.protoc";
+// <<<pbj.java_package = "org.hiero.block.internal">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+import "services/timestamp.proto";
+
+/**
+ * A registry of node stake snapshots. This allows storing an ordered history
+ * of node stakes for a network, as discovered from NodeStakeUpdate
+ * transactions in the block stream.
+ */
+message NodeStakeHistory {
+    /**
+     * An ordered list of node stake snapshots, from oldest to newest.
+     */
+    repeated DatedNodeStake stake_snapshots = 1;
+}
+
+/**
+ * A node stake snapshot at a specific block timestamp. The block is the block
+ * that contained the NodeStakeUpdate transaction. The stake data is valid for
+ * all blocks with timestamps greater than the block timestamp, until the next
+ * NodeStakeUpdate.
+ */
+message DatedNodeStake {
+    /**
+     * The block timestamp at which this stake snapshot was set, it is valid
+     * for all blocks after, until the next update.
+     */
+    proto.Timestamp block_timestamp = 1;
+    /**
+     * The node stake entries valid after the given block.
+     */
+    repeated NodeStakeEntry entries = 2;
+}
+
+/**
+ * A single node's consensus stake weight.
+ */
+message NodeStakeEntry {
+    /**
+     * The node ID.
+     */
+    int64 node_id = 1;
+    /**
+     * The consensus stake weight for this node.
+     */
+    int64 stake = 2;
+}

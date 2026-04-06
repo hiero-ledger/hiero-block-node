@@ -42,12 +42,14 @@ import org.hiero.block.tools.blocks.validation.HashRegistryValidation;
 import org.hiero.block.tools.blocks.validation.HbarSupplyValidation;
 import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
 import org.hiero.block.tools.blocks.validation.JumpstartValidation;
+import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
 import org.hiero.block.tools.blocks.wrapped.BalanceCheckpointValidator;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.NodeStakeRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
@@ -387,12 +389,13 @@ public class ValidateBlocksCommand implements Runnable {
         HbarSupplyValidation supplyValidation = skipSupply ? null : new HbarSupplyValidation();
         // Parallel validations (stateless, run in decompPool threads)
         final AddressBookRegistry abRegistry = addressBookRegistry;
+        final NodeStakeRegistry nodeStakeRegistry = new NodeStakeRegistry();
         List<BlockValidation> parallelValidations = new ArrayList<>();
         parallelValidations.add(new RequiredItemsValidation());
         parallelValidations.add(new BlockStructureValidation());
         SignatureValidation sigVal = null;
         if (!skipSignatures) {
-            sigVal = new SignatureValidation(abRegistry);
+            sigVal = new SignatureValidation(abRegistry, nodeStakeRegistry);
             parallelValidations.add(sigVal);
         } else {
             System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ Signature validation (--skip-signatures)"));
@@ -408,6 +411,8 @@ public class ValidateBlocksCommand implements Runnable {
         if (abRegistry != null) {
             sequentialValidations.add(new AddressBookUpdateValidation(abRegistry));
         }
+        // Node stake update comes after address book so stake weights are current for signature validation
+        sequentialValidations.add(new NodeStakeUpdateValidation(nodeStakeRegistry));
         sequentialValidations.add(chainValidation);
         sequentialValidations.add(treeValidation);
         if (supplyValidation != null) {

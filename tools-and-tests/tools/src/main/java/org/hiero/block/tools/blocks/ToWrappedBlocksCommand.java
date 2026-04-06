@@ -13,6 +13,7 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Transaction;
+import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.streams.RecordStreamItem;
 import java.io.DataOutputStream;
@@ -51,6 +52,7 @@ import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.NodeStakeRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.metadata.MetadataFiles;
@@ -255,6 +257,24 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                 Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
         System.out.println(
                 Ansi.AUTO.string("@|yellow Loaded address book registry:|@ \n" + addressBookRegistry.toPrettyString()));
+        // load or create a new NodeStakeRegistry for stake-weighted consensus
+        final Path nodeStakeFile = outputBlocksDir.resolve("nodeStakeHistory.json");
+        if (!Files.exists(nodeStakeFile)) {
+            final Path inputNodeStakeFile = compressedDaysDir.resolve("nodeStakeHistory.json");
+            if (Files.exists(inputNodeStakeFile)) {
+                try {
+                    Files.copy(inputNodeStakeFile, nodeStakeFile);
+                    System.out.println(Ansi.AUTO.string("@|yellow Copied existing node stake history to output:|@ "
+                            + nodeStakeFile.toAbsolutePath()));
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
+        }
+        final NodeStakeRegistry nodeStakeRegistry =
+                Files.exists(nodeStakeFile) ? new NodeStakeRegistry(nodeStakeFile) : new NodeStakeRegistry();
+        System.out.println(
+                Ansi.AUTO.string("@|yellow Loaded node stake registry:|@ \n" + nodeStakeRegistry.toPrettyString()));
         // get Archive type
         final BlockArchiveType archiveType =
                 unzipped ? BlockArchiveType.INDIVIDUAL_FILES : BlockArchiveType.UNCOMPRESSED_ZIP;
@@ -487,6 +507,12 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                         } catch (Exception e) {
                             System.err.println("Shutdown: could not save address book: " + e.getMessage());
                         }
+                        try {
+                            System.err.println("Shutdown: saving node stake registry to " + nodeStakeFile);
+                            nodeStakeRegistry.saveToJsonFile(nodeStakeFile);
+                        } catch (Exception e) {
+                            System.err.println("Shutdown: could not save node stake registry: " + e.getMessage());
+                        }
                         synchronized (chainStateLock) {
                             saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
                             System.err.println("Shutdown: saved merkle tree state to " + streamingMerkleTreeFile);
@@ -612,6 +638,16 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                             // Don't fail wrapping for address book parse errors
                             System.err.printf(
                                     "Warning: address book auto-update failed at block %d: %s%n", blockNum, e);
+                        }
+
+                        // ---- Node stake auto-update from block transactions ----
+                        // Discover NodeStakeUpdate transactions (issued daily at midnight UTC)
+                        // so stake-weighted signature validation uses the correct weights.
+                        try {
+                            updateNodeStakeRegistry(effectiveBlock, blockNum, nodeStakeRegistry);
+                        } catch (Exception e) {
+                            // Don't fail wrapping for stake parse errors
+                            System.err.printf("Warning: node stake auto-update failed at block %d: %s%n", blockNum, e);
                         }
 
                         // Monthly checkpoint: save state once per calendar month of blockchain data.
@@ -796,6 +832,7 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
             }
 
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+            nodeStakeRegistry.saveToJsonFile(nodeStakeFile);
 
             // If we stopped due to a parse failure, throw after saving state
             if (parseFailureMessage != null) {
@@ -1055,5 +1092,63 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
         }
 
         return preVerified;
+    }
+
+    /**
+     * Discovers {@code NodeStakeUpdate} transactions from the block's record stream and updates
+     * the node stake registry. Stake changes are stored with a +1ns timestamp offset so they
+     * apply to blocks AFTER the current one.
+     *
+     * @param preVerified the pre-verified block from Stage 1/2
+     * @param blockNum the block number
+     * @param nodeStakeRegistry the shared node stake registry
+     */
+    private static void updateNodeStakeRegistry(
+            final PreVerifiedBlock preVerified, final long blockNum, final NodeStakeRegistry nodeStakeRegistry) {
+        final List<RecordStreamItem> streamItems =
+                preVerified.recordBlock().recordFile().recordStreamFile().recordStreamItems();
+        final Instant blockInstant = preVerified.recordBlock().blockTime();
+
+        for (final RecordStreamItem rsi : streamItems) {
+            if (!rsi.hasTransaction()) {
+                continue;
+            }
+            final TransactionBody body;
+            try {
+                body = extractTransactionBody(rsi.transactionOrThrow());
+            } catch (Exception e) {
+                continue;
+            }
+            if (body != null && body.hasNodeStakeUpdate()) {
+                // +1ns so the new stakes apply to blocks AFTER this one
+                final String changes =
+                        nodeStakeRegistry.updateStakes(blockInstant.plusNanos(1), body.nodeStakeUpdateOrThrow());
+                if (changes != null) {
+                    PrettyPrint.clearProgress();
+                    System.out.println(
+                            Ansi.AUTO.string("@|yellow Node stake updated at block " + blockNum + ":|@ " + changes));
+                }
+            }
+        }
+    }
+
+    /**
+     * Extracts the {@link TransactionBody} from a transaction, handling all three encoding formats:
+     * direct body, bodyBytes, and signedTransactionBytes.
+     *
+     * @param t the transaction
+     * @return the parsed transaction body, or null if none could be extracted
+     * @throws Exception if parsing fails
+     */
+    private static TransactionBody extractTransactionBody(final Transaction t) throws Exception {
+        if (t.hasBody()) {
+            return t.body();
+        } else if (t.bodyBytes().length() > 0) {
+            return TransactionBody.PROTOBUF.parse(t.bodyBytes());
+        } else if (t.signedTransactionBytes().length() > 0) {
+            final SignedTransaction st = SignedTransaction.PROTOBUF.parse(t.signedTransactionBytes());
+            return TransactionBody.PROTOBUF.parse(st.bodyBytes());
+        }
+        return null;
     }
 }
