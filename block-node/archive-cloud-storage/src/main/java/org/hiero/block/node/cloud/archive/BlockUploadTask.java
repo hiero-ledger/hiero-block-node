@@ -9,10 +9,11 @@ import com.hedera.bucky.S3ResponseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
-import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -39,24 +40,38 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
     private static final System.Logger LOGGER = System.getLogger(BlockUploadTask.class.getName());
     private static final String CONTENT_TYPE = "application/x-tar";
 
+    /// Plugin configuration providing S3 credentials, bucket, storage class, and tuning knobs.
     private final ArchiveCloudStorageConfig config;
+    /// Facility used to publish [PersistedNotification]s after each block is durably stored.
     private final BlockMessagingFacility blockMessaging;
 
+    /// The block number of the first block in this batch.
     private final long firstBlock;
+    /// The total number of blocks in this batch (always a power of ten).
     private final long groupSize;
+    /// The multipart-upload part size in bytes, derived from [ArchiveCloudStorageConfig#partSizeMb()].
     private final int partSizeBytes;
 
     /// The S3 object key computed once in the constructor from [firstBlock] and
     /// [ArchiveCloudStorageConfig#groupingLevel()].
     private final String key;
-    private final BlockingQueue<BlockUnparsed> blockQueue;
+    /// The queue from which this task takes [BlockWithSource] pairs in block-number order.
+    /// Shared with [ArchiveCloudStoragePlugin], which enqueues pairs as verified blocks arrive.
+    private final BlockingQueue<BlockWithSource> blockQueue;
 
+    /// Creates a new task that will upload [groupSize] blocks starting at [firstBlock].
+    ///
+    /// @param config         plugin configuration
+    /// @param blockMessaging facility for publishing [PersistedNotification]s
+    /// @param firstBlock     block number of the first block in this batch
+    /// @param groupSize      number of blocks to archive (must equal `10 ^ groupingLevel`)
+    /// @param blockQueue     queue from which blocks are taken in ascending block-number order
     BlockUploadTask(
             @NonNull ArchiveCloudStorageConfig config,
             @NonNull BlockMessagingFacility blockMessaging,
             long firstBlock,
             long groupSize,
-            @NonNull BlockingQueue<BlockUnparsed> blockQueue) {
+            @NonNull BlockingQueue<BlockWithSource> blockQueue) {
         this.config = config;
         this.blockMessaging = blockMessaging;
         this.firstBlock = firstBlock;
@@ -77,105 +92,195 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
     /// records it.
     @Override
     public UploadResult call() throws Exception {
+        UploadResult result = UploadResult.SUCCESS;
         try (S3Client s3 = new S3Client(
                 config.regionName(),
                 config.endpointUrl(),
                 config.bucketName(),
                 config.accessKey(),
                 config.secretKey())) {
-            // Start the multipart upload session
             final String uploadId =
                     s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
             final List<String> etags = new ArrayList<>();
-
-            // Initialize the buffer to hold tar bytes of a single part
+            // Start with an empty array rather than null so arraycopy calls in accumulateBlock
+            // always work without null checks.
             byte[] buffer = new byte[0];
+            // Maps each buffered block number to its source, in insertion order.
+            final Map<Long, BlockSource> blocksInBuffer = new LinkedHashMap<>();
 
-            // Tracks block numbers whose tar bytes are still accumulating in the buffer. A block is
-            // removed (and its persisted notification sent) when the part containing its last byte
-            // is uploaded.
-            final List<Long> blocksInBuffer = new ArrayList<>();
-
-            for (long blockNum = firstBlock; blockNum < firstBlock + groupSize; blockNum++) {
-                // Handle cancellation at the start of every iteration, in addition to the
-                // InterruptedException that blockQueue.take() throws on interruption. This additional
-                // prerequisite is necessary in case when the queue is filled (e.g. by stash replay) and
-                // at this point plugin is stopped. The blockQueue.take() call will not throw interrupted
-                // exception until the queue is drained.
-                if (Thread.interrupted()) {
-                    if (blockNum == firstBlock) {
-                        s3.abortMultipartUpload(key, uploadId);
+            for (long blockNum = firstBlock;
+                    blockNum < firstBlock + groupSize && result == UploadResult.SUCCESS;
+                    blockNum++) {
+                try {
+                    final BlockData blockData = accumulateBlock(blockNum, buffer);
+                    buffer = blockData.buffer();
+                    buffer = flushPartIfNeeded(
+                            blockNum, blockData.source(), buffer, s3, uploadId, etags, blocksInBuffer);
+                    if (buffer == null) {
+                        result = UploadResult.FAILED;
+                    } else if (buffer.length > 0) {
+                        // Only track blockNum when its bytes are still in the buffer.  If flushPartIfNeeded
+                        // found an exact fit (remainder is empty), it already added blockNum to blocksInBuffer
+                        // and sent notifications — adding it again here would cause a duplicate notification.
+                        blocksInBuffer.put(blockNum, blockData.source());
                     }
-                    throw new InterruptedException();
-                }
-
-                // Take the next block from the queue (which was placed there by the plugin's verification handling)
-                // and convert it to a tar entry
-                final BlockUnparsed block = blockQueue.take();
-                final byte[] tarEntry = BlockToTarEntry.toTarEntry(block, blockNum);
-
-                // Append the new tar entry to the accumulation buffer
-                final byte[] extended = new byte[buffer.length + tarEntry.length];
-                System.arraycopy(buffer, 0, extended, 0, buffer.length);
-                System.arraycopy(tarEntry, 0, extended, buffer.length, tarEntry.length);
-                buffer = extended;
-
-                // Flush a fixed-size part to S3 once the buffer reaches the threshold
-                if (buffer.length >= partSizeBytes) {
+                } catch (InterruptedException e) {
+                    LOGGER.log(TRACE, "Block upload task interrupted", e);
                     try {
-                        buffer = uploadPart(buffer, s3, uploadId, etags);
-                    } catch (Exception e) {
-                        // Part upload failed — notify all buffered blocks AND the current block
-                        // (whose bytes were also in the failed part) as not persisted, then abort
-                        blocksInBuffer.forEach(bn -> blockMessaging.sendBlockPersisted(
-                                new PersistedNotification(bn, false, 1_000, BlockSource.UNKNOWN)));
-                        blockMessaging.sendBlockPersisted(
-                                new PersistedNotification(blockNum, false, 1_000, BlockSource.UNKNOWN));
-                        LOGGER.log(
-                                INFO,
-                                "Failed to upload part containing blocks %d to %d"
-                                        .formatted(blocksInBuffer.getFirst(), blockNum),
-                                e);
-                        return UploadResult.FAILED;
+                        cleanupEmptyUpload(s3, uploadId, etags);
+                    } catch (S3ResponseException | IOException ex) {
+                        LOGGER.log(INFO, "Failed to abort multipart upload after interruption", ex);
                     }
-
-                    // If the current block's entry exactly fills the part (zero remainder),
-                    // include it in the notification batch before clearing
-                    if (buffer.length == 0) {
-                        blocksInBuffer.add(blockNum);
-                    }
-
-                    // Send persisted notifications for all blocks whose bytes are now durably uploaded
-                    blocksInBuffer.forEach(bn -> blockMessaging.sendBlockPersisted(
-                            new PersistedNotification(bn, true, 1_000, BlockSource.UNKNOWN)));
-                    blocksInBuffer.clear();
-                }
-
-                // If the current block's bytes are (partly) still in the buffer, notification about it will be
-                // sent on the next part upload or at completeUpload
-                if (buffer.length > 0) {
-                    blocksInBuffer.add(blockNum);
+                    throw e;
                 }
             }
 
-            // Upload the remaining bytes as the final part
-            if (buffer.length > 0) {
-                final int partNumber = etags.size() + 1;
-                final String etag = s3.multipartUploadPart(key, uploadId, partNumber, buffer);
-                etags.add(etag);
-                blocksInBuffer.forEach(bn -> blockMessaging.sendBlockPersisted(
-                        new PersistedNotification(bn, true, 1_000, BlockSource.UNKNOWN)));
-                blocksInBuffer.clear();
+            // Upload any bytes that didn't fill a complete part during the loop.
+            if (result == UploadResult.SUCCESS && buffer.length > 0) {
+                try {
+                    doUploadPart(buffer, s3, uploadId, etags);
+                } catch (S3ResponseException | IOException e) {
+                    blocksInBuffer.forEach((bn, src) ->
+                            blockMessaging.sendBlockPersisted(new PersistedNotification(bn, false, 1_000, src)));
+                    LOGGER.log(INFO, "Failed to upload final part for key {0}", key, e);
+                    result = UploadResult.FAILED;
+                }
+                if (result == UploadResult.SUCCESS) {
+                    blocksInBuffer.forEach((bn, src) ->
+                            blockMessaging.sendBlockPersisted(new PersistedNotification(bn, true, 1_000, src)));
+                }
             }
 
-            // Complete the multipart upload before the task is done
-            s3.completeMultipartUpload(key, uploadId, etags);
+            if (result == UploadResult.SUCCESS) {
+                s3.completeMultipartUpload(key, uploadId, etags);
+            }
         }
-        return UploadResult.SUCCESS;
+        return result;
     }
 
+    /// Takes the next [BlockWithSource] from [blockQueue], converts its block to a tar entry, and
+    /// appends it to [buffer].  Also checks for thread interruption before the blocking
+    /// [BlockingQueue#take] call so that a pre-filled queue is drained without ever blocking when
+    /// the plugin has already been stopped.
+    ///
+    /// @param blockNum the expected block number, used to encode the tar entry header
+    /// @param buffer   the current accumulation buffer to extend
+    /// @return a [BlockData] containing the extended buffer and the block's [BlockSource]
+    /// @throws InterruptedException if the thread is interrupted; either [BlockingQueue#take] detects
+    ///                              the flag and throws, or it was already set before the call
+    private BlockData accumulateBlock(long blockNum, byte[] buffer) throws InterruptedException {
+        if (Thread.interrupted()) {
+            // Re-set the flag so that blockQueue.take() detects it and throws InterruptedException,
+            // which the caller's catch block handles (including cleanupEmptyUpload when etags is empty).
+            Thread.currentThread().interrupt();
+        }
+        final BlockWithSource item = blockQueue.take();
+        final byte[] tarEntry = BlockToTarEntry.toTarEntry(item.block(), blockNum);
+        final byte[] extended = new byte[buffer.length + tarEntry.length];
+        System.arraycopy(buffer, 0, extended, 0, buffer.length);
+        System.arraycopy(tarEntry, 0, extended, buffer.length, tarEntry.length);
+        return new BlockData(extended, item.source());
+    }
+
+    /// Flushes a fixed-size part to S3 when [buffer] has reached [partSizeBytes], then sends
+    /// [PersistedNotification]s for every block whose bytes are now durably stored.
+    ///
+    /// @param blockNum      the block number just accumulated (used for failure notifications and logging)
+    /// @param blockSource   the [BlockSource] of the block just accumulated
+    /// @param buffer        the current accumulation buffer
+    /// @param s3            the S3 client for this upload session
+    /// @param uploadId      the multipart upload ID
+    /// @param etags         the list of part ETags collected so far (mutated in place)
+    /// @param blocksInBuffer map of block number → source for blocks whose bytes are in [buffer]
+    ///                       (mutated in place)
+    /// @return the remainder buffer after the flush, or `null` if the part upload failed
+    ///         (false [PersistedNotification]s have already been sent for all affected blocks)
+    private byte[] flushPartIfNeeded(
+            long blockNum,
+            BlockSource blockSource,
+            byte[] buffer,
+            S3Client s3,
+            String uploadId,
+            List<String> etags,
+            Map<Long, BlockSource> blocksInBuffer) {
+        byte[] remainder = buffer;
+        if (buffer.length >= partSizeBytes) {
+            try {
+                remainder = uploadPart(buffer, s3, uploadId, etags);
+            } catch (S3ResponseException | IOException e) {
+                blocksInBuffer.forEach((bn, src) ->
+                        blockMessaging.sendBlockPersisted(new PersistedNotification(bn, false, 1_000, src)));
+                // blockNum is not yet in blocksInBuffer (it is added by the caller after this method
+                // returns), so its failure notification must be sent separately here.
+                blockMessaging.sendBlockPersisted(new PersistedNotification(blockNum, false, 1_000, blockSource));
+                LOGGER.log(
+                        INFO,
+                        "Failed to upload part containing blocks %d to %d"
+                                .formatted(
+                                        blocksInBuffer.isEmpty()
+                                                ? blockNum
+                                                : blocksInBuffer
+                                                        .keySet()
+                                                        .iterator()
+                                                        .next(),
+                                        blockNum),
+                        e);
+                return null;
+            }
+            // If the current block's bytes exactly fill the part, include it before sending notifications
+            if (remainder.length == 0) {
+                blocksInBuffer.put(blockNum, blockSource);
+            }
+            blocksInBuffer.forEach(
+                    (bn, src) -> blockMessaging.sendBlockPersisted(new PersistedNotification(bn, true, 1_000, src)));
+            // Reset the map so the caller starts fresh for the next part's worth of blocks.
+            blocksInBuffer.clear();
+        }
+
+        return remainder;
+    }
+
+    /// Aborts the multipart upload if no parts have been uploaded yet (i.e., [etags] is empty).
+    /// Called from the [InterruptedException] handler in [call] to avoid leaving incomplete
+    /// multipart uploads in S3 when the task is cancelled before writing any data.
+    ///
+    /// @param s3       the S3 client for this upload session
+    /// @param uploadId the multipart upload ID to abort
+    /// @param etags    the list of part ETags uploaded so far; abort is skipped if non-empty
+    private void cleanupEmptyUpload(S3Client s3, String uploadId, List<String> etags)
+            throws S3ResponseException, IOException {
+        if (etags.isEmpty()) {
+            s3.abortMultipartUpload(key, uploadId);
+        }
+    }
+
+    /// Sends a single part to S3 and records its ETag.  Every S3 part upload — whether a
+    /// fixed-size chunk flushed during the loop or the final partial buffer — goes through this
+    /// method.
+    ///
+    /// @param buffer   the bytes to upload as one part; may be any length
+    /// @param s3       the S3 client for this upload session
+    /// @param uploadId the multipart upload ID
+    /// @param etags    the list of part ETags collected so far (mutated in place)
+    void doUploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags)
+            throws S3ResponseException, IOException {
+        // S3 part numbers are 1-based, so the next part number is the current list size plus one.
+        final int partNumber = etags.size() + 1;
+        final String etag = s3.multipartUploadPart(key, uploadId, partNumber, buffer);
+        etags.add(etag);
+        LOGGER.log(TRACE, "Uploaded part {0}, etag {1}", partNumber, etag);
+    }
+
+    /// Splits `buffer` into a [partSizeBytes]-sized part and a remainder, delegates the upload to
+    /// [doUploadPart(byte[], S3Client, String, List)], and returns the remainder.
+    ///
+    /// @param buffer   the accumulation buffer; must be at least [partSizeBytes] long
+    /// @param s3       the S3 client for this upload session
+    /// @param uploadId the multipart upload ID
+    /// @param etags    the list of part ETags collected so far (mutated in place)
+    /// @return the bytes that did not fit in the uploaded part
     @NonNull
-    byte[] uploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags)
+    private byte[] uploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags)
             throws S3ResponseException, IOException {
         // Split the buffer into a part and a remainder
         final byte[] part = new byte[partSizeBytes];
@@ -183,11 +288,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         System.arraycopy(buffer, 0, part, 0, partSizeBytes);
         System.arraycopy(buffer, partSizeBytes, remainder, 0, remainder.length);
 
-        // Upload the part to S3 and record the etag
-        final int partNumber = etags.size() + 1;
-        final String etag = s3.multipartUploadPart(key, uploadId, partNumber, part);
-        etags.add(etag);
-        LOGGER.log(TRACE, "Uploaded part {0}, etag {1}", partNumber, etag);
+        doUploadPart(part, s3, uploadId, etags);
 
         return remainder;
     }
@@ -198,7 +299,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
     /// segments, with the precision controlled by [ArchiveCloudStorageConfig#groupingLevel()].
     ///
     /// **Algorithm:**
-    /// 1. Zero-pad [firstBlockNumber] to 19 digits (the maximum decimal width of a `long`).
+    /// 1. Zero-pad [firstBlock] to 19 digits (the maximum decimal width of a `long`).
     /// 2. Drop the last `groupingLevel` digits — those digits vary within a single tar batch and
     ///    are therefore not part of the key.
     /// 3. Split the remaining prefix into 4-character segments.
@@ -222,8 +323,15 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         return String.join("/", parts) + ".tar";
     }
 
+    /// Carries the extended accumulation buffer and the [BlockSource] of the block just taken from
+    /// the queue out of [accumulateBlock] as a single return value.
+    private record BlockData(byte[] buffer, BlockSource source) {}
+
+    /// The outcome of a completed [BlockUploadTask].
     enum UploadResult {
+        /// All blocks were successfully archived and persisted notifications were sent.
         SUCCESS,
+        /// A part upload failed; false persisted notifications were sent for the affected blocks.
         FAILED
     }
 }

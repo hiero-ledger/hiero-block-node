@@ -13,7 +13,6 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
-import edu.umd.cs.findbugs.annotations.NonNull;
 import io.minio.BucketExistsArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;
@@ -49,6 +48,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
+import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -611,7 +611,7 @@ class ArchiveCloudStoragePluginTest {
     }
 
     /// Direct unit tests for [BlockUploadTask] that exercise failure paths without going through
-    /// the plugin.  [BlockUploadTask#uploadPart] is overridden in an anonymous subclass to throw
+    /// the plugin.  [BlockUploadTask#doUploadPart] is overridden in an anonymous subclass to throw
     /// deterministically, while [createMultipartUpload] still uses the real MinIO container
     /// (consistent with the rest of the test suite).
     @Nested
@@ -625,34 +625,21 @@ class ArchiveCloudStoragePluginTest {
         /// ~600 KB per block so the buffer overflows the 5 MB threshold after ~9 blocks.
         private static final int BLOCK_DATA_BYTES = 600 * 1024;
 
-        /// Verifies that when [BlockUploadTask#uploadPart] throws, all blocks whose tar bytes were
-        /// in the buffer at the time of failure receive a failed [PersistedNotification], and the
-        /// exception is propagated to the caller.
+        /// Verifies that when [BlockUploadTask#doUploadPart] throws during a mid-loop flush, all
+        /// blocks whose tar bytes were in the buffer at the time of failure receive a failed
+        /// [PersistedNotification], and [BlockUploadTask.UploadResult#FAILED] is returned.
         @Test
         @DisplayName("Failed part upload sends false persisted notifications for all buffered blocks")
         void testFailedfulUploadReturnsFailure() throws Exception {
             final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
             final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockingQueue<BlockUnparsed> queue = new LinkedBlockingQueue<>();
+            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
 
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
             pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
-            final BlockUploadTask task =
-                    new BlockUploadTask(
-                            builder.build().getConfigData(ArchiveCloudStorageConfig.class),
-                            messaging,
-                            0,
-                            groupSize,
-                            queue) {
-
-                        @NonNull
-                        @Override
-                        byte[] uploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags)
-                                throws IOException {
-                            throw new IOException("Simulated S3 part upload failure");
-                        }
-                    };
+            final BlockUploadTask task = new FailingBlockUploadTask(
+                    builder.build().getConfigData(ArchiveCloudStorageConfig.class), messaging, 0, groupSize, queue);
 
             // Pre-fill the queue with enough large blocks to trigger at least one part flush
             final Random rng = new Random(0xDEADBEEFL);
@@ -661,17 +648,63 @@ class ArchiveCloudStoragePluginTest {
                 rng.nextBytes(data);
                 final BlockItemUnparsed item = new BlockItemUnparsed(
                         new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
-                queue.put(BlockUnparsed.newBuilder()
+                final BlockUnparsed block = BlockUnparsed.newBuilder()
                         .blockItems(new BlockItemUnparsed[] {item})
-                        .build());
+                        .build();
+                queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
             }
 
             final BlockUploadTask.UploadResult result = task.call();
             assertThat(result).isEqualTo(BlockUploadTask.UploadResult.FAILED);
 
             final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).isNotEmpty().allSatisfy(n -> assertThat(n.succeeded())
-                    .isFalse());
+            assertThat(notifications).isNotEmpty().allSatisfy(n -> {
+                assertThat(n.succeeded()).isFalse();
+                assertThat(n.blockSource()).isEqualTo(BlockSource.PUBLISHER);
+            });
+        }
+
+        /// Verifies that when the final partial buffer upload (after the main loop) fails, all blocks
+        /// whose tar bytes were accumulated in that buffer receive a failed [PersistedNotification].
+        ///
+        /// Uses small blocks so the buffer never reaches [ArchiveCloudStorageConfig#partSizeMb()] during
+        /// the loop: [BlockUploadTask#doUploadPart] is therefore called exactly once — for the trailing
+        /// bytes after the loop — making the failure deterministic and isolated to the final flush.
+        @Test
+        @DisplayName("Failed final part upload sends false persisted notifications for all remaining blocks")
+        void testFinalPartFailureSendsFalseNotifications() throws Exception {
+            final int groupingLevel = 1;
+            final int groupSize = (int) Math.pow(10, groupingLevel);
+            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+
+            final ConfigurationBuilder builder =
+                    ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
+            pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
+            final BlockUploadTask task = new FailingBlockUploadTask(
+                    builder.build().getConfigData(ArchiveCloudStorageConfig.class), messaging, 0, groupSize, queue);
+
+            // Small blocks (100 bytes each) so the total buffer stays well below PART_SIZE_MB,
+            // meaning no mid-loop flush occurs and all blocks end up in the final partial buffer.
+            final Random rng = new Random(0xDEADBEEFL);
+            for (int i = 0; i < groupSize; i++) {
+                final byte[] data = new byte[100];
+                rng.nextBytes(data);
+                final BlockItemUnparsed item = new BlockItemUnparsed(
+                        new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+                final BlockUnparsed block = BlockUnparsed.newBuilder()
+                        .blockItems(new BlockItemUnparsed[] {item})
+                        .build();
+                queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
+            }
+
+            assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.FAILED);
+
+            final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+            assertThat(notifications).hasSize(groupSize).allSatisfy(n -> {
+                assertThat(n.succeeded()).isFalse();
+                assertThat(n.blockSource()).isEqualTo(BlockSource.PUBLISHER);
+            });
         }
 
         /// Verifies that [BlockUploadTask#call] returns [BlockUploadTask.UploadResult#SUCCESS] when
@@ -682,7 +715,7 @@ class ArchiveCloudStoragePluginTest {
         void testSuccessfulUploadReturnsSuccess() throws Exception {
             final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
             final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockingQueue<BlockUnparsed> queue = new LinkedBlockingQueue<>();
+            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
 
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
@@ -696,9 +729,10 @@ class ArchiveCloudStoragePluginTest {
                 rng.nextBytes(data);
                 final BlockItemUnparsed item = new BlockItemUnparsed(
                         new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
-                queue.put(BlockUnparsed.newBuilder()
+                final BlockUnparsed block = BlockUnparsed.newBuilder()
                         .blockItems(new BlockItemUnparsed[] {item})
-                        .build());
+                        .build();
+                queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
             }
 
             final BlockUploadTask.UploadResult result = task.call();
@@ -706,8 +740,104 @@ class ArchiveCloudStoragePluginTest {
 
             assertThat(getAllObjects()).contains("0000/0000/0000/0000/0.tar");
             final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).hasSize(groupSize).allSatisfy(n -> assertThat(n.succeeded())
-                    .isTrue());
+            assertThat(notifications).hasSize(groupSize).allSatisfy(n -> {
+                assertThat(n.succeeded()).isTrue();
+                assertThat(n.blockSource()).isEqualTo(BlockSource.PUBLISHER);
+            });
+        }
+
+        /// Verifies that each block's [BlockSource] is preserved independently in its
+        /// [PersistedNotification], even when different blocks in the same group carry different
+        /// sources.  Even-numbered blocks use [BlockSource#PUBLISHER]; odd-numbered blocks use
+        /// [BlockSource#BACKFILL].
+        @Test
+        @DisplayName("Per-block source is preserved in persisted notifications for mixed-source groups")
+        void testMixedSourcesPreservedInPersistedNotifications() throws Exception {
+            final int groupingLevel = 1;
+            final int groupSize = (int) Math.pow(10, groupingLevel);
+            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+
+            final ConfigurationBuilder builder =
+                    ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
+            pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
+            final BlockUploadTask task = new BlockUploadTask(
+                    builder.build().getConfigData(ArchiveCloudStorageConfig.class), messaging, 0, groupSize, queue);
+
+            // Even blocks → PUBLISHER, odd blocks → BACKFILL
+            final Random rng = new Random(0xDEADBEEFL);
+            for (int i = 0; i < groupSize; i++) {
+                final byte[] data = new byte[100];
+                rng.nextBytes(data);
+                final BlockItemUnparsed item = new BlockItemUnparsed(
+                        new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+                final BlockUnparsed block = BlockUnparsed.newBuilder()
+                        .blockItems(new BlockItemUnparsed[] {item})
+                        .build();
+                final BlockSource source = (i % 2 == 0) ? BlockSource.PUBLISHER : BlockSource.BACKFILL;
+                queue.put(new BlockWithSource(block, source));
+            }
+
+            assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+
+            final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+            assertThat(notifications).hasSize(groupSize);
+            for (final PersistedNotification n : notifications) {
+                final BlockSource expected = (n.blockNumber() % 2 == 0) ? BlockSource.PUBLISHER : BlockSource.BACKFILL;
+                assertThat(n.blockSource()).isEqualTo(expected);
+            }
+        }
+
+        /// Verifies that a [VerificationNotification] with a `null` source results in
+        /// [BlockSource#UNKNOWN] in the [PersistedNotification].
+        @Test
+        @DisplayName("Null source in verification notification defaults to UNKNOWN in persisted notification")
+        void testNullSourceDefaultsToUnknown() throws Exception {
+            final int groupingLevel = 1;
+            final int groupSize = (int) Math.pow(10, groupingLevel);
+            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+
+            final ConfigurationBuilder builder =
+                    ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
+            pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
+            final BlockUploadTask task = new BlockUploadTask(
+                    builder.build().getConfigData(ArchiveCloudStorageConfig.class), messaging, 0, groupSize, queue);
+
+            final Random rng = new Random(0xDEADBEEFL);
+            for (int i = 0; i < groupSize; i++) {
+                final byte[] data = new byte[100];
+                rng.nextBytes(data);
+                final BlockItemUnparsed item = new BlockItemUnparsed(
+                        new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+                final BlockUnparsed block = BlockUnparsed.newBuilder()
+                        .blockItems(new BlockItemUnparsed[] {item})
+                        .build();
+                queue.put(new BlockWithSource(block, null));
+            }
+
+            assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+
+            final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
+            assertThat(notifications).hasSize(groupSize).allSatisfy(n -> assertThat(n.blockSource())
+                    .isEqualTo(BlockSource.UNKNOWN));
+        }
+
+        private static final class FailingBlockUploadTask extends BlockUploadTask {
+
+            FailingBlockUploadTask(
+                    ArchiveCloudStorageConfig config,
+                    BlockMessagingFacility blockMessaging,
+                    long firstBlock,
+                    int groupSize,
+                    BlockingQueue<BlockWithSource> queue) {
+                super(config, blockMessaging, firstBlock, groupSize, queue);
+            }
+
+            @Override
+            void doUploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags) throws IOException {
+                throw new IOException("Simulated S3 final part upload failure");
+            }
         }
     }
 }
