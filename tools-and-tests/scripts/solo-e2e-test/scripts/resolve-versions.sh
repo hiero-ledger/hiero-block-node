@@ -152,6 +152,7 @@ function enforce_minimum_version {
 
   # Skip enforcement for SNAPSHOT versions (from 'main' keyword)
   if [[ "${resolved}" == *-SNAPSHOT ]]; then
+    log_line "Skipping minimum version enforcement for ${component} (SNAPSHOT build: ${resolved})"
     echo "${resolved}"
     return 0
   fi
@@ -178,6 +179,7 @@ function resolve_compatibility_mins {
   local cn_version="${1}"
 
   if [[ "${cn_version}" == *-SNAPSHOT ]]; then
+    log_line "Skipping compatibility matrix enforcement (CN is SNAPSHOT: ${cn_version})"
     echo "mn_min="
     echo "bn_min="
     return
