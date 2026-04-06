@@ -158,7 +158,7 @@ All verification logic is implemented in pure TypeScript/JavaScript. This includ
 
 ### Library vs Reference Documentation
 
-**Resolved.** The spike run by BlockyDevs (PR #2411) produced approximately 1,100 lines of TypeScript across 10 source files against real block fixtures. This definition confirms that this is a library, not a code snippet or reference documentation. The library path is locked for Beta scope and beyond.
+**Resolved.** The spike run by BlockyDevs (PR #2411) produced approximately 1,100 lines of TypeScript across 10 source files against real block fixtures. This definitively confirms that this is a library, not a code snippet or reference documentation. The library path is locked for Beta scope and beyond.
 
 ---
 
@@ -629,9 +629,11 @@ graph LR
 | Extract signature components | Block proof bytes | hinTS verification key + hinTS signature + WRAPS proof |
 
 ### Beta Milestone (April 20 - May 8th) - TSS Verification + Proofs
+
 > Note: Beta acceptance tests require updated block fixtures. The existing fixtures (PR #2305) 
 > were generated before a hedera-cryptography upgrade that broke backwards compatibility. 
 > New fixtures must be produced before Beta testing begins.
+
 | Test | Input | Expected Output |
 | --- | --- | --- |
 | Verify hinTS signature (block 0) | TSS block 0 + extracted key | `{ hintsValid: true }` |
