@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -17,6 +18,8 @@ import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
+import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
@@ -109,6 +112,10 @@ public class ServerStatusDetailServicePluginTest
         assertEquals(semanticVersion, pluginVersion.pluginSoftwareVersion());
         // Features default to empty list
         assertEquals(0, pluginVersion.pluginFeatureNames().size());
+
+        // Validate TssData
+        // defaults to TssData.DEFAULT
+        assertEquals(TssData.DEFAULT, response.tssData());
     }
 
     /**
@@ -129,7 +136,8 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.historicalBlockProvider(),
                 blockNodeContext.serviceLoader(),
                 blockNodeContext.threadPoolManager(),
-                BlockNodeVersions.DEFAULT);
+                BlockNodeVersions.DEFAULT,
+                buildTssData());
         plugin.onContextUpdate(newBlockNodeContext);
 
         ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
@@ -143,5 +151,20 @@ public class ServerStatusDetailServicePluginTest
         assertFalse(blockNodeVersions.hasStreamProtoVersion());
         assertFalse(blockNodeVersions.hasBlockNodeVersion());
         assertTrue(blockNodeVersions.installedPluginVersions().isEmpty());
+
+        // Check the TssData
+        TssData tssData = response.tssData();
+        assertNotNull(tssData);
+        assertEquals(Bytes.EMPTY, tssData.ledgerId());
+        assertEquals(Bytes.EMPTY, tssData.wrapsVerificationKey());
+        assertNotNull(tssData.currentRoster());
+    }
+
+    TssData buildTssData() {
+        return TssData.newBuilder()
+                .ledgerId(Bytes.EMPTY)
+                .wrapsVerificationKey(Bytes.EMPTY)
+                .currentRoster(TssRoster.DEFAULT)
+                .build();
     }
 }

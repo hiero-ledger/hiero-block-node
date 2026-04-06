@@ -87,38 +87,41 @@ public final class BlockUtils {
      * These blocks are used for testing purposes only.
      */
     public enum SAMPLE_BLOCKS {
-        HAPI_0_66_0_BLOCK_10(
-                "HAPI-0-66-0/10.blk.gz",
-                "30783030", // dummy hash
-                10),
-        HAPI_0_68_0_BLOCK_14(
-                "HAPI-0-68-0/14.blk.gz",
-                "30783030", // dummy hash
-                14),
-        HAPI_0_69_0_BLOCK_240(
-                "HAPI_0-69-0/240.blk.gz",
-                "325ee93ae5ba606903527674073931d5a33b8900ef720b0d34849b804e39198251995a9e20750ec84ce80e6fc0c361d5",
-                240),
-        HAPI_0_71_0_BLOCK_21(
-                "HAPI_0_71_0/21.blk.gz",
-                "78a6bfeb2235741521165cf95a1ae4a0a51de157a379b4fb5827067ba59bbcf19ae35e1faa67f3f1976700d50324d7c4",
-                21),
-        HAPI_0_72_0_BLOCK_0(
-                "HAPI_0_72_0/0.blk.gz",
-                "5d17d70e5f745c3c57e3bfaf0b38318dccbaabce3a6c6b26eb2d53e3ce87520332c0131f66146ee119d2315e0dbeba35",
+        /** Genesis block — bootstraps TSS parameters and ledger ID. */
+        BLOCK_0(
+                "CN_0_73_TSS_WRAPS/0.blk.gz",
+                "3de47629fe289fc7c4c6757b78c90d5ae41dae532d252512854d7db16dd06715adb34ca54c33561f58a4661c2394849f",
                 0),
-        HAPI_0_72_0_BLOCK_1(
-                "HAPI_0_72_0/1.blk.gz",
-                "b351df427e7e633e742a7245f4cfe1048d004726b213b6db457cbe9db964201edd66c1f92a39344112d90c2aa658cbf9",
+        /** Sequential block 1 (pre-settled Schnorr signature). */
+        BLOCK_1(
+                "CN_0_73_TSS_WRAPS/1.blk.gz",
+                "a08777a11f74ec6c572c0bb72edff5f5ca9830f0cc4738534960ce2167ca46d58ddffc8f52c398170865d7526f96486b",
                 1),
-        HAPI_0_72_0_BLOCK_21(
-                "HAPI_0_72_0/21.blk.gz",
-                "0c0f22c10c89e44d237efaacc6f52506868ef635331b4d1b7430be2735d684f9dc1fef723084033a15232c97a5897e38",
-                21),
-        TSS_WRAPS_BLOCK_1319(
-                "tss/TssWraps/1319.blk.gz",
-                "26384696281b4e479b98e8c7dbd4942c4466314bc0637727a35a7df0b74d47fc3b374e73ba61075e1a740ca203772df2", // dummy hash
-                1319);
+        /** Sequential block 2 (pre-settled Schnorr signature). */
+        BLOCK_2(
+                "CN_0_73_TSS_WRAPS/2.blk.gz",
+                "faa4dd0e83e9db4861833a574187d9c538006e33a63cdd25c0f907da317720b21d79ac80952519ea87ef765153051c34",
+                2),
+        /** Sequential block 3 (pre-settled Schnorr signature). */
+        BLOCK_3(
+                "CN_0_73_TSS_WRAPS/3.blk.gz",
+                "7e06bd1f69e149e3e04e7ee57f723edcab0a84283d0c592ca184d75dedd86aec5eaf61e50b4379adb4a4c90296f73a9b",
+                3),
+        /** Sequential block 4 (pre-settled Schnorr signature). */
+        BLOCK_4(
+                "CN_0_73_TSS_WRAPS/4.blk.gz",
+                "83181d7d40842495c6bf9a19a5fc93dea992dae4dd95e669e6f4a4bcbf4dcc64fdce15d6b725b8db5ea9f58459ba8919",
+                4),
+        /** Transition block — first block with WRAPS signature (Schnorr to Wraps transition, oversized ~13MB). */
+        BLOCK_466(
+                "CN_0_73_TSS_WRAPS/466.blk.gz",
+                "ad532f179da5abfc1f982a2a1dbc3d5c0c2e27b47126d559356a03fb656f81c862b3030ba13e1a98242e6390756d9c14",
+                466),
+        /** Post-settled block — has WRAPS signature (settled TSS). */
+        BLOCK_467(
+                "CN_0_73_TSS_WRAPS/467.blk.gz",
+                "a7986473fa0a42a55a74f04eca352ec7cb6dc3715375500c141f01b1eae01c466f1fc88bd67bf84c84ab80c58fd1918e",
+                467);
 
         private final String blockName;
         private final Bytes blockHash;

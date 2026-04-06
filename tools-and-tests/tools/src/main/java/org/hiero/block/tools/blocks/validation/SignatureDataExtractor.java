@@ -205,7 +205,7 @@ final class SignatureDataExtractor {
                 try (ByteArrayOutputStream bout = new ByteArrayOutputStream();
                         WritableStreamingData out = new WritableStreamingData(bout)) {
                     out.writeInt(2);
-                    out.writeInt(hapi.major());
+                    out.writeInt(hapi.minor());
                     out.writeByte(V2_PREVIOUS_FILE_HASH_MAKER);
                     data.startRunningHash().writeTo(out); // previousBlockHash
                     for (final RawRecordStreamItem item : data.items()) {

@@ -63,8 +63,8 @@ class VerificationRegressionTest
     @Test
     @DisplayName("backfilled block via live-stream should not emit PUBLISHER failure (hasher enabled)")
     void backfilledBlockWithHasherEnabledShouldNotCausePublisherFailure() throws IOException, ParseException {
-        BlockUtils.SampleBlockInfo block0 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_0);
-        BlockUtils.SampleBlockInfo block1 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.HAPI_0_72_0_BLOCK_1);
+        BlockUtils.SampleBlockInfo block0 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
+        BlockUtils.SampleBlockInfo block1 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_1);
 
         // Block 0 via live stream — establishes verification state
         blockMessaging.sendBlockItems(

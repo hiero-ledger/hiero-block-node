@@ -412,9 +412,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 LOGGER.log(INFO, message, handlerId, currentStreamingNumber, endOfBlockNumber);
             }
             metrics.receiveBlockTimeLatencyNs.increment(System.nanoTime() - currentStreamingBlockHeaderReceivedTime);
+            unacknowledgedStreamedBlocks.add(currentStreamingNumber);
             final ActionForBlock actionForBlock = publisherManager.endOfBlock(currentStreamingNumber);
             publisherManager.closeBlock(handlerId);
-            unacknowledgedStreamedBlocks.add(currentStreamingNumber);
             final BatchHandleResult result =
                     switch (actionForBlock.action()) {
                         // If we get ACCEPT, we must simply reset the state and continue

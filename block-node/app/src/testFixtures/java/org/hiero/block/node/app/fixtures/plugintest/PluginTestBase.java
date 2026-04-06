@@ -5,6 +5,7 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.config.api.converter.ConfigConverter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
@@ -12,11 +13,13 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -93,22 +96,38 @@ public abstract class PluginTestBase<
             @NonNull final P plugin,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins) {
-        start(plugin, historicalBlockFacility, additionalPlugins, null);
+        start(plugin, historicalBlockFacility, additionalPlugins, Map.of());
     }
 
-    /**
-     * Start the test fixture with the given plugin, historical block facility, and configuration overrides.
-     *
-     * @param plugin the plugin to be tested
-     * @param historicalBlockFacility the historical block facility to be used
-     * @param additionalPlugins additional test plugins to be initialized and started
-     * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
-     */
     public void start(
             @NonNull final P plugin,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides) {
+        start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, Map.of());
+    }
+
+    /**
+     * Start the test fixture with the given plugin, historical block facility, additional plugins,
+     * configuration overrides and a filesystem.
+     *
+     * @param plugin the plugin to be tested
+     * @param historicalBlockFacility the historical block facility to be used
+     * @param additionalPlugins additional test plugins to be initialized and started
+     * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
+     * @param converters an optional map of custom converters to be used for the configuration
+     */
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final List<BlockNodePlugin> additionalPlugins,
+            @Nullable final Map<String, String> configOverrides,
+            @NonNull final Map<Class<?>, ConfigConverter<?>> converters) {
+
+        Objects.requireNonNull(plugin);
+        Objects.requireNonNull(historicalBlockFacility);
+        Objects.requireNonNull(converters);
+
         this.plugin = plugin;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
@@ -121,6 +140,9 @@ public abstract class PluginTestBase<
             for (Entry<String, String> override : configOverrides.entrySet()) {
                 configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
             }
+        }
+        for (Entry<Class<?>, ConfigConverter<?>> entry : converters.entrySet()) {
+            configurationBuilder = withConverter(configurationBuilder, entry.getKey(), entry.getValue());
         }
         final Configuration configuration = configurationBuilder.build();
         // create metrics
@@ -137,7 +159,8 @@ public abstract class PluginTestBase<
                 historicalBlockFacility,
                 new ServiceLoaderFunction(),
                 testThreadPoolManager,
-                buildBlockNodeVersions());
+                buildBlockNodeVersions(),
+                TssData.DEFAULT);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
@@ -207,6 +230,18 @@ public abstract class PluginTestBase<
      */
     protected long getMetricValue(@NonNull final MetricKey<?> metricKey) {
         return testMetricsExporter.getMetricValue(metricKey.name());
+    }
+
+    /**
+     * Wildcard-capture helper: unifies the two independent {@code ?} wildcards from
+     * {@code Map<Class<?>, ConfigConverter<?>>} into a single type parameter {@code T} so that
+     * {@link ConfigurationBuilder#withConverter(Class, ConfigConverter)} can be called without
+     * an "incompatible equality constraint" compile error.
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> ConfigurationBuilder withConverter(
+            ConfigurationBuilder builder, Class<?> type, ConfigConverter<?> converter) {
+        return builder.withConverter((Class<T>) type, (ConfigConverter<T>) converter);
     }
 
     /**

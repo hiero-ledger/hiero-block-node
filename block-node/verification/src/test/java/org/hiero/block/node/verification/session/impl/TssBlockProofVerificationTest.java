@@ -28,21 +28,21 @@ import org.junit.jupiter.api.Test;
 /**
  * Verifies that TSS.verifyTSS() correctly validates real TssWraps block proofs.
  *
- * <p>Block 0 uses the genesis (aggregate Schnorr, 2,920-byte) path. Block 50 (captured from
- * block 631 of the fixture run) uses the settled WRAPS path (3,432-byte blockSignature).
+ * <p>Block 0 uses the genesis (aggregate Schnorr, 2,920-byte) path. Block 467 uses the
+ * settled WRAPS path (3,432-byte blockSignature).
  */
 class TssBlockProofVerificationTest {
 
     private static BlockUnparsed wrapsBlock0;
-    private static BlockUnparsed wrapsBlock50;
+    private static BlockUnparsed wrapsBlock467;
 
     /** Ledger ID initialized from block 0 via the plugin's static TSS state. */
     private Bytes activeLedgerId;
 
     @BeforeAll
     static void setUp() throws IOException, ParseException {
-        wrapsBlock0 = loadBlock("test-blocks/tss/TssWraps/0.blk.gz");
-        wrapsBlock50 = loadBlock("test-blocks/tss/TssWraps/50.blk.gz");
+        wrapsBlock0 = loadBlock("test-blocks/CN_0_73_TSS_WRAPS/0.blk.gz");
+        wrapsBlock467 = loadBlock("test-blocks/CN_0_73_TSS_WRAPS/467.blk.gz");
     }
 
     @BeforeEach
@@ -63,7 +63,7 @@ class TssBlockProofVerificationTest {
     }
 
     @Test
-    void shouldVerifyTssWrapsBlock0_beforeSettled() throws ParseException {
+    void shouldVerifyTssWrapsBlock0BeforeSettled() throws ParseException {
         Bytes hash = computeBlockHash(wrapsBlock0, null);
         Bytes signature = extractSignature(wrapsBlock0);
         // genesis: vk (1096) + blsSig (1632) + aggregate Schnorr (192) = 2920
@@ -74,15 +74,14 @@ class TssBlockProofVerificationTest {
     }
 
     @Test
-    void shouldVerifyTssWrapsBlock50_settledPath() throws ParseException {
-        Bytes hash = computeBlockHash(wrapsBlock50, activeLedgerId);
-        Bytes signature = extractSignature(wrapsBlock50);
+    void shouldVerifyTssWrapsBlock467SettledPath() throws ParseException {
+        Bytes hash = computeBlockHash(wrapsBlock467, activeLedgerId);
+        Bytes signature = extractSignature(wrapsBlock467);
         // settled path: vk (1096) + blsSig (1632) + WRAPS proof (704) = 3432
-        // TODO: commenting next assertion for now until we get a block fixture that already has wraps proof.
-        // assertEquals(3_432, signature.length(), "Block 50 signature must be 3432 bytes (settled WRAPS path)");
+        assertEquals(3_432, signature.length(), "Block 467 signature must be 3432 bytes (settled WRAPS path)");
         assertTrue(
                 TSS.verifyTSS(activeLedgerId.toByteArray(), signature.toByteArray(), hash.toByteArray()),
-                "TssWraps block 50 settled WRAPS signature should verify successfully");
+                "TssWraps block 467 settled WRAPS signature should verify successfully");
     }
 
     @Test
