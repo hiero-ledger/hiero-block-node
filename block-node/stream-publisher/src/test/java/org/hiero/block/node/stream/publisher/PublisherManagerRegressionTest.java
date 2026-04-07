@@ -17,6 +17,7 @@ import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
+import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
@@ -44,6 +45,8 @@ import org.junit.jupiter.api.Test;
 class PublisherManagerRegressionTest {
 
     private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
+    private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
+    private TestBlockMessagingFacility messagingFacility;
     private LiveStreamPublisherManager toTest;
     private MetricsHolder managerMetrics;
     private PublisherHandler.MetricsHolder sharedHandlerMetrics;
@@ -58,11 +61,10 @@ class PublisherManagerRegressionTest {
     @BeforeEach
     void setup() {
         historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
-        final TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager =
-                new TestThreadPoolManager<>(
-                        new BlockingExecutor(new LinkedBlockingQueue<>()),
-                        new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
-        final TestBlockMessagingFacility messagingFacility = new TestBlockMessagingFacility();
+        threadPoolManager = new TestThreadPoolManager<>(
+                new BlockingExecutor(new LinkedBlockingQueue<>()),
+                new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+        messagingFacility = new TestBlockMessagingFacility();
         final BlockNodeContext context = generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
         historicalBlockFacility.init(context, null);
 
@@ -155,6 +157,74 @@ class PublisherManagerRegressionTest {
                 .describedAs(
                         "After backfill persisted blocks 0-2, block %d should be ACCEPT not SEND_BEHIND", nextLiveBlock)
                 .isEqualTo(BlockAction.ACCEPT);
+    }
+
+    /// Reproduces the previewnet 0.31.0-rc1 forwarder deadlock.
+    ///
+    /// A handler goes silent mid-block N. Backfill persists block N,
+    /// advancing {@code lastPersistedBlockNumber} to N. Handler 2 then
+    /// sends block N+1. The forwarder must deliver block N+1 to messaging.
+    ///
+    /// The bug: {@code clearObsoleteQueueItems(N)} uses
+    /// {@code headMap(N)} (strictly less than), so block N's incomplete
+    /// queue is never removed. The forwarder's
+    /// {@code determineCurrentBlockNumber()} picks it via
+    /// {@code firstEntry()} and gets stuck forever — block N+1 never
+    /// reaches messaging even though the manager returned ACCEPT.
+    @Test
+    @DisplayName("forwarder advances past stalled block after backfill persists it — previewnet 0.31.0-rc1")
+    void testForwarderAdvancesPastStalledBlockAfterBackfill() {
+        // Blocks 0-4 already persisted. Handler 1 stalls on block 5.
+        final long lastPreStallBlock = 4L;
+        final long stalledBlock = 5L;
+
+        // Establish initial persisted state: blocks 0-4 are already known.
+        final SimpleBlockRangeSet initialBlocks = new SimpleBlockRangeSet();
+        initialBlocks.add(0L, lastPreStallBlock);
+        historicalBlockFacility.setTemporaryAvailableBlocks(initialBlocks);
+        toTest.handlePersisted(new PersistedNotification(lastPreStallBlock, true, 0, BlockSource.PUBLISHER));
+
+        // Handler 1 wins ACCEPT for block 5, sends only the header, then goes silent.
+        sendHeaderOnly(publisherHandler, stalledBlock);
+
+        // Handler 2 sends block 5 — receives SKIP because handler 1 holds ACCEPT.
+        responsePipeline2.clear();
+        final PublishStreamRequestUnparsed fullStalledBlock = PublishStreamRequestUnparsed.newBuilder()
+                .blockItems(
+                        TestBlockBuilder.generateBlockWithNumber(stalledBlock).asItemSetUnparsed())
+                .build();
+        publisherHandler2.onNext(fullStalledBlock);
+        assertThat(responsePipeline2.getOnNextCalls())
+                .as("handler 2 must receive SKIP for block %d", stalledBlock)
+                .hasSize(1)
+                .first()
+                .returns(ResponseOneOfType.SKIP_BLOCK, response -> response.response()
+                        .kind());
+
+        // Backfill persists block 5, advancing lastPersisted to 5.
+        // clearObsoleteQueueItems(5) uses headMap(5) which does NOT
+        // include block 5 — the stalled queue stays in the map.
+        final SimpleBlockRangeSet backfilledBlocks = new SimpleBlockRangeSet();
+        backfilledBlocks.add(0L, stalledBlock);
+        historicalBlockFacility.setTemporaryAvailableBlocks(backfilledBlocks);
+        toTest.handlePersisted(new PersistedNotification(stalledBlock, true, 0, BlockSource.BACKFILL));
+
+        // Handler 2 sends a complete block 6.
+        responsePipeline2.clear();
+        final long nextLiveBlock = stalledBlock + 1;
+        final TestBlock nextBlock = TestBlockBuilder.generateBlockWithNumber(nextLiveBlock);
+        publisherHandler2.onNext(nextBlock.asPublishStreamRequestUnparsed());
+        endThisBlock(publisherHandler2, nextLiveBlock);
+
+        // Run the forwarder. If the stalled block 5's queue is still
+        // in queueByBlockMap, determineCurrentBlockNumber() returns 5
+        // and the forwarder never reaches block 6.
+        threadPoolManager.executor().executeAsync(1_000L, false);
+
+        // Block 6 must have been forwarded to the messaging facility.
+        assertThat(messagingFacility.getSentBlockItems())
+                .as("block %d must be forwarded to messaging after backfill unblocked the pipeline", nextLiveBlock)
+                .anyMatch(items -> items.blockNumber() == nextLiveBlock);
     }
 
     /// Verifies the 2-block stall detection and recovery mechanism:
