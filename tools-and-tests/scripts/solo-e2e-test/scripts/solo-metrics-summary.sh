@@ -35,26 +35,26 @@ if [[ -z "$METRICS" ]]; then
 fi
 
 # Extract key metrics (handle counter format with labels)
-# These metric names match the Block Node's actual Prometheus metric names (hiero_block_node_ prefix)
+# These metric names match the Block Node's actual Prometheus metric names (blocknode_ prefix)
 
 # Throughput metrics
-BLOCK_ITEMS=$(echo "$METRICS" | grep "^hiero_block_node_publisher_block_items_received_total " | awk '{print $2}' | head -1)
-BLOCKS_VERIFIED=$(echo "$METRICS" | grep "^hiero_block_node_verification_blocks_received_total " | awk '{print $2}' | head -1)
-BLOCKS_STORED=$(echo "$METRICS" | grep "^hiero_block_node_files_recent_blocks_stored " | awk '{print $2}' | head -1)
-LATEST_BLOCK=$(echo "$METRICS" | grep "^hiero_block_node_publisher_highest_block_number_inbound " | awk '{print $2}' | head -1)
+BLOCK_ITEMS=$(echo "$METRICS" | grep "^blocknode_publisher_block_items_received_total " | awk '{print $2}' | head -1)
+BLOCKS_VERIFIED=$(echo "$METRICS" | grep "^blocknode_verification_blocks_received_total " | awk '{print $2}' | head -1)
+BLOCKS_STORED=$(echo "$METRICS" | grep "^blocknode_files_recent_blocks_stored " | awk '{print $2}' | head -1)
+LATEST_BLOCK=$(echo "$METRICS" | grep "^blocknode_publisher_highest_block_number_inbound " | awk '{print $2}' | head -1)
 
 # Connection metrics
-PUBLISHER_CONNS=$(echo "$METRICS" | grep "^hiero_block_node_publisher_open_connections " | awk '{print $2}' | head -1)
-SUBSCRIBER_CONNS=$(echo "$METRICS" | grep "^hiero_block_node_subscriber_open_connections " | awk '{print $2}' | head -1)
+PUBLISHER_CONNS=$(echo "$METRICS" | grep "^blocknode_publisher_open_connections " | awk '{print $2}' | head -1)
+SUBSCRIBER_CONNS=$(echo "$METRICS" | grep "^blocknode_subscriber_open_connections " | awk '{print $2}' | head -1)
 
 # Health metrics (should all be 0 in a healthy system)
-VERIFY_FAILED=$(echo "$METRICS" | grep "^hiero_block_node_verification_blocks_failed_total " | awk '{print $2}' | head -1)
-VERIFY_ERRORS=$(echo "$METRICS" | grep "^hiero_block_node_verification_blocks_error_total " | awk '{print $2}' | head -1)
-STREAM_ERRORS=$(echo "$METRICS" | grep "^hiero_block_node_publisher_stream_errors_total " | awk '{print $2}' | head -1)
+VERIFY_FAILED=$(echo "$METRICS" | grep "^blocknode_verification_blocks_failed_total " | awk '{print $2}' | head -1)
+VERIFY_ERRORS=$(echo "$METRICS" | grep "^blocknode_verification_blocks_error_total " | awk '{print $2}' | head -1)
+STREAM_ERRORS=$(echo "$METRICS" | grep "^blocknode_publisher_stream_errors_total " | awk '{print $2}' | head -1)
 
 # Queue utilization metrics (percentage)
-ITEM_QUEUE_PCT=$(echo "$METRICS" | grep "^hiero_block_node_messaging_item_queue_percent_used " | awk '{print $2}' | head -1)
-NOTIF_QUEUE_PCT=$(echo "$METRICS" | grep "^hiero_block_node_messaging_notification_queue_percent_used " | awk '{print $2}' | head -1)
+ITEM_QUEUE_PCT=$(echo "$METRICS" | grep "^blocknode_messaging_item_queue_percent_used " | awk '{print $2}' | head -1)
+NOTIF_QUEUE_PCT=$(echo "$METRICS" | grep "^blocknode_messaging_notification_queue_percent_used " | awk '{print $2}' | head -1)
 
 # Defaults for missing values (metrics may not exist if no activity)
 BLOCK_ITEMS="${BLOCK_ITEMS:-0}"

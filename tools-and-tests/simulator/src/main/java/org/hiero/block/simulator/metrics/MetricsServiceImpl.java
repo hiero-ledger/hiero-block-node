@@ -33,7 +33,7 @@ import org.hiero.metrics.core.MetricsExporterFactory;
  */
 public class MetricsServiceImpl implements MetricsService, MetricsExporter {
 
-    private static final String CATEGORY = "hiero_block_node_simulator";
+    private static final String CATEGORY = "blocknode_simulator";
 
     private final EnumMap<SimulatorMetricTypes.Counter, LongCounter.Measurement> counters =
             new EnumMap<>(SimulatorMetricTypes.Counter.class);
