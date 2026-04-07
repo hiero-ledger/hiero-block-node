@@ -49,8 +49,8 @@ The Block Node exposes a rich set of Prometheus metrics on `/metrics`
 (default port 16007). Key Grafana dashboards are available in the official
 [Hiero Block Node `dashboards/` folder.](https://github.com/hiero-ledger/hiero-block-node/tree/main/charts/block-node-server/dashboards)
 
-All metrics are prefixed with `hiero_block_node`
-(for example, `hiero_block_node_publisher_block_items_received`).
+All metrics are prefixed with `blocknode`
+(for example, `blocknode_publisher_block_items_received`).
 See the full list in the
 [metrics reference](https://github.com/hiero-ledger/hiero-block-node/blob/main/docs/block-node/metrics.md#metrics-by-plugin).
 
@@ -229,7 +229,7 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
      - Backfill-related alerts firing.
    - Check logs for explicit backfill warnings or errors.
 2. **Metrics and topology**
-   - Review backfill metrics such as `hiero_block_node_backfill\*`:
+   - Review backfill metrics such as `blocknode_backfill\*`:
      - Backfill rate, errors, and lag.
    - Confirm which upstream nodes this node is allowed to backfill from and that they are healthy.
 3. **Configuration checks**
@@ -253,13 +253,13 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
 
 The table below is a **summary-only quick reference**. Use the runbooks above for full diagnosis and remediation steps.
 
-|                 **Issue**                 |                         **Symptoms**                          |                                                  **Diagnosis**                                                  |                                           **Resolution**                                           |
-|-------------------------------------------|---------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| Node not receiving new blocks             | Ingest appears stalled, logs show no publish activity         | Check firewall / TLS on ingest port (default `50211`), Consensus Node logs                                      | Open inbound port, verify mutual TLS certs, ensure node is authorized / whitelisted by upstream CN |
-| Subscribers / Mirror Nodes cannot connect | gRPC connection refused or TLS handshake errors               | Wrong endpoint, expired cert, or service disabled in config                                                     | Verify advertise address / port, renew TLS certs, enable `BlockStreamSubscribeService`             |
-| Disk full / out of space                  | Node crashes or refuses new blocks                            | `df -h`, `files_recent_total_bytes_stored` nearing limit                                                        | Prune old blocks (partial-history), expand volume, or migrate to archive node                      |
-| Metrics endpoint not accessible           | Grafana dashboards empty, Prometheus target `DOWN`            | Port `16007` blocked or metrics disabled via config                                                             | Open port, enable metrics, fix Prometheus scrape job                                               |
-| Blocks not being backfilled               | Log entries show backfill warnings, missing historical ranges | Check `hiero_block_node_backfill*` metrics, `BLOCK_NODE_EARLIEST_MANAGED_BLOCK` / `BACKFILL_START_BLOCK` config | Fix earliest-block config, restart node if required, ensure healthy upstream archival source       |
+|                 **Issue**                 |                         **Symptoms**                          |                                              **Diagnosis**                                               |                                           **Resolution**                                           |
+|-------------------------------------------|---------------------------------------------------------------|----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
+| Node not receiving new blocks             | Ingest appears stalled, logs show no publish activity         | Check firewall / TLS on ingest port (default `50211`), Consensus Node logs                               | Open inbound port, verify mutual TLS certs, ensure node is authorized / whitelisted by upstream CN |
+| Subscribers / Mirror Nodes cannot connect | gRPC connection refused or TLS handshake errors               | Wrong endpoint, expired cert, or service disabled in config                                              | Verify advertise address / port, renew TLS certs, enable `BlockStreamSubscribeService`             |
+| Disk full / out of space                  | Node crashes or refuses new blocks                            | `df -h`, `files_recent_total_bytes_stored` nearing limit                                                 | Prune old blocks (partial-history), expand volume, or migrate to archive node                      |
+| Metrics endpoint not accessible           | Grafana dashboards empty, Prometheus target `DOWN`            | Port `16007` blocked or metrics disabled via config                                                      | Open port, enable metrics, fix Prometheus scrape job                                               |
+| Blocks not being backfilled               | Log entries show backfill warnings, missing historical ranges | Check `blocknode_backfill*` metrics, `BLOCK_NODE_EARLIEST_MANAGED_BLOCK` / `BACKFILL_START_BLOCK` config | Fix earliest-block config, restart node if required, ensure healthy upstream archival source       |
 
 ---
 

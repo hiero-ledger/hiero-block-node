@@ -100,7 +100,7 @@
           "datasource": {
             "uid": "prometheus"
           },
-          "expr": "hiero_block_node:app_state_status",
+          "expr": "blocknode_app_state_status",
           "refId": "A"
         }
       ],
@@ -218,7 +218,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "hiero_block_node:app_state_status",
+          "expr": "blocknode_app_state_status",
           "format": "time_series",
           "legendFormat": "Status Over Time",
           "range": true,
@@ -278,7 +278,7 @@
           "datasource": {
             "uid": "prometheus"
           },
-          "expr": "hiero_block_node:app_historical_oldest_block",
+          "expr": "blocknode_app_historical_oldest_block",
           "refId": "A"
         }
       ],
@@ -367,7 +367,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "hiero_block_node:app_historical_oldest_block",
+          "expr": "blocknode_app_historical_oldest_block",
           "legendFormat": "Oldest Block Over Time",
           "range": true,
           "refId": "A"
@@ -426,7 +426,7 @@
           "datasource": {
             "uid": "prometheus"
           },
-          "expr": "hiero_block_node:app_historical_newest_block",
+          "expr": "blocknode_app_historical_newest_block",
           "refId": "A"
         }
       ],
@@ -515,7 +515,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "hiero_block_node:app_historical_newest_block",
+          "expr": "blocknode_app_historical_newest_block",
           "legendFormat": "Newest Block Over Time",
           "range": true,
           "refId": "A"
