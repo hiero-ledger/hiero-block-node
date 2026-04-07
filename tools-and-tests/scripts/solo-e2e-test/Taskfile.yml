@@ -81,7 +81,6 @@ tasks:
         command -v kind >/dev/null 2>&1 || { echo "ERROR: kind not found"; exit 1; }
         command -v solo >/dev/null 2>&1 || { echo "ERROR: solo not found. Install with: npm i @hashgraph/solo -g"; exit 1; }
         command -v yq >/dev/null 2>&1 || { echo "ERROR: yq not found. Install from: https://github.com/mikefarah/yq"; exit 1; }
-        command -v pnpm >/dev/null 2>&1 || { echo "ERROR: pnpm not found. Install with: npm i -g pnpm"; exit 1; }
         echo "All prerequisites found!"
         echo ""
         echo "Versions:"
@@ -91,7 +90,7 @@ tasks:
         echo "  Kind: $(kind --version)"
         echo "  Solo: $(solo --version)"
         echo "  yq: $(yq --version)"
-        echo "  pnpm: $(pnpm --version)"
+        command -v pnpm >/dev/null 2>&1 && echo "  pnpm: $(pnpm --version)" || echo "  pnpm: not installed (needed for TCK tests)"
     silent: true
 
   # ============================================================================
@@ -500,6 +499,9 @@ tasks:
     desc: Run TCK-SDK regression test (requires network up)
     cmds:
       - |
+        # pnpm is required for TCK tests
+        command -v pnpm >/dev/null 2>&1 || { echo "ERROR: pnpm not found. Install with: npm i -g pnpm"; exit 1; }
+
         # Check if repos are cloned
         if [[ ! -d "{{.TCK_SDK_DIR}}/regression" ]] || [[ ! -d "{{.TCK_SDK_DIR}}/sdk-server" ]]; then
           echo "TCK repositories not cloned. Running tck:clone first..."
