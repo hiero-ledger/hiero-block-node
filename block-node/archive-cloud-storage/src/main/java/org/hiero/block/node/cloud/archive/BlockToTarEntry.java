@@ -2,6 +2,9 @@
 package org.hiero.block.node.cloud.archive;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Objects;
@@ -23,12 +26,16 @@ final class BlockToTarEntry {
     /// @param block the block to convert
     /// @param blockNumber the block number, used to derive the file name inside the tar
     /// @return a byte array representing the complete tar entry for the block
-    static byte[] toTarEntry(@NonNull final BlockUnparsed block, final long blockNumber) {
+    static byte[] toTarEntry(@NonNull final BlockUnparsed block, final long blockNumber) throws IOException {
         Objects.requireNonNull(block);
 
         final String currentBlockName = String.format("%019d", blockNumber) + EXTENSION;
-        final byte[] currentBlockBytes = CompressionType.ZSTD.compress(
-                BlockUnparsed.PROTOBUF.toBytes(block).toByteArray());
+        final byte[] rawBytes = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
+        final ByteArrayOutputStream baos = new ByteArrayOutputStream(rawBytes.length);
+        try (final OutputStream zstdOut = CompressionType.ZSTD.wrapStream(baos)) {
+            zstdOut.write(rawBytes);
+        }
+        final byte[] currentBlockBytes = baos.toByteArray();
 
         final byte[] header = createTarHeader(currentBlockName, currentBlockBytes.length);
         final int paddingBytesRemaining = (512 - (currentBlockBytes.length % 512)) % 512;

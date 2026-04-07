@@ -5,7 +5,6 @@ import static org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder.generate
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import com.github.luben.zstd.Zstd;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -13,10 +12,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.base.CompressionType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,9 +43,7 @@ class BlockToTarEntryTest {
     @Test
     @DisplayName("Test writing a tar file with huge blocks and extracting it, and checking the contents")
     void testWritingTarLargeBlocks(@TempDir Path tempDir) throws Exception {
-        final List<TestBlock> blocks = LongStream.range(0, 10)
-                .mapToObj(TestBlockBuilder::generateLargeBlockWithNumber)
-                .toList();
+        final List<TestBlock> blocks = TestBlockBuilder.generateLargeBlocksInRange(0, 10);
         // write to temp file
         Path tarFile = tempDir.resolve("test.tar");
         try (var outputStream = Files.newOutputStream(tarFile)) {
@@ -108,7 +105,7 @@ class BlockToTarEntryTest {
     /// @throws ParseException if there is an error parsing the block
     private boolean checkBlockFileContents(Path blockFile, TestBlock expected) throws IOException, ParseException {
         byte[] bytes = Files.readAllBytes(blockFile);
-        Block block = Block.PROTOBUF.parse(Bytes.wrap(Zstd.decompress(bytes, (int) Zstd.getFrameContentSize(bytes))));
+        Block block = Block.PROTOBUF.parse(Bytes.wrap(CompressionType.ZSTD.decompress(bytes)));
         return expected.block().equals(block);
     }
 }

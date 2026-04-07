@@ -8,7 +8,6 @@ import static org.hiero.block.node.cloud.archive.BlockUploadTask.*;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
@@ -139,27 +138,52 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
     /// {@inheritDoc}
     @Override
     public void handleVerification(VerificationNotification notification) {
-        if (notification == null || !notification.success() || notification.block() == null) {
-            logInvalidNotification(notification);
-        } else if (!handleCompletedUpload()) {
+        if (notification != null && notification.success() && notification.block() != null) {
             // If the active task has completed, surface any exception and clean up.
-            // handleCompletedUpload returns true when the task was cancelled (i.e. stop() was called):
-            // no new task should be started in that case since the plugin is shutting down.
-            final long blockNumber = notification.blockNumber();
-            // Start a new upload task when there is none active
-            // TODO(1166) Is this null because of a new batch or because the previous block failed?
-            if (currentUploadFuture == null) {
-                startNewUploadTask(blockNumber);
+            boolean cancelled = false;
+            if (currentUploadFuture != null && currentUploadFuture.isDone()) {
+                try {
+                    if (currentUploadFuture.isCancelled()) {
+                        LOGGER.log(TRACE, "Block upload task was cancelled");
+                        cancelled = true;
+                    } else {
+                        final UploadResult uploadResult = currentUploadFuture.get();
+                        if (uploadResult == UploadResult.FAILED) {
+                            LOGGER.log(WARNING, "Block upload task failed");
+                            // TODO(1166) Handle properly block upload task failure
+                        } else {
+                            // The task completed successfully, so clear the state and start a new one
+                            currentUploadFuture = null;
+                            currentGroupPending = new ConcurrentSkipListMap<>();
+                        }
+                    }
+                } catch (InterruptedException ignore) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException e) {
+                    LOGGER.log(WARNING, "Block upload task failed", e);
+                    // TODO(1166) Handle properly block upload task failure
+                }
             }
-            // Stage the notification; if it belongs to the active task's range, attempt to drain
-            // consecutive blocks into the queue. Out-of-range notifications go to the cross-group stash.
-            routeNotification(blockNumber, notification);
+            // If the task was cancelled (i.e. stop() was called), do not start a new task or process
+            // the current block since the plugin is shutting down.
+            if (!cancelled) {
+                final long blockNumber = notification.blockNumber();
+                // Start a new upload task when there is none active
+                if (currentUploadFuture == null) {
+                    startNewUploadTask(blockNumber);
+                }
+                // Route the verified block; if it belongs to the active task's range, attempt to drain
+                // consecutive blocks into the queue. Out-of-range blocks go to the cross-group stash.
+                routeVerifiedBlock(blockNumber, notification);
+            }
+        } else {
+            logInvalidOrFailedNotification(notification);
         }
     }
 
     /// Logs a TRACE message explaining why the given [notification] was ignored.  Called only
     /// when the notification is `null`, carries a failed verification, or has a `null` block.
-    private void logInvalidNotification(VerificationNotification notification) {
+    private void logInvalidOrFailedNotification(VerificationNotification notification) {
         if (notification == null) {
             LOGGER.log(TRACE, "Received null verification notification, ignoring");
         } else if (!notification.success()) {
@@ -170,7 +194,7 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
     }
 
     /// Initialises a new [BlockUploadTask] for the group that contains [blockNumber], submits it
-    /// to [virtualThreadExecutor], and replays any previously stashed notifications that fall
+    /// to [virtualThreadExecutor], and replays any previously stashed blocks that fall
     /// within the new group's range.
     private void startNewUploadTask(long blockNumber) {
         currentGroupSize = Math.powExact(10, config.groupingLevel());
@@ -189,7 +213,7 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
     /// within the active task's range it is added to [currentGroupPending] and consecutive blocks
     /// are drained into [currentBlockQueue]; otherwise it is stashed in [blocksStash] for replay
     /// when the matching task is created.
-    private void routeNotification(long blockNumber, VerificationNotification notification) {
+    private void routeVerifiedBlock(long blockNumber, VerificationNotification notification) {
         final BlockWithSource blockWithSource = new BlockWithSource(notification.block(), notification.source());
         if (blockNumber >= currentGroupStart && blockNumber < currentGroupStart + currentGroupSize) {
             currentGroupPending.put(blockNumber, blockWithSource);
@@ -198,38 +222,6 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
             blocksStash.put(blockNumber, blockWithSource);
             LOGGER.log(TRACE, "Block number {0} is out of range for current upload task, stashing", blockNumber);
         }
-    }
-
-    /// Checks whether the active upload task has finished and, if so, clears the associated state.
-    ///
-    /// @return `true` only when the task was cancelled (i.e., [stop()] was called), signalling
-    ///         that [handleVerification] should not start a new upload task or process the
-    ///         current block.  Returns `false` for normal task completion so that the triggering
-    ///         block is still routed to the next task.
-    private boolean handleCompletedUpload() {
-        boolean cancelled = false;
-        if (currentUploadFuture != null && currentUploadFuture.isDone()) {
-            try {
-                if (currentUploadFuture.isCancelled()) {
-                    LOGGER.log(TRACE, "Block upload task was cancelled");
-                    cancelled = true;
-                } else {
-                    final UploadResult uploadResult = currentUploadFuture.get();
-                    if (uploadResult == UploadResult.FAILED) {
-                        LOGGER.log(WARNING, "Block upload task failed");
-                        // TODO(1166) Handle properly block upload task failure
-                    }
-                }
-            } catch (InterruptedException _) {
-                Thread.currentThread().interrupt();
-            } catch (ExecutionException e) {
-                LOGGER.log(WARNING, "Block upload task failed", e);
-                // TODO(1166) Handle properly block upload task failure
-            }
-            currentUploadFuture = null;
-            currentGroupPending = new ConcurrentSkipListMap<>();
-        }
-        return cancelled;
     }
 
     /// Moves consecutive notifications from [currentGroupPending] into [currentBlockQueue], starting
@@ -245,15 +237,12 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
     /// Moves all stashed notifications that fall within the current task's range into [currentGroupPending],
     /// then calls [drainPendingToQueue] to enqueue them in order.
     private void tryReplayStash() {
-        // An explicit iterator is required to safely remove matching entries while traversing;
-        // removing via blocksStash.remove() inside a for-each would throw ConcurrentModificationException.
-        final Iterator<Map.Entry<Long, BlockWithSource>> it =
-                blocksStash.entrySet().iterator();
-        while (it.hasNext()) {
-            final Map.Entry<Long, BlockWithSource> entry = it.next();
-            if (entry.getKey() >= currentGroupStart && entry.getKey() < currentGroupStart + currentGroupSize) {
-                currentGroupPending.put(entry.getKey(), entry.getValue());
-                it.remove();
+        final List<Long> blockStashKeys = new ArrayList<>(blocksStash.keySet());
+        final long currentGroupEnd = currentGroupStart + currentGroupSize;
+        for (final long blockNumber : blockStashKeys) {
+            if (blockNumber >= currentGroupStart && blockNumber < currentGroupEnd) {
+                final BlockWithSource block = blocksStash.remove(blockNumber);
+                currentGroupPending.put(blockNumber, block);
             }
         }
         drainPendingToQueue();

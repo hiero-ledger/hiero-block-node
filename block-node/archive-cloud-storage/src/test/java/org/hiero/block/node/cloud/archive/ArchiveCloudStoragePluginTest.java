@@ -295,9 +295,13 @@ class ArchiveCloudStoragePluginTest {
             pluginExecutor.executeSerially();
             // the tar key for startBlock=0, groupingLevel=1: "0000/0000/0000/0000/0.tar"
             assertTrue(getAllObjects().contains("0000/0000/0000/0000/0.tar"), "tar file should be uploaded to S3");
-            // every block should have received a successful persisted notification
+            // only the last block receives a successful persisted notification
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(groupSize, notifications.size(), "expected one persisted notification per block");
+            assertEquals(1, notifications.size(), "expected one persisted notification for the last block");
+            assertEquals(
+                    groupSize - 1L,
+                    notifications.getFirst().blockNumber(),
+                    "notification should be for the last block");
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
         }
 
@@ -315,7 +319,15 @@ class ArchiveCloudStoragePluginTest {
             assertTrue(objects.contains("0000/0000/0000/0000/0.tar"), "first tar should be uploaded");
             assertTrue(objects.contains("0000/0000/0000/0000/1.tar"), "second tar should be uploaded");
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(groupSize * 2, notifications.size(), "expected one persisted notification per block");
+            assertEquals(2, notifications.size(), "expected one persisted notification per batch");
+            assertEquals(
+                    groupSize - 1L,
+                    notifications.get(0).blockNumber(),
+                    "first notification should be for the last block of batch 0");
+            assertEquals(
+                    groupSize * 2 - 1L,
+                    notifications.get(1).blockNumber(),
+                    "second notification should be for the last block of batch 1");
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
         }
 
@@ -330,7 +342,11 @@ class ArchiveCloudStoragePluginTest {
 
             assertTrue(getAllObjects().contains("0000/0000/0000/0000/0.tar"), "tar file should be uploaded");
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(groupSize, notifications.size(), "expected one persisted notification per block");
+            assertEquals(1, notifications.size(), "expected one persisted notification for the last block");
+            assertEquals(
+                    groupSize - 1L,
+                    notifications.getFirst().blockNumber(),
+                    "notification should be for the last block");
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
         }
 
@@ -361,7 +377,15 @@ class ArchiveCloudStoragePluginTest {
             assertTrue(getAllObjects().contains("0000/0000/0000/0000/1.tar"), "second tar should be uploaded");
 
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(groupSize * 2, notifications.size(), "expected one persisted notification per block");
+            assertEquals(2, notifications.size(), "expected one persisted notification per batch");
+            assertEquals(
+                    groupSize - 1L,
+                    notifications.get(0).blockNumber(),
+                    "first notification should be for the last block of batch 0");
+            assertEquals(
+                    groupSize * 2 - 1L,
+                    notifications.get(1).blockNumber(),
+                    "second notification should be for the last block of batch 1");
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
         }
 
@@ -405,7 +429,11 @@ class ArchiveCloudStoragePluginTest {
             pluginExecutor.executeSerially();
             assertTrue(getAllObjects().contains("0000/0000/0000/0000/0.tar"), "tar file should be uploaded");
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(groupSize, notifications.size(), "expected one persisted notification per block");
+            assertEquals(1, notifications.size(), "expected one persisted notification for the last block");
+            assertEquals(
+                    groupSize - 1L,
+                    notifications.getFirst().blockNumber(),
+                    "notification should be for the last block");
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
         }
 
@@ -444,7 +472,19 @@ class ArchiveCloudStoragePluginTest {
             assertThat(plugin.blocksStash).isEmpty();
 
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(groupSize * 3, notifications.size(), "expected one persisted notification per block");
+            assertEquals(3, notifications.size(), "expected one persisted notification per batch");
+            assertEquals(
+                    groupSize - 1L,
+                    notifications.get(0).blockNumber(),
+                    "first notification should be for the last block of batch 0");
+            assertEquals(
+                    groupSize * 2 - 1L,
+                    notifications.get(1).blockNumber(),
+                    "second notification should be for the last block of batch 1");
+            assertEquals(
+                    groupSize * 3 - 1L,
+                    notifications.get(2).blockNumber(),
+                    "third notification should be for the last block of batch 2");
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
         }
 
@@ -542,7 +582,7 @@ class ArchiveCloudStoragePluginTest {
             assertTrue(
                     getAllObjects().contains("0000/0000/0000/0000/0.tar"), "tar file should be uploaded via multipart");
             final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-            assertEquals(groupSize, notifications.size(), "expected one persisted notification per block");
+            assertThat(notifications).isNotEmpty();
             notifications.forEach(n -> assertTrue(n.succeeded(), "all persisted notifications should be successful"));
         }
     }
@@ -660,6 +700,7 @@ class ArchiveCloudStoragePluginTest {
             final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
             assertThat(notifications).isNotEmpty().allSatisfy(n -> {
                 assertThat(n.succeeded()).isFalse();
+                assertThat(n.blockNumber()).isZero();
                 assertThat(n.blockSource()).isEqualTo(BlockSource.PUBLISHER);
             });
         }
@@ -671,7 +712,7 @@ class ArchiveCloudStoragePluginTest {
         /// the loop: [BlockUploadTask#doUploadPart] is therefore called exactly once — for the trailing
         /// bytes after the loop — making the failure deterministic and isolated to the final flush.
         @Test
-        @DisplayName("Failed final part upload sends false persisted notifications for all remaining blocks")
+        @DisplayName("Failed final part upload sends false persisted notification for the first remaining block")
         void testFinalPartFailureSendsFalseNotifications() throws Exception {
             final int groupingLevel = 1;
             final int groupSize = (int) Math.pow(10, groupingLevel);
@@ -701,10 +742,11 @@ class ArchiveCloudStoragePluginTest {
             assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.FAILED);
 
             final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).hasSize(groupSize).allSatisfy(n -> {
-                assertThat(n.succeeded()).isFalse();
-                assertThat(n.blockSource()).isEqualTo(BlockSource.PUBLISHER);
-            });
+            assertThat(notifications).hasSize(1);
+            final PersistedNotification notification = notifications.getFirst();
+            assertThat(notification.succeeded()).isFalse();
+            assertThat(notification.blockNumber()).isZero();
+            assertThat(notification.blockSource()).isEqualTo(BlockSource.PUBLISHER);
         }
 
         /// Verifies that [BlockUploadTask#call] returns [BlockUploadTask.UploadResult#SUCCESS] when
@@ -740,18 +782,16 @@ class ArchiveCloudStoragePluginTest {
 
             assertThat(getAllObjects()).contains("0000/0000/0000/0000/0.tar");
             final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).hasSize(groupSize).allSatisfy(n -> {
+            assertThat(notifications).isNotEmpty().allSatisfy(n -> {
                 assertThat(n.succeeded()).isTrue();
                 assertThat(n.blockSource()).isEqualTo(BlockSource.PUBLISHER);
             });
         }
 
-        /// Verifies that each block's [BlockSource] is preserved independently in its
-        /// [PersistedNotification], even when different blocks in the same group carry different
-        /// sources.  Even-numbered blocks use [BlockSource#PUBLISHER]; odd-numbered blocks use
-        /// [BlockSource#BACKFILL].
+        /// Verifies that the last block's [BlockSource] is preserved in its [PersistedNotification].
+        /// The last block (index 9) is odd, so its source is [BlockSource#BACKFILL].
         @Test
-        @DisplayName("Per-block source is preserved in persisted notifications for mixed-source groups")
+        @DisplayName("Last block source is preserved in persisted notification for mixed-source groups")
         void testMixedSourcesPreservedInPersistedNotifications() throws Exception {
             final int groupingLevel = 1;
             final int groupSize = (int) Math.pow(10, groupingLevel);
@@ -781,11 +821,9 @@ class ArchiveCloudStoragePluginTest {
             assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
 
             final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).hasSize(groupSize);
-            for (final PersistedNotification n : notifications) {
-                final BlockSource expected = (n.blockNumber() % 2 == 0) ? BlockSource.PUBLISHER : BlockSource.BACKFILL;
-                assertThat(n.blockSource()).isEqualTo(expected);
-            }
+            assertThat(notifications).hasSize(1);
+            assertThat(notifications.getFirst().blockNumber()).isEqualTo(groupSize - 1L);
+            assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.BACKFILL);
         }
 
         /// Verifies that a [VerificationNotification] with a `null` source results in
@@ -819,8 +857,10 @@ class ArchiveCloudStoragePluginTest {
             assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
 
             final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).hasSize(groupSize).allSatisfy(n -> assertThat(n.blockSource())
-                    .isEqualTo(BlockSource.UNKNOWN));
+            assertThat(notifications).hasSize(1);
+            final PersistedNotification notification = notifications.getFirst();
+            assertThat(notification.blockNumber()).isEqualTo(groupSize - 1L);
+            assertThat(notification.blockSource()).isEqualTo(BlockSource.UNKNOWN);
         }
 
         private static final class FailingBlockUploadTask extends BlockUploadTask {

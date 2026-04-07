@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 
 import com.hedera.bucky.S3Client;
+import com.hedera.bucky.S3ClientInitializationException;
 import com.hedera.bucky.S3ResponseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.SequencedMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -91,7 +93,8 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
     /// were in that part, and the exception is rethrown so the [java.util.concurrent.Future]
     /// records it.
     @Override
-    public UploadResult call() throws Exception {
+    public UploadResult call()
+            throws S3ClientInitializationException, S3ResponseException, IOException, InterruptedException {
         UploadResult result = UploadResult.SUCCESS;
         try (S3Client s3 = new S3Client(
                 config.regionName(),
@@ -106,7 +109,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
             // always work without null checks.
             byte[] buffer = new byte[0];
             // Maps each buffered block number to its source, in insertion order.
-            final Map<Long, BlockSource> blocksInBuffer = new LinkedHashMap<>();
+            final SequencedMap<Long, BlockSource> blocksInBuffer = new LinkedHashMap<>();
 
             for (long blockNum = firstBlock;
                     blockNum < firstBlock + groupSize && result == UploadResult.SUCCESS;
@@ -126,11 +129,11 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                     }
                 } catch (InterruptedException e) {
                     LOGGER.log(TRACE, "Block upload task interrupted", e);
-                    try {
-                        cleanupEmptyUpload(s3, uploadId, etags);
-                    } catch (S3ResponseException | IOException ex) {
-                        LOGGER.log(INFO, "Failed to abort multipart upload after interruption", ex);
-                    }
+                    cleanupEmptyUpload(s3, uploadId, etags);
+                    // TODO(1166) Do something with the result of the cleanup (if it is false)
+                    throw e;
+                } catch (IOException e) {
+                    LOGGER.log(TRACE, "Failed to accumulate block %d".formatted(blockNum), e);
                     throw e;
                 }
             }
@@ -140,14 +143,16 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                 try {
                     doUploadPart(buffer, s3, uploadId, etags);
                 } catch (S3ResponseException | IOException e) {
-                    blocksInBuffer.forEach((bn, src) ->
-                            blockMessaging.sendBlockPersisted(new PersistedNotification(bn, false, 1_000, src)));
+                    final Map.Entry<Long, BlockSource> first = blocksInBuffer.firstEntry();
+                    blockMessaging.sendBlockPersisted(
+                            new PersistedNotification(first.getKey(), false, 1_000, first.getValue()));
                     LOGGER.log(INFO, "Failed to upload final part for key {0}", key, e);
                     result = UploadResult.FAILED;
                 }
                 if (result == UploadResult.SUCCESS) {
-                    blocksInBuffer.forEach((bn, src) ->
-                            blockMessaging.sendBlockPersisted(new PersistedNotification(bn, true, 1_000, src)));
+                    final Map.Entry<Long, BlockSource> last = blocksInBuffer.lastEntry();
+                    blockMessaging.sendBlockPersisted(
+                            new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
                 }
             }
 
@@ -168,7 +173,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
     /// @return a [BlockData] containing the extended buffer and the block's [BlockSource]
     /// @throws InterruptedException if the thread is interrupted; either [BlockingQueue#take] detects
     ///                              the flag and throws, or it was already set before the call
-    private BlockData accumulateBlock(long blockNum, byte[] buffer) throws InterruptedException {
+    private BlockData accumulateBlock(long blockNum, byte[] buffer) throws InterruptedException, IOException {
         if (Thread.interrupted()) {
             // Re-set the flag so that blockQueue.take() detects it and throws InterruptedException,
             // which the caller's catch block handles (including cleanupEmptyUpload when etags is empty).
@@ -202,37 +207,30 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
             S3Client s3,
             String uploadId,
             List<String> etags,
-            Map<Long, BlockSource> blocksInBuffer) {
+            SequencedMap<Long, BlockSource> blocksInBuffer) {
         byte[] remainder = buffer;
         if (buffer.length >= partSizeBytes) {
             try {
                 remainder = uploadPart(buffer, s3, uploadId, etags);
             } catch (S3ResponseException | IOException e) {
-                blocksInBuffer.forEach((bn, src) ->
-                        blockMessaging.sendBlockPersisted(new PersistedNotification(bn, false, 1_000, src)));
-                // blockNum is not yet in blocksInBuffer (it is added by the caller after this method
-                // returns), so its failure notification must be sent separately here.
-                blockMessaging.sendBlockPersisted(new PersistedNotification(blockNum, false, 1_000, blockSource));
+                final long firstBlockNum = blocksInBuffer.isEmpty()
+                        ? blockNum
+                        : blocksInBuffer.firstEntry().getKey();
+                final BlockSource firstBlockSource = blocksInBuffer.isEmpty()
+                        ? blockSource
+                        : blocksInBuffer.firstEntry().getValue();
+                blockMessaging.sendBlockPersisted(
+                        new PersistedNotification(firstBlockNum, false, 1_000, firstBlockSource));
                 LOGGER.log(
-                        INFO,
-                        "Failed to upload part containing blocks %d to %d"
-                                .formatted(
-                                        blocksInBuffer.isEmpty()
-                                                ? blockNum
-                                                : blocksInBuffer
-                                                        .keySet()
-                                                        .iterator()
-                                                        .next(),
-                                        blockNum),
-                        e);
+                        INFO, "Failed to upload part containing blocks %d to %d".formatted(firstBlockNum, blockNum), e);
                 return null;
             }
             // If the current block's bytes exactly fill the part, include it before sending notifications
             if (remainder.length == 0) {
                 blocksInBuffer.put(blockNum, blockSource);
             }
-            blocksInBuffer.forEach(
-                    (bn, src) -> blockMessaging.sendBlockPersisted(new PersistedNotification(bn, true, 1_000, src)));
+            final Map.Entry<Long, BlockSource> last = blocksInBuffer.lastEntry();
+            blockMessaging.sendBlockPersisted(new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
             // Reset the map so the caller starts fresh for the next part's worth of blocks.
             blocksInBuffer.clear();
         }
@@ -247,11 +245,17 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
     /// @param s3       the S3 client for this upload session
     /// @param uploadId the multipart upload ID to abort
     /// @param etags    the list of part ETags uploaded so far; abort is skipped if non-empty
-    private void cleanupEmptyUpload(S3Client s3, String uploadId, List<String> etags)
-            throws S3ResponseException, IOException {
+    private boolean cleanupEmptyUpload(S3Client s3, String uploadId, List<String> etags) {
+        boolean result = true;
         if (etags.isEmpty()) {
-            s3.abortMultipartUpload(key, uploadId);
+            try {
+                s3.abortMultipartUpload(key, uploadId);
+            } catch (S3ResponseException | IOException e) {
+                LOGGER.log(INFO, "Failed to abort multipart upload after interruption", e);
+                result = false;
+            }
         }
+        return result;
     }
 
     /// Sends a single part to S3 and records its ETag.  Every S3 part upload — whether a
