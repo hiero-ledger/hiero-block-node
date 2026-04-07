@@ -388,13 +388,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// This will discard buffered data for blocks that will never be forwarded
     /// and prevent the forwarder becoming "stuck" on an incomplete block.
     ///
-    /// @param blockNumber the latest persisted block number. Only queue
-    ///     entries whose key is strictly less than this value are candidates
+    /// @param blockNumber the latest persisted block number. Queue entries
+    ///     whose key is less than or equal to this value are candidates
     ///     for removal.
     private void clearObsoleteQueueItems(final long blockNumber) {
         if (queueByBlockMap != null && !queueByBlockMap.isEmpty()) {
             final NavigableSet<Long> keysBeforeBlock = new TreeSet<>();
-            keysBeforeBlock.addAll(queueByBlockMap.headMap(blockNumber).keySet());
+            keysBeforeBlock.addAll(queueByBlockMap.headMap(blockNumber, true).keySet());
             for (final Long candidate : keysBeforeBlock) {
                 if (!(blockProofs.containsKey(candidate) || hasBlockProof(queueByBlockMap.get(candidate)))) {
                     queueByBlockMap.remove(candidate);
