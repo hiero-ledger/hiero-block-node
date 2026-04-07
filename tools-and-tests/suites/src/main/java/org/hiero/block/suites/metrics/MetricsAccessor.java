@@ -51,7 +51,7 @@ public class MetricsAccessor {
      */
     public long getMetricValue(final String metricName, final MetricType type, final Map<String, String> labels)
             throws IOException, InterruptedException {
-        final String metricPrefix = "hiero_block_node:";
+        final String metricPrefix = "blocknode_";
         final String fullMetricName = metricPrefix + metricName + (type == MetricType.COUNTER ? "_total" : "");
 
         HttpRequest request =
