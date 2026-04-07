@@ -16,8 +16,10 @@
 # Arguments:
 #   proto-path        Path to extracted protobuf files (required)
 #   grpc-endpoint     Block Node gRPC endpoint (default: localhost:40840)
-#   max-block         Stop and fail if this block is reached without WRAPS
-#                     (default: 0 = no limit, wait forever)
+#   max-block         Stop and fail if this block is reached without WRAPS.
+#                     Blocks are produced every ~2s; the script waits patiently
+#                     for each block to become available. Also enforces a hard
+#                     wall-clock timeout of max_block*2 seconds. (default: 0 = no limit)
 #   port-forward-cmd  Optional shell command to restart port-forwards on connection error.
 #                     When provided, a connection error triggers this command and retries
 #                     instead of failing immediately (max 3 restarts).
@@ -241,6 +243,15 @@ function print_result {
   format_block_line "$((transition_block + 1))" "$next_result"
 }
 
+# Hard timeout: max_block * 2s (block production interval).
+# If max_block=1000, timeout=2000s (~33 min). 0 means no timeout.
+if [[ "$MAX_BLOCK" -gt 0 ]]; then
+  HARD_TIMEOUT=$(( MAX_BLOCK * 2 ))
+else
+  HARD_TIMEOUT=0
+fi
+START_TIME=$(date +%s)
+
 # Main: scan every STEP blocks
 echo "Scanning for WRAPS signature (every ${STEP} blocks)..."
 block=0
@@ -254,6 +265,18 @@ while true; do
     echo "  Status: WRAPS NOT DETECTED"
     echo "  Max block limit: ${MAX_BLOCK}"
     exit 1
+  fi
+
+  # Enforce hard wall-clock timeout
+  if [[ "$HARD_TIMEOUT" -gt 0 ]]; then
+    local_elapsed=$(( $(date +%s) - START_TIME ))
+    if [[ "$local_elapsed" -ge "$HARD_TIMEOUT" ]]; then
+      echo ""
+      echo "=== Signature Transition ==="
+      echo "  Status: WRAPS NOT DETECTED"
+      echo "  Hard timeout: ${HARD_TIMEOUT}s elapsed (max_block=${MAX_BLOCK} * 2s)"
+      exit 1
+    fi
   fi
 
   result=$(get_sig_type_safe "$block")
@@ -278,19 +301,15 @@ while true; do
     (( wait_count++ )) || true
     printf "."
     sleep 5
-    # After 12 attempts (~1 min), skip this block and move on
-    if [[ "$wait_count" -ge 12 ]]; then
-      printf " (skipped after %ds)\n" $((wait_count * 5))
-      waiting_for=0
-    else
-      block=$(( block - STEP ))
-    fi
+    # Block production is every ~2s. Wait patiently — the block will be produced.
+    # Only max_block (checked at top of loop) limits how long we wait.
+    block=$(( block - STEP ))
     continue
   fi
 
   # End the waiting dots line if we were waiting
   if [[ "${waiting_for:-0}" -gt 0 ]]; then
-    printf " (%ds)\n" $((wait_count * 5))
+    printf " (available after %ds)\n" $((wait_count * 5))
     waiting_for=0
   fi
 
