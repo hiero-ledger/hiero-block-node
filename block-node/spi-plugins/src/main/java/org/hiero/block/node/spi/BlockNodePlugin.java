@@ -15,7 +15,7 @@ public interface BlockNodePlugin {
      * The name of the metrics category for all the block node metrics. Having here makes it very easy for plugins to
      * create metrics.
      */
-    String METRICS_CATEGORY = "hiero_block_node";
+    String METRICS_CATEGORY = "blocknode";
 
     /**
      * Special value for block number that indicates that the block number is unknown.
