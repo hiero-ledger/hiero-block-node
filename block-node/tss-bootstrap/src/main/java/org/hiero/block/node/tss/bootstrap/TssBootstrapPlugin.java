@@ -86,7 +86,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
         final var tssParametersFile = tssBootstrapConfig.tssParametersFilePath();
         try {
             Files.createDirectories(tssParametersFile.getParent());
-            Bytes serialized = TssData.PROTOBUF.toBytes(context.tssData());
+            Bytes serialized = TssData.PROTOBUF.toBytes(this.context.tssData());
             Files.write(tssParametersFile, serialized.toByteArray());
             LOGGER.log(INFO, "Persisted TssData to file: {0}", tssParametersFile);
         } catch (IOException e) {
