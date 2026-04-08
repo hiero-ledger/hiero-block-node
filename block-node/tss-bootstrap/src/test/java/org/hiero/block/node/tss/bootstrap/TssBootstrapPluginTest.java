@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.tss.bootstrap;
 
+import static java.lang.System.Logger.Level.INFO;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -104,9 +105,10 @@ public class TssBootstrapPluginTest
             @Override
             public void onContextUpdate(BlockNodeContext context) {
                 updateTssDataCount[0]++;
+                LOGGER.log(INFO, "Processed TssBootstrapConfig: {0}", context);
             }
         };
-        start(tssBootstrapPlugin, new NoBlocksHistoricalBlockFacility());
+        start(tssBootstrapPlugin, new NoBlocksHistoricalBlockFacility(), new HashMap<>());
         assertEquals(0, updateTssDataCount[0]);
     }
 }

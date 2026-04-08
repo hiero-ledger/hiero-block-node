@@ -53,7 +53,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
             @NonNull final ApplicationStateFacility applicationStateFacility) {
         this.context = context;
         this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
-        tssBootstrapConfig = context.configuration().getConfigData(TssBootstrapConfig.class);
+        tssBootstrapConfig = this.context.configuration().getConfigData(TssBootstrapConfig.class);
 
         final var tssParametersFile = tssBootstrapConfig.tssParametersFilePath();
         // environment config takes precedence
@@ -117,8 +117,6 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
                 || schnorrPublicKey64.isBlank()) {
             return false;
         }
-        ;
-
         TssData tssData = buildTssData(ledgerId64, wrapsVerificationKey64, nodeId, weight, schnorrPublicKey64);
         applicationStateFacility.updateTssData(tssData);
         return true;
