@@ -124,7 +124,7 @@ jobs:
         run: ${GRADLE_EXEC} clean assemble
 
       - name: Prepare plugin JARs for solo-dev image
-        run: ${GRADLE_EXEC} :block-node:app:prepareDockerPlugins
+        run: ${GRADLE_EXEC} :app:prepareDockerPlugins
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
