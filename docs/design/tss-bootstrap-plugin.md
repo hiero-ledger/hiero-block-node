@@ -21,69 +21,68 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 
 - Deliver TSS booststrap information to a Block Node that does not have access to the network Block 0 transactions.
   - A new Block Node needs to learn the current TSS state (roster, verification key, ledger ID)
-    - Plugin implements the existing BlockNodePlugin interfaces
+    - Plugin implements the existing `BlockNodePlugin` interfaces
     - The planned plugin queries a peer BN's serverStatusDetail gRPC endpoint to retrieve TSS information
       - gRPC peer communication follows the same WebClient pattern used elsewhere in the codebase
-    - The planned plugin will persist the TSS data locally and load it during plugin init() allowing it to be ready when block proofs arrive with TSS Signatures.
-    - If TSS data is not present locally, the plugin will check to see if the TSS Data is stored in its config. TssBootstrapPlugin config can be used for both testing and temporary initialization for a Block Node
+    - An `ApplicationStateFacility` interface will be created.
+      - Responsible for handling requests to change `TssData`
+      - Responsible for persisting the `TssData`
+      - Responsible for notifying plugins when the `BlockNodeContext` changes
+      - Will initially be implemented by the `BlockNodeApp`
+    - The plugin will check to see if `TSSData` is stored in its config. `TssBootstrapPlugin` config can be used for both testing and temporary initialization for a Block Node
     - The planned plugin will periodically query its peers for TSS data updates.
   - TSS data is exposed to other plugins
     - The BlockNode plugin interface will be refactored to have an onContextUpdated method that will be called by the BlockNode application when the context is updated.
-    - The StatusDetailPlugin will implement ```onContextUpdate()``` and receive TSS data updates via the
+    - The `StatusDetailPlugin` will implement `onContextUpdate()` and receive TSS data updates via the `ApplicationStateFacility`
 
 ## Terms
 
-<dl>
-  <dt>Term</dt>
-  <dd>A Term is any word or short phrase used in this document that
-      requires clear definition and/or explanation.</dd>
-</dl>
-
 ## Entities
+
+### ApplicationStataFacility
+
+- A new entity responsible for updating the plugins when context changes.
+- It will call the `BlockNodePlugin.onContextUpdate()` on all plugins when the `BlockNodeContext` changes.
+- It will be passed directly to the plugins as a parameter to init()
+- Plugins can use the `updateTssData` method to update the `TssData` in the `BlockNodeContext`
+- It will process requests to change `TssData`
+- It Will persist `TssData`
+- It Will load persisted `TssData` prior to plugin initialization
+- Will initially be implemented by the `BlockNodeApp`
 
 ### BlockNodeContext
 
-- Will contain the ```TssData``` information and is passed to plugins in the ```BlockNodePlugin.init()``` call.
-- Could possibly contain the ```PluginManager``` so that plugins can pass context updates directly to the ```PluginManager```
-- The BlockNodeContext will also be sent to the plugins via the ```BlockNodePlugin.onContextUpdate()``` callback function on the plugins
+- Will contain the `TssData` information and is passed to plugins in the `BlockNodePlugin.init()` call.
+- The BlockNodeContext will also be sent to the plugins via the `BlockNodePlugin.onContextUpdate()` callback function on the plugins
 
 ### ServiceStatusServicePlugin
 
-- The plugin responsible for the ```serverStatus```  and ```serverStatusDetail``` gRPC calls.
-- Will implement the ```BlockNodePlugin.onContextUpdate()``` to receive ```TssData``` updates
-- Will respond to peer requests for ```TssData``` via the ```serverStatusDetail``` call.
+- The plugin responsible for the `serverStatus`  and `serverStatusDetail` gRPC calls.
+- Will implement the `BlockNodePlugin.onContextUpdate()` to receive `TssData` updates
+- Will respond to peer requests for `TssData` via the `serverStatusDetail` call.
 
 ### TssBootstrapConfig
 
-- Used to configure the BN Peers that will be used to query serverStatusDetail
+- Used to configure the BN Peers that will be used to query `serverStatusDetail`
 - Used to bootstrap TSS data via the Config
-- Should only be used if there is no locally persisted data
+- Will override initial data provided by the `ApplicationStateFacility`
 
 ### TssBootstrapPlugin
 
-- Will contact peer BNs by querying the ```serverStatusDetail``` gRPC call.
-- Will persist TssData locally and use that data during init.
-- TssData can also be configured using the TssBootstrapConfig
-- It will notify the PluginManager when it has a TssData update.
+- Will contact peer BNs by querying the `serverStatusDetail` gRPC call.
+- `TssData` can also be configured using the `TssBootstrapConfig`
+- `TssBootstrapConfig` data will override the `TssData` received during `init()`.
+- It will notify the `ApplicationStateFacility` when it has a `TssData` update.
 
 ### VerificationPlugin
 
 - Verifies block 0
-- Will notify the  PluginManager when it detects changes to ```TssData```
-- Will implement the ```BlockNodePlugin.onContextUpdate()``` to receive ```TssData``` updates
-
-### PluginManager
-
-- A new entity responsible for updating the plugins when context changes.
-- It will call the ```BlockNodePlugin.onContextUpdate()``` on all plugins when the ```BlockNodeContext``` changes.
-- It could register for ```BlockNodeContext``` Change notifications, validate the change if possible, and notify all plugins if a valid change has been received
-- It could be passed directly to the plugins during initialization so that plugins can access a method for updating context changes
-- It will be notified of ```BlockNodeContext``` changes by the ```TssBootstrapPlugin``` and the ```VerificationPlugin```
-- It will be the central entity, part of the BlockNodeApp that is responsible for notifying plugins of ```BlockNodeContext``` changes
+- Will notify the `ApplicationStateFacility` when it detects changes to `TssData`
+- Will implement the `BlockNodePlugin.onContextUpdate()` to receive `TssData` updates
 
 ### TssData
 
-- The protobuf TssData used in the serverStatusDetailsResponse
+- The protobuf `TssData` used in the `serverStatusDetailsResponse`
 
 ```markdown
 /**
@@ -147,9 +146,6 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 ## Design
 
 - Oustanding design decisions
-  - How should the plugin manager be contacted by plugins for context changes?
-    - ContextChangeNotification?
-    - Passed to plugins via BlockNodeContext and direct method access
   - Should the TssData or TssRoster messages have the starting block number that the TssData is valid from. Either
 
 ## Diagram
@@ -187,14 +183,16 @@ TBD
 
 1. Plugin ordering — how does bootstrap init before verification? ServiceLoader doesn't guarantee order.
    - Plugins will be updated using the ```BlockNodePlugin.onContextUpdate()```.
-   - Plugins will be updated after ```BlockNodePlugin.init()```.
-2. Will TssBootstrap plugin persist the .bin file into the Verification PVC?
+   - Initial `TssData` will be provided in the BlockNodeContext.
+2. Will the `TssBootstrapPlugin` persist the .bin file into the Verification PVC?
    - Plugins should not share configuration information.
    - The verification plugin should manage its own configuration
-   - When the verification plugins detects new TssData, ie Block 0, it will notify the plugin manager.
-   - The plugin manager will validate the TssData and update the other plugins via ```BlockNodePlugin.onContextUpdate()```
+   - The `ApplicationStateFacility` will be responsible for persisting the `TssData`
+   - When the verification plugins detects new `TssData`, ie Block 0, it will notify the `ApplicationStateFacility`.
+   - The `ApplicationStateFacility` will update all plugins of BlockNodeContext changes via `BlockNodePlugin.onContextUpdate()`
 3. Is this plugin intended to run only once at BN first run.
-   - The plugin will periodically query its peer BN servers to see if they have any TssData updates.
+   - The plugin will periodically query its peer BN servers to see if they have any `TssData` updates.
 4. Where and how it will get the BN source(s) for trusted peers to get the TSS data from? We already have the concept of backfill peers.
    - Plugins should not share configuration information.
-   - The TssBootstrapPlugin will manage its own configuration.
+   - The `TssBootstrapPlugin` will manage its own configuration.
+   - Perhaps the `ApplicationStateFacility` should manage the BN Peer information
