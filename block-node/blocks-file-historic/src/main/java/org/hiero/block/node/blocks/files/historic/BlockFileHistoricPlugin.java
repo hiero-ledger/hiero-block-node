@@ -84,8 +84,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
     private ExecutorService zipMoveExecutorService;
     /** The block node context. */
     private BlockNodeContext context;
-    /** The application state facility, for updating application state. */
-    private ApplicationStateFacility applicationStateFacility;
     /** The zip block archive. */
     private ZipBlockArchive zipBlockArchive;
     /** The number of blocks per zip file. */
@@ -139,7 +137,6 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             @NonNull final ApplicationStateFacility applicationStateFacility) {
         try {
             this.context = Objects.requireNonNull(context);
-            this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
             config = context.configuration().getConfigData(FilesHistoricConfig.class);
             blockRetentionThreshold = config.blockRetentionThreshold();
             // Initialize metrics
