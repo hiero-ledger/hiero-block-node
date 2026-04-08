@@ -7,9 +7,10 @@ import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
+// spotless:off
 @ConfigData("cloud-archive")
 public record ArchiveCloudStorageConfig(
-        // spotless:off
+
     @Loggable @ConfigProperty(defaultValue = "5") @Max(6) @Min(1) int groupingLevel,
     @Loggable @ConfigProperty(defaultValue = "10") @Max(2047) @Min(5) int partSizeMb,
     @Loggable @ConfigProperty(defaultValue = "") String endpointUrl,

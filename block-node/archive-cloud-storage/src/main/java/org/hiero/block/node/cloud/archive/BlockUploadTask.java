@@ -10,12 +10,13 @@ import com.hedera.bucky.S3ResponseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SequencedMap;
+import java.util.SortedMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentSkipListMap;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
@@ -109,7 +110,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
             // always work without null checks.
             byte[] buffer = new byte[0];
             // Maps each buffered block number to its source, in insertion order.
-            final SequencedMap<Long, BlockSource> blocksInBuffer = new LinkedHashMap<>();
+            final SortedMap<Long, BlockSource> blocksInBuffer = new ConcurrentSkipListMap<>();
 
             for (long blockNum = firstBlock;
                     blockNum < firstBlock + groupSize && result == UploadResult.SUCCESS;
@@ -208,34 +209,35 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
             String uploadId,
             List<String> etags,
             SequencedMap<Long, BlockSource> blocksInBuffer) {
-        byte[] remainder = buffer;
-        if (buffer.length >= partSizeBytes) {
-            try {
-                remainder = uploadPart(buffer, s3, uploadId, etags);
-            } catch (S3ResponseException | IOException e) {
-                final long firstBlockNum = blocksInBuffer.isEmpty()
-                        ? blockNum
-                        : blocksInBuffer.firstEntry().getKey();
-                final BlockSource firstBlockSource = blocksInBuffer.isEmpty()
-                        ? blockSource
-                        : blocksInBuffer.firstEntry().getValue();
-                blockMessaging.sendBlockPersisted(
-                        new PersistedNotification(firstBlockNum, false, 1_000, firstBlockSource));
-                LOGGER.log(
-                        INFO, "Failed to upload part containing blocks %d to %d".formatted(firstBlockNum, blockNum), e);
-                return null;
-            }
-            // If the current block's bytes exactly fill the part, include it before sending notifications
-            if (remainder.length == 0) {
-                blocksInBuffer.put(blockNum, blockSource);
-            }
-            final Map.Entry<Long, BlockSource> last = blocksInBuffer.lastEntry();
-            blockMessaging.sendBlockPersisted(new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
-            // Reset the map so the caller starts fresh for the next part's worth of blocks.
-            blocksInBuffer.clear();
-        }
+        try {
+            byte[] remainder = buffer;
 
-        return remainder;
+            if (buffer.length >= partSizeBytes) {
+                remainder = uploadPart(buffer, s3, uploadId, etags);
+
+                // If the current block's bytes exactly fill the part, include it before sending notifications
+                if (remainder.length == 0) {
+                    blocksInBuffer.put(blockNum, blockSource);
+                }
+                final Map.Entry<Long, BlockSource> last = blocksInBuffer.lastEntry();
+                blockMessaging.sendBlockPersisted(
+                        new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
+                // Reset the map so the caller starts fresh for the next part's worth of blocks.
+                blocksInBuffer.clear();
+            }
+
+            return remainder;
+        } catch (S3ResponseException | IOException e) {
+            final long firstBlockNum = blocksInBuffer.isEmpty()
+                    ? blockNum
+                    : blocksInBuffer.firstEntry().getKey();
+            final BlockSource firstBlockSource = blocksInBuffer.isEmpty()
+                    ? blockSource
+                    : blocksInBuffer.firstEntry().getValue();
+            blockMessaging.sendBlockPersisted(new PersistedNotification(firstBlockNum, false, 1_000, firstBlockSource));
+            LOGGER.log(INFO, "Failed to upload part containing blocks %d to %d".formatted(firstBlockNum, blockNum), e);
+            return null;
+        }
     }
 
     /// Aborts the multipart upload if no parts have been uploaded yet (i.e., [etags] is empty).
@@ -246,16 +248,15 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
     /// @param uploadId the multipart upload ID to abort
     /// @param etags    the list of part ETags uploaded so far; abort is skipped if non-empty
     private boolean cleanupEmptyUpload(S3Client s3, String uploadId, List<String> etags) {
-        boolean result = true;
-        if (etags.isEmpty()) {
-            try {
+        try {
+            if (etags.isEmpty()) {
                 s3.abortMultipartUpload(key, uploadId);
-            } catch (S3ResponseException | IOException e) {
-                LOGGER.log(INFO, "Failed to abort multipart upload after interruption", e);
-                result = false;
             }
+            return true;
+        } catch (S3ResponseException | IOException e) {
+            LOGGER.log(INFO, "Failed to abort multipart upload after interruption", e);
+            return false;
         }
-        return result;
     }
 
     /// Sends a single part to S3 and records its ETag.  Every S3 part upload — whether a
@@ -273,6 +274,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         final String etag = s3.multipartUploadPart(key, uploadId, partNumber, buffer);
         etags.add(etag);
         LOGGER.log(TRACE, "Uploaded part {0}, etag {1}", partNumber, etag);
+        // TODO(1166) catch exception in the method body and return false as method result (otherwise true)
     }
 
     /// Splits `buffer` into a [partSizeBytes]-sized part and a remainder, delegates the upload to

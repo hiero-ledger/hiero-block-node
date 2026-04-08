@@ -4,7 +4,7 @@ package org.hiero.block.node.cloud.archive;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
-import static org.hiero.block.node.cloud.archive.BlockUploadTask.*;
+import static org.hiero.block.node.cloud.archive.BlockUploadTask.UploadResult;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
