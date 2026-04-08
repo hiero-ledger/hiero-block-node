@@ -14,7 +14,6 @@ import java.lang.System.Logger.Level;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -59,8 +58,6 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
-    /** The application state facility, for updating application state. */
-    private ApplicationStateFacility applicationStateFacility;
     /** A handler for client requests */
     private SubscribeBlockStreamHandler clientHandler;
 
@@ -75,7 +72,6 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
             @NonNull final ServiceBuilder serviceBuilder,
             @NonNull final ApplicationStateFacility applicationStateFacility) {
         this.context = requireNonNull(context);
-        this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
         // register us as a service
         serviceBuilder.registerGrpcService(this);
     }
