@@ -70,9 +70,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
     // Plugin infrastructure
     private BlockNodeContext context;
-    /** The application state facility, for updating application state. */
-    private ApplicationStateFacility applicationStateFacility;
-
     private BackfillConfiguration backfillConfiguration;
     private long earliestManagedBlock;
     private boolean hasBNSourcesPath = false;
@@ -130,7 +127,6 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             ServiceBuilder serviceBuilder,
             @NonNull final ApplicationStateFacility applicationStateFacility) {
         this.context = context;
-        this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
         backfillConfiguration = context.configuration().getConfigData(BackfillConfiguration.class);
         earliestManagedBlock =
                 context.configuration().getConfigData(NodeConfig.class).earliestManagedBlock();

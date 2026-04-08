@@ -56,7 +56,9 @@ public interface BlockNodePlugin {
     default void init(
             BlockNodeContext context,
             ServiceBuilder serviceBuilder,
-            ApplicationStateFacility applicationStateFacility) {}
+            ApplicationStateFacility applicationStateFacility) {
+        // do nothing
+    }
 
     /**
      * Start the plugin. This method is called when the block node is starting up after all initialization is complete.
