@@ -14,5 +14,7 @@ public interface ApplicationStateFacility {
      *
      * @param tssData - The TssData to be updated on the `BlockNodeContext`
      * */
-    default void updateTssData(TssData tssData) {}
+    default void updateTssData(TssData tssData) {
+        // do nothing by default
+    }
 }

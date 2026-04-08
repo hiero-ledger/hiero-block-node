@@ -7,7 +7,6 @@ import static java.util.Objects.requireNonNull;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import org.hiero.block.api.BlockNodeServiceInterface;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
@@ -40,8 +39,6 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private HistoricalBlockFacility blockProvider;
     /** The block node context, used to provide access to facilities */
     private BlockNodeContext context;
-    /** The application state facility, for updating application state. */
-    private ApplicationStateFacility applicationStateFacility;
     /** Counter for the number of status requests */
     private LongCounter.Measurement requestStatusCounter;
     /** Counter for the number of detail requests */
@@ -133,7 +130,6 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
             @NonNull final ApplicationStateFacility applicationStateFacility) {
         requireNonNull(serviceBuilder);
         this.context = requireNonNull(context);
-        this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
         this.blockProvider = requireNonNull(context.historicalBlockProvider());
 
         final MetricRegistry metricRegistry = context.metricRegistry();
