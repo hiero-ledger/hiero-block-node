@@ -120,8 +120,6 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The configuration for this plugin. */
     private FilesRecentConfig config;
-    /** The applicationStateFacility for this block node. */
-    private ApplicationStateFacility applicationStateFacility;
     /** The block messaging facility. */
     private BlockMessagingFacility blockMessaging;
     /** The set of available blocks. */
@@ -169,7 +167,6 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             final ServiceBuilder serviceBuilder,
             ApplicationStateFacility applicationStateFacility) {
         this.config = context.configuration().getConfigData(FilesRecentConfig.class);
-        this.applicationStateFacility = applicationStateFacility;
         blockRetentionThreshold = config.blockRetentionThreshold();
         this.blockMessaging = context.blockMessaging();
         // Initialize metrics
