@@ -20,8 +20,10 @@ import java.util.List;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -47,11 +49,11 @@ class BlockNodeAppTest {
     /**
      * Create a mocked plugin of the given class.
      *
-     * @param num The instance number of the plugin to create. This is used to differentiate different instances of the
-     *            plugin.
+     * @param num         The instance number of the plugin to create. This is used to differentiate different instances
+     *                    of the plugin.
      * @param pluginClass The class of the plugin to create. This is used to create the plugin.
+     * @param <T>         The type of the plugin to create. This is used to create the plugin.
      * @return The mocked plugin instance.
-     * @param <T> The type of the plugin to create. This is used to create the plugin.
      */
     private static <T extends BlockNodePlugin> T createMockedPlugin(int num, Class<T> pluginClass) {
         T plugin = mock(pluginClass);
@@ -140,8 +142,8 @@ class BlockNodeAppTest {
     }
 
     /**
-     * This test aims to insure the independence of plugins by starting them in varying order.
-     * Validate that starting plugins in parallel works
+     * This test aims to insure the independence of plugins by starting them in varying order. Validate that starting
+     * plugins in parallel works
      */
     @Test
     @DisplayName("Test plugin startup in parallel")
@@ -154,8 +156,8 @@ class BlockNodeAppTest {
     }
 
     /**
-     * This test aims to insure the independence of plugins by starting them in varying order.
-     * Test in ServiceLoader Order to make sure plugins load correctly
+     * This test aims to insure the independence of plugins by starting them in varying order. Test in ServiceLoader
+     * Order to make sure plugins load correctly
      */
     @Test
     @DisplayName("Test plugin startup in ServiceLoader order")
@@ -176,9 +178,9 @@ class BlockNodeAppTest {
     }
 
     /**
-     * This test aims to insure the independence of plugins by starting them in varying order.
-     * Test in reverse ServiceLoader Order to make sure plugins load correctly
-     * This should identify any dependencies on ServiceLoader order
+     * This test aims to insure the independence of plugins by starting them in varying order. Test in reverse
+     * ServiceLoader Order to make sure plugins load correctly This should identify any dependencies on ServiceLoader
+     * order
      */
     @Test
     @DisplayName("Test plugin startup in reverse order")
@@ -199,9 +201,9 @@ class BlockNodeAppTest {
     }
 
     /**
-     * This test aims to insure the independence of plugins by starting them in varying order.
-     * Use {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness.
-     * as this greatly increases the unit test time.
+     * This test aims to insure the independence of plugins by starting them in varying order. Use
+     * {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness. as this
+     * greatly increases the unit test time.
      */
     @Test
     @DisplayName("Test plugin startup in shuffled order")
@@ -273,5 +275,32 @@ class BlockNodeAppTest {
         assertEquals(State.RUNNING, blockNodeApp.blockNodeState());
         blockNodeApp.shutdown("BlockNodeTestApp", "testPluginStartupIndependence");
         assertEquals(State.SHUTTING_DOWN, blockNodeApp.blockNodeState());
+    }
+
+    private static class TestPlugin implements BlockNodePlugin {
+        int contextUpdated = 0;
+
+        @Override
+        public void onContextUpdate(BlockNodeContext context) {
+            contextUpdated++;
+        }
+    }
+
+    /**
+     * Test ApplicationStateFacility.
+     */
+    @Test
+    @DisplayName("Test ApplicationStateFacility")
+    void testApplicationStateFacility() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        final TestPlugin testPlugin = new TestPlugin();
+
+        blockNodeApp.loadedPlugins.add(testPlugin);
+
+        blockNodeApp.updateTssData(TssData.DEFAULT);
+        blockNodeApp.updateTssData(TssData.DEFAULT);
+
+        assertEquals(2, testPlugin.contextUpdated);
     }
 }

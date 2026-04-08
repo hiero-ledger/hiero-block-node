@@ -4,6 +4,7 @@ package org.hiero.block.node.spi;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -48,6 +49,37 @@ public class BlockNodePluginTest {
         }
     };
     private static final HttpService testHttpService = rules -> {};
+
+    private static class TestApplicationStateFacilityDefault implements ApplicationStateFacility {}
+
+    @Test
+    @DisplayName("Test default ApplicationStateFacility.updateTssData()")
+    void testDefaultUpdateTssData() {
+        TestApplicationStateFacilityDefault testApplicationStateFacilityDefault =
+                new TestApplicationStateFacilityDefault();
+        try {
+            testApplicationStateFacilityDefault.updateTssData(TssData.DEFAULT);
+        } catch (Exception e) {
+            fail(e);
+        }
+    }
+
+    private static class TestApplicationStateFacility implements ApplicationStateFacility {
+        TssData tssData = null;
+
+        @Override
+        public void updateTssData(TssData tssData) {
+            this.tssData = tssData;
+        }
+    }
+
+    @Test
+    @DisplayName("Test ApplicationStateFacility.updateTssData()")
+    void testUpdateTssData() {
+        TestApplicationStateFacility testApplicationStateFacility = new TestApplicationStateFacility();
+        testApplicationStateFacility.updateTssData(TssData.DEFAULT);
+        assertEquals(TssData.DEFAULT, testApplicationStateFacility.tssData);
+    }
 
     private static class TestBlockNodePlugin implements BlockNodePlugin {
         BlockNodeContext context;
