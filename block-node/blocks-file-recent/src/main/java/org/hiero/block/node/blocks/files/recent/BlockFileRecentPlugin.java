@@ -36,6 +36,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -119,6 +120,8 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /** The configuration for this plugin. */
     private FilesRecentConfig config;
+    /** The applicationStateFacility for this block node. */
+    private ApplicationStateFacility applicationStateFacility;
     /** The block messaging facility. */
     private BlockMessagingFacility blockMessaging;
     /** The set of available blocks. */
@@ -161,8 +164,12 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
      * {@inheritDoc}
      */
     @Override
-    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
+    public void init(
+            final BlockNodeContext context,
+            final ServiceBuilder serviceBuilder,
+            ApplicationStateFacility applicationStateFacility) {
         this.config = context.configuration().getConfigData(FilesRecentConfig.class);
+        this.applicationStateFacility = applicationStateFacility;
         blockRetentionThreshold = config.blockRetentionThreshold();
         this.blockMessaging = context.blockMessaging();
         // Initialize metrics
