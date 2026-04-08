@@ -44,9 +44,6 @@ import org.hiero.metrics.core.MetricRegistry;
  * notifications. It is designed to be thread safe and can be used by multiple threads.
  */
 public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
-    /** The application state facility, for updating application state. */
-    private ApplicationStateFacility applicationStateFacility;
-
     /** Logger for the messaging service. */
     private static final System.Logger LOGGER = System.getLogger(BlockMessagingFacilityImpl.class.getName());
 
@@ -234,7 +231,6 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             BlockNodeContext context,
             ServiceBuilder serviceBuilder,
             ApplicationStateFacility applicationStateFacility) {
-        this.applicationStateFacility = applicationStateFacility;
         final MessagingConfig messagingConfig = context.configuration().getConfigData(MessagingConfig.class);
         blockItemDisruptor = new Disruptor<>(
                 BlockItemBatchRingEvent::new,
