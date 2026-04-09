@@ -89,7 +89,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with valid parameters")
         void testValidParameters() {
             assertThatNoException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager);
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, "");
             });
         }
 
@@ -101,7 +101,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null reply pipeline")
         void testNullReplyPipeline() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, null, validMetricsHodler, validPublisherManager);
+                new PublisherHandler(validNextId, null, validMetricsHodler, validPublisherManager, "");
             });
         }
 
@@ -113,7 +113,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null metrics holder")
         void testNullMetricsHolder() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, null, validPublisherManager);
+                new PublisherHandler(validNextId, validReplyPipeline, null, validPublisherManager, "");
             });
         }
 
@@ -125,8 +125,128 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null publisher manager")
         void testNullPublisherManager() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, null);
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, null, "");
             });
+        }
+
+        /**
+         * This test aims to assert that the constructor of {@link PublisherHandler} throws a
+         * {@link NullPointerException} when the correlation ID is null.
+         */
+        @Test
+        @DisplayName("Test constructor with null correlation ID")
+        void testNullCorrelationId() {
+            assertThatNullPointerException().isThrownBy(() -> {
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, null);
+            });
+        }
+    }
+
+    /// Tests verifying that the correlation ID from the gRPC header is prefixed on all log messages.
+    @Nested
+    @DisplayName("Correlation ID Logging Tests")
+    class CorrelationIdLoggingTest {
+        private static final String TEST_CORRELATION_ID = "N3-STR1";
+
+        private TestResponsePipeline<PublishStreamResponse> repliesPipeline;
+        private MetricsHolder metrics;
+        private TestStreamPublisherManager manager;
+        private java.util.logging.Logger julLogger;
+        private TestLogHandler logHandler;
+
+        @BeforeEach
+        void setup() {
+            repliesPipeline = new TestResponsePipeline<>();
+            metrics = createMetrics();
+            manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
+
+            julLogger = java.util.logging.Logger.getLogger(PublisherHandler.class.getName());
+            logHandler = new TestLogHandler();
+            julLogger.addHandler(logHandler);
+            julLogger.setLevel(java.util.logging.Level.ALL);
+        }
+
+        @org.junit.jupiter.api.AfterEach
+        void tearDown() {
+            julLogger.removeHandler(logHandler);
+        }
+
+        /**
+         * Verifies that when a correlation ID is set, all log messages emitted by
+         * {@link PublisherHandler} are prefixed with {@code [correlationId] }.
+         */
+        @Test
+        @DisplayName("Log messages are prefixed with correlation ID when set")
+        void testCorrelationIdPrefixedInLogs() {
+            final PublisherHandler handler =
+                    new PublisherHandler(1L, repliesPipeline, metrics, manager, TEST_CORRELATION_ID);
+            manager.addHandler(handler);
+
+            handler.handleFailedVerification(42L);
+
+            assertThat(logHandler.getLogMessages())
+                    .anyMatch(msg -> msg.startsWith("[" + TEST_CORRELATION_ID + "] "));
+        }
+
+        /**
+         * Verifies that when no correlation ID is set (empty string), log messages are
+         * emitted without any prefix.
+         */
+        @Test
+        @DisplayName("Log messages have no prefix when correlation ID is empty")
+        void testNoCorrelationIdPrefix() {
+            final PublisherHandler handler = new PublisherHandler(1L, repliesPipeline, metrics, manager, "");
+            manager.addHandler(handler);
+
+            handler.handleFailedVerification(42L);
+
+            assertThat(logHandler.getLogMessages())
+                    .noneMatch(msg -> msg.startsWith("["));
+        }
+
+        /**
+         * Verifies that the correlation ID prefix appears on multiple distinct log call-sites,
+         * covering both DEBUG and TRACE level messages.
+         */
+        @Test
+        @DisplayName("Correlation ID prefix appears on both DEBUG and TRACE log messages")
+        void testCorrelationIdPrefixOnMultipleLevels() {
+            final PublisherHandler handler =
+                    new PublisherHandler(1L, repliesPipeline, metrics, manager, TEST_CORRELATION_ID);
+            manager.addHandler(handler);
+
+            // Triggers a DEBUG log: "Handler {0} handling failed verification for block {1}"
+            handler.handleFailedVerification(10L);
+            // Triggers a DEBUG log: "Handler {0} handling failed persistence"
+            handler.handleFailedPersistence();
+
+            final long prefixedCount = logHandler.getLogMessages().stream()
+                    .filter(msg -> msg.startsWith("[" + TEST_CORRELATION_ID + "] "))
+                    .count();
+            assertThat(prefixedCount).isGreaterThanOrEqualTo(2);
+        }
+
+        /**
+         * Verifies that the correct correlation ID value from the gRPC header is embedded
+         * in the log prefix, distinguishing multiple concurrent handler instances.
+         */
+        @Test
+        @DisplayName("Each handler uses its own correlation ID in log prefix")
+        void testDistinctCorrelationIdsPerHandler() {
+            final String idA = "N1-STR10";
+            final String idB = "N2-STR20";
+            final PublisherHandler handlerA = new PublisherHandler(1L, repliesPipeline, metrics, manager, idA);
+            final PublisherHandler handlerB =
+                    new PublisherHandler(2L, new TestResponsePipeline<>(), metrics, manager, idB);
+            manager.addHandler(handlerA);
+            manager.addHandler(handlerB);
+
+            handlerA.handleFailedVerification(1L);
+            handlerB.handleFailedVerification(2L);
+
+            assertThat(logHandler.getLogMessages())
+                    .anyMatch(msg -> msg.startsWith("[" + idA + "] "))
+                    .anyMatch(msg -> msg.startsWith("[" + idB + "] "));
         }
     }
 
@@ -168,7 +288,7 @@ class PublisherHandlerTest {
             repliesPipeline = new TestResponsePipeline();
             metrics = createMetrics();
             manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
-            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager);
+            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, "");
             manager.addHandler(toTest);
         }
 
@@ -2521,5 +2641,28 @@ class PublisherHandlerTest {
 
     private long getMetricValue(org.hiero.metrics.core.MetricKey<?> metricKey) {
         return metricsExporter.getMetricValue(metricKey.name());
+    }
+
+    /// A simple JUL {@link java.util.logging.Handler} that accumulates formatted log messages
+    /// for assertion in tests.
+    private static class TestLogHandler extends java.util.logging.Handler {
+        private final java.util.List<String> messages = new java.util.ArrayList<>();
+
+        @Override
+        public void publish(java.util.logging.LogRecord record) {
+            if (record != null && record.getMessage() != null) {
+                messages.add(record.getMessage());
+            }
+        }
+
+        @Override
+        public void flush() {}
+
+        @Override
+        public void close() {}
+
+        java.util.List<String> getLogMessages() {
+            return java.util.Collections.unmodifiableList(messages);
+        }
     }
 }

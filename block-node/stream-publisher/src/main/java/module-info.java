@@ -19,6 +19,7 @@ module org.hiero.block.node.stream.publisher {
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
+    requires java.logging;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             StreamPublisherPlugin;

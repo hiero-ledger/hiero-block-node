@@ -122,6 +122,16 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         final int maxMessageSize =
                 context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes() - 16384;
 
+        final String rawCorrelationId = options.metadata().getOrDefault("hiero-correlation-id", "");
+        if (rawCorrelationId.length() > MAX_CORRELATION_ID_LENGTH) {
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Received hiero-correlation-id header exceeds {0} characters and will be truncated: {1}",
+                    MAX_CORRELATION_ID_LENGTH,
+                    rawCorrelationId.substring(0, MAX_CORRELATION_ID_LENGTH));
+        }
+        final String correlationId = truncateCorrelationId(rawCorrelationId);
+
         return switch (blockStreamPublisherServiceMethod) {
             case publishBlockStream ->
                 Pipelines.<PublishStreamRequestUnparsed, PublishStreamResponse>bidiStreaming()
@@ -133,7 +143,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
                                         maxMessageSize / 8,
                                         maxMessageSize) // maxDepth
                                 )
-                        .method(this::initiatePublisherHandler)
+                        .method(r -> initiatePublisherHandler(r, correlationId))
                         .respondTo(replies)
                         .mapResponse(PublishStreamResponse.PROTOBUF::toBytes)
                         .build();
@@ -177,10 +187,32 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     ///
     /// A new handler is created when a new publisher connects to the block node.
     /// @param replies the pipeline to which the replies will be sent
+    /// @param correlationId the correlation ID from the gRPC `hiero-correlation-id` header, or empty string if absent
     /// @return a new, valid, fully initialized publisher handler
     private Pipeline<? super PublishStreamRequestUnparsed> initiatePublisherHandler(
-            @NonNull final Pipeline<? super PublishStreamResponse> replies) {
-        return publisherManager.addHandler(replies, handlerMetrics);
+            @NonNull final Pipeline<? super PublishStreamResponse> replies,
+            @NonNull final String correlationId) {
+        return publisherManager.addHandler(replies, handlerMetrics, correlationId);
+    }
+
+    /// Maximum length for the correlation ID header value.
+    /// Chosen to accommodate current formats (e.g. `N#-STR#`, `N#-STR#-BLK#-REQ#`) and
+    /// future formats such as prefixed UUIDs, while bounding log line growth.
+    static final int MAX_CORRELATION_ID_LENGTH = 64;
+
+    /// Truncates the given correlation ID to [#MAX_CORRELATION_ID_LENGTH] characters.
+    ///
+    /// Protects against oversized header values that could inflate every log line.
+    /// If the value exceeds the limit, it is truncated and a warning is logged.
+    ///
+    /// @param correlationId the raw value from the gRPC header
+    /// @return the value unchanged if within the limit, or truncated to [#MAX_CORRELATION_ID_LENGTH]
+    @NonNull
+    static String truncateCorrelationId(@NonNull final String correlationId) {
+        if (correlationId.length() > MAX_CORRELATION_ID_LENGTH) {
+            return correlationId.substring(0, MAX_CORRELATION_ID_LENGTH);
+        }
+        return correlationId;
     }
 
     /// Initialize all metrics for the publisher service plugin.

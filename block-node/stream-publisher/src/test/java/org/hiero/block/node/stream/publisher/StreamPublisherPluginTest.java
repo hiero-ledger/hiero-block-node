@@ -803,4 +803,49 @@ class StreamPublisherPluginTest {
             resendReceiver.clear();
         }
     }
+
+    /// Tests for {@link StreamPublisherPlugin#truncateCorrelationId(String)}.
+    @Nested
+    @DisplayName("truncateCorrelationId() Tests")
+    class TruncateCorrelationIdTest {
+
+        @Test
+        @DisplayName("Value within limit is returned unchanged")
+        void testValueWithinLimit() {
+            final String id = "N3-STR1";
+            assertThat(StreamPublisherPlugin.truncateCorrelationId(id)).isEqualTo(id);
+        }
+
+        @Test
+        @DisplayName("Empty string is returned unchanged")
+        void testEmptyString() {
+            assertThat(StreamPublisherPlugin.truncateCorrelationId("")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Value exactly at limit is returned unchanged")
+        void testValueAtLimit() {
+            final String id = "A".repeat(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH);
+            assertThat(StreamPublisherPlugin.truncateCorrelationId(id)).isEqualTo(id);
+        }
+
+        @Test
+        @DisplayName("Value exceeding limit is truncated to MAX_CORRELATION_ID_LENGTH characters")
+        void testValueExceedingLimit() {
+            final String id = "A".repeat(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH + 10);
+            final String result = StreamPublisherPlugin.truncateCorrelationId(id);
+            assertThat(result).hasSize(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH);
+            assertThat(result).isEqualTo("A".repeat(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH));
+        }
+
+        @Test
+        @DisplayName("Truncated value preserves the first MAX_CORRELATION_ID_LENGTH characters")
+        void testTruncationPreservesPrefix() {
+            final String prefix = "N3-STR1-";
+            final String id = prefix + "X".repeat(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH);
+            final String result = StreamPublisherPlugin.truncateCorrelationId(id);
+            assertThat(result).startsWith(prefix);
+            assertThat(result).hasSize(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH);
+        }
+    }
 }

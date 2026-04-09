@@ -75,11 +75,11 @@ class PublisherManagerRegressionTest {
 
         sharedHandlerMetrics = PublisherHandler.MetricsHolder.createMetrics(TestUtils.createMetrics());
         responsePipeline = new TestResponsePipeline<>();
-        publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics);
+        publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics, "");
         publisherHandlerId = 0L;
 
         responsePipeline2 = new TestResponsePipeline<>();
-        publisherHandler2 = toTest.addHandler(responsePipeline2, sharedHandlerMetrics);
+        publisherHandler2 = toTest.addHandler(responsePipeline2, sharedHandlerMetrics, "");
     }
 
     /// Verifies that when backfill persists blocks that advance past the

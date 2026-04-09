@@ -130,9 +130,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public PublisherHandler addHandler(
             @NonNull final Pipeline<? super PublishStreamResponse> replies,
-            @NonNull final PublisherHandler.MetricsHolder handlerMetrics) {
+            @NonNull final PublisherHandler.MetricsHolder handlerMetrics,
+            @NonNull final String correlationId) {
         final long handlerId = nextHandlerId.getAndIncrement();
-        final PublisherHandler newHandler = new PublisherHandler(handlerId, replies, handlerMetrics, this);
+        final PublisherHandler newHandler = new PublisherHandler(handlerId, replies, handlerMetrics, this, correlationId);
         // If there is an active unavailability timeout task, cancel it
         // because we now have a new publisher.
         // The cancel of the existing future must happen immediately prior to updating the active handlers map!
