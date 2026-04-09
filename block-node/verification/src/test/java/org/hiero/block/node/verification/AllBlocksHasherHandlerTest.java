@@ -19,7 +19,6 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
-import com.swirlds.metrics.api.Metrics;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.hiero.block.api.BlockNodeVersions;
+import org.hiero.block.api.TssData;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingHasher;
@@ -50,6 +50,7 @@ import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
 import org.hiero.block.node.verification.session.VerificationSession;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -308,13 +309,14 @@ class AllBlocksHasherHandlerTest {
     private BlockNodeContext buildContext(final HistoricalBlockFacility facility) {
         return new BlockNodeContext(
                 mock(Configuration.class),
-                mock(Metrics.class),
+                mock(MetricRegistry.class),
                 mock(HealthFacility.class),
                 mock(BlockMessagingFacility.class),
                 facility,
                 mock(ServiceLoaderFunction.class),
                 mock(ThreadPoolManager.class),
-                BlockNodeVersions.DEFAULT);
+                BlockNodeVersions.DEFAULT,
+                TssData.DEFAULT);
     }
 
     private void persistHasher(final Path hasherPath, final List<byte[]> blockHashes)

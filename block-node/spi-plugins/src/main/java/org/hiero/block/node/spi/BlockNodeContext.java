@@ -2,12 +2,13 @@
 package org.hiero.block.node.spi;
 
 import com.swirlds.config.api.Configuration;
-import com.swirlds.metrics.api.Metrics;
 import org.hiero.block.api.BlockNodeVersions;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * The BlockNodeContext record is used to provide access to the different facilities of the block node. This is a
@@ -25,7 +26,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  * </p>
  *
  * @param configuration the configuration of the block node
- * @param metrics the metrics of the block node
+ * @param metricRegistry the metric registry of the block node
  * @param serverHealth the health of the block node
  * @param blockMessaging the block messaging service of the block node
  * @param historicalBlockProvider the historical block provider of the block node
@@ -35,10 +36,11 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
  */
 public record BlockNodeContext(
         Configuration configuration,
-        Metrics metrics,
+        MetricRegistry metricRegistry,
         HealthFacility serverHealth,
         BlockMessagingFacility blockMessaging,
         HistoricalBlockFacility historicalBlockProvider,
         ServiceLoaderFunction serviceLoader,
         ThreadPoolManager threadPoolManager,
-        BlockNodeVersions blockNodeVersions) {}
+        BlockNodeVersions blockNodeVersions,
+        TssData tssData) {}

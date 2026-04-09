@@ -109,7 +109,7 @@ plugins:
     - id: central
       url: https://repo1.maven.org/maven2
     - id: besu-maven
-      url: https://hyperledger.jfrog.io/artifactory/besu-maven
+      url: https://artifacts.hashgraph.io/artifactory/hyperledger-besu-maven-external/
     - id: consensys
       url: https://artifacts.consensys.net/public/maven/maven/
     - id: sonatype-snapshots

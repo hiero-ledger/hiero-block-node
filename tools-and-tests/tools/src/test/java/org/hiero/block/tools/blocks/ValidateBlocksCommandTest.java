@@ -303,17 +303,20 @@ class ValidateBlocksCommandTest {
     // ── Missing address book ──
 
     @Test
-    void missingAddressBook_failsImmediately() throws Exception {
+    void missingAddressBookFallsBackToGenesisBook() throws Exception {
         List<Block> blocks = TestBlockFactory.createValidChain(3);
         writeBlocks(blocks);
-        // Don't write address book
+        // Don't write address book — should fall back to built-in genesis address book
 
         Object[] result = runValidate("--no-resume");
         String output = (String) result[1];
 
+        // Without a matching address book file, the command falls back to the built-in
+        // genesis address book. Signature validation will fail because the test blocks
+        // use different keys than the genesis address book.
         assertTrue(
-                output.contains("No address book found"),
-                "Should fail immediately when no address book. Output:\n" + output);
+                output.contains("Using genesis address book") || output.contains("VALIDATION FAILED"),
+                "Should fall back to genesis address book or fail with signature mismatch. Output:\n" + output);
     }
 
     // ── Checkpoint/resume ──
@@ -406,23 +409,27 @@ class ValidateBlocksCommandTest {
     }
 
     @Test
-    void checkpointDeletedOnFullSuccess() throws Exception {
+    void checkpointPreservedOnFullSuccess() throws Exception {
         List<Block> blocks = TestBlockFactory.createValidChain(5);
         writeBlocks(blocks);
         writeAddressBook();
-
-        // Create a fake checkpoint first so we can verify it gets cleaned up
-        Path checkpointDir = tempDir.resolve("validateCheckpoint");
-        Files.createDirectories(checkpointDir);
-        Files.writeString(checkpointDir.resolve("validateProgress.json"), "{}");
 
         Object[] result = runValidate();
         String output = (String) result[1];
 
         assertTrue(output.contains("VALIDATION PASSED"), "Should pass validation. Output:\n" + output);
-        assertFalse(
+
+        // Checkpoint should be preserved on success so that future runs can resume
+        Path checkpointDir = tempDir.resolve("validateCheckpoint");
+        assertTrue(
                 Files.exists(checkpointDir.resolve("validateProgress.json")),
-                "Checkpoint JSON should be deleted after full success");
+                "Checkpoint JSON should be preserved after full success");
+
+        // Verify checkpoint contents reflect all blocks validated
+        String json = Files.readString(checkpointDir.resolve("validateProgress.json"));
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        assertEquals(4, root.get("lastValidatedBlockNumber").getAsLong(), "Last validated should be block 4");
+        assertEquals(5, root.get("blocksValidated").getAsLong(), "Should have validated 5 blocks (0-4)");
     }
 
     // ── CLI validation ──

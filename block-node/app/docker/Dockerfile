@@ -24,9 +24,6 @@ ENV LC_ALL=C.UTF-8
 
 RUN groupadd --gid ${GID} hedera && \
     useradd --no-user-group --create-home --uid ${UID} --gid ${GID} --shell /bin/bash hedera
-# Configure SUDO support
-RUN echo >> /etc/sudoers && \
-    echo "%hedera ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Define version
 ARG VERSION
@@ -92,3 +89,21 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
 
 # RUN the bin script for starting the server
 ENTRYPOINT ["/bin/bash", "-c", "${BN_WORKDIR}/app-${VERSION}/bin/app || sleep 30d"]
+
+# create a second image solo-dev image with all the plugins and dev tools
+FROM base-image AS solo-dev
+# Copy the plugins from the docker plugin mount directory to the image
+# The `distributions` build context is set on the command line (see docker-build.sh).
+COPY ./plugins app-${VERSION}/plugins
+
+# Install sudo, yum (which includes dnf), and basic binary tools
+USER root
+
+RUN microdnf install -y sudo yum binutils findutils procps-ng && \
+    microdnf clean all
+
+# Configure SUDO support
+RUN echo >> /etc/sudoers && \
+    echo "%hedera ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+USER hedera

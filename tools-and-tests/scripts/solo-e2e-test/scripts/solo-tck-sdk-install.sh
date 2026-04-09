@@ -99,7 +99,7 @@ pnpm install
 echo ""
 echo "=== Installing SDK server TCK dependencies ==="
 cd "${SDK_DIR}/tck"
-pnpm add "@hashgraph/sdk@^${SDK_VERSION}" "long@${LONG_VERSION}" "@hashgraph/proto@${PROTO_VERSION}"
+pnpm add "@hashgraph/sdk@npm:@hiero-ledger/sdk@^${SDK_VERSION}" "long@${LONG_VERSION}" "@hashgraph/proto@npm:@hiero-ledger/proto@${PROTO_VERSION}"
 # Also install Hiero packages from npm (the tck code imports from @hiero-ledger/*)
 pnpm add "@hiero-ledger/proto@${PROTO_VERSION}" "@hiero-ledger/sdk@^${SDK_VERSION}"
 

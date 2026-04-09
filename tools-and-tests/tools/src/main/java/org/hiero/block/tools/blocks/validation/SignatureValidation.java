@@ -8,11 +8,15 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.NodeStakeRegistry;
 import org.hiero.block.tools.records.SigFileUtils;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
@@ -20,9 +24,10 @@ import org.hiero.block.tools.records.model.parsed.ValidationException;
  * Validates block signatures by verifying RSA signatures (for SignedRecordFileProof) or
  * checking non-empty TSS signatures (for SignedBlockProof).
  *
- * <p>For SignedRecordFileProof, at least 1/3 + 1 of address book nodes must have valid
- * RSA-SHA384 signatures. The signed hash is reconstructed from the block's RecordFileItem
- * and BlockHeader.
+ * <p>For SignedRecordFileProof, stake-weighted consensus is used when stake data is
+ * available: verified stake must be {@code >= ceil(totalStake / 3)}. When no stake data
+ * is available (pre-staking era, before ~July 2022), falls back to equal-weight mode
+ * where each node counts as weight 1 and threshold is {@code (nodeCount / 3) + 1}.
  *
  * <p>This is a stateless validation — no cross-block state is maintained.
  */
@@ -31,13 +36,28 @@ public final class SignatureValidation implements BlockValidation {
     /** The address book registry providing public keys for signature verification. */
     private final AddressBookRegistry addressBookRegistry;
 
+    /** Optional node stake registry for stake-weighted consensus. May be null. */
+    private final NodeStakeRegistry nodeStakeRegistry;
+
     /**
-     * Creates a new signature validation.
+     * Creates a new signature validation with equal-weight consensus (no stake data).
      *
      * @param addressBookRegistry the address book registry for public key lookups
      */
     public SignatureValidation(final AddressBookRegistry addressBookRegistry) {
+        this(addressBookRegistry, null);
+    }
+
+    /**
+     * Creates a new signature validation with optional stake-weighted consensus.
+     *
+     * @param addressBookRegistry the address book registry for public key lookups
+     * @param nodeStakeRegistry the node stake registry for stake weights (may be null for equal-weight)
+     */
+    public SignatureValidation(
+            final AddressBookRegistry addressBookRegistry, final NodeStakeRegistry nodeStakeRegistry) {
         this.addressBookRegistry = addressBookRegistry;
+        this.nodeStakeRegistry = nodeStakeRegistry;
     }
 
     @Override
@@ -145,29 +165,75 @@ public final class SignatureValidation implements BlockValidation {
         // Get the address book for this block's timestamp
         final NodeAddressBook addressBook = addressBookRegistry.getAddressBookForBlock(blockTime);
         final int totalNodes = addressBook.nodeAddress().size();
-        final int threshold = (totalNodes / 3) + 1;
+
+        // Determine stake-weighted vs equal-weight mode.
+        // Fall back to equal-weight if no stake data or if total stake is zero
+        // (e.g. early NodeStakeUpdate transactions before staking was enabled).
+        final Map<Long, Long> stakeMap =
+                nodeStakeRegistry != null ? nodeStakeRegistry.getStakeMapForBlock(blockTime) : null;
+        final long rawTotalStake = stakeMap != null
+                ? stakeMap.values().stream().mapToLong(Long::longValue).sum()
+                : 0;
+        final boolean stakeWeighted = stakeMap != null && rawTotalStake > 0;
+        final long totalStake;
+        final long threshold;
+        if (stakeWeighted) {
+            totalStake = rawTotalStake;
+            // Strong minority: ceil(totalStake / 3)
+            threshold = (totalStake / 3) + ((totalStake % 3 == 0) ? 0 : 1);
+        } else {
+            totalStake = totalNodes;
+            threshold = (totalNodes / 3) + 1;
+        }
 
         // Verify each signature, tracking unique nodes to avoid counting duplicates.
         // Early-exit once threshold is met — no need to verify remaining signatures.
         final Set<Long> validatedNodes = new HashSet<>();
+        long validatedStake = 0;
+        final List<String> diagnostics = new ArrayList<>();
         for (final var sig : signatures) {
             final long accountNum = AddressBookRegistry.accountIdForNode(sig.nodeId());
             try {
                 final String pubKeyHex = AddressBookRegistry.publicKeyForNode(addressBook, 0, 0, accountNum);
+                final String keySnippet =
+                        pubKeyHex.length() > 16 ? pubKeyHex.substring(pubKeyHex.length() - 16) : pubKeyHex;
                 if (SigFileUtils.verifyRsaSha384(
                         pubKeyHex, signedHash, sig.signaturesBytes().toByteArray())) {
-                    validatedNodes.add(accountNum);
-                    if (validatedNodes.size() >= threshold) break;
+                    if (validatedNodes.add(accountNum)) {
+                        final long weight = stakeWeighted ? stakeMap.getOrDefault(sig.nodeId(), 0L) : 1;
+                        validatedStake += weight;
+                    }
+                    diagnostics.add(
+                            "  node " + accountNum + " (id=" + sig.nodeId() + "): VERIFIED key=..." + keySnippet);
+                    if (validatedStake >= threshold) break;
+                } else {
+                    diagnostics.add("  node " + accountNum + " (id=" + sig.nodeId() + "): FAILED key=..." + keySnippet);
                 }
             } catch (Exception e) {
-                // Unknown node — skip but count as failed
+                diagnostics.add("  node " + accountNum + " (id=" + sig.nodeId() + "): ERROR "
+                        + e.getClass().getSimpleName());
             }
         }
 
-        if (validatedNodes.size() < threshold) {
-            throw new ValidationException("Block: " + blockNumber + " - Insufficient valid signatures: "
-                    + validatedNodes.size() + " unique nodes/" + totalNodes + " verified, need " + threshold + "/"
-                    + totalNodes);
+        if (validatedStake < threshold) {
+            final StringBuilder detail = new StringBuilder();
+            detail.append("Block: ").append(blockNumber);
+            if (stakeWeighted) {
+                detail.append(" - Insufficient validated stake: ");
+                detail.append(validatedStake).append("/").append(totalStake);
+                detail.append(" (").append(validatedNodes.size()).append(" nodes)");
+                detail.append(", need ").append(threshold).append("/").append(totalStake);
+            } else {
+                detail.append(" - Insufficient valid signatures: ");
+                detail.append(validatedNodes.size()).append(" unique nodes/").append(totalNodes);
+                detail.append(" verified, need ").append(threshold).append("/").append(totalNodes);
+            }
+            detail.append("\n  blockTime=").append(blockTime);
+            detail.append(", signatures=").append(signatures.size());
+            detail.append(stakeWeighted ? ", mode=stake-weighted" : ", mode=equal-weight");
+            detail.append("\n  Per-signature results:\n");
+            diagnostics.forEach(d -> detail.append(d).append("\n"));
+            throw new ValidationException(detail.toString());
         }
     }
 }

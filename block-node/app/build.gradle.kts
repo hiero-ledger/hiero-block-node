@@ -94,6 +94,7 @@ mainModuleInfo {
     runtimeOnly("com.swirlds.config.impl")
     runtimeOnly("io.helidon.logging.jul")
     runtimeOnly("com.hedera.pbj.grpc.helidon.config")
+    runtimeOnly("org.hiero.metrics.openmetrics.httpserver")
 }
 
 // Authoritative list of block node plugins. When adding a new plugin, add it here
@@ -123,11 +124,15 @@ dependencies {
     blockNodePlugins(project(":block-access-service"))
     blockNodePlugins(project(":stream-publisher"))
     blockNodePlugins(project(":stream-subscriber"))
+    blockNodePlugins(project(":tss-bootstrap"))
     blockNodePlugins(project(":verification"))
 
     // Storage
     blockNodePlugins(project(":blocks-file-recent"))
     blockNodePlugins(project(":blocks-file-historic"))
+
+    // Cloud storage
+    blockNodePlugins(project(":archive-cloud-storage"))
 
     // Extended functionality
     blockNodePlugins(project(":backfill"))
@@ -197,12 +202,14 @@ testModuleInfo {
     runtimeOnly("org.hiero.block.node.server.status")
     runtimeOnly("org.hiero.block.node.stream.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
+    runtimeOnly("org.hiero.block.node.tss.bootstrap")
     runtimeOnly("org.hiero.block.node.verification")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
     runtimeOnly("org.hiero.block.node.access.service")
     runtimeOnly("org.hiero.block.node.backfill")
     runtimeOnly("org.hiero.block.node.archive.s3cloud")
+    runtimeOnly("org.hiero.block.node.cloud.archive")
 
     exportsTo("com.swirlds.config.impl")
 }

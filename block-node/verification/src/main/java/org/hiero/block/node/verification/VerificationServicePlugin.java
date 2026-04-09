@@ -14,7 +14,6 @@ import com.hedera.hapi.node.tss.LedgerIdNodeContribution;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.metrics.api.Counter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -32,10 +31,32 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
 import org.hiero.block.node.verification.session.VerificationSession;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /** Provides implementation for the health endpoints of the server. */
 @SuppressWarnings("unused")
 public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHandler, BlockNotificationHandler {
+    /** Metric key for the number of blocks received for verification */
+    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCKS_RECEIVED =
+            MetricKey.of("verification_blocks_received", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the number of blocks that passed verification */
+    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCKS_VERIFIED =
+            MetricKey.of("verification_blocks_verified", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the number of blocks that failed verification */
+    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCKS_FAILED =
+            MetricKey.of("verification_blocks_failed", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the number of internal errors during verification */
+    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCKS_ERROR =
+            MetricKey.of("verification_blocks_error", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for block verification time */
+    public static final MetricKey<LongCounter> METRIC_VERIFICATION_BLOCK_TIME =
+            MetricKey.of("verification_block_time", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for block hashing time */
+    public static final MetricKey<LongCounter> METRIC_HASHING_BLOCK_TIME =
+            MetricKey.of("hashing_block_time", LongCounter.class).addCategory(METRICS_CATEGORY);
+
     private static final String COMPLETED_MESSAGE = "Verified backfill block items for block={0} with success={1}";
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -49,19 +70,22 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     /** The current block number being verified. */
     private long currentBlockNumber = -1;
     /** Metric for number of blocks received. */
-    private Counter verificationBlocksReceived;
+    private LongCounter.Measurement verificationBlocksReceived;
     /** Metric for number of blocks verified. */
-    private Counter verificationBlocksVerified;
+    private LongCounter.Measurement verificationBlocksVerified;
     /** Metric for number of blocks failed verification. */
-    private Counter verificationBlocksFailed;
+    private LongCounter.Measurement verificationBlocksFailed;
     /** Metric for number of blocks verification errors. */
-    private Counter verificationBlocksError;
+    private LongCounter.Measurement verificationBlocksError;
     /** Metric for block verification time. */
-    private Counter verificationBlockTime;
+    private LongCounter.Measurement verificationBlockTime;
     /** Metric for block hashing time. ignores time to receive block */
-    private Counter hashingBlockTimeNs;
+    private LongCounter.Measurement hashingBlockTimeNs;
     /** The previous block hash, used for verification of the current block. */
     private Bytes previousBlockHash;
+    /** The block number of the last successfully verified block (live-stream or sequential backfill). */
+    private long previousVerifiedBlockNumber = -1;
+
     /** Handler for root hash for all previous blocks hasher operations and lifecycle. */
     AllBlocksHasherHandler allBlocksHasherHandler;
     /**
@@ -92,22 +116,30 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
      * @param context The block node context
      */
     private void initMetrics(BlockNodeContext context) {
-        final var metrics = context.metrics();
-        verificationBlocksReceived =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_received")
-                        .withDescription("Blocks received for verification"));
-        verificationBlocksVerified =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_verified")
-                        .withDescription("Blocks that passed verification"));
-        verificationBlocksFailed =
-                metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_failed")
-                        .withDescription("Blocks that failed verification"));
-        verificationBlocksError = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_blocks_error")
-                .withDescription("Internal errors during verification"));
-        verificationBlockTime = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "verification_block_time")
-                .withDescription("Verification time per block (ms)"));
-        hashingBlockTimeNs = metrics.getOrCreate(new Counter.Config(METRICS_CATEGORY, "hashing_block_time")
-                .withDescription("Hashing time per block (ms)"));
+        final MetricRegistry metricRegistry = context.metricRegistry();
+        verificationBlocksReceived = metricRegistry
+                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCKS_RECEIVED)
+                        .setDescription("Blocks received for verification"))
+                .getOrCreateNotLabeled();
+        verificationBlocksVerified = metricRegistry
+                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCKS_VERIFIED)
+                        .setDescription("Blocks that passed verification"))
+                .getOrCreateNotLabeled();
+        verificationBlocksFailed = metricRegistry
+                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCKS_FAILED)
+                        .setDescription("Blocks that failed verification"))
+                .getOrCreateNotLabeled();
+        verificationBlocksError = metricRegistry
+                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCKS_ERROR)
+                        .setDescription("Internal errors during verification"))
+                .getOrCreateNotLabeled();
+        verificationBlockTime = metricRegistry
+                .register(LongCounter.builder(METRIC_VERIFICATION_BLOCK_TIME)
+                        .setDescription("Verification time per block (ms)"))
+                .getOrCreateNotLabeled();
+        hashingBlockTimeNs = metricRegistry
+                .register(LongCounter.builder(METRIC_HASHING_BLOCK_TIME).setDescription("Hashing time per block (ms)"))
+                .getOrCreateNotLabeled();
     }
 
     /**
@@ -212,13 +244,18 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 } else {
                     headerValid = true;
                 }
+                // Only use our tracked previousBlockHash when this block is sequentially
+                // next after the last verified block. Otherwise pass null so the session
+                // falls back to the authoritative values in the block footer.
+                final Bytes previousHash =
+                        currentBlockNumber == previousVerifiedBlockNumber + 1 ? previousBlockHash : null;
                 SemanticVersion semanticVersion = blockHeader.hapiProtoVersionOrThrow();
                 // create a new verification session for the new block based on hapi version on block header.
                 currentSession = HapiVersionSessionFactory.createSession(
                         currentBlockNumber,
                         BlockSource.PUBLISHER,
                         semanticVersion,
-                        previousBlockHash,
+                        previousHash,
                         getRootOfAllPreviousBlocks(),
                         activeLedgerId);
                 LOGGER.log(TRACE, "Started new block verification session for block number {0}", currentBlockNumber);
@@ -238,7 +275,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 // processBlockItems returns notification when isEndOfBlock(), null otherwise
                 VerificationNotification notification = currentSession.processBlockItems(blockItems);
                 long hashingTime = System.nanoTime() - startHashingTime;
-                hashingBlockTimeNs.add(hashingTime);
+                hashingBlockTimeNs.increment(hashingTime);
                 // if this is the end of the block, handle verification result
                 if (notification != null) {
                     LOGGER.log(TRACE, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
@@ -250,8 +287,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         // send the notification to the block messaging service
                         LOGGER.log(TRACE, "Sending verification notification for block={0}", currentBlockNumber);
                         context.blockMessaging().sendBlockVerification(notification);
-                        // Update previousBlockHash for next block verification
+                        // Update previousBlockHash and previousVerifiedBlockNumber for next block verification
                         this.previousBlockHash = notification.blockHash();
+                        this.previousVerifiedBlockNumber = currentBlockNumber;
                         // Update streamingHasherAllPreviousBlocks
                         allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                 this.previousBlockHash.toByteArray());
@@ -267,25 +305,27 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                             "Finished verification handling block items for block={0,number,#} nsVerificationDuration={1,number,#}",
                             currentBlockNumber,
                             blockWorkEndTime);
-                    verificationBlockTime.add(blockWorkEndTime);
+                    verificationBlockTime.increment(blockWorkEndTime);
                 }
             } else {
+                verificationBlocksFailed.increment();
                 sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
             }
         } catch (final RuntimeException | ParseException e) {
             LOGGER.log(WARNING, "Failed to verify BlockItems.", e);
+            verificationBlocksFailed.increment();
             sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
         }
     }
 
     private Bytes getRootOfAllPreviousBlocks() {
         if (allBlocksHasherHandler != null && allBlocksHasherHandler.isAvailable()) {
-            // When earliestManagedBlock > 0 the node may not have a continuous chain from genesis.
             // Only use the hasher's computed root when its leaf count matches currentBlockNumber
             // exactly (i.e. it holds hashes for blocks 0 through currentBlockNumber-1). Any other
-            // count means continuity is absent, so defer to the block footer's authoritative value.
-            // When earliestManagedBlock == 0 full genesis continuity is expected; always use hasher.
-            if (earliestManagedBlock > 0 && allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber) {
+            // count means the hasher is out of sync (e.g. backfill advanced it past the live-stream
+            // position, or the node doesn't have a continuous chain from genesis), so defer to the
+            // block footer's authoritative value.
+            if (allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber) {
                 return null;
             }
             return Bytes.wrap(allBlocksHasherHandler.computeRootHash());
@@ -386,12 +426,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         if (notification.blockNumber() == 0) {
                             persistTssParameters();
                         }
-                        // Update the allBlocksHasher only when this backfilled block is the next
-                        // sequential one (leafCount == blockNumber). Historical backfill can arrive
-                        // out of order, so we must not append blocks that would break the hasher's
-                        // contiguous chain from genesis.
+                        // Only update live-stream verification state when this backfilled block
+                        // is sequentially next after the last verified block (live-tail backfill).
+                        // Historical backfill can arrive out of order and must not alter state
+                        // used by the live-stream verification path.
                         if (backfillNotification.blockHash() != null
-                                && allBlocksHasherHandler.getNumberOfBlocks() == notification.blockNumber()) {
+                                && notification.blockNumber() == previousVerifiedBlockNumber + 1) {
+                            this.previousBlockHash = backfillNotification.blockHash();
+                            this.previousVerifiedBlockNumber = notification.blockNumber();
                             allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                     backfillNotification.blockHash().toByteArray());
                         }

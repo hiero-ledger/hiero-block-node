@@ -29,6 +29,7 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.server.status")
     runtimeOnly("org.hiero.block.node.stream.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
+    runtimeOnly("org.hiero.block.node.tss.boostrap")
     runtimeOnly("org.hiero.block.node.verification")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")

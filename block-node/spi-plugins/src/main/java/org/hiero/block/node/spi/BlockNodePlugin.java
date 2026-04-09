@@ -15,7 +15,7 @@ public interface BlockNodePlugin {
      * The name of the metrics category for all the block node metrics. Having here makes it very easy for plugins to
      * create metrics.
      */
-    String METRICS_CATEGORY = "hiero_block_node";
+    String METRICS_CATEGORY = "blocknode";
 
     /**
      * Special value for block number that indicates that the block number is unknown.
@@ -86,5 +86,19 @@ public interface BlockNodePlugin {
                 .pluginId(clazz.getName())
                 .pluginSoftwareVersion(moduleInfo.version())
                 .build();
+    }
+
+    /**
+     * Notify the plugin of an update to the BlockNodeContext. This method is called when the block node context has
+     * been updated. It provides the plugin an opportunity to update its state when the BlockNodeContext changes.
+     * <p>
+     * The default implementation does nothing. This is to be overridden by the plugin if it needs to handle
+     * {@link BlockNodeContext} updates.
+     * </p>
+     *
+     * @param context the block node context
+     */
+    default void onContextUpdate(BlockNodeContext context) {
+        // do nothing
     }
 }

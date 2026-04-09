@@ -716,9 +716,9 @@ function assert_no_errors_single {
     fi
 
     local verify_failed verify_errors stream_errors
-    verify_failed=$(echo "$metrics" | grep "^hiero_block_node_verification_blocks_failed_total " | awk '{print $2}' | head -1)
-    verify_errors=$(echo "$metrics" | grep "^hiero_block_node_verification_blocks_error_total " | awk '{print $2}' | head -1)
-    stream_errors=$(echo "$metrics" | grep "^hiero_block_node_publisher_stream_errors_total " | awk '{print $2}' | head -1)
+    verify_failed=$(echo "$metrics" | grep "^blocknode_verification_blocks_failed_total " | awk '{print $2}' | head -1)
+    verify_errors=$(echo "$metrics" | grep "^blocknode_verification_blocks_error_total " | awk '{print $2}' | head -1)
+    stream_errors=$(echo "$metrics" | grep "^blocknode_publisher_stream_errors_total " | awk '{print $2}' | head -1)
 
     verify_failed=$(printf "%.0f" "${verify_failed:-0}" 2>/dev/null || echo "0")
     verify_errors=$(printf "%.0f" "${verify_errors:-0}" 2>/dev/null || echo "0")

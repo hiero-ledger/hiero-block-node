@@ -218,7 +218,11 @@ public class PrettyPrint {
      * @return the first 6 characters of the hash in hex
      */
     public static String simpleHash(byte[] hash) {
-        return HexFormat.of().formatHex(hash).substring(0, 6).toUpperCase();
+        if (hash == null || hash.length == 0) {
+            return "(empty)";
+        }
+        String hex = HexFormat.of().formatHex(hash);
+        return hex.substring(0, Math.min(6, hex.length())).toUpperCase();
     }
 
     /**

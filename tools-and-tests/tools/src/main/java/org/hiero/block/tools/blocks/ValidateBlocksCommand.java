@@ -25,7 +25,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
@@ -34,6 +33,7 @@ import org.hiero.block.tools.blocks.model.BlockZipsUtilities;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.BlockSource;
 import org.hiero.block.tools.blocks.model.BlockZipsUtilities.PreValidatedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
+import org.hiero.block.tools.blocks.validation.AddressBookUpdateValidation;
 import org.hiero.block.tools.blocks.validation.BalanceCheckpointValidation;
 import org.hiero.block.tools.blocks.validation.BlockChainValidation;
 import org.hiero.block.tools.blocks.validation.BlockStructureValidation;
@@ -42,11 +42,14 @@ import org.hiero.block.tools.blocks.validation.HashRegistryValidation;
 import org.hiero.block.tools.blocks.validation.HbarSupplyValidation;
 import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
 import org.hiero.block.tools.blocks.validation.JumpstartValidation;
+import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
 import org.hiero.block.tools.blocks.wrapped.BalanceCheckpointValidator;
+import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.NodeStakeRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.hiero.block.tools.utils.PrettyPrint;
 import picocli.CommandLine.Command;
@@ -260,9 +263,20 @@ public class ValidateBlocksCommand implements Runnable {
         } else if (skipSignatures) {
             addressBookRegistry = null;
         } else {
-            System.err.println(Ansi.AUTO.string("@|red Error:|@ No address book found. Provide --address-book or place "
-                    + "addressBookHistory.json in the input directory."));
-            return;
+            // Fall back to the built-in genesis address book for the configured network.
+            // AddressBookUpdateValidation will discover subsequent address book changes
+            // from the block data as it processes blocks.
+            try {
+                addressBookRegistry = new AddressBookRegistry();
+                System.out.println(Ansi.AUTO.string("@|yellow Using genesis address book for network:|@ "
+                        + NetworkConfig.current().networkName()
+                        + " (address book updates will be discovered from block data)"));
+            } catch (Exception e) {
+                System.err.println(
+                        Ansi.AUTO.string("@|red Error:|@ No address book found. Provide --address-book, place "
+                                + "addressBookHistory.json in the input directory, or set --network."));
+                return;
+            }
         }
 
         // Find all block sources (zips are represented as whole-zip sources — one per zip)
@@ -375,20 +389,30 @@ public class ValidateBlocksCommand implements Runnable {
         HbarSupplyValidation supplyValidation = skipSupply ? null : new HbarSupplyValidation();
         // Parallel validations (stateless, run in decompPool threads)
         final AddressBookRegistry abRegistry = addressBookRegistry;
+        final NodeStakeRegistry nodeStakeRegistry = new NodeStakeRegistry();
         List<BlockValidation> parallelValidations = new ArrayList<>();
         parallelValidations.add(new RequiredItemsValidation());
         parallelValidations.add(new BlockStructureValidation());
+        SignatureValidation sigVal = null;
         if (!skipSignatures) {
-            parallelValidations.add(new SignatureValidation(abRegistry));
+            sigVal = new SignatureValidation(abRegistry, nodeStakeRegistry);
+            parallelValidations.add(sigVal);
         } else {
             System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ Signature validation (--skip-signatures)"));
         }
+        final SignatureValidation signatureValidation = sigVal;
         if (skipSupply) {
             System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ HBAR supply validation (--skip-supply)"));
         }
 
         // Sequential validations (stateful, run on main thread)
         List<BlockValidation> sequentialValidations = new ArrayList<>();
+        // Address book update must come first so the registry is current before other validations
+        if (abRegistry != null) {
+            sequentialValidations.add(new AddressBookUpdateValidation(abRegistry));
+        }
+        // Node stake update comes after address book so stake weights are current for signature validation
+        sequentialValidations.add(new NodeStakeUpdateValidation(nodeStakeRegistry));
         sequentialValidations.add(chainValidation);
         sequentialValidations.add(treeValidation);
         if (supplyValidation != null) {
@@ -696,21 +720,32 @@ public class ValidateBlocksCommand implements Runnable {
                     }
 
                     // Check for pre-validation errors (from parallel stage)
+                    // Signature errors may be caused by a stale address book — the prefetch
+                    // queue may have validated this block before AddressBookUpdateValidation
+                    // discovered an address book change in an earlier block. We defer the
+                    // error and retry after running sequential validations (which update
+                    // the address book).
+                    boolean signatureRetryNeeded = false;
                     if (preValidated.preValidationError() != null) {
-                        failedValidationName = preValidated.preValidationName();
-                        failureMessage = preValidated.preValidationError().getMessage();
-                        failedBlockNumber = preValidated.blockNumber();
-                        try {
-                            Files.createDirectories(checkpointDir);
-                        } catch (IOException ignored) {
+                        if ("Signatures".equals(preValidated.preValidationName()) && signatureValidation != null) {
+                            // Defer — will retry after sequential validations update the address book
+                            signatureRetryNeeded = true;
+                        } else {
+                            failedValidationName = preValidated.preValidationName();
+                            failureMessage = preValidated.preValidationError().getMessage();
+                            failedBlockNumber = preValidated.blockNumber();
+                            try {
+                                Files.createDirectories(checkpointDir);
+                            } catch (IOException ignored) {
+                            }
+                            saveCheckpoint(
+                                    checkpointDir,
+                                    lastValidatedRef[0],
+                                    blocksValidatedRef[0],
+                                    chainValidation,
+                                    validations);
+                            break;
                         }
-                        saveCheckpoint(
-                                checkpointDir,
-                                lastValidatedRef[0],
-                                blocksValidatedRef[0],
-                                chainValidation,
-                                validations);
-                        break;
                     }
 
                     BlockUnparsed block = preValidated.block();
@@ -739,6 +774,28 @@ public class ValidateBlocksCommand implements Runnable {
                         }
                     }
                     if (failedValidationName != null) break;
+
+                    // Retry signature validation with the (now potentially updated) address book
+                    if (signatureRetryNeeded) {
+                        try {
+                            signatureValidation.validate(block, blockNum);
+                        } catch (ValidationException e) {
+                            failedValidationName = signatureValidation.name();
+                            failureMessage = e.getMessage();
+                            failedBlockNumber = blockNum;
+                            try {
+                                Files.createDirectories(checkpointDir);
+                            } catch (IOException ignored) {
+                            }
+                            saveCheckpoint(
+                                    checkpointDir,
+                                    lastValidatedRef[0],
+                                    blocksValidatedRef[0],
+                                    chainValidation,
+                                    validations);
+                            break;
+                        }
+                    }
 
                     // Phase 2: commit all validations (under lock to prevent shutdown hook
                     // from saving a partially-committed state)
@@ -879,28 +936,9 @@ public class ValidateBlocksCommand implements Runnable {
                 (blocksValidated >= estimatedTotalBlocks - BlockZipsUtilities.DEFAULT_BLOCKS_PER_ZIP
                         || blocksValidated == estimatedTotalBlocks);
 
-        // On full success: remove checkpoint (validation is complete).
-        // On partial/error: save a final checkpoint for next resume.
-        if (!validationFailed && allBlocksValidated) {
-            try {
-                // Delete all checkpoint files
-                if (Files.isDirectory(checkpointDir)) {
-                    try (Stream<Path> cpFiles = Files.list(checkpointDir)) {
-                        cpFiles.forEach(p -> {
-                            try {
-                                Files.deleteIfExists(p);
-                            } catch (IOException ignored) {
-                            }
-                        });
-                    }
-                    Files.deleteIfExists(checkpointDir);
-                }
-                System.out.println(Ansi.AUTO.string("@|yellow Checkpoint deleted|@ (validation complete)"));
-            } catch (IOException e) {
-                System.err.println("Warning: could not delete checkpoint: " + e.getMessage());
-            }
-        } else if (!validationFailed && lastValidatedRef[0] >= 0 && chainValidation.getPreviousBlockHash() != null) {
-            // Partial completion (state file errors only) — save checkpoint
+        // Save checkpoint on both full success and partial completion so the next run
+        // can resume from where this one left off (instead of re-validating from block 0).
+        if (!validationFailed && lastValidatedRef[0] >= 0 && chainValidation.getPreviousBlockHash() != null) {
             try {
                 Files.createDirectories(checkpointDir);
             } catch (IOException ignored) {

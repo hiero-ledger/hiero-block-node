@@ -2,7 +2,6 @@
 package org.hiero.block.tools.utils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
 
@@ -48,10 +47,27 @@ class PrettyPrintTest {
     }
 
     @Test
-    void simpleHashThrowsOnTooShortArray() {
-        // Only 2 bytes = 4 hex chars, substring(0,6) should throw
+    void simpleHashHandlesShortArray() {
+        // Only 2 bytes = 4 hex chars, should return what's available
         byte[] hash = new byte[] {(byte) 0xAB, (byte) 0xCD};
-        assertThrows(StringIndexOutOfBoundsException.class, () -> PrettyPrint.simpleHash(hash));
+        assertEquals("ABCD", PrettyPrint.simpleHash(hash));
+    }
+
+    @Test
+    void simpleHashHandlesSingleByte() {
+        // 1 byte = 2 hex chars
+        byte[] hash = new byte[] {(byte) 0xFF};
+        assertEquals("FF", PrettyPrint.simpleHash(hash));
+    }
+
+    @Test
+    void simpleHashHandlesEmptyArray() {
+        assertEquals("(empty)", PrettyPrint.simpleHash(new byte[0]));
+    }
+
+    @Test
+    void simpleHashHandlesNull() {
+        assertEquals("(empty)", PrettyPrint.simpleHash(null));
     }
 
     // ===== prettyPrintFileSize tests =====

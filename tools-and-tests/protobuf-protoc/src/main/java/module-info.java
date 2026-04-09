@@ -2,6 +2,7 @@
 open module org.hiero.block.protobuf.protoc {
     exports com.hedera.hapi.services.auxiliary.hints.legacy;
     exports com.hedera.hapi.services.auxiliary.tss.legacy;
+    exports com.hedera.hapi.services.auxiliary.blockrecords.legacy;
     exports com.hedera.hapi.services.auxiliary.history.legacy;
     exports com.hedera.hapi.node.hooks.legacy;
     exports com.hedera.hapi.node.state.hooks.legacy;

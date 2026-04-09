@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
-    api(platform("io.netty:netty-bom:4.2.10.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.78.0"))
+    api(platform("io.netty:netty-bom:4.2.12.Final"))
+    api(platform("com.google.cloud:libraries-bom:26.79.0"))
 }
 
 dependencies.constraints {
     val daggerVersion = "2.59.2"
-    val grpcIoVersion = "1.79.0"
-    val hederaCryptographyVersion = "3.7.7"
-    val helidonVersion = "4.3.4"
+    val grpcIoVersion = "1.80.0"
+    val hederaCryptographyVersion = "3.7.11"
+    val helidonVersion = "4.4.0"
     val pbjVersion = pluginVersions.version("com.hedera.pbj.pbj-compiler")
-    val protobufVersion = "4.34.0"
-    val swirldsVersion = "0.61.3"
+    val protobufVersion = "4.34.1"
+    val hederaVersion = "0.74.0-alpha.1"
+    val eclipseCollectionsVersion = "13.0.0"
     val mockitoVersion = "5.23.0"
     val testContainersVersion = "1.21.4"
 
@@ -35,8 +36,20 @@ dependencies.constraints {
     }
     api("com.hedera.pbj:pbj-runtime:${pbjVersion}") { because("com.hedera.pbj.runtime") }
     api("com.lmax:disruptor:4.0.0") { because("com.lmax.disruptor") }
-    api("com.swirlds:swirlds-common:$swirldsVersion") { because("com.swirlds.common") }
-    api("com.swirlds:swirlds-config-impl:$swirldsVersion") { because("com.swirlds.config.impl") }
+    api("com.hedera.hashgraph:swirlds-base:$hederaVersion") { because("com.swirlds.base") }
+    api("com.hedera.hashgraph:swirlds-config-api:$hederaVersion") {
+        because("com.swirlds.config.api")
+    }
+    api("com.hedera.hashgraph:swirlds-config-extensions:$hederaVersion") {
+        because("com.swirlds.config.extensions")
+    }
+    api("com.hedera.hashgraph:swirlds-config-impl:$hederaVersion") {
+        because("com.swirlds.config.impl")
+    }
+    api("com.hedera.hashgraph:hiero-metrics:$hederaVersion") { because("org.hiero.metrics") }
+    api("com.hedera.hashgraph:openmetrics-httpserver:$hederaVersion") {
+        because("org.hiero.metrics.openmetrics.httpserver")
+    }
     api("com.hedera.cryptography:hedera-cryptography-wraps:$hederaCryptographyVersion") {
         because("com.hedera.cryptography.wraps")
     }
@@ -65,10 +78,10 @@ dependencies.constraints {
     api("io.grpc:grpc-netty:$grpcIoVersion") { because("io.grpc.netty") }
 
     // Eclipse Collections (primitive collections)
-    api("org.eclipse.collections:eclipse-collections-api:12.0.0") {
+    api("org.eclipse.collections:eclipse-collections-api:$eclipseCollectionsVersion") {
         because("org.eclipse.collections.api")
     }
-    api("org.eclipse.collections:eclipse-collections:12.0.0") {
+    api("org.eclipse.collections:eclipse-collections:$eclipseCollectionsVersion") {
         because("org.eclipse.collections.impl")
     }
 
@@ -80,7 +93,7 @@ dependencies.constraints {
     api("com.google.dagger:dagger-compiler:$daggerVersion") { because("dagger.compiler") }
 
     // Testing only versions
-    api("com.github.docker-java:docker-java-api:3.7.0") { because("com.github.dockerjava.api") }
+    api("com.github.docker-java:docker-java-api:3.7.1") { because("com.github.dockerjava.api") }
     api("org.assertj:assertj-core:3.27.7") { because("org.assertj.core") }
     api("org.junit.jupiter:junit-jupiter-api:6.0.3") { because("org.junit.jupiter.api") }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
@@ -94,6 +107,8 @@ dependencies.constraints {
         because("org.testcontainers")
     }
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
+    // uncomment in the next commit when we start using bucky client
+    // api("com.hedera.bucky:bucky-client:0.1.0-rc1") { because("com.hedera.bucky") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
     api("com.squareup.okio:okio-jvm:3.17.0") { because("okio") } // required by minio
 

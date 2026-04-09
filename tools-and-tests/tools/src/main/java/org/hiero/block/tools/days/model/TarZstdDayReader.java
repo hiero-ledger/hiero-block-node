@@ -221,7 +221,8 @@ public class TarZstdDayReader {
 
             if (rcdFiles.isEmpty() && signatureFiles.isEmpty()) continue; // nothing to build
 
-            // find the primary record file: exact match baseKey + ".rcd"
+            // find the primary record file: exact match baseKey + ".rcd", falling back to
+            // matching via extractBaseKey() for files with node suffixes (e.g. "<ts>_node_0.0.3.rcd")
             InMemoryFile primaryRecord = null;
             List<InMemoryFile> otherRecordFiles = new ArrayList<>();
 
@@ -233,8 +234,17 @@ public class TarZstdDayReader {
                     break;
                 }
             }
+            // Fallback: if no exact match, pick the first rcd file whose extractBaseKey matches
+            if (primaryRecord == null) {
+                for (InMemoryFile f : rcdFiles) {
+                    if (extractBaseKey(f.path().getFileName().toString()).equals(baseKey)) {
+                        primaryRecord = f;
+                        break;
+                    }
+                }
+            }
 
-            // Enforce invariant: primary record file (exact timestamp .rcd) must exist
+            // Enforce invariant: primary record file must exist
             if (primaryRecord == null) {
                 System.err.println(
                         "Missing primary record file for baseKey='" + baseKey + "' in dir='" + currentDir + "'");

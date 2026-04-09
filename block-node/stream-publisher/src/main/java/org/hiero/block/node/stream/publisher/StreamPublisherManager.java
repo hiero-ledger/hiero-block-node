@@ -73,6 +73,15 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     /// Shut down the publisher manager and all of its handlers.
     void shutdown();
 
+    /// Signal the data ready condition.
+    ///
+    /// This method is called to indicate that data \_might\_ be available to be
+    /// sent to the messaging facility.
+    ///
+    /// The messaging thread may wait on this condition to limit spin cycles
+    /// and still have a low impact on latency.
+    void signalDataReady();
+
     /// The action to take within the PublisherHandler for a block.
     enum BlockAction {
         /// todo(1420) add documentation

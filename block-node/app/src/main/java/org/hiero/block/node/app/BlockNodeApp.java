@@ -2,6 +2,7 @@
 package org.hiero.block.node.app;
 
 import static java.lang.System.Logger;
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
@@ -9,13 +10,11 @@ import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
-import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
-import com.swirlds.metrics.api.LongGauge;
-import com.swirlds.metrics.api.Metrics;
-import io.helidon.webserver.ConnectionConfig;
+import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
+import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
@@ -29,6 +28,7 @@ import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -43,11 +43,23 @@ import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.metrics.ObservableGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /** Main class for the block node server */
 public class BlockNodeApp implements HealthFacility {
     /** Constant mapped to PbjProtocolProvider.CONFIG_NAME in the PBJ Helidon Plugin */
     public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
+    /** Metric key for the oldest historical block available */
+    public static final MetricKey<ObservableGauge> METRIC_APP_HISTORICAL_OLDEST_BLOCK =
+            MetricKey.of("app_historical_oldest_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the newest historical block available */
+    public static final MetricKey<ObservableGauge> METRIC_APP_HISTORICAL_NEWEST_BLOCK =
+            MetricKey.of("app_historical_newest_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the current state status of the app */
+    public static final MetricKey<ObservableGauge> METRIC_APP_STATE_STATUS =
+            MetricKey.of("app_state_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
     /** The logger for this class. */
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
     /** The state of the server. */
@@ -64,14 +76,6 @@ public class BlockNodeApp implements HealthFacility {
     final BlockNodeContext blockNodeContext;
     /** list of all loaded plugins. Package so accessible for testing. */
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
-    /** The metrics provider. Package so accessible for testing. */
-    final DefaultMetricsProvider metricsProvider;
-    /** metric to report the BN App oldest available block **/
-    private final LongGauge historicalOldestBlockGauge;
-    /** metric to report the BN App latest/newest available block **/
-    private final LongGauge historicalLatestBlockGauge;
-    /** metric to report the BN App state (0) Starting, (1) Running and (2) Shutting_Down**/
-    private final LongGauge appStateStatus;
 
     /**
      * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
@@ -144,10 +148,10 @@ public class BlockNodeApp implements HealthFacility {
                 : APPLICATION_PROPERTIES;
         //noinspection unchecked
         final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
+                .autoDiscoverExtensions()
                 .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, System::getenv))
+                .withSource(SystemPropertiesConfigSource.getInstance())
                 .withSources(new ClasspathFileConfigSource(Path.of(appProperties)))
-                .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
-                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
                 .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
         // Build the configuration
         final Configuration configuration = configurationBuilder.build();
@@ -157,20 +161,24 @@ public class BlockNodeApp implements HealthFacility {
         serverConfig = configuration.getConfigData(ServerConfig.class);
         WebServerHttp2Config webServerHttp2Config = configuration.getConfigData(WebServerHttp2Config.class);
         // ==== METRICS ================================================================================================
-        metricsProvider = new DefaultMetricsProvider(configuration);
-        final Metrics metrics = metricsProvider.createGlobalMetrics();
+        // discover all metrics providers via SPI
+        MetricRegistry metricRegistry = MetricRegistry.builder()
+                .discoverMetricProviders()
+                .discoverMetricsExporter(configuration)
+                .build();
         // ==== THREAD POOL MANAGER ====================================================================================
         final ThreadPoolManager threadPoolManager = new DefaultThreadPoolManager();
         // ==== CONTEXT ================================================================================================
         blockNodeContext = new BlockNodeContext(
                 configuration,
-                metrics,
+                metricRegistry,
                 this,
                 blockMessagingService,
                 historicalBlockFacility,
                 serviceLoader,
                 threadPoolManager,
-                versionInfo(loadedPlugins));
+                versionInfo(loadedPlugins),
+                TssData.DEFAULT);
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
@@ -208,9 +216,9 @@ public class BlockNodeApp implements HealthFacility {
                 .addProtocol(pbjConfig)
                 .addRouting(serviceBuilder.httpRoutingBuilder())
                 .addRouting(serviceBuilder.grpcRoutingBuilder())
-                .connectionConfig(ConnectionConfig.builder()
-                        .sendBufferSize(serverConfig.socketSendBufferSizeBytes())
-                        .receiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
+                .connectionOptions(SocketOptions.builder()
+                        .socketSendBufferSize(serverConfig.socketSendBufferSizeBytes())
+                        .socketReceiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
                         .tcpNoDelay(serverConfig.tcpNoDelay())
                         .build())
                 .backlog(serverConfig.backlogSize())
@@ -221,14 +229,15 @@ public class BlockNodeApp implements HealthFacility {
                 .build();
 
         // Init the app metrics
-        historicalOldestBlockGauge =
-                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "app_historical_oldest_block")
-                        .withDescription("The oldest block the BN has access to"));
-        historicalLatestBlockGauge =
-                metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "app_historical_newest_block")
-                        .withDescription("The newest block the BN has"));
-        appStateStatus = metrics.getOrCreate(new LongGauge.Config(METRICS_CATEGORY, "app_state_status")
-                .withDescription("The current state of the BlockNode App"));
+        metricRegistry.register(ObservableGauge.builder(METRIC_APP_HISTORICAL_OLDEST_BLOCK)
+                .setDescription("The oldest block the BN has access to")
+                .observe(() -> historicalBlockFacility.availableBlocks().min()));
+        metricRegistry.register(ObservableGauge.builder(METRIC_APP_HISTORICAL_NEWEST_BLOCK)
+                .setDescription("The newest block the BN has")
+                .observe(() -> historicalBlockFacility.availableBlocks().max()));
+        metricRegistry.register(ObservableGauge.builder(METRIC_APP_STATE_STATUS)
+                .setDescription("The current state of the BlockNode App")
+                .observe(() -> state.get().ordinal()));
     }
 
     /**
@@ -255,8 +264,6 @@ public class BlockNodeApp implements HealthFacility {
         LOGGER.log(INFO, "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
         // Start the web server
         webServer.start();
-        // Start metrics
-        metricsProvider.start();
         // start the plugins
         startPlugins(loadedPlugins);
         // mark the server as started
@@ -271,23 +278,6 @@ public class BlockNodeApp implements HealthFacility {
                         .streamRanges()
                         .map(LongRange::toString)
                         .collect(Collectors.joining(", ")));
-        // register the app metrics updater
-        blockNodeContext.metrics().addUpdater(this::updateAppMetrics);
-    }
-
-    /**
-     * Updates the gauge metrics with the latest block range values.
-     * This method is called periodically to update the metrics
-     * with the latest values.
-     */
-    private void updateAppMetrics() {
-        long minBlock = historicalBlockFacility.availableBlocks().min();
-        long maxBlock = historicalBlockFacility.availableBlocks().max();
-        long currentState = state.get().ordinal();
-
-        historicalOldestBlockGauge.set(minBlock);
-        historicalLatestBlockGauge.set(maxBlock);
-        appStateStatus.set(currentState);
     }
 
     /**
@@ -320,7 +310,12 @@ public class BlockNodeApp implements HealthFacility {
             plugin.stop();
         }
         // Stop metrics
-        if (metricsProvider != null) metricsProvider.stop();
+        try {
+            blockNodeContext.metricRegistry().close();
+            LOGGER.log(DEBUG, "Metric registry successfully closed.");
+        } catch (IOException e) {
+            LOGGER.log(DEBUG, "Could not properly close metric registry.", e);
+        }
         // finally exit
         LOGGER.log(INFO, "Bye bye");
         if (shouldExitJvmOnShutdown) System.exit(0);

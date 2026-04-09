@@ -20,7 +20,7 @@ permissions:
 
 env:
   GRADLE_EXEC: ionice -c 2 -n 2 nice -n 19 ./gradlew --no-daemon
-  K6_ROOT: ./tools-and-tests/k6
+  SOLO_VERSION: "0.63.0"
 
 jobs:
   k6-tests:
@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        uses: step-security/harden-runner@fe104658747b27e96e4f7e80cd0a94068e53901d # v2.16.1
         with:
           egress-policy: audit
 
@@ -55,6 +55,59 @@ jobs:
         with:
           node-version: "20.19.4"
 
+      - name: Install Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+
+      - name: Setup Kind
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          install_only: true
+          node_image: kindest/node:v1.31.4@sha256:2cb39f7295fe7eafee0842b1052a599a4fb0f8bcf3f83d96c7f4864c357c6c30
+          version: v0.26.0
+          kubectl_version: v1.31.4
+          verbosity: 3
+          wait: 120s
+
+      # Install Solo CLI
+      - name: Install Solo CLI via npm
+        id: solo
+        run: |
+          npm i @hashgraph/solo@${SOLO_VERSION} -g
+          # Extract version number from solo output (handles various output formats)
+          SOLO_INSTALLED=$(solo --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+          echo "Solo version: ${SOLO_INSTALLED}"
+          echo "solo_version=${SOLO_INSTALLED}" >> "${GITHUB_OUTPUT}"
+
+        # Produce protobuf source artifact
+      - name: Produce Protobuf proto artifact
+        run: ${GRADLE_EXEC} :protobuf-sources:generateBlockNodeProtoArtifact
+
+        # Untar protobuf sources
+      - name: Untar Protobuf Sources
+        working-directory: protobuf-sources
+        run: |
+          mkdir -p proto
+          # Use the generated protobuf artifact (matches local project version)
+          PROTO_FILE=$(ls block-node-protobuf-*.tgz 2>/dev/null | head -1)
+          if [[ -z "$PROTO_FILE" ]]; then
+            echo "Error: No protobuf artifact found"
+            ls -la
+            exit 1
+          fi
+          echo "Using protobuf artifact: $PROTO_FILE"
+          tar -xzf "$PROTO_FILE" -C proto
+
+      - name: Install grpcurl
+        run: |
+          curl -L https://github.com/fullstorydev/grpcurl/releases/download/v1.8.7/grpcurl_1.8.7_linux_x86_64.tar.gz -o grpcurl.tar.gz
+          sudo tar -xzf grpcurl.tar.gz -C /usr/local/bin grpcurl
+          rm grpcurl.tar.gz
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
       - name: Install k6
         run: |
           # based on https://grafana.com/docs/k6/latest/set-up/install-k6/#debianubuntu
@@ -65,17 +118,7 @@ jobs:
           sudo apt-get install k6
 
       - name: Run k6 tests
-        run: |
-          pushd ${K6_ROOT} || exit 1
-          trap "popd" EXIT
-          npm run test
+        run: ${GRADLE_EXEC} runK6Tests
 
       - name: Display Test Logs
-        run: |
-          pushd ${K6_ROOT} || exit 1
-          trap "popd" EXIT
-          npm run print-logs
-
-      - name: Stop Containers
-        if: ${{ always() }}
-        run: ${GRADLE_EXEC} stopDockerContainer
+        run: ${GRADLE_EXEC} printK6Logs

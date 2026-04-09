@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.server.messaging;
 
-import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
-import com.swirlds.metrics.api.Metrics;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.BlockNodeVersions;
+import org.hiero.block.api.TssData;
+import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.MessagingConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
+import org.hiero.metrics.core.MetricRegistry;
 
 public class TestConfig {
 
@@ -32,21 +33,32 @@ public class TestConfig {
      * A test context for the BlockNodeContext interface. Only provides a configuration object as that is all that is
      * needed by messaging facility so far.
      */
-    public static final BlockNodeContext BLOCK_NODE_CONTEXT = new BlockNodeContext(
-            getConfig(),
-            getMetrics(),
-            null,
-            null,
-            null,
-            null,
-            new TestThreadPoolManager<>(
-                    new BlockingExecutor(new LinkedBlockingQueue<>()),
-                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
-            BlockNodeVersions.DEFAULT);
+    public static BlockNodeContext getBlockNodeContext() {
+        return new BlockNodeContext(
+                getConfig(),
+                getMetrics(),
+                null,
+                null,
+                null,
+                null,
+                new TestThreadPoolManager<>(
+                        new BlockingExecutor(new LinkedBlockingQueue<>()),
+                        new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
+                BlockNodeVersions.DEFAULT,
+                TssData.DEFAULT);
+    }
 
     public static BlockNodeContext generateContext(final ThreadPoolManager threadPoolManager) {
         return new BlockNodeContext(
-                getConfig(), getMetrics(), null, null, null, null, threadPoolManager, BlockNodeVersions.DEFAULT);
+                getConfig(),
+                getMetrics(),
+                null,
+                null,
+                null,
+                null,
+                threadPoolManager,
+                BlockNodeVersions.DEFAULT,
+                TssData.DEFAULT);
     }
 
     /**
@@ -54,18 +66,7 @@ public class TestConfig {
      *
      * @return the metrics for the messaging service
      */
-    public static Metrics getMetrics() {
-        ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
-                .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
-                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
-                .withValue("prometheus.endpointEnabled", "false");
-        final Configuration configuration = configurationBuilder.build();
-        // create metrics provider
-        final DefaultMetricsProvider metricsProvider;
-        metricsProvider = new DefaultMetricsProvider(configuration);
-        final Metrics metrics = metricsProvider.createGlobalMetrics();
-        metricsProvider.start();
-
-        return metrics;
+    public static MetricRegistry getMetrics() {
+        return TestUtils.createMetrics();
     }
 }

@@ -3,21 +3,24 @@ package org.hiero.block.node.app.fixtures.plugintest;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
-import com.swirlds.common.metrics.platform.DefaultMetricsProvider;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
-import com.swirlds.metrics.api.Metrics;
+import com.swirlds.config.api.converter.ConfigConverter;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.webserver.http.HttpService;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.TssData;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -28,6 +31,8 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterEach;
 
 /**
@@ -54,7 +59,9 @@ public abstract class PluginTestBase<
     /** The test thread pool manager */
     protected final TestThreadPoolManager<E, S> testThreadPoolManager;
     /** The metrics provider for the test. */
-    private DefaultMetricsProvider metricsProvider;
+    private MetricRegistry metricsRegistry;
+    /** The metrics exporter for the test, used to read metric values. */
+    private final TestMetricsExporter testMetricsExporter = new TestMetricsExporter();
     /** The block node context, for access to core facilities. */
     protected BlockNodeContext blockNodeContext;
     /** The test block messaging facility, for mocking out the messaging service. */
@@ -89,55 +96,71 @@ public abstract class PluginTestBase<
             @NonNull final P plugin,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins) {
-        start(plugin, historicalBlockFacility, additionalPlugins, null);
+        start(plugin, historicalBlockFacility, additionalPlugins, Map.of());
     }
 
-    /**
-     * Start the test fixture with the given plugin, historical block facility, and configuration overrides.
-     *
-     * @param plugin the plugin to be tested
-     * @param historicalBlockFacility the historical block facility to be used
-     * @param additionalPlugins additional test plugins to be initialized and started
-     * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
-     */
     public void start(
             @NonNull final P plugin,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides) {
+        start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, Map.of());
+    }
+
+    /**
+     * Start the test fixture with the given plugin, historical block facility, additional plugins,
+     * configuration overrides and a filesystem.
+     *
+     * @param plugin the plugin to be tested
+     * @param historicalBlockFacility the historical block facility to be used
+     * @param additionalPlugins additional test plugins to be initialized and started
+     * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
+     * @param converters an optional map of custom converters to be used for the configuration
+     */
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final List<BlockNodePlugin> additionalPlugins,
+            @Nullable final Map<String, String> configOverrides,
+            @NonNull final Map<Class<?>, ConfigConverter<?>> converters) {
+
+        Objects.requireNonNull(plugin);
+        Objects.requireNonNull(historicalBlockFacility);
+        Objects.requireNonNull(converters);
+
         this.plugin = plugin;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
         //noinspection unchecked
         ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
-                .withConfigDataType(com.swirlds.common.metrics.config.MetricsConfig.class)
                 .withConfigDataType(org.hiero.block.node.app.config.node.NodeConfig.class)
                 .withConfigDataTypes(plugin.configDataTypes().toArray(new Class[0]))
-                .withConfigDataType(com.swirlds.common.metrics.platform.prometheus.PrometheusConfig.class)
-                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class)
-                .withValue("prometheus.endpointEnabled", "false");
+                .withConfigDataType(org.hiero.block.node.app.config.ServerConfig.class);
         if (configOverrides != null) {
             for (Entry<String, String> override : configOverrides.entrySet()) {
                 configurationBuilder = configurationBuilder.withValue(override.getKey(), override.getValue());
             }
         }
+        for (Entry<Class<?>, ConfigConverter<?>> entry : converters.entrySet()) {
+            configurationBuilder = withConverter(configurationBuilder, entry.getKey(), entry.getValue());
+        }
         final Configuration configuration = configurationBuilder.build();
-        // create metrics provider
-        metricsProvider = new DefaultMetricsProvider(configuration);
-        final Metrics metrics = metricsProvider.createGlobalMetrics();
-        metricsProvider.start();
+        // create metrics
+        metricsRegistry =
+                MetricRegistry.builder().setMetricsExporter(testMetricsExporter).build();
         // mock health facility
         final HealthFacility healthFacility = new TestHealthFacility();
         // create block node context
         blockNodeContext = new BlockNodeContext(
                 configuration,
-                metrics,
+                metricsRegistry,
                 healthFacility,
                 blockMessaging,
                 historicalBlockFacility,
                 new ServiceLoaderFunction(),
                 testThreadPoolManager,
-                buildBlockNodeVersions());
+                buildBlockNodeVersions(),
+                TssData.DEFAULT);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
@@ -179,9 +202,46 @@ public abstract class PluginTestBase<
      * Teardown after each.
      */
     @AfterEach
-    public void tearDown() {
-        metricsProvider.stop();
+    public void tearDown() throws IOException {
         testThreadPoolManager.shutdownNow();
+        metricsRegistry.close();
+    }
+
+    /**
+     * Returns the current value of a metric by its fully-qualified name.
+     *
+     * <p>The name must match the form used at registration, i.e.
+     * {@code METRICS_CATEGORY + ":" + metricShortName} when {@link MetricKey#addCategory} is used.
+     *
+     * @param metricName the fully-qualified metric name
+     * @return the current long value of the metric
+     * @throws IllegalArgumentException if no metric with the given name exists in the registry
+     */
+    protected long getMetricValue(@NonNull final String metricName) {
+        return testMetricsExporter.getMetricValue(metricName);
+    }
+
+    /**
+     * Returns the current value of a metric by its MetricKey.
+     *
+     * @param metricKey the MetricKey identifying the metric
+     * @return the current long value of the metric
+     * @throws IllegalArgumentException if no metric with the given name exists in the registry
+     */
+    protected long getMetricValue(@NonNull final MetricKey<?> metricKey) {
+        return testMetricsExporter.getMetricValue(metricKey.name());
+    }
+
+    /**
+     * Wildcard-capture helper: unifies the two independent {@code ?} wildcards from
+     * {@code Map<Class<?>, ConfigConverter<?>>} into a single type parameter {@code T} so that
+     * {@link ConfigurationBuilder#withConverter(Class, ConfigConverter)} can be called without
+     * an "incompatible equality constraint" compile error.
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> ConfigurationBuilder withConverter(
+            ConfigurationBuilder builder, Class<?> type, ConfigConverter<?> converter) {
+        return builder.withConverter((Class<T>) type, (ConfigConverter<T>) converter);
     }
 
     /**

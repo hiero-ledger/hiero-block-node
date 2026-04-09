@@ -11,7 +11,6 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -95,7 +94,7 @@ final class ZipBlockAccessor implements BlockAccessor {
         try (final FileSystem zipFileSystem = FileSystems.newFileSystem(zipFileLink)) {
             final Path entry = zipFileSystem.getPath(blockPathData.blockFileName());
             return getBytesFromPath(format, entry, blockPathData.compressionType());
-        } catch (final UncheckedIOException | IOException e) {
+        } catch (final RuntimeException | IOException e) {
             final String message = FAILED_TO_READ_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);
             LOGGER.log(WARNING, message, e);
             return null;
@@ -153,7 +152,7 @@ final class ZipBlockAccessor implements BlockAccessor {
                         false,
                         Codec.DEFAULT_MAX_DEPTH,
                         BlockAccessor.MAX_BLOCK_SIZE_BYTES));
-            } catch (final UncheckedIOException | ParseException e) {
+            } catch (final RuntimeException | ParseException e) {
                 String entryName = blockPathData.blockFileName();
                 final String message = FAILED_TO_PARSE_MESSAGE.formatted(blockNumber, absoluteZipFilePath, entryName);
                 LOGGER.log(WARNING, message, e);
@@ -168,7 +167,7 @@ final class ZipBlockAccessor implements BlockAccessor {
     public void close() {
         try {
             Files.delete(zipFileLink);
-        } catch (final IOException e) {
+        } catch (final RuntimeException | IOException e) {
             final String message = FAILED_TO_DELETE_LINK_MESSAGE.formatted(
                     blockNumber, absoluteZipFilePath, blockPathData.blockFileName());
             LOGGER.log(INFO, message, e);

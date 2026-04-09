@@ -133,4 +133,39 @@ class BlockChainValidationTest {
                 assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(noFooter), 0));
         assertTrue(ex.getMessage().contains("Block footer"));
     }
+
+    @Test
+    void firstBlockWithEmptyPreviousHashPasses() {
+        // Testnet genesis blocks have a 0-byte previousBlockRootHash instead of the 48-byte empty tree hash
+        BlockChainValidation validation = new BlockChainValidation();
+        BlockItem emptyHashFooter = BlockItem.newBuilder()
+                .blockFooter(com.hedera.hapi.block.stream.output.BlockFooter.newBuilder()
+                        .previousBlockRootHash(Bytes.EMPTY)
+                        .rootHashOfAllBlockHashesTree(Bytes.wrap(EMPTY_TREE_HASH))
+                        .startOfBlockStateRootHash(Bytes.wrap(EMPTY_TREE_HASH))
+                        .build())
+                .build();
+        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, emptyHashFooter, PROOF_ITEM));
+        assertDoesNotThrow(() -> validation.validate(toUnparsed(block), 0));
+    }
+
+    @Test
+    void secondBlockWithEmptyPreviousHashFails() throws ValidationException {
+        // After the first block is committed, an empty previousBlockRootHash should fail
+        BlockChainValidation validation = new BlockChainValidation();
+        validation.validate(VALID_BLOCK, 0);
+        validation.commitState(VALID_BLOCK, 0);
+
+        BlockItem emptyHashFooter = BlockItem.newBuilder()
+                .blockFooter(com.hedera.hapi.block.stream.output.BlockFooter.newBuilder()
+                        .previousBlockRootHash(Bytes.EMPTY)
+                        .rootHashOfAllBlockHashesTree(Bytes.wrap(EMPTY_TREE_HASH))
+                        .startOfBlockStateRootHash(Bytes.wrap(EMPTY_TREE_HASH))
+                        .build())
+                .build();
+        Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, emptyHashFooter, PROOF_ITEM));
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 1));
+        assertTrue(ex.getMessage().contains("previous block hash mismatch"));
+    }
 }

@@ -13,7 +13,7 @@ tasks.javadoc { enabled = false }
 // proto/internal/unparsed.proto matches structure for
 // block-node-protobuf/block/stream/block_item.proto after update otherwise Verification
 // might fail
-val cnVersion = "0.72.0-rc.3"
+val cnVersion = "0.73.0-rc.1"
 
 // make cnVersion visible to other projects
 extra["cnVersion"] = cnVersion

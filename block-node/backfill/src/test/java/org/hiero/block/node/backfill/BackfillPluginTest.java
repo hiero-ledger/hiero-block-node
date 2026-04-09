@@ -2,13 +2,11 @@
 package org.hiero.block.node.backfill;
 
 import static java.util.concurrent.locks.LockSupport.parkNanos;
-import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import com.swirlds.metrics.api.Metric.ValueType;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -169,10 +167,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 0 verification notifications");
 
-        assertEquals(
-                0L, // backfill status should be idle
-                Objects.requireNonNull(blockNodeContext.metrics().getMetric(METRICS_CATEGORY, "backfill_status"))
-                        .get(ValueType.VALUE));
+        // backfill status should be idle
+        assertEquals(0L, getMetricValue(BackfillPlugin.METRIC_BACKFILL_STATUS), "backfill status should be idle");
     }
 
     @Test
@@ -212,10 +208,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 0 verification notifications");
 
-        assertEquals(
-                0L, // backfill status should be idle
-                Objects.requireNonNull(blockNodeContext.metrics().getMetric(METRICS_CATEGORY, "backfill_status"))
-                        .get(ValueType.VALUE));
+        // backfill status should be idle
+        assertEquals(0L, getMetricValue(BackfillPlugin.METRIC_BACKFILL_STATUS), "backfill status should be idle");
     }
 
     @Test
@@ -447,10 +441,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 0 verification notifications");
 
-        assertEquals(
-                0L, // backfill status should be idle
-                Objects.requireNonNull(blockNodeContext.metrics().getMetric(METRICS_CATEGORY, "backfill_status"))
-                        .get(ValueType.VALUE));
+        // backfill status should be idle
+        assertEquals(0L, getMetricValue(BackfillPlugin.METRIC_BACKFILL_STATUS), "backfill status should be idle");
     }
 
     @Test
@@ -612,13 +604,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     }
 
     @Test
-    @DisplayName("On-Demand Backfill - TSS Wraps Block (1319)")
+    @DisplayName("On-Demand Backfill - TSS Wraps Transition Block (466)")
     void testBackfillOnDemandTssWrapsBlock() throws InterruptedException, IOException, ParseException {
         final BlockUtils.SampleBlockInfo tssBlockInfo =
-                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.TSS_WRAPS_BLOCK_1319);
+                BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_466);
 
-        // Server has block 1318 (synthetic) and block 1319 (TSS Wraps)
-        final SimpleInMemoryHistoricalBlockFacility serverFacility = getHistoricalBlockFacility(1318, 1318);
+        // Server has block 465 (synthetic) and block 466 (TSS Wraps transition)
+        final SimpleInMemoryHistoricalBlockFacility serverFacility = getHistoricalBlockFacility(465, 465);
         serverFacility.handleBlockItemsReceived(
                 new BlockItems(tssBlockInfo.blockUnparsed().blockItems(), tssBlockInfo.blockNumber(), true, true),
                 false);
@@ -638,15 +630,15 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .backfillSourcePath(backfillSourcePath)
                 .build();
 
-        // Local has only block 1318 — block 1319 is the gap
-        final SimpleInMemoryHistoricalBlockFacility localFacility = getHistoricalBlockFacility(1318, 1318);
+        // Local has only block 465 — block 466 is the gap
+        final SimpleInMemoryHistoricalBlockFacility localFacility = getHistoricalBlockFacility(465, 465);
         start(new BackfillPlugin(), localFacility, configOverride);
 
         CountDownLatch countDownLatch = new CountDownLatch(1);
         registerDefaultTestBackfillHandler();
         registerDefaultTestVerificationHandler(countDownLatch);
 
-        blockMessaging.sendNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(1319L));
+        blockMessaging.sendNewestBlockKnownToNetwork(new NewestBlockKnownToNetworkNotification(466L));
 
         countDownLatch.await(1, TimeUnit.MINUTES);
 
@@ -756,8 +748,8 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 blockMessaging.getSentVerificationNotifications().size(),
                 "Should have sent 0 verification notifications");
 
-        Objects.requireNonNull(blockNodeContext.metrics().getMetric(METRICS_CATEGORY, "backfill_status"))
-                .get(ValueType.VALUE);
+        // backfill status should be idle
+        assertEquals(0L, getMetricValue(BackfillPlugin.METRIC_BACKFILL_STATUS), "backfill status should be idle");
     }
 
     @Test

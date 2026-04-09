@@ -8,7 +8,6 @@ import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.Liv
 import static org.hiero.block.simulator.metrics.SimulatorMetricTypes.Counter.LiveBlocksSent;
 
 import com.hedera.hapi.block.stream.protoc.Block;
-import com.hedera.pbj.runtime.ParseException;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -105,16 +104,13 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
             } else {
                 constantRateStreaming();
             }
-        } catch (ParseException e) {
-            throw new RuntimeException(e);
         } finally {
             publishStreamGrpcClient.shutdown();
         }
         LOGGER.log(INFO, "Block Stream Simulator has stopped streaming.");
     }
 
-    private void millisPerBlockStreaming()
-            throws IOException, InterruptedException, BlockSimulatorParsingException, ParseException {
+    private void millisPerBlockStreaming() throws IOException, InterruptedException, BlockSimulatorParsingException {
         final long secondsPerBlockNanos = (long) millisecondsPerBlock * NANOS_PER_MILLI;
         PublishStreamResponse[] responseHolder = new PublishStreamResponse[1];
         long blockCount = 0;
@@ -162,15 +158,13 @@ public class PublisherClientModeHandler implements SimulatorModeHandler {
         LOGGER.log(
                 INFO,
                 "Number of BlockItems sent by the Block Stream Simulator: "
-                        + metricsService.get(LiveBlockItemsSent).get());
+                        + metricsService.getValue(LiveBlockItemsSent));
         LOGGER.log(
                 INFO,
-                "Number of Blocks sent by the Block Stream Simulator: "
-                        + metricsService.get(LiveBlocksSent).get());
+                "Number of Blocks sent by the Block Stream Simulator: " + metricsService.getValue(LiveBlocksSent));
     }
 
-    private void constantRateStreaming()
-            throws InterruptedException, IOException, BlockSimulatorParsingException, ParseException {
+    private void constantRateStreaming() throws InterruptedException, IOException, BlockSimulatorParsingException {
         int delayMSBetweenBlockItems = delayBetweenBlockItems / NANOS_PER_MILLI;
         int delayNSBetweenBlockItems = delayBetweenBlockItems % NANOS_PER_MILLI;
         int blockItemsStreamed = 0;

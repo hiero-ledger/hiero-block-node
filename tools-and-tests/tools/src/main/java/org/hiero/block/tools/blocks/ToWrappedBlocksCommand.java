@@ -12,6 +12,10 @@ import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INS
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.base.Transaction;
+import com.hedera.hapi.node.transaction.SignedTransaction;
+import com.hedera.hapi.node.transaction.TransactionBody;
+import com.hedera.hapi.streams.RecordStreamItem;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -25,6 +29,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.Iterator;
@@ -47,6 +52,7 @@ import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
+import org.hiero.block.tools.days.model.NodeStakeRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.metadata.MetadataFiles;
@@ -251,6 +257,24 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                 Files.exists(addressBookFile) ? new AddressBookRegistry(addressBookFile) : new AddressBookRegistry();
         System.out.println(
                 Ansi.AUTO.string("@|yellow Loaded address book registry:|@ \n" + addressBookRegistry.toPrettyString()));
+        // load or create a new NodeStakeRegistry for stake-weighted consensus
+        final Path nodeStakeFile = outputBlocksDir.resolve("nodeStakeHistory.json");
+        if (!Files.exists(nodeStakeFile)) {
+            final Path inputNodeStakeFile = compressedDaysDir.resolve("nodeStakeHistory.json");
+            if (Files.exists(inputNodeStakeFile)) {
+                try {
+                    Files.copy(inputNodeStakeFile, nodeStakeFile);
+                    System.out.println(Ansi.AUTO.string("@|yellow Copied existing node stake history to output:|@ "
+                            + nodeStakeFile.toAbsolutePath()));
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
+        }
+        final NodeStakeRegistry nodeStakeRegistry =
+                Files.exists(nodeStakeFile) ? new NodeStakeRegistry(nodeStakeFile) : new NodeStakeRegistry();
+        System.out.println(
+                Ansi.AUTO.string("@|yellow Loaded node stake registry:|@ \n" + nodeStakeRegistry.toPrettyString()));
         // get Archive type
         final BlockArchiveType archiveType =
                 unzipped ? BlockArchiveType.INDIVIDUAL_FILES : BlockArchiveType.UNCOMPRESSED_ZIP;
@@ -483,6 +507,12 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                         } catch (Exception e) {
                             System.err.println("Shutdown: could not save address book: " + e.getMessage());
                         }
+                        try {
+                            System.err.println("Shutdown: saving node stake registry to " + nodeStakeFile);
+                            nodeStakeRegistry.saveToJsonFile(nodeStakeFile);
+                        } catch (Exception e) {
+                            System.err.println("Shutdown: could not save node stake registry: " + e.getMessage());
+                        }
                         synchronized (chainStateLock) {
                             saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
                             System.err.println("Shutdown: saved merkle tree state to " + streamingMerkleTreeFile);
@@ -598,12 +628,34 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                                     + blockNumberFromRecordFile);
                         }
 
+                        // ---- Address book auto-update from block transactions ----
+                        // Discover address book changes (file 0.0.102 updates) from the
+                        // block's record stream so signatures are verified with correct keys.
+                        PreVerifiedBlock effectiveBlock = preVerified;
+                        try {
+                            effectiveBlock = updateAddressBookAndReverify(preVerified, blockNum, addressBookRegistry);
+                        } catch (Exception e) {
+                            // Don't fail wrapping for address book parse errors
+                            System.err.printf(
+                                    "Warning: address book auto-update failed at block %d: %s%n", blockNum, e);
+                        }
+
+                        // ---- Node stake auto-update from block transactions ----
+                        // Discover NodeStakeUpdate transactions (issued daily at midnight UTC)
+                        // so stake-weighted signature validation uses the correct weights.
+                        try {
+                            updateNodeStakeRegistry(effectiveBlock, blockNum, nodeStakeRegistry);
+                        } catch (Exception e) {
+                            // Don't fail wrapping for stake parse errors
+                            System.err.printf("Warning: node stake auto-update failed at block %d: %s%n", blockNum, e);
+                        }
+
                         // Monthly checkpoint: save state once per calendar month of blockchain data.
                         // Worst-case on corruption: re-process at most ~1 month of blocks.
                         // Check BEFORE updating chain state so the saved state is consistent with
                         // all zip writes for blocks up to (but not including) this block.
                         final var blockDateTime =
-                                preVerified.recordBlock().blockTime().atOffset(ZoneOffset.UTC);
+                                effectiveBlock.recordBlock().blockTime().atOffset(ZoneOffset.UTC);
                         final int blockMonth = blockDateTime.getYear() * 12 + blockDateTime.getMonthValue();
                         if (lastSavedBlockMonth >= 0 && blockMonth != lastSavedBlockMonth) {
                             // Wait for all preceding zip writes before snapshotting state.
@@ -615,7 +667,7 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
 
                         // Convert record file block to wrapped block using pre-verified signatures
                         final Block wrapped = RecordBlockConverter.toBlock(
-                                preVerified,
+                                effectiveBlock,
                                 blockNum,
                                 blockRegistry.mostRecentBlockHash(),
                                 streamingHasher.computeRootHash(),
@@ -716,7 +768,7 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                                         zipWritePool);
 
                         printUpdatedProgress(
-                                preVerified.recordBlock(),
+                                effectiveBlock.recordBlock(),
                                 blocksProcessed,
                                 lastSpeedCalcBlockTime,
                                 lastSpeedCalcRealTimeNanos,
@@ -780,6 +832,7 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
             }
 
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
+            nodeStakeRegistry.saveToJsonFile(nodeStakeFile);
 
             // If we stopped due to a parse failure, throw after saving state
             if (parseFailureMessage != null) {
@@ -967,5 +1020,135 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
         } catch (IOException e) {
             System.err.println("Warning: could not save jumpstart.bin: " + e.getMessage());
         }
+    }
+
+    /**
+     * Discovers address book updates from the block's record stream transactions and, if the
+     * address book changed, re-verifies signatures that Stage 1 may have dropped due to stale keys.
+     *
+     * <p>This is called on the main (Stage 2) thread for each block. Address book changes are
+     * stored with a +1ns timestamp offset so they apply to blocks AFTER the current one (since
+     * the current block was signed with the old keys).
+     *
+     * @param preVerified the pre-verified block from Stage 1
+     * @param blockNum the block number
+     * @param addressBookRegistry the shared address book registry
+     * @return the original PreVerifiedBlock if no re-verification was needed, or a new one with
+     *         re-verified signatures if the address book used in Stage 1 was stale
+     */
+    private static PreVerifiedBlock updateAddressBookAndReverify(
+            final PreVerifiedBlock preVerified, final long blockNum, final AddressBookRegistry addressBookRegistry) {
+        // Extract transactions from the parsed record stream
+        final List<RecordStreamItem> streamItems =
+                preVerified.recordBlock().recordFile().recordStreamFile().recordStreamItems();
+        final List<Transaction> transactions = new ArrayList<>();
+        for (final RecordStreamItem rsi : streamItems) {
+            if (rsi.hasTransaction()) {
+                transactions.add(rsi.transactionOrThrow());
+            }
+        }
+
+        // Check for address book update transactions (file 0.0.102 updates)
+        if (!transactions.isEmpty()) {
+            try {
+                final List<TransactionBody> addressBookTxns =
+                        AddressBookRegistry.filterToJustAddressBookTransactions(transactions);
+                if (!addressBookTxns.isEmpty()) {
+                    final Instant blockInstant = preVerified.recordBlock().blockTime();
+                    // +1ns so the new address book applies to blocks AFTER this one
+                    final String changes =
+                            addressBookRegistry.updateAddressBook(blockInstant.plusNanos(1), addressBookTxns);
+                    if (changes != null) {
+                        PrettyPrint.clearProgress();
+                        System.out.println(Ansi.AUTO.string(
+                                "@|yellow Address book updated at block " + blockNum + ":|@ " + changes));
+                    }
+                }
+            } catch (Exception e) {
+                // Don't fail wrapping for address book parse errors
+            }
+        }
+
+        // Check if the address book used in Stage 1 is stale (a previous block's auto-update
+        // changed the registry after Stage 1 had already looked up the old book for this block).
+        final NodeAddressBook currentBook = addressBookRegistry.getAddressBookForBlock(
+                preVerified.recordBlock().blockTime());
+        if (!currentBook.equals(preVerified.addressBook())) {
+            // Re-verify all signatures with the correct address book
+            final byte[] signedHash = preVerified.recordBlock().recordFile().signedHash();
+            final List<RecordFileSignature> reverifiedSigs = preVerified.recordBlock().signatureFiles().stream()
+                    .filter(psf -> psf.isValid(signedHash, currentBook))
+                    .map(psf -> psf.toRecordFileSignature(currentBook))
+                    .toList();
+            PrettyPrint.clearProgress();
+            final String yellowMessage = Ansi.AUTO.string(
+                    "@|yellow Block %d: re-verified signatures" + " with updated address book:|@ %d verified (was %d)");
+            System.out.printf(
+                    yellowMessage,
+                    blockNum,
+                    reverifiedSigs.size(),
+                    preVerified.verifiedSignatures().size());
+            return new PreVerifiedBlock(preVerified.recordBlock(), currentBook, reverifiedSigs);
+        }
+
+        return preVerified;
+    }
+
+    /**
+     * Discovers {@code NodeStakeUpdate} transactions from the block's record stream and updates
+     * the node stake registry. Stake changes are stored with a +1ns timestamp offset so they
+     * apply to blocks AFTER the current one.
+     *
+     * @param preVerified the pre-verified block from Stage 1/2
+     * @param blockNum the block number
+     * @param nodeStakeRegistry the shared node stake registry
+     */
+    private static void updateNodeStakeRegistry(
+            final PreVerifiedBlock preVerified, final long blockNum, final NodeStakeRegistry nodeStakeRegistry) {
+        final List<RecordStreamItem> streamItems =
+                preVerified.recordBlock().recordFile().recordStreamFile().recordStreamItems();
+        final Instant blockInstant = preVerified.recordBlock().blockTime();
+
+        for (final RecordStreamItem rsi : streamItems) {
+            if (!rsi.hasTransaction()) {
+                continue;
+            }
+            final TransactionBody body;
+            try {
+                body = extractTransactionBody(rsi.transactionOrThrow());
+            } catch (Exception e) {
+                continue;
+            }
+            if (body != null && body.hasNodeStakeUpdate()) {
+                // +1ns so the new stakes apply to blocks AFTER this one
+                final String changes =
+                        nodeStakeRegistry.updateStakes(blockInstant.plusNanos(1), body.nodeStakeUpdateOrThrow());
+                if (changes != null) {
+                    PrettyPrint.clearProgress();
+                    System.out.println(
+                            Ansi.AUTO.string("@|yellow Node stake updated at block " + blockNum + ":|@ " + changes));
+                }
+            }
+        }
+    }
+
+    /**
+     * Extracts the {@link TransactionBody} from a transaction, handling all three encoding formats:
+     * direct body, bodyBytes, and signedTransactionBytes.
+     *
+     * @param t the transaction
+     * @return the parsed transaction body, or null if none could be extracted
+     * @throws Exception if parsing fails
+     */
+    private static TransactionBody extractTransactionBody(final Transaction t) throws Exception {
+        if (t.hasBody()) {
+            return t.body();
+        } else if (t.bodyBytes().length() > 0) {
+            return TransactionBody.PROTOBUF.parse(t.bodyBytes());
+        } else if (t.signedTransactionBytes().length() > 0) {
+            final SignedTransaction st = SignedTransaction.PROTOBUF.parse(t.signedTransactionBytes());
+            return TransactionBody.PROTOBUF.parse(st.bodyBytes());
+        }
+        return null;
     }
 }

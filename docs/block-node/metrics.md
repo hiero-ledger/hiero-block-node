@@ -23,7 +23,7 @@
 
 This document describes the metrics that are available in the system, its purpose, and how to use them.
 
-**App level metric name prefix:** `hiero_block_node`
+**App level metric name prefix:** `blocknode`
 
 These metrics expose **operational health, data‑integrity, and storage growth** for every stage of a Hiero Block Node (BN).
 They are scraped by Prometheus with the **standard pull model**:

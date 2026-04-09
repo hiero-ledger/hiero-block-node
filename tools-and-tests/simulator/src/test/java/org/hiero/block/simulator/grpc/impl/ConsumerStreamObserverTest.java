@@ -2,7 +2,6 @@
 package org.hiero.block.simulator.grpc.impl;
 
 import static org.hiero.block.simulator.fixtures.TestUtils.getTestConfiguration;
-import static org.hiero.block.simulator.fixtures.TestUtils.getTestMetrics;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -41,7 +40,7 @@ class ConsumerStreamObserverTest {
     void setUp() throws IOException {
         Configuration config = getTestConfiguration();
 
-        metricsService = spy(new MetricsServiceImpl(getTestMetrics(config)));
+        metricsService = spy(new MetricsServiceImpl(config));
         streamLatch = mock(CountDownLatch.class);
         ArrayDeque<String> lastKnownStatuses = new ArrayDeque<>();
         lastKnownStatusesCapacity = 10;
@@ -99,13 +98,13 @@ class ConsumerStreamObserverTest {
         SubscribeStreamResponse response = SubscribeStreamResponse.newBuilder()
                 .setBlockItems(blockItemsSet)
                 .build();
-        assertEquals(0, metricsService.get(Counter.LiveBlocksConsumed).get());
+        assertEquals(0, metricsService.getValue(Counter.LiveBlocksConsumed));
 
         observer.onNext(response);
         observer.onNext(
                 SubscribeStreamResponse.newBuilder().setEndOfBlock(endOfBlock).build());
 
-        assertEquals(1, metricsService.get(Counter.LiveBlocksConsumed).get());
+        assertEquals(1, metricsService.getValue(Counter.LiveBlocksConsumed));
         verifyNoInteractions(streamLatch);
     }
 

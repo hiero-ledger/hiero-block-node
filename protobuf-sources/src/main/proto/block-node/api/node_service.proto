@@ -41,6 +41,12 @@ message ServerStatusDetailResponse {
      * A list of available block ranges.
      */
     repeated BlockRange available_ranges = 2;
+
+    /**
+     * TSS Data from the block node server.
+     * Ledger Id, wraps validation key, and TssRoster information
+     */
+    TssData tss_data = 3;
 }
 
 /**
@@ -81,7 +87,7 @@ message ServerStatusResponse {
 
 /**
  * Version information for a Block-Node.
- *
+ * <p>
  * The `stream_proto_version` SHOULD be an officially released Block Stream
  * version.<br/>
  * The `software_version` SHALL be determined by the implementation of this
@@ -170,6 +176,64 @@ message BlockRange {
      * The greatest numbered block in this range of available blocks.
      */
     uint64 range_end = 2;
+}
+
+/**
+ * TSS information for a Block-Node.<br/>
+ * `TssData` contains the Ledger Id, wraps validation key, and TssRoster information
+ * 
+ * All fields in this message SHALL be filled in, or none.
+ */
+message TssData {
+    /**
+     * The ledger id
+     */
+    bytes ledger_id = 1;
+    /**
+     * The wraps verification key
+     */
+    bytes wraps_verification_key = 2;
+    /**
+     * The current TSS roster
+     */
+    TssRoster current_roster = 3;
+}
+
+/**
+ * TSS Roster information.
+ *
+ * `TssRoster` contains a list of roster entry
+ */
+message TssRoster {
+    /**
+     * The list of `RosterEntry`
+     */
+    repeated RosterEntry roster_entries = 1;
+}
+
+/**
+ * A single TSS Roster entry.
+ *
+ * All fields are REQUIRED.<br/>
+ * The `node_id` field SHALL match the same field for an entry in the Node Store
+ * in consensus network state.<br/>
+ * The `schnorr_public_key` MAY be a placeholder value if the associated node failed
+ * to participate in the roster election within the required time limit.
+ */
+message RosterEntry {
+    /**
+     * The node id
+     */
+    uint64 node_id = 1;
+    /**
+     * The node weight
+     */
+    uint64 weight = 2;
+    /**
+     * The schnorr public key
+     */
+    bytes schnorr_public_key = 3;
+
 }
 
 /**

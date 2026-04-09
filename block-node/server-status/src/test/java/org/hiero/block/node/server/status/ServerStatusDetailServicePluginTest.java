@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -17,11 +18,14 @@ import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
+import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.GrpcPluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -61,8 +65,8 @@ public class ServerStatusDetailServicePluginTest
     }
 
     /**
-     * Tests that the server status detail response is valid when requested.
-     * Verifies the block node version and the plugin versions.
+     * Tests that the server status detail response is valid when requested. Verifies the block node version and the
+     * plugin versions.
      *
      * @throws ParseException if there is an error parsing the response
      */
@@ -108,5 +112,59 @@ public class ServerStatusDetailServicePluginTest
         assertEquals(semanticVersion, pluginVersion.pluginSoftwareVersion());
         // Features default to empty list
         assertEquals(0, pluginVersion.pluginFeatureNames().size());
+
+        // Validate TssData
+        // defaults to TssData.DEFAULT
+        assertEquals(TssData.DEFAULT, response.tssData());
+    }
+
+    /**
+     * Tests that the server status detail response changes when
+     * {@link org.hiero.block.node.spi.BlockNodePlugin#onContextUpdate} is called,
+     *
+     * @throws ParseException if there is an error parsing the response
+     */
+    @Test
+    @DisplayName("Should return changed Server Detail Status when the BlockNodeContext is updated")
+    void shouldReturnValidServerStatusOnContextUpdate() throws ParseException {
+        // notify the plugin of an update to the block node plugin
+        BlockNodeContext newBlockNodeContext = new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                BlockNodeVersions.DEFAULT,
+                buildTssData());
+        plugin.onContextUpdate(newBlockNodeContext);
+
+        ServerStatusRequest request = ServerStatusRequest.newBuilder().build();
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(request));
+        assertEquals(1, fromPluginBytes.size());
+
+        ServerStatusDetailResponse response = ServerStatusDetailResponse.PROTOBUF.parse(fromPluginBytes.getFirst());
+
+        BlockNodeVersions blockNodeVersions = response.versionInformation();
+        assertNotNull(blockNodeVersions);
+        assertFalse(blockNodeVersions.hasStreamProtoVersion());
+        assertFalse(blockNodeVersions.hasBlockNodeVersion());
+        assertTrue(blockNodeVersions.installedPluginVersions().isEmpty());
+
+        // Check the TssData
+        TssData tssData = response.tssData();
+        assertNotNull(tssData);
+        assertEquals(Bytes.EMPTY, tssData.ledgerId());
+        assertEquals(Bytes.EMPTY, tssData.wrapsVerificationKey());
+        assertNotNull(tssData.currentRoster());
+    }
+
+    TssData buildTssData() {
+        return TssData.newBuilder()
+                .ledgerId(Bytes.EMPTY)
+                .wrapsVerificationKey(Bytes.EMPTY)
+                .currentRoster(TssRoster.DEFAULT)
+                .build();
     }
 }

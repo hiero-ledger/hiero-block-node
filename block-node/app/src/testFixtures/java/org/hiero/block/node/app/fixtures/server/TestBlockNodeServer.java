@@ -2,6 +2,7 @@
 package org.hiero.block.node.app.fixtures.server;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.block.stream.BlockItem;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.PbjRouting.Builder;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
@@ -10,9 +11,11 @@ import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import io.helidon.webserver.ConnectionConfig;
+import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
+import java.util.ArrayList;
+import java.util.List;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
@@ -41,14 +44,16 @@ public class TestBlockNodeServer {
                 .service(new TrivialBlockNodeServerInterface(historicalBlockFacility))
                 .service(new TestBlockStreamSubscribeService(historicalBlockFacility));
         // start the web server with the PBJ configuration and routing
+        int BUFFER_SIZE_4_MB = 4 * 1024 * 1024;
         webServer = WebServerConfig.builder()
                 .port(port)
                 .addProtocol(pbjConfig)
                 .addRouting(pbjRoutingBuilder)
-                .connectionConfig(ConnectionConfig.builder()
-                        .sendBufferSize(524288)
-                        .receiveBufferSize(524288)
+                .connectionOptions(SocketOptions.builder()
+                        .socketSendBufferSize(BUFFER_SIZE_4_MB)
+                        .socketReceiveBufferSize(BUFFER_SIZE_4_MB)
                         .build())
+                .writeBufferSize(BUFFER_SIZE_4_MB)
                 .build();
         webServer.start();
     }
@@ -65,8 +70,13 @@ public class TestBlockNodeServer {
     /**
      * Test implementation of BlockStreamSubscribeService that serves blocks from the historical facility.
      * Simulates a real block node's streaming behavior for backfill integration tests.
+     *
+     * <p>Block items are streamed in batches of up to {@link #BATCH_SIZE_BYTES} to avoid exceeding
+     * gRPC message size limits. Individual items larger than the batch threshold are sent alone.
      */
     private static final class TestBlockStreamSubscribeService implements BlockStreamSubscribeServiceInterface {
+        private static final int BATCH_SIZE_BYTES = 2 * 1024 * 1024;
+
         private final HistoricalBlockFacility historicalBlockFacility;
 
         private TestBlockStreamSubscribeService(@NonNull final HistoricalBlockFacility historicalBlockFacility) {
@@ -81,14 +91,12 @@ public class TestBlockNodeServer {
 
             for (long i = request.startBlockNumber(); i <= request.endBlockNumber(); i++) {
                 if (!historicalBlockFacility.availableBlocks().contains(i)) {
-                    // Path 1: Requested block not available - send NOT_AVAILABLE and abort
                     replies.onNext(SubscribeStreamResponse.newBuilder()
                             .status(SubscribeStreamResponse.Code.NOT_AVAILABLE)
                             .build());
                     blocksAvailable = false;
                     break;
                 } else {
-                    // Path 2: Block available - send block items followed by end-of-block marker
                     try (BlockAccessor accessor = historicalBlockFacility.block(i)) {
                         final Bytes blockBytes = accessor.blockBytes(BlockAccessor.Format.PROTOBUF);
                         Block block = Block.PROTOBUF.parse(
@@ -97,11 +105,7 @@ public class TestBlockNodeServer {
                                 false,
                                 Codec.DEFAULT_MAX_DEPTH,
                                 BlockAccessor.MAX_BLOCK_SIZE_BYTES);
-                        replies.onNext(SubscribeStreamResponse.newBuilder()
-                                .blockItems(BlockItemSet.newBuilder()
-                                        .blockItems(block.items())
-                                        .build())
-                                .build());
+                        sendBlockItemsInBatches(block.items(), replies);
                         replies.onNext(SubscribeStreamResponse.newBuilder()
                                 .endOfBlock(BlockEnd.newBuilder().blockNumber(i).build())
                                 .build());
@@ -115,13 +119,58 @@ public class TestBlockNodeServer {
                 }
             }
 
-            // Path 3: All requested blocks sent successfully - send SUCCESS status
             if (blocksAvailable) {
                 replies.onNext(SubscribeStreamResponse.newBuilder()
                         .status(Code.SUCCESS)
                         .build());
             }
             replies.onComplete();
+        }
+
+        /**
+         * Sends block items in batches that stay within the gRPC message size limit.
+         * Items larger than {@link #BATCH_SIZE_BYTES} are sent individually.
+         */
+        private static void sendBlockItemsInBatches(
+                @NonNull final List<BlockItem> items,
+                @NonNull final Pipeline<? super SubscribeStreamResponse> replies) {
+            List<BlockItem> batch = new ArrayList<>();
+            long batchSize = 0;
+
+            for (BlockItem item : items) {
+                long itemSize = estimateItemSize(item);
+
+                if (!batch.isEmpty() && batchSize + itemSize > BATCH_SIZE_BYTES) {
+                    sendBatch(batch, replies);
+                    batch = new ArrayList<>();
+                    batchSize = 0;
+                }
+
+                batch.add(item);
+                batchSize += itemSize;
+
+                if (itemSize > BATCH_SIZE_BYTES) {
+                    sendBatch(batch, replies);
+                    batch = new ArrayList<>();
+                    batchSize = 0;
+                }
+            }
+
+            if (!batch.isEmpty()) {
+                sendBatch(batch, replies);
+            }
+        }
+
+        private static void sendBatch(
+                @NonNull final List<BlockItem> batch,
+                @NonNull final Pipeline<? super SubscribeStreamResponse> replies) {
+            replies.onNext(SubscribeStreamResponse.newBuilder()
+                    .blockItems(BlockItemSet.newBuilder().blockItems(batch).build())
+                    .build());
+        }
+
+        private static long estimateItemSize(@NonNull final BlockItem item) {
+            return BlockItem.PROTOBUF.measureRecord(item);
         }
     }
 

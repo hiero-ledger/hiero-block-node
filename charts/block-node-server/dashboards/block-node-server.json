@@ -104,7 +104,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_app_state_status",
+          "expr": "blocknode_app_state_status",
           "refId": "A"
         }
       ],
@@ -163,7 +163,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_publisher_open_connections",
+          "expr": "blocknode_publisher_open_connections",
           "refId": "A"
         }
       ],
@@ -230,7 +230,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_subscriber_open_connections",
+          "expr": "blocknode_subscriber_open_connections",
           "refId": "A"
         }
       ],
@@ -287,7 +287,7 @@
           "datasource": {
             "uid": "prometheus"
           },
-          "expr": "hiero_block_node_app_historical_oldest_block",
+          "expr": "blocknode_app_historical_oldest_block",
           "refId": "A"
         }
       ],
@@ -344,7 +344,7 @@
           "datasource": {
             "uid": "prometheus"
           },
-          "expr": "hiero_block_node_app_historical_newest_block",
+          "expr": "blocknode_app_historical_newest_block",
           "refId": "A"
         }
       ],
@@ -430,12 +430,12 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_verification_blocks_verified_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_blocks_verified_total[$__rate_interval])",
           "legendFormat": "Blocks Verified/s",
           "refId": "B"
         },
         {
-          "expr": "rate(hiero_block_node_messaging_block_persisted_notifications_total[$__rate_interval])",
+          "expr": "rate(blocknode_messaging_block_persisted_notifications_total[$__rate_interval])",
           "legendFormat": "Blocks Persisted/s",
           "refId": "C"
         }
@@ -525,22 +525,22 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(hiero_block_node_get_block_requests_total[$__rate_interval])",
+          "expr": "rate(blocknode_get_block_requests_total[$__rate_interval])",
           "legendFormat": "Requests/s",
           "refId": "A"
         },
         {
-          "expr": "rate(hiero_block_node_get_block_requests_success_total[$__rate_interval])",
+          "expr": "rate(blocknode_get_block_requests_success_total[$__rate_interval])",
           "legendFormat": "Success/s",
           "refId": "B"
         },
         {
-          "expr": "rate(hiero_block_node_get_block_requests_not_available_total[$__rate_interval])",
+          "expr": "rate(blocknode_get_block_requests_not_available_total[$__rate_interval])",
           "legendFormat": "Not Available/s",
           "refId": "C"
         },
         {
-          "expr": "rate(hiero_block_node_get_block_requests_not_found_total[$__rate_interval])",
+          "expr": "rate(blocknode_get_block_requests_not_found_total[$__rate_interval])",
           "legendFormat": "Not Found/s",
           "refId": "D"
         }
@@ -597,7 +597,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_files_recent_total_bytes_stored[$__range])",
+          "expr": "increase(blocknode_files_recent_total_bytes_stored[$__range])",
           "instant": false,
           "range": true,
           "refId": "A"
@@ -653,7 +653,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_files_historic_total_bytes_stored",
+          "expr": "blocknode_files_historic_total_bytes_stored",
           "refId": "A"
         }
       ],
@@ -718,7 +718,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "hiero_block_node_messaging_item_queue_percent_used",
+          "expr": "blocknode_messaging_item_queue_percent_used",
           "refId": "A"
         }
       ],
@@ -779,7 +779,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "(increase(hiero_block_node_verification_blocks_verified_total[$__range]) / increase(hiero_block_node_verification_blocks_received_total[$__range])) * 100",
+          "expr": "(increase(blocknode_verification_blocks_verified_total[$__range]) / increase(blocknode_verification_blocks_received_total[$__range])) * 100",
           "refId": "A"
         }
       ],
@@ -846,7 +846,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "increase(hiero_block_node_verification_block_time_total[$__range]) / increase(hiero_block_node_verification_blocks_verified_total[$__range])",
+          "expr": "increase(blocknode_verification_block_time_total[$__range]) / increase(blocknode_verification_blocks_verified_total[$__range])",
           "refId": "A"
         }
       ],
@@ -918,7 +918,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "increase(hiero_block_node_messaging_block_items_received_total[$__range]) / increase(hiero_block_node_verification_blocks_verified_total[$__range])",
+          "expr": "increase(blocknode_messaging_block_items_received_total[$__range]) / increase(blocknode_verification_blocks_verified_total[$__range])",
           "instant": false,
           "range": true,
           "refId": "A"
@@ -984,7 +984,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "max by (instance) (hiero_block_node_backfill_pending_blocks)",
+          "expr": "max by (instance) (blocknode_backfill_pending_blocks)",
           "range": true,
           "refId": "A"
         }
@@ -1045,7 +1045,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (instance) (increase(hiero_block_node_backfill_blocks_backfilled_total[$__range]))",
+          "expr": "sum by (instance) (increase(blocknode_backfill_blocks_backfilled_total[$__range]))",
           "range": true,
           "refId": "A"
         }
@@ -1121,28 +1121,28 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(increase(hiero_block_node_verification_blocks_failed_total[$__range]))",
+          "expr": "sum(increase(blocknode_verification_blocks_failed_total[$__range]))",
           "legendFormat": "Verification Failed/s",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "sum(increase(hiero_block_node_verification_blocks_error_total[$__range]))",
+          "expr": "sum(increase(blocknode_verification_blocks_error_total[$__range]))",
           "legendFormat": "Verification Error/s",
           "range": true,
           "refId": "B"
         },
         {
           "editorMode": "code",
-          "expr": "sum(increase(hiero_block_node_publisher_stream_errors_total[$__range]))",
+          "expr": "sum(increase(blocknode_publisher_stream_errors_total[$__range]))",
           "legendFormat": "Publisher Stream Errors/s",
           "range": true,
           "refId": "C"
         },
         {
           "editorMode": "code",
-          "expr": "sum(increase(hiero_block_node_subscriber_errors_total[$__range]))",
+          "expr": "sum(increase(blocknode_subscriber_errors_total[$__range]))",
           "legendFormat": "Subscriber Errors/s",
           "range": true,
           "refId": "D"
@@ -1234,28 +1234,28 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_verification_blocks_failed_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_blocks_failed_total[$__rate_interval])",
           "legendFormat": "Verification Failed/s",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_verification_blocks_error_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_blocks_error_total[$__rate_interval])",
           "legendFormat": "Verification Error/s",
           "range": true,
           "refId": "B"
         },
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_publisher_stream_errors_total[$__rate_interval])",
+          "expr": "rate(blocknode_publisher_stream_errors_total[$__rate_interval])",
           "legendFormat": "Publisher Stream Errors/s",
           "range": true,
           "refId": "C"
         },
         {
           "editorMode": "code",
-          "expr": "rate(hiero_block_node_subscriber_errors_total[$__rate_interval])",
+          "expr": "rate(blocknode_subscriber_errors_total[$__rate_interval])",
           "legendFormat": "Subscriber Errors/s",
           "range": true,
           "refId": "D"

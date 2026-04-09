@@ -449,6 +449,8 @@ public class DownloadDayImplV2 {
                     // Create a synthetic group with just the record file
                     group = new ArrayList<>();
                     group.add(recordFile);
+                    // Add to mostCommonFiles so computeNewFilePath keeps the original filename
+                    mostCommonFiles.add(recordFile);
                 }
 
                 ListingRecordFile mostCommonRecordFile = findMostCommonByType(group, ListingRecordFile.Type.RECORD);
@@ -469,6 +471,8 @@ public class DownloadDayImplV2 {
                                             + " signature files but no record files could be found on any node.");
                         }
                         System.out.println("[DOWNLOAD] Found record file: " + mostCommonRecordFile.path());
+                        // Add to mostCommonFiles so computeNewFilePath keeps the original filename
+                        mostCommonFiles.add(mostCommonRecordFile);
                     }
                 }
                 final ListingRecordFile[] mostCommonSidecarFiles = findMostCommonSidecars(group);
@@ -647,6 +651,8 @@ public class DownloadDayImplV2 {
                                         // for this block's processing
                                         ready.futures.set(0, newFuture);
                                         ready.orderedFiles.set(0, alternate);
+                                        // Add to mostCommonFiles so computeNewFilePath keeps the original filename
+                                        mostCommonFiles.add(alternate);
                                         newFuture.join();
                                     } catch (Exception redownloadEx) {
                                         System.err.println(

@@ -38,7 +38,7 @@ Set environment variables that will be used throughout this guide. Replace the v
 
 ```bash
 export RELEASE="bn-release"  # bn-release is short for block-node-release
-export VERSION="0.31.0-SNAPSHOT"
+export VERSION="0.32.0-SNAPSHOT"
 ```
 
 ## Installation Options
@@ -145,6 +145,10 @@ The Block Node uses a plugin architecture where functionality is loaded dynamica
 
 The chart includes pre-defined value override files in `values-overrides/`:
 
+##### solo-dev.yaml
+
+Installs the solo-dev docker image that contains all the plugins.
+
 ##### plugin-profile-all.yaml
 
 Full functionality for development and testing.
@@ -200,7 +204,7 @@ Deploy with a profile:
 
 ```bash
 helm install "${RELEASE}" charts/block-node-server \
-  -f charts/block-node-server/values-overrides/plugin-profile-all.yaml
+  -f charts/block-node-server/values-overrides/solo-dev.yaml
 ```
 
 #### Custom Plugin Selection
@@ -303,7 +307,7 @@ To upgrade the chart to a new version from the OCI registry:
 1. Set the new version:
 
 ```bash
-export VERSION="0.31.0-SNAPSHOT"
+export VERSION="0.32.0-SNAPSHOT"
 ```
 
 2. Save your current configuration:
