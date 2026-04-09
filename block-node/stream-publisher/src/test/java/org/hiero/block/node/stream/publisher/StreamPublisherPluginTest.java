@@ -231,8 +231,7 @@ class StreamPublisherPluginTest {
                     return Map.of("hiero-correlation-id", oversizedId);
                 }
             };
-            final Pipeline<? super Bytes> pipe =
-                    serviceInterface.open(method, optionsWithOversizedId, fromPluginPipe);
+            final Pipeline<? super Bytes> pipe = serviceInterface.open(method, optionsWithOversizedId, fromPluginPipe);
             assertThat(pipe).isNotNull();
         }
 
