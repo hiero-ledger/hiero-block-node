@@ -20,13 +20,12 @@ const TSS_FIXTURES_DIR = path.join(
   "testFixtures",
   "resources",
   "test-blocks",
-  "tss",
-  "TssWraps",
+  "CN_0_73_TSS_WRAPS",
 );
 
 const defaultFixturePaths = [
-  path.join(TSS_FIXTURES_DIR, "block-0.blk.zstd"),
-  path.join(TSS_FIXTURES_DIR, "block-1000.blk.zstd"),
+  path.join(TSS_FIXTURES_DIR, "0.blk.gz"),
+  path.join(TSS_FIXTURES_DIR, "467.blk.gz"),
 ];
 
 function parseArgs(argv: string[]): { fixturePaths: string[]; json: boolean } {
