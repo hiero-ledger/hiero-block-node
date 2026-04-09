@@ -244,11 +244,12 @@ Provides metrics related to the backfill process, including On-Demand and Histor
 **Plugin:** `expanded-cloud-storage`
 Tracks the count and byte data size regarding single block uploads
 
-|  Type   | Metric                                         | Description                                                              |
+| Type    | Metric                                         | Description                                                              |
 |---------|:-----------------------------------------------|:-------------------------------------------------------------------------|
 | Counter | `expanded_cloud_storage_uploads_total`         | Number of blocks successfully uploaded.                                  |
 | Counter | `expanded_cloud_storage_upload_failures_total` | Number of uploads that failed (S3 error, timeout, or compression error). |
 | Counter | `expanded_cloud_storage_upload_bytes_total`    | Total compressed bytes successfully uploaded.                            |
+| Counter | `expanded_cloud_storage_upload_latency_ns`     | Total time in nanoseconds for upload.                                    |
 
 ## Alerting Recommendations
 

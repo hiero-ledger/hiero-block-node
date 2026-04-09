@@ -43,9 +43,7 @@ cloud.
       availability and reliability. Multiple such APIs may be supported
       by the plugin and controlled by configuration.<br/>
       An example of a common cloud storage API is S3 storage.</dd>
-</dl>
 
-<dl>
   <dt>S3-compatible object store</dt>
   <dd>Any storage service that implements the AWS S3 REST API, including AWS S3 and Google Cloud
       Storage (via S3 interoperability).</dd>
