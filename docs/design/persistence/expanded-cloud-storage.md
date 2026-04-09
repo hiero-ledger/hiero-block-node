@@ -64,9 +64,9 @@ cloud.
 
   <dt>S3UploadClient</dt>
   <dd>Package-private abstract class that abstracts the S3 upload operation. The production
-      instance is obtained via <code>S3UploadClient.forConfig()</code>, which inlines
-      <code>com.hedera.bucky.S3Client</code> delegation directly. Unit tests subclass it
-      directly to capture or throw without requiring a real S3 endpoint or Mockito.</dd>
+      instance is obtained via <code>S3UploadClient.getInstance(config)</code>, which wraps
+      <code>com.hedera.bucky.S3Client</code> directly. Unit tests subclass it directly to
+      capture or throw without requiring a real S3 endpoint or Mockito.</dd>
 
   <dt>S3ResponseException</dt>
   <dd>A <code>com.hedera.bucky.S3ClientException</code> subtype thrown when the S3 service
@@ -87,7 +87,7 @@ a single upload method and `close()`:
   `com.hedera.bucky.S3ClientException, IOException`
 - `close()`
 
-The static factory `S3UploadClient.forConfig(ExpandedCloudStorageConfig)` returns a concrete
+The static factory `S3UploadClient.getInstance(ExpandedCloudStorageConfig)` returns a concrete
 anonymous subclass that delegates to `com.hedera.bucky.S3Client`. Tests subclass
 `S3UploadClient` directly without any mocking framework.
 
@@ -98,13 +98,18 @@ anonymous subclass that delegates to `com.hedera.bucky.S3Client`. Tests subclass
 2. Compressing to ZSTD (`CompressionType.ZSTD.compress(...)`).
 3. Uploading via `S3UploadClient.uploadFile()` directly, relying on S3 SDK connection/socket timeouts.
 
-Returns `UploadResult(blockNumber, succeeded, bytesUploaded, blockSource)`. Failures
-(`S3ClientException`, `IOException`) are captured as `succeeded=false` and `bytesUploaded=0`
-so the `CompletionService` always receives a result — exceptions never propagate to the caller.
+Returns `UploadResult(blockNumber, succeeded, bytesUploaded, blockSource, uploadDurationNs)`.
+The `uploadDurationNs` field records wall-clock time of the upload call in nanoseconds, used
+to populate the latency metric. Failures (`S3ClientException`, `IOException`) are captured as
+`succeeded=false` and `bytesUploaded=0` so the `CompletionService` always receives a result —
+exceptions never propagate to the caller.
 
 ### `ExpandedCloudStorageConfig`
 
-`@ConfigData("expanded.cloud.storage")` record carrying all plugin settings.
+`@ConfigData("expanded.cloud.storage")` record carrying all plugin settings. The
+`storageClass` field is typed as `StorageClass` (an enum), which causes the config
+framework to reject unknown values at startup. The `uploadTimeoutSeconds` field carries
+`@Min(1)` for framework-level range validation.
 
 ### `ExpandedCloudStoragePlugin`
 
@@ -129,18 +134,40 @@ file storage.
 
 1. **Guard**: return immediately if `s3Client == null` or `completionService == null` (plugin
    inactive due to S3 client creation failure).
-2. **Drain**: poll `CompletionService` for any previously completed upload tasks; publish a
+2. **Guard**: `notification.success() == false` → skip (log TRACE).
+3. **Guard**: `notification.blockNumber() < 0` → skip (log TRACE).
+4. **Guard**: `notification.block() == null` → skip (log WARNING).
+5. **Drain**: poll `CompletionService` for any previously completed upload tasks; publish a
    `PersistedNotification` for each result (success or failure).
-3. **Guard**: `notification.success() == false` → skip (log TRACE).
-4. **Guard**: `notification.blockNumber() < 0` → skip (log TRACE).
-5. **Guard**: `notification.block() == null` → skip (log WARNING).
-6. Build object key using the 4-digit folder hierarchy (see below).
-7. Submit `SingleBlockStoreTask` to the `CompletionService`.
+6. Build object key using `buildBlockObjectKey(blockNumber)`.
+7. Increment `inFlightCount` and submit `SingleBlockStoreTask` to the `CompletionService`.
 
 Inside `SingleBlockStoreTask.call()`:
+- Record `uploadStartNs = System.nanoTime()`.
 - Serialise and ZSTD-compress the block bytes.
 - Upload via `S3UploadClient.uploadFile()` directly.
-- Return `UploadResult(blockNumber, succeeded, bytesUploaded, blockSource)`.
+- Return `UploadResult(blockNumber, succeeded, bytesUploaded, blockSource, uploadDurationNs)`.
+
+### Shutdown drain (`stop`)
+
+`stop()` calls `drainInFlightTasks()` followed by a final non-blocking `drainCompletedTasks()`:
+
+- `drainInFlightTasks()` — polls with a deadline of `uploadTimeoutSeconds` from now, draining
+  and publishing results until `inFlightCount` reaches zero or the deadline expires.
+- `drainCompletedTasks()` — a final non-blocking sweep that collects any tasks that landed
+  between the deadline check and `close()`.
+
+After draining, `s3Client.close()` is called and the reference cleared.
+
+### Publishing results (`publishResult`)
+
+`publishResult` decrements `inFlightCount` and:
+1. Returns immediately (log WARNING) if the future was cancelled.
+2. Calls `future.get()` to retrieve the `UploadResult`.
+3. Publishes `PersistedNotification(blockNumber, succeeded, 0, blockSource)`.
+4. Increments `uploadsTotal` or `uploadFailuresTotal` depending on `result.succeeded()`.
+5. Always increments `uploadBytesTotal` by `result.bytesUploaded()` (zero on failure).
+6. Always increments `uploadLatencyNs` by `result.uploadDurationNs()`.
 
 ### Object key format
 
@@ -159,7 +186,16 @@ leaf (4/4/4/4/3) for lexicographic ordering and S3 prefix partitioning.
 
 If `objectKeyPrefix` is blank, the hierarchy key is used bare (no leading `/`).
 
-Zero-padding is computed via integer division to produce each segment directly.
+Zero-padding is computed via integer division to produce each segment directly (no string
+formatting of the full 19-digit number):
+
+```java
+long seg1 = blockNumber / 1_000_000_000_000_000L;
+long seg2 = blockNumber / 100_000_000_000L % 10_000L;
+long seg3 = blockNumber / 10_000_000L        % 10_000L;
+long seg4 = blockNumber / 1_000L             % 10_000L;
+long seg5 = blockNumber                      % 1_000L;
+```
 
 ### Misconfiguration handling
 
@@ -186,8 +222,9 @@ sequenceDiagram
     participant Store as S3-Compatible Store
 
     CN->>ECS: handleVerification(VerificationNotification)
-    ECS->>CS: drain completed tasks → publish PersistedNotifications
+    ECS->>ECS: check s3Client != null && completionService != null
     ECS->>ECS: check success() && blockNumber >= 0 && block != null
+    ECS->>CS: drain completed tasks → publish PersistedNotifications
     ECS->>CS: submit(SingleBlockStoreTask)
     CS->>Task: call()
     Task->>Task: serialize + compress block to ZSTD
@@ -195,7 +232,7 @@ sequenceDiagram
     S3->>Store: multipart PUT
     Store-->>S3: 200 OK
     S3-->>Task: (success)
-    Task-->>CS: UploadResult(blockNumber, succeeded=true, bytesUploaded, blockSource)
+    Task-->>CS: UploadResult(blockNumber, succeeded=true, bytesUploaded, blockSource, uploadDurationNs)
 ```
 
 ### Class relationships
@@ -206,31 +243,44 @@ classDiagram
         <<abstract>>
         +uploadFile(objectKey, storageClass, content, contentType)
         +close()
-        +forConfig(config)$ S3UploadClient
+        +getInstance(config)$ S3UploadClient
     }
     class ExpandedCloudStoragePlugin {
         -s3Client: S3UploadClient
         -config: ExpandedCloudStorageConfig
         -completionService: CompletionService
         -virtualThreadExecutor: ExecutorService
+        -inFlightCount: AtomicInteger
+        -metricsHolder: MetricsHolder
         +init(context, serviceBuilder)
         +start()
         +stop()
         +handleVerification(notification)
-        +buildObjectKey(blockNumber) String
+        +buildBlockObjectKey(blockNumber) String
         ~drainCompletedTasks()
+        -drainInFlightTasks()
+        -publishResult(future)
     }
     class SingleBlockStoreTask {
         -blockNumber: long
         -block: BlockUnparsed
         -s3Client: S3UploadClient
         -objectKey: String
+        -storageClass: String
         +call() UploadResult
     }
-    S3UploadClient <|-- ProductionS3UploadClient : forConfig() anonymous
+    class UploadResult {
+        +blockNumber: long
+        +succeeded: boolean
+        +bytesUploaded: long
+        +blockSource: BlockSource
+        +uploadDurationNs: long
+    }
+    S3UploadClient <|-- ProductionS3UploadClient : getInstance() anonymous
     ExpandedCloudStoragePlugin --> S3UploadClient
     ExpandedCloudStoragePlugin --> SingleBlockStoreTask : submits
     SingleBlockStoreTask --> S3UploadClient
+    SingleBlockStoreTask --> UploadResult : returns
     ExpandedCloudStoragePlugin --> ExpandedCloudStorageConfig
 ```
 
@@ -243,22 +293,24 @@ All properties are under the `expanded.cloud.storage` namespace.
 | `expanded.cloud.storage.endpointUrl`          | `""`                | S3-compatible endpoint URL. **Required. Blank value causes plugin to log a WARNING and be inactive.** |
 | `expanded.cloud.storage.bucketName`           | `block-node-blocks` | Name of the S3 bucket.                                                           |
 | `expanded.cloud.storage.objectKeyPrefix`      | `blocks`            | Prefix prepended to every object key.                                            |
-| `expanded.cloud.storage.storageClass`         | `STANDARD`          | S3 storage class (`STANDARD`).                                                   |
+| `expanded.cloud.storage.storageClass`         | `STANDARD`          | S3 storage class (`STANDARD`). Validated as enum at startup.                     |
 | `expanded.cloud.storage.regionName`           | `us-east-1`         | AWS / S3-compatible region.                                                      |
 | `expanded.cloud.storage.accessKey`            | `""`                | S3 access key (not logged).                                                      |
 | `expanded.cloud.storage.secretKey`            | `""`                | S3 secret key (not logged).                                                      |
-| `expanded.cloud.storage.uploadTimeoutSeconds` | `60`                | Max seconds per upload before treating as failed.                                |
+| `expanded.cloud.storage.uploadTimeoutSeconds` | `60`                | Max seconds to wait for in-flight uploads during `stop()`. Min value: 1.         |
 
 ## Metrics
 
 All counters are registered under the `hiero_block_node` Prometheus category via
-`MetricsHolder.createMetrics(Metrics)` in `start()`.
+`MetricsHolder.createMetrics(MetricRegistry)` in `start()`. Each counter uses the
+`org.hiero.metrics.LongCounter` / `MetricKey` API.
 
-|                  Metric name                   |                                 Description                                 |
-|------------------------------------------------|-----------------------------------------------------------------------------|
-| `expanded_cloud_storage_uploads_total`         | Number of blocks successfully uploaded to S3-compatible storage.            |
-| `expanded_cloud_storage_upload_failures_total` | Number of block uploads that failed (S3 error, timeout, compression error). |
-| `expanded_cloud_storage_upload_bytes_total`    | Total compressed bytes successfully uploaded to S3-compatible storage.      |
+|                  Metric name                         |                                 Description                                 |
+|------------------------------------------------------|-----------------------------------------------------------------------------|
+| `expanded_cloud_storage_total_uploads`               | Number of blocks successfully uploaded to S3-compatible storage.            |
+| `expanded_cloud_storage_total_upload_failures`       | Number of block uploads that failed (S3 error, timeout, compression error). |
+| `expanded_cloud_storage_total_upload_bytes`          | Total compressed bytes successfully uploaded to S3-compatible storage.      |
+| `expanded_cloud_storage_upload_latency_ns`           | Total wall-clock time spent in upload calls, in nanoseconds (success + failure). |
 
 Counters are registered in `start()`. If `start()` fails (e.g., S3 client creation error),
 `metricsHolder` remains `null` and no counters are registered.
@@ -270,7 +322,7 @@ Counters are registered in `start()`. If `start()` fails (e.g., S3 client creati
 | `com.hedera.bucky.S3ResponseException`             | `S3UploadClient.uploadFile` | Logged at WARNING (includes HTTP status code, body); upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues. Carries `getResponseStatusCode()` and `getResponseBody()`. |
 | `com.hedera.bucky.S3ClientException`               | `S3UploadClient.uploadFile` | Logged at WARNING; upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                                                                              |
 | `IOException`                                      | `S3UploadClient.uploadFile` | Logged at WARNING; upload marked failed; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                                                                              |
-| `com.hedera.bucky.S3ClientInitializationException` | `S3UploadClient.forConfig`  | Logged at WARNING in `start()`; `s3Client` remains `null`; plugin is effectively inactive (all subsequent `handleVerification` calls are no-ops).                                                            |
+| `com.hedera.bucky.S3ClientInitializationException` | `S3UploadClient.getInstance`| Logged at WARNING in `start()`; `s3Client` remains `null`; plugin is effectively inactive (all subsequent `handleVerification` calls are no-ops).                                                            |
 | Block bytes empty after compression                | `SingleBlockStoreTask.call` | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false`.                                                                                                                      |
 
 The plugin is designed to be **fault-isolated**: no exception from S3 will propagate up to
@@ -293,3 +345,5 @@ crash the node.
    `PersistedNotification(blockNumber, succeeded=true)`.
 9. **PersistedNotification on failure**: failed upload publishes
    `PersistedNotification(blockNumber, succeeded=false)`.
+10. **Latency metric recorded**: `uploadLatencyNs` counter is incremented for both successful
+    and failed uploads.

@@ -246,9 +246,9 @@ Tracks the count and byte data size regarding single block uploads
 
 | Type    | Metric                                         | Description                                                              |
 |---------|:-----------------------------------------------|:-------------------------------------------------------------------------|
-| Counter | `expanded_cloud_storage_uploads_total`         | Number of blocks successfully uploaded.                                  |
-| Counter | `expanded_cloud_storage_upload_failures_total` | Number of uploads that failed (S3 error, timeout, or compression error). |
-| Counter | `expanded_cloud_storage_upload_bytes_total`    | Total compressed bytes successfully uploaded.                            |
+| Counter | `expanded_cloud_storage_total_uploads`         | Number of blocks successfully uploaded.                                  |
+| Counter | `expanded_cloud_storage_total_upload_failures` | Number of uploads that failed (S3 error, timeout, or compression error). |
+| Counter | `expanded_cloud_storage_total_upload_bytes`    | Total compressed bytes successfully uploaded.                            |
 | Counter | `expanded_cloud_storage_upload_latency_ns`     | Total time in nanoseconds for upload.                                    |
 
 ## Alerting Recommendations

@@ -12,32 +12,29 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 
-/**
- * Callable task that compresses a single verified block and uploads it to S3 as a
- * {@code .blk.zstd} object.
- *
- * <p>Each task is responsible for exactly one block. The {@link ExpandedCloudStoragePlugin}
- * submits tasks to a {@link java.util.concurrent.CompletionService} and drains results
- * before each new verification notification.
- *
- * <h2>Object key format</h2>
- * <pre>
- * {prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd
- * </pre>
- * The 19-digit zero-padded block number is split into 4-digit folder groups (4/4/4/4/3)
- * for lexicographic ordering and S3 prefix partitioning.
- * <pre>
- * Block          1 → {prefix}/0000/0000/0000/0000/001.blk.zstd
- * Block  108273182 → {prefix}/0000/0000/0010/8273/182.blk.zstd
- * </pre>
- *
- */
+/// Callable task that compresses a single verified block and uploads it to S3 as a
+/// `.blk.zstd` object.
+///
+/// Each task is responsible for exactly one block. The {@link ExpandedCloudStoragePlugin}
+/// submits tasks to a {@link java.util.concurrent.CompletionService} and drains results
+/// before each new verification notification.
+///
+/// ## Object key format
+/// ```
+/// {prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd
+/// ```
+/// The 19-digit zero-padded block number is split into 4-digit folder groups (4/4/4/4/3)
+/// for lexicographic ordering and S3 prefix partitioning.
+/// ```
+/// Block          1 → {prefix}/0000/0000/0000/0000/001.blk.zstd
+/// Block  108273182 → {prefix}/0000/0000/0010/8273/182.blk.zstd
+/// ```
 public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.UploadResult> {
 
     private static final String CONTENT_TYPE = "application/octet-stream";
     private static final System.Logger LOGGER = System.getLogger(SingleBlockStoreTask.class.getName());
 
-    /** The outcome of a single block upload attempt. */
+    /// The outcome of a single block upload attempt.
     public record UploadResult(long blockNumber, boolean succeeded, long bytesUploaded, BlockSource blockSource, long uploadDurationNs) {}
 
     private final long blockNumber;
@@ -47,16 +44,14 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     private final String storageClass;
     private final BlockSource blockSource;
 
-    /**
-     * Constructs a new task.
-     *
-     * @param blockNumber          the block number being uploaded
-     * @param block                the verified block payload
-     * @param s3Client             the upload client to use for the upload
-     * @param objectKey            the fully-qualified S3 object key
-     * @param storageClass         the S3 storage class
-     * @param blockSource          the source of the block (for the {@code PersistedNotification})
-     */
+    /// Constructs a new task.
+    ///
+    /// @param blockNumber  the block number being uploaded
+    /// @param block        the verified block payload
+    /// @param s3Client     the upload client to use for the upload
+    /// @param objectKey    the fully-qualified S3 object key
+    /// @param storageClass the S3 storage class
+    /// @param blockSource  the source of the block (for the `PersistedNotification`)
     public SingleBlockStoreTask(
             final long blockNumber,
             @NonNull final BlockUnparsed block,
@@ -72,16 +67,14 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
         this.blockSource = blockSource;
     }
 
-    /**
-     * Compresses the block to ZSTD protobuf bytes and uploads it to S3.
-     *
-     * <p>Calls {@code S3UploadClient.uploadFile()} directly, relying on S3 SDK
-     * connection/socket timeouts. Failures are captured as {@code succeeded=false} results
-     * rather than thrown exceptions so the {@link java.util.concurrent.CompletionService}
-     * always receives a result.
-     *
-     * @return the upload result (never {@code null})
-     */
+    /// Compresses the block to ZSTD protobuf bytes and uploads it to S3.
+    ///
+    /// Calls `S3UploadClient.uploadFile()` directly, relying on S3 SDK
+    /// connection/socket timeouts. Failures are captured as `succeeded=false` results
+    /// rather than thrown exceptions so the {@link java.util.concurrent.CompletionService}
+    /// always receives a result.
+    ///
+    /// @return the upload result (never `null`)
     @Override
     public UploadResult call() {
         final long uploadStartNs = System.nanoTime();
@@ -107,7 +100,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
         }
     }
 
-    /** Single-use iterator that delivers one byte array and then reports exhausted. */
+    /// Single-use iterator that delivers one byte array and then reports exhausted.
     private static final class PayloadIterator implements Iterator<byte[]> {
         private final byte[] payload;
         private boolean delivered = false;

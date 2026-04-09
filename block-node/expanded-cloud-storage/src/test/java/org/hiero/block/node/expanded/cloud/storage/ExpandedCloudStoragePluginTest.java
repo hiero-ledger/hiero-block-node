@@ -38,14 +38,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/**
- * Unit tests for {@link ExpandedCloudStoragePlugin}.
- *
- * <p>All tests here inject a {@link CapturingS3Client} or an anonymous {@link S3UploadClient}
- * subclass via the package-private constructor — no Docker or real S3 endpoint required.
- *
- * @see ExpandedCloudStoragePluginIntegrationTest for S3Mock-backed integration tests
- */
+/// Unit tests for {@link ExpandedCloudStoragePlugin}.
+///
+/// All tests here inject a `CapturingS3Client` or an anonymous {@link S3UploadClient}
+/// subclass via the package-private constructor — no Docker or real S3 endpoint required.
+///
+/// @see ExpandedCloudStoragePluginIntegrationTest for S3Mock-backed integration tests
 @Timeout(value = 30, unit = TimeUnit.SECONDS)
 class ExpandedCloudStoragePluginTest
         extends PluginTestBase<ExpandedCloudStoragePlugin, ExecutorService, ScheduledExecutorService> {
@@ -58,10 +56,8 @@ class ExpandedCloudStoragePluginTest
 
     private record UploadCall(String objectKey, String storageClass, String contentType) {}
 
-    /**
-     * Records {@code uploadFile} calls so tests can assert the exact arguments passed to the
-     * upload client without hitting any real endpoint.
-     */
+    /// Records `uploadFile` calls so tests can assert the exact arguments passed to the
+    /// upload client without hitting any real endpoint.
     private static class CapturingS3Client extends S3UploadClient {
         final List<UploadCall> uploads = new java.util.ArrayList<>();
 
@@ -97,12 +93,11 @@ class ExpandedCloudStoragePluginTest
         return new VerificationNotification(false, blockNumber, Bytes.EMPTY, null, BlockSource.UNKNOWN);
     }
 
-    /**
-     * Drives the plugin's drain loop and polls until at least {@code expectedCount}
-     * {@link PersistedNotification}s have been dispatched, or the 5-second timeout elapses.
-     * Uses the package-private {@link ExpandedCloudStoragePlugin#drainCompletedTasks()} so
-     * tests do not need a second {@code handleVerification} call to flush results.
-     */
+    /// Drives the plugin's drain loop and polls until at least `expectedCount`
+    /// {@link PersistedNotification}s have been dispatched, or the 5-second timeout
+    /// elapses. Uses the package-private
+    /// {@link ExpandedCloudStoragePlugin#drainCompletedTasks()} so tests do not need a
+    /// second `handleVerification` call to flush results.
     private void awaitNotifications(final int expectedCount) throws InterruptedException {
         final long deadline = System.currentTimeMillis() + 5_000L;
         while (System.currentTimeMillis() < deadline) {
