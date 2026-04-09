@@ -8,7 +8,7 @@ set -euo pipefail
 
 SDK_DIR=""
 TCK_DIR=""
-TEST_FILE="src/tests/crypto-service/test-transfer-transaction.ts"
+TEST_FILE="src/tests/crypto-service/test-transfer-hbar-transaction.ts src/tests/crypto-service/test-account-create-transaction.ts src/tests/crypto-service/test-account-update-transaction.ts src/tests/token-service/test-token-create-transaction.ts src/tests/token-service/test-token-update-transaction.ts src/tests/topic-service/test-topic-create-transaction.ts src/tests/topic-service/test-topic-update-transaction.ts src/tests/contract-service/test-contract-delete-transaction.ts"
 DEPLOYMENT="${DEPLOYMENT:-deployment-solo}"
 NAMESPACE="${NAMESPACE:-solo-network}"
 SERVER_PID=""
@@ -90,12 +90,17 @@ fi
 
 # Run tests
 echo ""
-echo "Running TCK test: $TEST_FILE"
 cd "${TCK_DIR}"
 cp .env.custom_node .env
-# shellcheck disable=SC2086
-# Word splitting is intentional — TEST_FILE may contain multiple space-separated file paths
-npm run test:file $TEST_FILE
+if [[ "${TEST_FILE}" == "all" ]]; then
+  echo "Running all TCK tests (test:serial)"
+  npm run test:serial
+else
+  echo "Running TCK tests: $TEST_FILE"
+  # shellcheck disable=SC2086
+  # Word splitting is intentional — TEST_FILE may contain multiple space-separated file paths
+  npm run test:file $TEST_FILE
+fi
 
 echo ""
 echo "TCK-SDK test completed successfully"

@@ -894,8 +894,9 @@ function assert_signature_transition {
         return 1
     fi
 
+    local pf_cmd="${SCRIPT_DIR}/solo-port-forward.sh --namespace ${NAMESPACE}"
     local output
-    if output=$("$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" 2>&1); then
+    if output=$("$script" "${PROTO_PATH}" "localhost:${port}" "$max_block" "${pf_cmd}" 2>&1); then
         local transition_block transition_summary
         transition_summary=$(echo "${output}" | grep -A 10 "=== Signature Transition ===")
         transition_block=$(echo "${transition_summary}" | grep "First WRAPS block:" | awk '{print $NF}')

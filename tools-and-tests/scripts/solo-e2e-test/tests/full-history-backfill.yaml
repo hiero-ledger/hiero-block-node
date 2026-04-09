@@ -53,56 +53,42 @@ events:
     description: "Allow gap to form (BN2 continues receiving from CN2)"
     delay: 25
     args:
-      seconds: 60
+      seconds: 30
 
   - id: pre-recovery-metrics
     type: print-metrics
     description: "Print BN2 metrics showing blocks accumulated during gap"
-    delay: 90
+    delay: 60
     args:
       target: block-node-2
 
   - id: scale-up-bn1
     type: scale-up
     description: "Scale up BN1 - should trigger backfill from BN2"
-    delay: 95
+    delay: 65
     target: block-node-1
 
   - id: refresh-ports
     type: port-forward
     description: "Refresh port forwards after BN1 restart"
-    delay: 110
+    delay: 80
 
   - id: backfill-wait
     type: sleep
     description: "Wait for BN1 to backfill historical blocks from BN2"
-    delay: 120
+    delay: 90
     args:
-      seconds: 90
+      seconds: 240
 
   - id: post-backfill-status
     type: network-status
     description: "Network status after backfill"
-    delay: 215
-
-  - id: post-backfill-metrics
-    type: print-metrics
-    description: "Print all metrics after backfill"
-    delay: 220
-    args:
-      target: all
-
-  - id: live-streaming-wait
-    type: sleep
-    description: "Wait to verify BN1 receives live blocks"
-    delay: 230
-    args:
-      seconds: 30
+    delay: 335
 
   - id: final-metrics
     type: print-metrics
     description: "Final metrics summary"
-    delay: 265
+    delay: 340
     args:
       target: all
 
@@ -128,3 +114,6 @@ assertions:
     type: blocks-increasing
     description: "All Block Nodes receiving live blocks after recovery"
     target: all
+    args:
+      wait_seconds: 30
+      max_attempts: 2

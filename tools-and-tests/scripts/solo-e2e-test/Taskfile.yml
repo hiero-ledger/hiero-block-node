@@ -90,6 +90,7 @@ tasks:
         echo "  Kind: $(kind --version)"
         echo "  Solo: $(solo --version)"
         echo "  yq: $(yq --version)"
+        command -v pnpm >/dev/null 2>&1 && echo "  pnpm: $(pnpm --version)" || echo "  pnpm: not installed (needed for TCK tests)"
     silent: true
 
   # ============================================================================
@@ -487,10 +488,20 @@ tasks:
           --sdk-dir "{{.TCK_SDK_DIR}}/sdk-server" \
           --tck-dir "{{.TCK_SDK_DIR}}/regression"
 
+  test:tck-sdk:all:
+    desc: Run ALL TCK-SDK regression tests serially (requires network up)
+    cmds:
+      - task: test:tck-sdk
+        vars:
+          TCK_TEST_FILE: all
+
   test:tck-sdk:
     desc: Run TCK-SDK regression test (requires network up)
     cmds:
       - |
+        # pnpm is required for TCK tests
+        command -v pnpm >/dev/null 2>&1 || { echo "ERROR: pnpm not found. Install with: npm i -g pnpm"; exit 1; }
+
         # Check if repos are cloned
         if [[ ! -d "{{.TCK_SDK_DIR}}/regression" ]] || [[ ! -d "{{.TCK_SDK_DIR}}/sdk-server" ]]; then
           echo "TCK repositories not cloned. Running tck:clone first..."
