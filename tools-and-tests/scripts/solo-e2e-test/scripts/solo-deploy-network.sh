@@ -437,11 +437,6 @@ function deploy_consensus_nodes {
     wraps_arg="--wraps true"
   fi
 
-  local app_properties="${SCRIPT_DIR}/../config/application.properties"
-  if [[ ! -f "${app_properties}" ]]; then
-    fail "ERROR: application.properties not found: ${app_properties}" 1
-  fi
-
   # shellcheck disable=SC2086
   # adding --dev flag so in case it fails we have more information on details
   eval solo consensus network deploy \
@@ -450,7 +445,6 @@ function deploy_consensus_nodes {
     --tss "${TSS_ENABLED}" \
     ${wraps_arg} \
     --node-aliases "${NODE_ALIASES}" \
-    --application-properties "${app_properties}" \
     ${cn_args} --dev || fail "ERROR: Failed to deploy consensus network" 1
   end_task
 
