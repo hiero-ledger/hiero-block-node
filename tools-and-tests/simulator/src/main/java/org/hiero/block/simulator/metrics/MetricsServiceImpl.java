@@ -33,7 +33,7 @@ import org.hiero.metrics.core.MetricsExporterFactory;
  */
 public class MetricsServiceImpl implements MetricsService, MetricsExporter {
 
-    private static final String CATEGORY = "hiero_block_node_simulator";
+    private static final String CATEGORY = "blocknode_simulator";
 
     private final EnumMap<SimulatorMetricTypes.Counter, LongCounter.Measurement> counters =
             new EnumMap<>(SimulatorMetricTypes.Counter.class);
@@ -133,7 +133,7 @@ public class MetricsServiceImpl implements MetricsService, MetricsExporter {
     @Override
     public long getValue(@NonNull SimulatorMetricTypes.Counter key) {
         Objects.requireNonNull(snapshotSupplier, "MetricRegistry has not called setSnapshotSupplier yet");
-        final String metricName = CATEGORY + ":" + key.grafanaLabel();
+        final String metricName = CATEGORY + "_" + key.grafanaLabel();
         for (MetricSnapshot snapshot : snapshotSupplier.get()) {
             if (snapshot.name().equals(metricName)) {
                 for (MeasurementSnapshot measurement : snapshot) {
