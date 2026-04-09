@@ -34,17 +34,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
-/**
- * Integration tests for {@link ExpandedCloudStoragePlugin} using a real S3Mock container.
- *
- * <p>The S3Mock container is started once for the whole class via {@link BeforeAll}. If Docker
- * is not available the entire class is skipped via {@link org.junit.jupiter.api.Assumptions},
- * leaving the unit tests in {@link ExpandedCloudStoragePluginTest} unaffected.
- *
- * <p>Test-side S3 verification uses {@link S3Client} from {@code org.hiero.block.node.base}
- * which is already on the module path (expanded-cloud-storage requires base). No additional
- * library dependency is needed.
- */
+/// Integration tests for {@link ExpandedCloudStoragePlugin} using a real S3Mock container.
+///
+/// The S3Mock container is started once for the whole class via {@link BeforeAll}. If Docker
+/// is not available the entire class is skipped via {@link org.junit.jupiter.api.Assumptions},
+/// leaving the unit tests in {@link ExpandedCloudStoragePluginTest} unaffected.
+///
+/// Test-side S3 verification uses {@link S3Client} from `org.hiero.block.node.base`
+/// which is already on the module path (`expanded-cloud-storage` requires `base`). No
+/// additional library dependency is needed.
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class ExpandedCloudStoragePluginIntegrationTest
         extends PluginTestBase<ExpandedCloudStoragePlugin, ExecutorService, ScheduledExecutorService> {
