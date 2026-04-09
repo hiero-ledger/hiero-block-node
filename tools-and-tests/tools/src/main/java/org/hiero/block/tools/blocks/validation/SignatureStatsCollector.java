@@ -431,43 +431,44 @@ public class SignatureStatsCollector implements Consumer<SignatureBlockStats>, A
                 writeCsvHeader();
             }
 
-            StringBuilder row = new StringBuilder();
-            row.append(dayStats.date).append(",");
-            row.append(String.format("%.4f", dayStats.getAveragePercentage())).append(",");
-            row.append(dayStats.totalBlocks).append(",");
-            row.append(dayStats.getAverageAddressBookNodeCount()).append(",");
-            row.append(dayStats.totalValidSignatures).append(",");
-            row.append(String.format("%.4f", dayStats.getMinPercentage())).append(",");
-            row.append(String.format("%.4f", dayStats.getAveragePercentagePerBlock()));
+            Formatter row = new Formatter(new StringBuilder());
+            // First parameter is a date, we're using string format, but that might not be the ideal choice.
+            final String baseColumns = "%s,%.4f,%d,%d,%d,%.4f,%.4f";
+            row.format(baseColumns,
+                    dayStats.date,
+                    dayStats.getAveragePercentage(),
+                    dayStats.totalBlocks(),
+                    dayStats.getAverageAddressBookNodeCount(),
+                    dayStats.totalValidSignatures(),
+                    dayStats.getMinPercentage(),
+                    dayStats.getAveragePercentagePerBlock());
 
             // Histogram columns
             for (int i = 1; i <= MAX_SIG_COUNT; i++) {
                 int blockCount = dayStats.blocksBySignatureCount.getOrDefault(i, 0);
-                row.append(",").append(blockCount);
+                row.format(",%d").append(blockCount);
             }
-
             // Stake weight columns
             if (dayStats.hasStakeData()) {
-                row.append(",").append(dayStats.mode);
-                row.append(",").append(dayStats.totalStake);
-                row.append(",").append(String.format("%.4f", dayStats.minValidatedStakePct));
-                row.append(",").append(String.format("%.4f", dayStats.maxValidatedStakePct));
-                row.append(",").append(String.format("%.4f", dayStats.getMeanValidatedStakePct()));
-                row.append(",").append(dayStats.closestThresholdMargin);
-                row.append(",").append(dayStats.minSigningNodes);
-                row.append(",").append(dayStats.maxSigningNodes);
-                row.append(",").append(String.format("%.1f", dayStats.getMeanSigningNodes()));
+                final String stakeColumns = ",%s,%d,%.4f,%.4f,%.4f,%d,%d,%d,%.1f";
+                row.format(stakeColumns,
+                        dayStats.mode,
+                        dayStats.totalStake,
+                        dayStats.minValidatedStakePct,
+                        dayStats.maxValidatedStakePct,
+                        dayStats.getMeanValidatedStakePct(),
+                        dayStats.closestThresholdMargin,
+                        dayStats.minSigningNodes,
+                        dayStats.maxSigningNodes,
+                        dayStats.getMeanSigningNodes());
                 appendNodeStakeDistribution(row, dayStats);
-                row.append(",").append(dayStats.getMissingSigners());
-                row.append(",").append(dayStats.getReliableSigners());
-            } else {
-                // Empty stake columns
-                for (int i = 0; i < STAKE_COLUMN_COUNT; i++) {
-                    row.append(",");
-                }
+                row.format(",%d,%d,,,,,,,,,,,,,,,,,",
+                        dayStats.getMissingSigners(),
+                        dayStats.getReliableSigners()
+                    row.append(",").append(dayStats.mode);
             }
-
-            row.append("\n");
+            row.format("%n");
+            final String result = row.out().toString();
 
             Files.writeString(csvOutputFile, row.toString(), StandardCharsets.UTF_8, APPEND, CREATE);
 
