@@ -184,8 +184,7 @@ class PublisherHandlerTest {
 
             handler.handleFailedVerification(42L);
 
-            assertThat(logHandler.getLogMessages())
-                    .anyMatch(msg -> msg.startsWith("[" + TEST_CORRELATION_ID + "] "));
+            assertThat(logHandler.getLogMessages()).anyMatch(msg -> msg.startsWith("[" + TEST_CORRELATION_ID + "] "));
         }
 
         /**
@@ -200,8 +199,7 @@ class PublisherHandlerTest {
 
             handler.handleFailedVerification(42L);
 
-            assertThat(logHandler.getLogMessages())
-                    .noneMatch(msg -> msg.startsWith("["));
+            assertThat(logHandler.getLogMessages()).noneMatch(msg -> msg.startsWith("["));
         }
 
         /**

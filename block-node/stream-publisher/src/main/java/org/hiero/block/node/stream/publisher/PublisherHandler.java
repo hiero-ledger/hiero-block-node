@@ -107,7 +107,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     /// @param replyPipeline the pipeline to send replies to
     /// @param handlerMetrics the metrics for this handler
     /// @param manager the publisher manager that manages this handler
-    /// @param correlationId the correlation ID from the gRPC `hiero-correlation-id` header, or empty string if absent
+    /// @param correlationId the correlation ID from the gRPC `hiero-correlation-id` header, or empty string if
+    // absent
     public PublisherHandler(
             final long nextId,
             @NonNull final Pipeline<? super PublishStreamResponse> replyPipeline,
@@ -204,7 +205,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     ///     verified and persisted.
     public void sendAcknowledgement(final long newLastAcknowledgedBlockNumber) {
         LOGGER.log(
-                TRACE, ctx() + "Handler {0} sending acknowledgement for block {1}", handlerId, newLastAcknowledgedBlockNumber);
+                TRACE,
+                ctx() + "Handler {0} sending acknowledgement for block {1}",
+                handlerId,
+                newLastAcknowledgedBlockNumber);
         // We only ever need to acknowledge once for a given block number, even
         // if there are several blocks "behind" that acknowledgement.
         // The publishers expect that acknowledgement for block N implicitly
@@ -357,7 +361,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             // header batch to arrive and the "skip" response to be sent back,
             // due to network latency and processing time.
             metrics.blockItemSetsDropped.increment();
-            LOGGER.log(DEBUG, ctx() + "Handler {0} dropping batch because first block item is not BlockHeader", handlerId);
+            LOGGER.log(
+                    DEBUG, ctx() + "Handler {0} dropping batch because first block item is not BlockHeader", handlerId);
             return;
         }
         // now we need to query the manager with the block number currently
@@ -410,8 +415,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         } else {
             LOGGER.log(
                     INFO,
-                    ctx() + "Handler %d received an invalid EndStream request with code %s. %s"
-                            .formatted(handlerId, code, earliestAndLatestBlockNumbers));
+                    ctx()
+                            + "Handler %d received an invalid EndStream request with code %s. %s"
+                                    .formatted(handlerId, code, earliestAndLatestBlockNumbers));
         }
     }
 
@@ -569,8 +575,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             return false;
         } catch (final RuntimeException e) {
             shutdown(); // this method is idempotent and can be called multiple times
-            final String message = ctx() + "Failed to send response '%s' for handler %d: %s"
-                    .formatted(response.response().kind(), handlerId, e.getMessage());
+            final String message = ctx()
+                    + "Failed to send response '%s' for handler %d: %s"
+                            .formatted(response.response().kind(), handlerId, e.getMessage());
             LOGGER.log(DEBUG, message, e);
             metrics.sendResponseFailed.increment(); // @todo(1415) add label
             return false;
@@ -655,7 +662,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     /// Handle the END_BEHIND action for a block.
     private BatchHandleResult handleSendBehind() {
-        LOGGER.log(DEBUG, ctx() + "Handler {0} is sending Behind({1}).", handlerId, publisherManager.getLatestBlockNumber());
+        LOGGER.log(
+                DEBUG,
+                ctx() + "Handler {0} is sending Behind({1}).",
+                handlerId,
+                publisherManager.getLatestBlockNumber());
         // If the action is SEND_BEHIND, we need to send an end of stream
         // response to the publisher and not propagate the items.
         final BehindPublisher behindMessage = BehindPublisher.newBuilder()
@@ -759,7 +770,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             publisherManager.removeHandler(handlerId);
         } catch (final RuntimeException e) {
             // this should not happen
-            LOGGER.log(WARNING, ctx() + "RuntimeException during removal of handler %d from manager".formatted(handlerId), e);
+            LOGGER.log(
+                    WARNING,
+                    ctx() + "RuntimeException during removal of handler %d from manager".formatted(handlerId),
+                    e);
         } finally {
             try {
                 replies.onComplete();
@@ -770,7 +784,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             } catch (final UncheckedIOException wrapper) {
                 IOException wrapped = wrapper.getCause();
                 if (!(wrapped instanceof SocketException)) {
-                    LOGGER.log(DEBUG, ctx() + "IO Exception during shutdown for handler %d".formatted(handlerId), wrapper);
+                    LOGGER.log(
+                            DEBUG, ctx() + "IO Exception during shutdown for handler %d".formatted(handlerId), wrapper);
                 }
             } catch (final RuntimeException e) {
                 LOGGER.log(DEBUG, ctx() + "RuntimeException during shutdown for handler %d".formatted(handlerId), e);

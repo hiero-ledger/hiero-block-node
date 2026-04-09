@@ -42,6 +42,11 @@ import org.hiero.metrics.core.MetricRegistry;
 /// appropriate responses to their publishers.
 public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStreamPublishServiceInterface {
 
+    /// Maximum length for the correlation ID header value.
+    /// Chosen to accommodate current formats (e.g. `N#-STR#`, `N#-STR#-BLK#-REQ#`) and
+    /// future formats such as prefixed UUIDs, while bounding log line growth.
+    static final int MAX_CORRELATION_ID_LENGTH = 64;
+
     // Metric key constants
     public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED =
             MetricKey.of("publisher_block_items_received", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -187,18 +192,12 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     ///
     /// A new handler is created when a new publisher connects to the block node.
     /// @param replies the pipeline to which the replies will be sent
-    /// @param correlationId the correlation ID from the gRPC `hiero-correlation-id` header, or empty string if absent
+    /// @param correlationId the correlation ID from the gRPC `hiero-correlation-id` header, or empty if absent
     /// @return a new, valid, fully initialized publisher handler
     private Pipeline<? super PublishStreamRequestUnparsed> initiatePublisherHandler(
-            @NonNull final Pipeline<? super PublishStreamResponse> replies,
-            @NonNull final String correlationId) {
+            @NonNull final Pipeline<? super PublishStreamResponse> replies, @NonNull final String correlationId) {
         return publisherManager.addHandler(replies, handlerMetrics, correlationId);
     }
-
-    /// Maximum length for the correlation ID header value.
-    /// Chosen to accommodate current formats (e.g. `N#-STR#`, `N#-STR#-BLK#-REQ#`) and
-    /// future formats such as prefixed UUIDs, while bounding log line growth.
-    static final int MAX_CORRELATION_ID_LENGTH = 64;
 
     /// Truncates the given correlation ID to [#MAX_CORRELATION_ID_LENGTH] characters.
     ///
