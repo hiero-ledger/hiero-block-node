@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.archive;
 
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
@@ -181,15 +182,15 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
         }
     }
 
-    /// Logs a TRACE message explaining why the given [notification] was ignored.  Called only
+    /// Logs an INFO message explaining why the given [notification] was ignored.  Called only
     /// when the notification is `null`, carries a failed verification, or has a `null` block.
     private void logInvalidOrFailedNotification(VerificationNotification notification) {
         if (notification == null) {
-            LOGGER.log(TRACE, "Received null verification notification, ignoring");
+            LOGGER.log(INFO, "Received null verification notification, ignoring");
         } else if (!notification.success()) {
-            LOGGER.log(TRACE, "Received failed verification notification, ignoring");
+            LOGGER.log(INFO, "Received failed verification notification, ignoring");
         } else {
-            LOGGER.log(TRACE, "Received verification notification with null block, ignoring");
+            LOGGER.log(INFO, "Received verification notification with null block, ignoring");
         }
     }
 
