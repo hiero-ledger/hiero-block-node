@@ -84,7 +84,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
      */
     @Override
     public UploadResult call() {
-        long uploadStartNs = System.nanoTime();
+        final long uploadStartNs = System.nanoTime();
         try {
             final byte[] protoBytes = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
             final byte[] compressed = CompressionType.ZSTD.compress(protoBytes);

@@ -147,20 +147,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             // Drain in-flight uploads before closing the S3 client. Each task has its own
             // uploadTimeoutSeconds deadline, so waiting that long guarantees all in-flight
             // tasks have either completed or timed out.
-            final long deadline = System.currentTimeMillis() + (long) config.uploadTimeoutSeconds() * 1_000L;
-            while (inFlightCount.get() > 0 && System.currentTimeMillis() < deadline) {
-                final long remainingMs = deadline - System.currentTimeMillis();
-                try {
-                    final Future<SingleBlockStoreTask.UploadResult> completed =
-                            completionService.poll(Math.min(remainingMs, 200L), TimeUnit.MILLISECONDS);
-                    if (completed != null) {
-                        publishResult(completed);
-                    }
-                } catch (final InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
+            drainInFlightTasks();
+
             // Final non-blocking sweep for any tasks that just landed.
             drainCompletedTasks();
         }
@@ -183,32 +171,26 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     public void handleVerification(@NonNull final VerificationNotification notification) {
         if (s3Client == null || completionService == null) {
             return;
+        } else if (!notification.success()) {
+            LOGGER.log(
+                TRACE, "Skipping upload for block {0}: verification did not succeed.", notification.blockNumber());
+            return;
+        } else if (notification.blockNumber() < 0) {
+            LOGGER.log(TRACE, "Skipping upload: invalid block number {0}.", notification.blockNumber());
+            return;
+        } else if (notification.block() == null) {
+            LOGGER.log(WARNING, "Skipping upload for block {0}: block payload is null.", notification.blockNumber());
+            return;
         }
 
         // Drain results from previously submitted tasks before queuing new work.
         drainCompletedTasks();
 
-        if (!notification.success()) {
-            LOGGER.log(
-                    TRACE, "Skipping upload for block {0}: verification did not succeed.", notification.blockNumber());
-            return;
-        }
-        final long blockNumber = notification.blockNumber();
-        if (blockNumber < 0) {
-            LOGGER.log(TRACE, "Skipping upload: invalid block number {0}.", blockNumber);
-            return;
-        }
-        final BlockUnparsed block = notification.block();
-        if (block == null) {
-            LOGGER.log(WARNING, "Skipping upload for block {0}: block payload is null.", blockNumber);
-            return;
-        }
-
-        final String objectKey = buildBlockObjectKey(blockNumber);
+        final String objectKey = buildBlockObjectKey(notification.blockNumber());
         inFlightCount.incrementAndGet();
         completionService.submit(new SingleBlockStoreTask(
-                blockNumber,
-                block,
+            notification.blockNumber(),
+            notification.block(),
                 s3Client,
                 objectKey,
                 config.storageClass().name(),
@@ -236,6 +218,28 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     }
 
     /**
+     * Drain in-flight uploads before closing the S3 client.
+     *
+     * <p>Each task has its own uploadTimeoutSeconds deadline, so waiting that long guarantees
+     * all in-flight tasks have either completed or timed out.
+     */
+    private void drainInFlightTasks() {
+        try {
+            final long deadline = System.currentTimeMillis() + (long) config.uploadTimeoutSeconds() * 1_000L;
+            while (inFlightCount.get() > 0 && System.currentTimeMillis() < deadline) {
+                final long remainingMs = deadline - System.currentTimeMillis();
+                final Future<SingleBlockStoreTask.UploadResult> completed =
+                    completionService.poll(Math.min(remainingMs, 200L), TimeUnit.MILLISECONDS);
+                if (completed != null) {
+                    publishResult(completed);
+                }
+            }
+        } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
      * Decrements the in-flight counter and publishes a {@link PersistedNotification} for the
      * given completed upload future. Handles {@link InterruptedException} and
      * {@link ExecutionException} without propagating.
@@ -243,6 +247,12 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     private void publishResult(final Future<SingleBlockStoreTask.UploadResult> completed) {
         inFlightCount.decrementAndGet();
         try {
+            // check for canceled result
+            if (completed.isCancelled()) {
+                LOGGER.log(WARNING, "Upload was cancelled");
+                return;
+            }
+
             final SingleBlockStoreTask.UploadResult result = completed.get();
             blockMessaging.sendBlockPersisted(
                     new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
@@ -263,7 +273,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             Thread.currentThread().interrupt();
             LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
         } catch (final ExecutionException e) {
-            LOGGER.log(WARNING, "Unexpected exception in upload task: ", e.getCause() != null ? e.getCause() : e);
+            LOGGER.log(WARNING, "Unexpected exception in upload task: ", e);
         }
     }
 
@@ -301,6 +311,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
      * @param uploadsTotal        number of blocks successfully uploaded to S3
      * @param uploadFailuresTotal number of blocks that failed to upload (S3 error, timeout, etc.)
      * @param uploadBytesTotal    total compressed bytes successfully uploaded to S3
+     * @param uploadLatencyNs       total upload time in nanoseconds
      */
     public record MetricsHolder(Counter uploadsTotal, Counter uploadFailuresTotal, Counter uploadBytesTotal, Counter uploadLatencyNs) {
 
@@ -322,7 +333,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                                     METRICS_CATEGORY, "expanded_cloud_storage_upload_bytes_total")
                             .withDescription("Total compressed bytes successfully uploaded to S3-compatible storage")),
                 metrics.getOrCreate(new Counter.Config(
-                                    METRICS_CATEGORY, "expanded_cloud_storage_upload_time_latency_ns")
+                                    METRICS_CATEGORY, "expanded_cloud_storage_upload_latency_ns")
                             .withDescription("Total time spent uploading blocks in expanded_cloud_storage in nanoseconds"))
             );
         }
