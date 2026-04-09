@@ -14,6 +14,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Formatter;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -432,26 +433,26 @@ public class SignatureStatsCollector implements Consumer<SignatureBlockStats>, A
             }
 
             Formatter row = new Formatter(new StringBuilder());
-            // First parameter is a date, we're using string format, but that might not be the ideal choice.
-            final String baseColumns = "%s,%.4f,%d,%d,%d,%.4f,%.4f";
-            row.format(baseColumns,
+            row.format(
+                    "%s,%.4f,%d,%d,%d,%.4f,%.4f",
                     dayStats.date,
                     dayStats.getAveragePercentage(),
-                    dayStats.totalBlocks(),
+                    dayStats.totalBlocks,
                     dayStats.getAverageAddressBookNodeCount(),
-                    dayStats.totalValidSignatures(),
+                    dayStats.totalValidSignatures,
                     dayStats.getMinPercentage(),
                     dayStats.getAveragePercentagePerBlock());
 
             // Histogram columns
             for (int i = 1; i <= MAX_SIG_COUNT; i++) {
                 int blockCount = dayStats.blocksBySignatureCount.getOrDefault(i, 0);
-                row.format(",%d").append(blockCount);
+                row.format(",%d", blockCount);
             }
+
             // Stake weight columns
             if (dayStats.hasStakeData()) {
-                final String stakeColumns = ",%s,%d,%.4f,%.4f,%.4f,%d,%d,%d,%.1f";
-                row.format(stakeColumns,
+                row.format(
+                        ",%s,%d,%.4f,%.4f,%.4f,%d,%d,%d,%.1f",
                         dayStats.mode,
                         dayStats.totalStake,
                         dayStats.minValidatedStakePct,
@@ -462,13 +463,15 @@ public class SignatureStatsCollector implements Consumer<SignatureBlockStats>, A
                         dayStats.maxSigningNodes,
                         dayStats.getMeanSigningNodes());
                 appendNodeStakeDistribution(row, dayStats);
-                row.format(",%d,%d,,,,,,,,,,,,,,,,,",
-                        dayStats.getMissingSigners(),
-                        dayStats.getReliableSigners()
-                    row.append(",").append(dayStats.mode);
+                row.format(",%d,%d", dayStats.getMissingSigners(), dayStats.getReliableSigners());
+            } else {
+                // Empty stake columns
+                for (int i = 0; i < STAKE_COLUMN_COUNT; i++) {
+                    row.format(",");
+                }
             }
+
             row.format("%n");
-            final String result = row.out().toString();
 
             Files.writeString(csvOutputFile, row.toString(), StandardCharsets.UTF_8, APPEND, CREATE);
 
@@ -482,10 +485,10 @@ public class SignatureStatsCollector implements Consumer<SignatureBlockStats>, A
      * Appends node stake distribution columns (min, max, mean, median, stddev)
      * and top-3 concentration percentage to the CSV row.
      */
-    private static void appendNodeStakeDistribution(StringBuilder row, DayStatistics dayStats) {
+    private static void appendNodeStakeDistribution(Formatter row, DayStatistics dayStats) {
         if (dayStats.latestNodeStakes == null || dayStats.latestNodeStakes.isEmpty()) {
             // 6 empty columns: min/max/mean/median/stddev + top3
-            row.append(",,,,,,");
+            row.format(",,,,,,");
             return;
         }
 
@@ -508,11 +511,7 @@ public class SignatureStatsCollector implements Consumer<SignatureBlockStats>, A
         }
         double stdDevStake = Math.sqrt(sumSquareDiff / stakes.size());
 
-        row.append(",").append(minStake);
-        row.append(",").append(maxStake);
-        row.append(",").append(String.format("%.0f", meanStake));
-        row.append(",").append(String.format("%.0f", medianStake));
-        row.append(",").append(String.format("%.0f", stdDevStake));
+        row.format(",%d,%d,%.0f,%.0f,%.0f", minStake, maxStake, meanStake, medianStake, stdDevStake);
 
         // Top 3 concentration (take last 3 from already-sorted ascending list)
         long top3Sum = 0;
@@ -520,6 +519,6 @@ public class SignatureStatsCollector implements Consumer<SignatureBlockStats>, A
             top3Sum += stakes.get(i);
         }
         double top3Pct = dayStats.totalStake > 0 ? (100.0 * top3Sum) / dayStats.totalStake : 0;
-        row.append(",").append(String.format("%.4f", top3Pct));
+        row.format(",%.4f", top3Pct);
     }
 }
