@@ -82,7 +82,6 @@ class BlockNodeCloudStorageTests {
     // Per-test instances
     private S3MockContainer s3MockContainer;
     private S3Client s3Client;
-    private String s3Endpoint;
     private BlockNodeApp app;
     private PbjGrpcClient publishClient;
 
@@ -97,7 +96,7 @@ class BlockNodeCloudStorageTests {
             assumeTrue(false, "Docker not available — skipping cloud storage E2E: " + e.getMessage());
             return;
         }
-        s3Endpoint = s3MockContainer.getHttpEndpoint();
+        String s3Endpoint = s3MockContainer.getHttpEndpoint();
         s3Client = new S3Client("us-east-1", s3Endpoint, BUCKET, ACCESS_KEY, SECRET_KEY);
 
         // Inject S3Mock coordinates via getEnvVar override so config picks them up without
