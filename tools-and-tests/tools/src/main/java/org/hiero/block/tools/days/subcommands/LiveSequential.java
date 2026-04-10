@@ -957,7 +957,8 @@ public class LiveSequential implements Runnable {
             List<BlockValidation> parallelValidations = new ArrayList<>();
             parallelValidations.add(new RequiredItemsValidation());
             parallelValidations.add(new BlockStructureValidation());
-            SignatureValidation signatureValidation = new SignatureValidation(addressBookRegistry, nodeStakeRegistry);
+            SignatureValidation signatureValidation =
+                    new SignatureValidation(addressBookRegistry, nodeStakeRegistry, true);
             parallelValidations.add(signatureValidation);
 
             // Create signature stats collector for CSV output

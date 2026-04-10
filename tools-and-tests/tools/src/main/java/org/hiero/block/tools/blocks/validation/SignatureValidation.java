@@ -60,18 +60,6 @@ public final class SignatureValidation implements BlockValidation {
     }
 
     /**
-     * Creates a new signature validation with optional stake-weighted consensus.
-     * Detailed stats collection is enabled by default.
-     *
-     * @param addressBookRegistry the address book registry for public key lookups
-     * @param nodeStakeRegistry the node stake registry for stake weights (may be null for equal-weight)
-     */
-    public SignatureValidation(
-            final AddressBookRegistry addressBookRegistry, final NodeStakeRegistry nodeStakeRegistry) {
-        this(addressBookRegistry, nodeStakeRegistry, true);
-    }
-
-    /**
      * Creates a new signature validation with optional stake-weighted consensus and
      * optional detailed stats collection.
      *

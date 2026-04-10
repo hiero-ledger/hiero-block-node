@@ -296,7 +296,7 @@ class SignatureValidationTest {
             TestBlockFactory.writeAddressBookHistory(tempDir);
             AddressBookRegistry abRegistry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
             // null stake registry → equal-weight mode
-            SignatureValidation validation = new SignatureValidation(abRegistry, null);
+            SignatureValidation validation = new SignatureValidation(abRegistry, null, true);
             assertDoesNotThrow(() -> validation.validate(toUnparsed(chain.getFirst()), 0));
         }
 
@@ -308,18 +308,7 @@ class SignatureValidationTest {
             AddressBookRegistry abRegistry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
             NodeStakeRegistry stakeRegistry = new NodeStakeRegistry();
             // Empty stake registry → equal-weight fallback
-            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry);
-            assertDoesNotThrow(() -> validation.validate(toUnparsed(chain.getFirst()), 0));
-        }
-
-        @Test
-        @DisplayName("two-arg constructor backward compatible with single-arg")
-        void twoArgConstructorBackwardCompatible(@TempDir Path tempDir) throws Exception {
-            List<Block> chain = TestBlockFactory.createValidChain(1);
-            TestBlockFactory.writeAddressBookHistory(tempDir);
-            AddressBookRegistry abRegistry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
-            // Single-arg constructor should still work
-            SignatureValidation validation = new SignatureValidation(abRegistry);
+            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry, true);
             assertDoesNotThrow(() -> validation.validate(toUnparsed(chain.getFirst()), 0));
         }
 
@@ -353,7 +342,7 @@ class SignatureValidationTest {
             AddressBookRegistry abRegistry = new AddressBookRegistry(tempDir.resolve("addressBookHistory.json"));
             // Empty stake registry → equal-weight fallback
             NodeStakeRegistry stakeRegistry = new NodeStakeRegistry();
-            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry);
+            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry, true);
             ValidationException ex =
                     assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(blockWith1Sig), 0));
             assertTrue(ex.getMessage().contains("mode=equal-weight"), "Should show equal-weight mode");
@@ -381,7 +370,7 @@ class SignatureValidationTest {
                             .build());
 
             // totalStake=1500, threshold=ceil(1500/3)=500. All 5 nodes sign → 1500 >= 500
-            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry);
+            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry, true);
             assertDoesNotThrow(() -> validation.validate(toUnparsed(chain.getFirst()), 0));
         }
 
@@ -429,7 +418,7 @@ class SignatureValidationTest {
                             .build());
 
             // totalStake=1500, threshold=500. Node 0 stake=100 < 500
-            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry);
+            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry, true);
             ValidationException ex =
                     assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(blockWith1Sig), 0));
             assertTrue(ex.getMessage().contains("mode=stake-weighted"), "Should show stake-weighted mode");
@@ -458,7 +447,7 @@ class SignatureValidationTest {
 
             // totalStake=0 → should fall back to equal-weight, not pass with threshold=0
             // 5 nodes all sign → passes equal-weight threshold of 2
-            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry);
+            SignatureValidation validation = new SignatureValidation(abRegistry, stakeRegistry, true);
             assertDoesNotThrow(() -> validation.validate(toUnparsed(chain.getFirst()), 0));
         }
     }
