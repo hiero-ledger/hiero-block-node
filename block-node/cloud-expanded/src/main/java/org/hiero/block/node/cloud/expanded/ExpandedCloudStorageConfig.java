@@ -46,10 +46,10 @@ import org.hiero.block.node.base.Loggable;
 @ConfigData("cloud.expanded")
 public record ExpandedCloudStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "") String endpointUrl,
-        @Loggable @ConfigProperty(defaultValue = "block-node-blocks") String bucketName,
-        @Loggable @ConfigProperty(defaultValue = "blocks") String objectKeyPrefix,
+        @Loggable @ConfigProperty(defaultValue = "") String bucketName,
+        @Loggable @ConfigProperty(defaultValue = "") String objectKeyPrefix,
         @Loggable @ConfigProperty(defaultValue = "STANDARD") StorageClass storageClass,
-        @Loggable @ConfigProperty(defaultValue = "us-east-1") String regionName,
+        @Loggable @ConfigProperty(defaultValue = "") String regionName,
         @ConfigProperty(defaultValue = "") String accessKey,
         @ConfigProperty(defaultValue = "") String secretKey,
         @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int uploadTimeoutSeconds) {

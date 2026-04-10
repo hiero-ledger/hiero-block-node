@@ -106,6 +106,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                         "cloud.expanded.endpointUrl", s3Endpoint,
                         "cloud.expanded.bucketName", BUCKET_NAME,
                         "cloud.expanded.objectKeyPrefix", "blocks",
+                        "cloud.expanded.regionName", "us-east-1",
                         "cloud.expanded.accessKey", ACCESS_KEY,
                         "cloud.expanded.secretKey", SECRET_KEY));
 
@@ -136,6 +137,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                         "cloud.expanded.endpointUrl", s3Endpoint,
                         "cloud.expanded.bucketName", BUCKET_NAME,
                         "cloud.expanded.objectKeyPrefix", "intblocks",
+                        "cloud.expanded.regionName", "us-east-1",
                         "cloud.expanded.accessKey", ACCESS_KEY,
                         "cloud.expanded.secretKey", SECRET_KEY));
 
@@ -166,6 +168,7 @@ class ExpandedCloudStoragePluginIntegrationTest
                         "cloud.expanded.endpointUrl", s3Endpoint,
                         "cloud.expanded.bucketName", BUCKET_NAME,
                         "cloud.expanded.objectKeyPrefix", "",
+                        "cloud.expanded.regionName", "us-east-1",
                         "cloud.expanded.accessKey", ACCESS_KEY,
                         "cloud.expanded.secretKey", SECRET_KEY));
 

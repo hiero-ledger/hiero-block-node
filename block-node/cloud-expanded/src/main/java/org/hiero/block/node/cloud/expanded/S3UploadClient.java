@@ -27,28 +27,13 @@ abstract class S3UploadClient implements AutoCloseable {
 
     /// Creates a production {@link S3UploadClient} backed by `com.hedera.bucky.S3Client`.
     ///
+    /// Returns a {@link BuckyS3UploadClient} instance.
+    ///
     /// @param config the plugin configuration supplying endpoint, bucket, region, and credentials
     /// @return a new upload client
     /// @throws com.hedera.bucky.S3ClientInitializationException if the underlying client cannot be initialised
     static S3UploadClient getInstance(final ExpandedCloudStorageConfig config)
             throws com.hedera.bucky.S3ClientInitializationException {
-        final com.hedera.bucky.S3Client bucky = new com.hedera.bucky.S3Client(
-                config.regionName(), config.endpointUrl(), config.bucketName(), config.accessKey(), config.secretKey());
-        return new S3UploadClient() {
-            @Override
-            void uploadFile(
-                    final String objectKey,
-                    final String storageClass,
-                    final Iterator<byte[]> contentIterable,
-                    final String contentType)
-                    throws com.hedera.bucky.S3ClientException, IOException {
-                bucky.uploadFile(objectKey, storageClass, contentIterable, contentType);
-            }
-
-            @Override
-            public void close() {
-                bucky.close();
-            }
-        };
+        return new BuckyS3UploadClient(config);
     }
 }
