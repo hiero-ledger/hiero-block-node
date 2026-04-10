@@ -4,7 +4,7 @@
 | --- | --- |
 | **Author** | Ejaz Merchant |
 | **Status** | In Development |
-| **Last Updated** | April 6, 2026 |
+| **Last Updated** | April 10, 2026 |
 | **HIPs** | HIP-1056 (Block Streams), HIP-1200 (hinTS/TSS), HIP-1081 (Block Nodes) |
 | **Collaborators** | Fredy - Merkle tree & block structure · Rohit - TSS/BLS cryptography · Nana - Block Node coordination · Piotr - BlockyDevs Tech Lead |
 
@@ -44,11 +44,11 @@ This supports the community's ability to independently validate Hedera block dat
 | Priority | Goal | Success Criteria |
 | --- | --- | --- |
 | P0 | Block hash verification (no TSS) | Library produces the correct SHA-384 block root hash, verifiable against known test vectors |
-| P0 | TSS signature verification (hinTS) | Library verifies BLS threshold signatures using BLS12-381 on v0.72+ blocks |
-| P0 | WRAPS proof verification (Groth16) | Library verifies Groth16 ZK proofs on BN254 proving address book chain of trust |
+| P0 | TSS signature verification (hinTS) | Library verifies BLS threshold signatures using BLS12-381 on v0.73+ blocks |
+| P0 | WRAPS proof verification (Nova IVC) | Library verifies Nova IVC proofs on BN254 proving address book chain of trust |
 | P1 | Block content proof generation | Library generates minimal Merkle proofs for any block item |
 | P1 | Block content proof verification | Library verifies proofs against trusted block roots |
-| P1 | Bootstrap mode verification | Required for Solo, testnet, and PreviewNet. Not required for mainnet cutover. Blocks before WRAPS ceremony completion use Aggregate Schnorr Signatures on a third elliptic curve (TBD) |
+| P1 | Bootstrap mode verification | Required for Solo, testnet, and PreviewNet. Not required for mainnet cutover. Blocks before WRAPS ceremony completion use Aggregate Schnorr Signatures on BabyJubjub |
 | P2 | Smart contract proof verification (stretch) | Proofs verifiable on-chain via EVM contract |
 
 ### Non-Goals
@@ -75,16 +75,18 @@ This supports the community's ability to independently validate Hedera block dat
 | **WRAPS** | The ZK-SNARK component of TSS that verifies the address book (validator set) is a legitimate descendant of genesis. Uses a Nova IVC proof scheme on BN254, with a Groth16 decider proof nested inside. |
 | **BLS (Boneh-Lynn-Shacham)** | A signature scheme using pairing-based cryptography. "BLS" can refer to either the signature scheme or the BLS12-381 elliptic curve as context matters. |
 | **BLS12-381** | The elliptic curve used for hinTS signature verification. This is the curve, not the signature scheme. |
-| **BN254** | The elliptic curve used for WRAPS/Groth16 proof verification. A second curve required alongside BLS12-381. |
-| **Groth16** | A popular ZK-SNARK proof system. WRAPS proofs are Groth16 proofs. Verified using BN254. |
-| **ArkWorks** | The Rust elliptic curve library used by `hedera-cryptography`. Serialization compatibility with the chosen JS library must be confirmed. |
-| **Verification Key (hinTS)** | Embedded in the block proof's `TssSignBlockProof.block_signature` field. First 1096 bytes = verification key, remainder = signature. |
+| **BN254** | The elliptic curve used for WRAPS/Nova IVC proof verification. A second curve required alongside BLS12-381. |
+| **BabyJubjub** | The elliptic curve used for Aggregate Schnorr Signature verification during bootstrap mode, before WRAPS is available. A third curve required alongside BLS12-381 and BN254. |
+| **Groth16** | A popular ZK-SNARK proof system. The WRAPS proof contains a nested Groth16 decider proof inside a Nova IVC envelope. Verified using BN254. |
+| **Nova IVC** | An Incrementally Verifiable Computation scheme. The 704-byte WRAPS suffix is a Nova IVC ProofData bundle, not a bare Groth16 proof. |
+| **ArkWorks** | The Rust elliptic curve library used by `hedera-cryptography`. Serialization compatibility with `@noble/curves` confirmed. |
+| **Verification Key (hinTS)** | Embedded in the block proof's `TssSignBlockProof.block_signature` field. First 1096 bytes = verification key, next 1632 bytes == signature, remainder = abProof. |
 | **Verification Key (WRAPS)** | Hard-coded in the library. Used to verify the Groth16 proof. Produced by the TSS ceremony (HIP-1398). |
 | **Threshold** | The fraction of stake weight required for a valid hinTS signature. Hard-coded to **numerator=1, denominator=2** (half the network). Same for testnet and mainnet. |
-| **Bootstrap Mode** | The period before a WRAPS proof is available. Uses Aggregate Schnorr Signatures on a third elliptic curve. |
+| **Bootstrap Mode** | The period before a WRAPS proof is available. Uses Aggregate Schnorr Signatures on BabyJubjub. |
 | **Block Proof** | The `TssSignBlockProof` protobuf message containing the TSS signature components embedded in the Block Stream. |
 | **Ledger ID** | The 32-byte Poseidon hash of the Genesis Address Book. The root of the entire trust chain. Supplied by the caller to enable the strongest verification guarantee. |
-| **State Proof** | A Merkle proof variant that proves a specific item exists within a block and anchors it to the block root. Uses the same cryptography as a content proof but requires an additional set of sibling hashes in the Merkle path. The same state proof format is used by Clipper for cross-network message verification. |
+| **State Proof** | A Merkle proof variant that proves a specific item exists within a block and anchors it to the block root. Uses the same cryptography as a content proof but requires an additional set of sibling hashes in the Merkle path. |
 
 ---
 
@@ -94,9 +96,9 @@ This supports the community's ability to independently validate Hedera block dat
 
 | Entity | Source | Format | Notes |
 | --- | --- | --- | --- |
-| Block | Block Node | Protobuf (HIP-1056), `.blk` binary | Source must be a Block Node (HIP-1081). Mirror Nodes do not expose `.blk` files. Use proto definitions from `hiero-consensus-node` tag `v0.72.0-alpha.3` |
+| Block | Block Node | Protobuf (HIP-1056), `.blk` binary | Source must be a Block Node (HIP-1081). Mirror Nodes do not expose `.blk` files. Use proto definitions from `hiero-consensus-node` tag `v0.73.0-rc.1` |
 | Ledger ID | Caller-supplied | 32-byte Poseidon hash | Poseidon hash of Genesis Address Book. Published via system transaction in block 0 or Record Stream at cutover. Acts as trust root for WRAPS proof verification. |
-| Block Proof | Embedded in Block Stream | `TssSignBlockProof` protobuf | First 1096 bytes = hinTS verification key, remainder = hinTS signature |
+| Block Proof | Embedded in Block Stream | `TssSignBlockProof` protobuf | First 1096 bytes = hinTS verification key, next 1632 bytes == hinTS signature, remainder = abProof (704 bytes WRAPS or 192 bytes Schnorr). |
 | WRAPS Verification Key | Hard-coded in library | BN254 point | Produced by TSS ceremony (HIP-1398); verifies Groth16 proof |
 | Block Footer | Embedded in block | 3 hash values | Previous block root, root of all previous hashes, state at start of block as read directly, no computation needed |
 
@@ -131,29 +133,33 @@ The library consists of five main components:
 2. **Merkle Tree Builder** - Constructs Merkle Mountain from block items, computes root
 3. **Proof Generator** - Creates minimal inclusion proofs for block items
 4. **hinTS Verifier** - Validates hinTS threshold signatures (BLS12-381)
-5. **WRAPS Verifier** - Validates Groth16 ZK proofs for address book chain of trust (BN254)
+5. **WRAPS Verifier** - Validates Nova IVC proofs for address book chain of trust (BN254)
 
 ---
 
 ### Implementation Approach
 
-All verification logic is implemented in pure TypeScript/JavaScript. This includes block parsing, Merkle Mountain construction, proof generation, and cryptographic verification (hinTS via BLS12-381, WRAPS via BN254).
+All verification logic is implemented in pure TypeScript/JavaScript using `@noble/curves`. This includes block parsing, Merkle Mountain construction, proof generation, and cryptographic verification (hinTS via BLS12-381, WRAPS via BN254, Schnorr via BabyJubjub).
 
 **Why pure TypeScript:**
 - No native dependencies - standard npm install, no Rust toolchain required
 - Best community buildability and browser support
 - Clean separation of concerns via the `TssVerificationProvider` interface, which allows the crypto backend to be swapped transparently if needed
 
-**hinTS status:** BLS pairing, B·SK polynomial identity, degree check, and threshold check all pass in pure JS. The remaining 6 checks (KZG proofs + field identities) all depend on the Fiat-Shamir challenge r — transcript construction (compressed re-serialization + hash_to_field) is the remaining debugging surface. 
+**Crypto library:** `@noble/curves` provides all three elliptic curves (BLS12-381, BN254, BabyJubjub) with audited, pure JS implementations. ArkWorks serialization compatibility has been confirmed end-to-end.
 
-**WRAPS status:** The 704-byte WRAPS suffix is a Nova IVC ProofData bundle, not a bare Groth16 proof. No JavaScript-native Nova IVC verifier currently exists. Implementation path (pure JS BN254 operations vs. WASM shim) is being worked through with the hedera-cryptography team (Rohit). The `TssVerificationProvider` interface abstracts this so the public API is unaffected regardless of which path is chosen.
+**hinTS status:** All 10/10 verification checks pass in pure JS against  the `CN_0_73_TSS_WRAPS` block fixtures (blocks 0-4 and 466-467). BLS pairing, B·SK polynomial identity, degree check, threshold check, and all 6 KZG/polynomial identity checks (dependent on Fiat-Shamir challenge r) are verified.
+
+**WRAPS status:** The 704-byte WRAPS suffix is a Nova IVC ProofData bundle, not a bare Groth16 proof. Pure TypeScript verification via `@noble/curves` BN254 pairing operations is confirmed working against blocks 466-467 from the `CN_0_73_TSS_WRAPS` fixtures. The `TssVerificationProvider` interface abstracts the crypto backend so the public API is unaffected if the implementation needs to change.
+
+**Schnorr status:** Aggregate Schnorr Signature verification is fully working in pure JS using BabyJubjub + Blake2s + Poseidon, confirmed against blocks 0-4 from the `CN_0_73_TSS_WRAPS` fixtures (genesis-schnorr path).
 
 **Note on maintenance commitment:** This library is a permanently maintained artifact. Once published, developers will use it in production. This means an ongoing release cycle, security responsibility, and a team assigned to keep it current as an equivalent to an SDK commitment.
 
 ### Phased Delivery
 
 - **Alpha (April 6 – April 17):** Deterministic TypeScript core — block parser, Merkle Mountain, proof generator. `TssVerificationProvider` interface defined, no crypto backend yet.
-- **Beta (April 20 – May 8):** hinTS verifier (BLS12-381), WRAPS verifier (BN254), Schnorr verifier (BabyJubjub). Full TSS verification.
+- **Beta (April 20 – May 8):** hinTS verifier (BLS12-381), WRAPS verifier (BN254), Schnorr verifier (BabyJubjub). Full TSS verification via `@noble/curves`.
 - **Post-Beta:** npm publish as `@hiero/block-verification`.
 
 ### Library vs Reference Documentation
@@ -168,7 +174,7 @@ The BlockyDevs team (led by Piotr) ran a spike against real block fixtures, the 
 
 **Scope:** ~1,100 lines of TypeScript across 10 source files.
 
-**Fixtures tested:**
+**Fixtures tested (initial spike, PR#2305 fixtures):**
 
 | Fixture | Layout | Result |
 | --- | --- | --- |
@@ -176,13 +182,20 @@ The BlockyDevs team (led by Piotr) ran a spike against real block fixtures, the 
 | `block-10.blk.zstd` | genesis-schnorr | Schnorr VERIFIED (2/2 signers) |
 | `block-1000.blk.zstd` | WRAPS | Deserialization SUCCESS, ledger ID MATCH |
 
+**Fixtures tested (updated, CN_0_73_TSS_WRAPS from PR #2489):**
+
+| Fixture | Layout | Result |
+| --- | --- | --- |
+| `0.blk.gz` - `4.blk.gz` | genesis-schnorr | Schnorr VERIFIED, hinTS 10/10 checks pass |
+| `466.blk.gz` - `467.blk.gz` | WRAPS | WRAPS Groth16+KZG VERIFIED, hinTS 10/10 checks pass |
+
 **Key findings:**
 
-- `block-1000.blk.zstd` is the first confirmed WRAPS fixture (3,432-byte layout). The 704-byte WRAPS suffix is a Nova IVC ProofData bundle containing: IVC step counter, z_0/z_i state vectors, Nova instance commitments, a nested Groth16 decider proof, KZG opening proofs, and fold data.
+- The 704-byte WRAPS suffix is a Nova IVC ProofData bundle containing: IVC step counter, z_0/z_i state vectors, Nova instance commitments, a nested Groth16 decider proof, KZG opening proofs, and fold data.
 - Schnorr verification is fully working in pure JS using BabyJubjub + Blake2s + Poseidon.
 - **snarkjs compatibility question is closed** — not applicable. The WRAPS proof is a Nova IVC envelope, not a bare Groth16 proof. SnarkJS cannot verify it.
-- **Open question:** WRAPS implementation path — pure JS BN254 operations vs. WASM. Being worked through with Rohit.
-- **Fixture compatibility:** `block-0.blk.zstd` and `block-1000.blk.zstd` (from PR #2305) were generated before a hedera-cryptography upgrade that broke backwards compatibility. The 6 KZG/polynomial identity checks that depend on the Fiat-Shamir challenge r fail against these fixtures as a result. New fixtures required for Beta acceptance tests. 
+- **Pure TypeScript path confirmed.** All three proof paths (Schnorr, WRAPS/Nova IVC, and hinTS/BLS) are working end-to-end with `@noble/curves` and no native or WASM dependencies.
+- **Fixture compatibility resolved:** The initial spike fixtures (PR #2305, merged March 5) were generated before a backwards-incompatible `hedera-cryptography` upgrade (ark-ff 0.4.2, mid-to-late March). This caused the 6 KZG/polynomial identity checks to fail. Updated fixtures in `CN_0_73_TSS_WRAPS` (PR #2489, committed April 1) resolve this. All checks pass against the new fixtures.
 
 ---
 
@@ -216,7 +229,7 @@ Before the WRAPS trusted setup ceremony (HIP-1398) has run on mainnet, blocks ca
 **Approach:**
 
 - Use `protobufjs` to parse HIP-1056 protobuf format
-- Load `.proto` definitions from `hiero-consensus-node` at tag `v0.72.0-alpha.3`, under `hapi/hedera-protobuf-java-api/src/main/proto/block/stream/`
+- Load `.proto` definitions from `hiero-consensus-node` at tag `v0.73.0-rc.1`, under `hapi/hedera-protobuf-java-api/src/main/proto/block/stream/`
 - Use `BlockItemUnparsed` from `org.hiero.block.internal` as the parsing contract. Each block item field is typed as `bytes`, meaning items decode as raw `Uint8Array` with no further deserialization required.
 - Extract block items in timestamp order, preserving arrival sequence
 - Extract block proof (`TssSignBlockProof`) and the lengths are protocol constants and are not configureable
@@ -311,7 +324,7 @@ interface MerkleMountain {
 }
 ```
 
-Reference implementation: `ExtendedMerkleTreeSessionTest.java` in `hiero-block-node`. Source of truth: `BlockStreamManagerInput` in `hiero-consensus-node` at tag `v0.72.0-alpha.3`.
+Reference implementation: `ExtendedMerkleTreeSessionTest.java` in `hiero-block-node`. Source of truth: `BlockStreamManagerInput` in `hiero-consensus-node` at tag `v0.73.0-rc.1`.
 
 ---
 
@@ -344,7 +357,9 @@ interface ProofVerifier {
 
 **Elliptic Curve:** BLS12-381
 
-The selected library must be audited, actively maintained, and widely adopted in the crypto and web3 ecosystem. BLS pairing, B·SK polynomial identity, degree check, and threshold check all pass in pure JS against Rohit's `forPiotr` branch test vectors. Transcript construction (compressed re-serialization + hash_to_field) for the Fiat-Shamir challenge r is the remaining debugging surface.
+**Library:** `@noble/curves` (audited, pure JS, confirmed compatible with ArkWorks serialization).
+
+All 10 verification checks pass in pure JS: BLS pairing, B·SK polynomial identity, degree check, threshold check, and all 6 KZG/polynomial identity checks dependent on the Fiat-Shamir challenge r. Verified against `CN_0_73_TSS_WRAPS` block fixture.
 
 ```typescript
 interface HintsVerifier {
@@ -367,15 +382,15 @@ interface HintsVerifier {
 
 **Elliptic Curve:** BN254
 
-The 704-byte WRAPS suffix is a Nova IVC ProofData bundle, not a bare Groth16 proof. This means SnarkJS cannot be used: SnarkJS only supports bare Groth16 inputs, not the Nova IVC envelope. No JavaScript-native Nova IVC verifier currently exists.
+**Library:** `@noble/curves` (audited, pure JS, confirmed compatible with ArkWorks serialization).
 
-Implementation path (pure JS BN254 operations vs. WASM shim) is being worked through with the hedera-cryptography team. The `TssVerificationProvider` interface abstracts this so the public API is unaffected regardless of which path is chosen.
+The 704-byte WRAPS suffix is a Nova IVC ProofData bundle, not a bare Groth16 proof. This means SnarkJS cannot be used: SnarkJS only supports bare Groth16 inputs, not the Nova IVC envelope. Pure TypeScript verification via `@noble/curves` BN254 pairing operations is confirmed working against the `CN_0_73_TSS_WRAPS` fixtures (blocks 466-467).
+
 
 ```typescript
 interface WrapsVerifier {
   verify(wrapsProof: Uint8Array): boolean;
   // Verification key is hard-coded internally
-  // Beta: implementation path TBD as pure JS BN254 operations or WASM
 }
 ```
 
@@ -385,17 +400,11 @@ interface WrapsVerifier {
 
 **Responsibility:** Verify Aggregate Schnorr Signatures during the period before a WRAPS proof is available.
 
-**Elliptic Curve:** Third curve (TBD as different from BLS12-381 and BN254).
+**Elliptic Curve:** BabyJubjub
 
-This mode is only active before the TSS ceremony has run. Most applications will never encounter it. Until this component is implemented, the library returns an explicit `UnsupportedProofModeError` rather than failing silently.
+**Library:** `@noble/curves` (audited, pure JS).
 
----
-
-### TSS Verification Inputs
-
-The six potential components required for full TSS verification, and where each originates:
-
-> *Diagram: TSS Verification Inputs — see Notion source for image.*
+Fully working in pure JS using BabyJubjub + Blake2s + Poseidon. Verified against blocks 0-4 from the `CN_0_73_TSS_WRAPS` fixtures (genesis-schnorr path). 
 
 ---
 
@@ -403,13 +412,14 @@ The six potential components required for full TSS verification, and where each 
 
 ```text
 TSS Proof Verification:
-├── 1. Verify WRAPS proof (Groth16 on BN254)
+├── 1. Verify WRAPS proof (Nova IVC on BN254)
 │       Uses hard-coded verification key
 │       Proves: address book is legitimate descendant of genesis
 │
 ├── 2. Extract hinTS components from block proof:
 │       hinTS verification key (first 1096 bytes)
 │       hinTS signature (remaining bytes)
+│       abProof (remaining 704 bytes WRAPS or 192 bytes Schnorr)
 │
 └── 3. Verify hinTS signature (BLS12-381)
         Uses extracted verification key
@@ -485,11 +495,11 @@ flowchart TD
     I --> J[Computed Signed Block Root Hash]
 
     F --> K{Proof Mode?}
-    K -->|TSS + WRAPS| L[Split: 1096 bytes = vkey, rest = sig]
-    K -->|Schnorr| M[Aggregate Schnorr Verifier]
+    K -->|TSS + WRAPS| L[Split: 1096 vkey + 1632 sig + 704 abProof]
+    K -->|Schnorr| M[Aggregate Schnorr Verifier BabyJubjub]
 
     L --> N[hinTS Verifier BLS12-381]
-    L --> O[WRAPS Verifier Groth16/BN254]
+    L --> O[WRAPS Verifier Nova IVC/BN254]
 
     J --> N
     J --> O
@@ -557,11 +567,11 @@ graph LR
 
     HINTS --> BLS["BLS12-381 curve"]
     WRAPS --> BN["BN254 curve"]
-    BOOT --> THIRD["3rd curve (TBD, SecP256k1?)"]
+    BOOT --> BABY["BabyJubjub curve"]
 
-    BLS --> SNARK["@noble/bls12-381"]
-    BN --> SNARK2["Nova IVC verifier (path TBD - pure JS or WASM)"]
-    THIRD --> TBD["JS library TBD"]
+    BLS --> NOBLE1["@noble/curves"]
+    BN --> NOBLE2["@noble/curves"]
+    BABY --> NOBLE3["@noble/curves"]
 
     style BLS fill:#87ceeb
     style BN fill:#f9c74f
@@ -574,7 +584,7 @@ graph LR
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `protoTag` | string | `'v0.72.0-alpha.3'` | Consensus Node proto tag version |
+| `protoTag` | string | `'v0.73.0-rc.1'` | Consensus Node proto tag version |
 | `protoPath` | string | `'./proto'` | Path to local `.proto` definitions |
 | `leafPrefix` | byte | `0x00` | Prefix byte for leaf hashing |
 | `internalPrefix` | byte | `0x02` | Prefix byte for 2-child internal node hashing |
@@ -593,7 +603,7 @@ graph LR
 | `merkle_mountain_build_duration_ms` | histogram | Time to assemble Merkle Mountain |
 | `proof_generation_duration_ms` | histogram | Time to generate content proof |
 | `hints_verify_duration_ms` | histogram | Time to verify hinTS signature (BLS12-381) |
-| `wraps_verify_duration_ms` | histogram | Time to verify WRAPS/Groth16 proof (BN254) |
+| `wraps_verify_duration_ms` | histogram | Time to verify WRAPS/Nova IVC proof (BN254) |
 | `verification_success_total` | counter | Total successful verifications |
 | `verification_failure_total` | counter | Total failed verifications |
 
@@ -607,10 +617,9 @@ graph LR
 | `MerkleError` | Tree construction fails (bad item bucketing, hash mismatch) | Return error with item index and bucket type |
 | `ProofError` | Invalid proof structure or path length | Return error with details |
 | `HintsSignatureError` | hinTS BLS verification fails | Return `{ valid: false, hintsValid: false }` |
-| `WrapsProofError` | WRAPS Groth16 verification fails | Return `{ valid: false, wrapsValid: false }` |
+| `WrapsProofError` | WRAPS Nova IVC verification fails | Return `{ valid: false, wrapsValid: false }` |
 | `KeyExtractionError` | Block proof byte array is shorter than expected or malformed | Return error with expected format |
 | `CurveCompatibilityError` | JS library cannot parse ArkWorks-serialized elements | Return error identifying the incompatible library |
-| `UnsupportedProofModeError` | Aggregate Schnorr Signature verification requested but not yet implemented | Return explicit unsupported error do not return `false` or fail silently |
 
 ---
 
@@ -618,15 +627,18 @@ graph LR
 
 ### Alpha Milestone (April 6 - April 17th) - Block Hash Verification
 
+Test fixtures: `CN_0__TSS_WRAPS` directory on `hiero-block-node` main (PR #2489, committed April 1, 2026). Generated from Consensus Node v0.73.0-rc.1 with TSS + WRAPS enabled, against `hedera-cryptography` post ark-ff 0.4.2 upgrade. Contains 7 blocks: `0.blk.gz` through `4.blk.gz` (genesis-schnorr) and `466.blk.gz`, `467.blk.gz` (WRAPS).
+
 | Test | Input | Expected Output |
 | --- | --- | --- |
-| Parse valid TSS block 0 | TSS block 0 `.blk` fixture | Parsed block object with correct structure |
-| Parse valid TSS block 50 | TSS block 50 `.blk` fixture | Parsed block object with all items bucketed |
+| Parse valid genesis block | `0.blk.gz` from CN_0_73_TSS_WRAPS | Parsed block object with correct structure |
+| Parse valid non-genesis block | `4.blk.gz` from CN_0_73_TSS_WRAPS | Parsed block object with all items bucketed |
+| Parse valid WRAPS block | `466.blk.gz` from CN_0_73_TSS_WRAPS | Parsed block with WRAPS proof layout |
 | Build sub-trees + Merkle Mountain (block 0) | Genesis block (footer hashes = zero) | Root hash matching block proof root |
-| Build sub-trees + Merkle Mountain (block 50) | Non-genesis block with real footer hashes | Root hash matching block proof root |
+| Build sub-trees + Merkle Mountain (block 4) | Non-genesis block with real footer hashes | Root hash matching block proof root |
 | Verify hash match | Block + expected root | `{ valid: true }` |
 | Verify hash mismatch | Block + wrong root | `{ valid: false }` |
-| Extract signature components | Block proof bytes | hinTS verification key + hinTS signature + WRAPS proof |
+| Extract signature components | Block proof bytes | hinTS verification key (1096 bytes) + hinTS signature (1632 bytes) + abProof |
 
 ### Beta Milestone (April 20 - May 8th) - TSS Verification + Proofs
 
@@ -636,14 +648,14 @@ graph LR
 
 | Test | Input | Expected Output |
 | --- | --- | --- |
-| Verify hinTS signature (block 0) | TSS block 0 + extracted key | `{ hintsValid: true }` |
-| Verify hinTS signature (block 50) | TSS block 50 + extracted key | `{ hintsValid: true }` |
+| Verify hinTS signature (genesis block) | `0.blk.gz` + extracted key | `{ hintsValid: true }` |
+| Verify hinTS signature (non-genesis) | `4.blk.gz` + extracted key | `{ hintsValid: true }` |
 | Reject tampered signature | Block with flipped first byte of signature | `{ hintsValid: false }` |
-| Reject tampered block hash | Block with flipped first byte of root | `{ hintsValid: false }` |
-| Parse valid WRAPS block 0 | WRAPS block 0 `.blk` fixture | Parsed block with `trustLevel: 'ledger_id_anchored'` |
-| Parse valid WRAPS block 50 | WRAPS block 50 `.blk` fixture | Parsed block with settled address book and `trustLevel: 'ledger_id_anchored'` |
-| Verify WRAPS proof (WRAPS block 0) | WRAPS block 0 | `{ wrapsValid: true, trustLevel: 'ledger_id_anchored' }` |
-| Verify WRAPS proof (WRAPS block 50) | WRAPS block 50 | `{ wrapsValid: true, trustLevel: 'ledger_id_anchored' }` |
+| Reject tampered block hash | Block with flipped first byte of root | `{ hintsValid: false }`|
+| Verify Schnorr (genesis block) | `0.blk.gz` | Schnorr VERIFIED via BabyJubjub |
+| Verify Schnorr (non-genesis) | `4.blk.gz` | Schnorr VERIFIED via BabyJubjub |
+| Verify WRAPS proof (block 466) | `466.blk.gz` | `{ wrapsValid: true, trustLevel: 'ledger_id_anchored' }` |
+| Verify WRAPS proof (block 467) | `467.blk.gz` | `{ wrapsValid: true, trustLevel: 'ledger_id_anchored' }` |
 | Full TSS verification | WRAPS block + both proofs | `{ valid: true, hintsValid: true, wrapsValid: true }` |
 | Generate content proof | Block + item type + item index | Valid proof object with sub-tree + mountain paths |
 | Verify valid content proof | Proof + correct root | `true` |
@@ -656,7 +668,7 @@ graph LR
 
 Blocks must be sourced from a Block Node (HIP-1081). Block Nodes expose `.blk` files in the HIP-1056 protobuf format. Mirror Nodes consume record streams and do not expose raw block data.
 
-Proto definitions are in [`hiero-consensus-node`](https://github.com/hiero-ledger/hiero-consensus-node) at tag `v0.72.0-alpha.3`, under `hapi/hedera-protobuf-java-api/src/main/proto/block/stream/`.
+Proto definitions are in [`hiero-consensus-node`](https://github.com/hiero-ledger/hiero-consensus-node) at tag `v0.73.0-rc.1`, under `hapi/hedera-protobuf-java-api/src/main/proto/block/stream/`.
 
 **Alpha - block hash verification:**
 
@@ -682,4 +694,4 @@ const result = verifyBlock(blockBytes, ledgerId);
 
 ## Author
 
-Ejaz Merchant · Last Updated: April 6, 2026 · Status: In Development
+Ejaz Merchant · Last Updated: April 10, 2026 · Status: In Development
