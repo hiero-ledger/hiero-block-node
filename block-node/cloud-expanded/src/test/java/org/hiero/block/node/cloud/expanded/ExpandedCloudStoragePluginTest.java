@@ -20,6 +20,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -480,5 +481,173 @@ class ExpandedCloudStoragePluginTest
 
         plugin.stop();
         assertTrue(closed.get(), "plugin.stop() must call close() on the S3 client");
+    }
+
+    @Test
+    @DisplayName("buildBlockObjectKey handles zero, leaf-to-seg4 rollover, and max 19-digit block number")
+    void objectKeyEdgeCasesIncludingZeroAndMax() {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.expanded.objectKeyPrefix", "blocks"));
+
+        assertEquals("blocks/0000/0000/0000/0000/000.blk.zstd", plugin.buildBlockObjectKey(0L),
+                "Block 0 must produce all-zero segments");
+        assertEquals("blocks/0000/0000/0000/0000/999.blk.zstd", plugin.buildBlockObjectKey(999L),
+                "Block 999 must be the max leaf value before rollover");
+        assertEquals("blocks/0000/0000/0000/0001/000.blk.zstd", plugin.buildBlockObjectKey(1_000L),
+                "Block 1000 must roll leaf into seg4");
+        assertEquals("blocks/9223/3720/3685/4775/807.blk.zstd", plugin.buildBlockObjectKey(Long.MAX_VALUE),
+                "Max 19-digit block number must saturate all segments");
+    }
+
+    @Test
+    @DisplayName("Metrics: successful upload increments uploadsTotal, bytesTotal, and latencyNs")
+    void successIncrementsUploadAndByteCounters() throws InterruptedException {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("cloud.expanded.endpointUrl", "http://fake:9000"));
+
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        awaitNotifications(1);
+
+        assertEquals(1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+                "uploadsTotal must be 1 after one successful upload");
+        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+                "uploadFailuresTotal must be 0 after a successful upload");
+        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES) > 0L,
+                "uploadBytesTotal must be positive after a successful upload");
+        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
+                "uploadLatencyNs must be positive after a successful upload");
+    }
+
+    @Test
+    @DisplayName("Metrics: failed upload increments failuresTotal and latencyNs; bytesTotal stays zero")
+    void failureIncrementsFailureCounterAndLatency() throws InterruptedException {
+        final S3UploadClient throwingClient = new S3UploadClient() {
+            @Override
+            void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws S3ClientException {
+                throw new S3ClientException("Simulated failure for metrics test");
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("cloud.expanded.endpointUrl", "http://fake:9000"));
+
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        awaitNotifications(1);
+
+        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+                "uploadsTotal must be 0 after a failed upload");
+        assertEquals(1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+                "uploadFailuresTotal must be 1 after a failed upload");
+        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES),
+                "uploadBytesTotal must be 0 after a failed upload");
+        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
+                "uploadLatencyNs must be positive even after a failed upload");
+    }
+
+    @Test
+    @DisplayName("handleVerification is a no-op when the plugin has not been started")
+    void handleVerificationIsNoOpBeforeStart() {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        // Construct the plugin but intentionally do NOT call PluginTestBase.start().
+        // completionService stays null — simulates the post-failure state after a bad start().
+        final ExpandedCloudStoragePlugin uninitPlugin = new ExpandedCloudStoragePlugin(capturing);
+
+        assertDoesNotThrow(
+                () -> uninitPlugin.handleVerification(
+                        new VerificationNotification(true, 1L, Bytes.EMPTY, testBlock(1).blockUnparsed(), BlockSource.UNKNOWN)),
+                "handleVerification must not throw when the plugin has not been started");
+        assertEquals(0, capturing.uploads.size(),
+                "No upload must be attempted when the plugin has not been started");
+    }
+
+    @Test
+    @DisplayName("Ten concurrent verified blocks each produce a PersistedNotification with succeeded=true")
+    void tenBlocksAllProduceSuccessNotifications() throws InterruptedException {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("cloud.expanded.endpointUrl", "http://fake:9000"));
+
+        for (int i = 0; i < 10; i++) {
+            plugin.handleVerification(verifiedNotification(i, testBlock(i).blockUnparsed()));
+        }
+        awaitNotifications(10);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(10, notifications.size(),
+                "Each of the ten blocks must produce exactly one PersistedNotification");
+        assertTrue(notifications.stream().allMatch(PersistedNotification::succeeded),
+                "All notifications must report succeeded=true");
+    }
+
+    @Test
+    @DisplayName("stop() publishes all pending PersistedNotifications before closing the S3 client")
+    void stopDrainsNotificationsBeforeClose() throws InterruptedException {
+        final CountDownLatch uploadStarted = new CountDownLatch(1);
+        final CountDownLatch proceedWithUpload = new CountDownLatch(1);
+        final AtomicBoolean closedAfterNotification = new AtomicBoolean(false);
+
+        final S3UploadClient delayedClient = new S3UploadClient() {
+            @Override
+            void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws java.io.IOException {
+                uploadStarted.countDown();
+                try {
+                    proceedWithUpload.await(10, TimeUnit.SECONDS);
+                } catch (final InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+
+            @Override
+            public void close() {
+                closedAfterNotification.set(
+                        !blockMessaging.getSentPersistedNotifications().isEmpty());
+            }
+        };
+        start(
+                new ExpandedCloudStoragePlugin(delayedClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("cloud.expanded.endpointUrl", "http://fake:9000"));
+
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        assertTrue(uploadStarted.await(5, TimeUnit.SECONDS), "Upload must have started within 5s");
+
+        // Call stop() on a separate thread — it will block in drainInFlightTasks waiting for the upload
+        final Thread stopThread = new Thread(() -> plugin.stop());
+        stopThread.start();
+
+        // Give stop() time to enter the drain loop, then let the upload complete
+        Thread.sleep(100);
+        proceedWithUpload.countDown();
+
+        stopThread.join(10_000);
+
+        assertEquals(1, blockMessaging.getSentPersistedNotifications().size(),
+                "PersistedNotification must be published before stop() completes");
+        assertTrue(closedAfterNotification.get(),
+                "S3 client must be closed only after notifications have been published");
     }
 }

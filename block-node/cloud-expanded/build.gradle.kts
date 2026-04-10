@@ -19,4 +19,5 @@ testModuleInfo {
     requires("org.testcontainers")
     requires("s3mock.testcontainers")
     requires("java.logging")
+    requires("java.net.http")
 }
