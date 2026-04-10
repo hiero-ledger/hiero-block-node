@@ -8,6 +8,7 @@ import java.util.Objects;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
+import org.hiero.block.common.utils.StringUtilities;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -69,14 +70,12 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
         long nodeId = tssBootstrapConfig.nodeId();
         long weight = tssBootstrapConfig.weight();
 
-        if (ledgerId64 == null
-                || ledgerId64.isBlank()
-                || wrapsVerificationKey64 == null
-                || wrapsVerificationKey64.isBlank()
-                || schnorrPublicKey64 == null
-                || schnorrPublicKey64.isBlank()) {
+        if (StringUtilities.isBlank(ledgerId64)
+                || StringUtilities.isBlank(wrapsVerificationKey64)
+                || StringUtilities.isBlank(schnorrPublicKey64)) {
             return;
         }
+
         TssData tssData = buildTssData(ledgerId64, wrapsVerificationKey64, nodeId, weight, schnorrPublicKey64);
         applicationStateFacility.updateTssData(tssData);
     }
