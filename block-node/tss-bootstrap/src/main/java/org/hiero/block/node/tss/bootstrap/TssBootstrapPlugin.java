@@ -63,7 +63,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     /// process the `TssBootstrapConfig`
     ///
     /// if the config data is valid, create the TssData from the config data and send it to the
-    // ApplicationStateFacility
+    /// ApplicationStateFacility
     ///
     /// @param tssBootstrapConfig The `TssBootstrapConfig` containing the TssData information
     private void processTssDataConfiguration(TssBootstrapConfig tssBootstrapConfig) {

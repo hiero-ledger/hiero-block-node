@@ -367,16 +367,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     public void updateTssData(TssData tssData) {
         lock.lock();
         try {
-            blockNodeContext = new BlockNodeContext(
-                    blockNodeContext.configuration(),
-                    blockNodeContext.metricRegistry(),
-                    blockNodeContext.serverHealth(),
-                    blockNodeContext.blockMessaging(),
-                    blockNodeContext.historicalBlockProvider(),
-                    blockNodeContext.serviceLoader(),
-                    blockNodeContext.threadPoolManager(),
-                    blockNodeContext.blockNodeVersions(),
-                    tssData);
+            updateBlockNodeContext(tssData);
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
             persistTssData(tssData);
         } finally {
@@ -385,8 +376,25 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
-     * Persist the TssData
+     * Update the BlockNodeContext with the new TssData
      *
+     * @param tssData The TssData to persist
+     */
+    private void updateBlockNodeContext(TssData tssData) {
+        blockNodeContext = new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                tssData);
+    }
+
+    /**
+     * Persist the TssData
      * Persists the TssData to the file path specified in the NodeConfig class.
      *
      * @param tssData The TssData to persist
@@ -418,7 +426,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             try {
                 Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssDataFilePath));
                 TssData tssData = TssData.PROTOBUF.parse(fileBytes);
-                updateTssData(tssData);
+                updateBlockNodeContext(tssData);
                 LOGGER.log(INFO, "Loaded TSS Data from file: {0}", tssDataFilePath);
             } catch (IOException e) {
                 throw new UncheckedIOException("Failed to read TSS Data file: " + tssDataFilePath, e);
