@@ -34,8 +34,40 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     private static final String CONTENT_TYPE = "application/octet-stream";
     private static final System.Logger LOGGER = System.getLogger(SingleBlockStoreTask.class.getName());
 
+    /// Outcome of a single block upload attempt.
+    ///
+    /// Distinguishes between compression failure, S3 service errors, and I/O errors so
+    /// callers can apply different retry or alerting strategies per failure type.
+    public enum UploadStatus {
+        /// Block was compressed and uploaded successfully.
+        SUCCESS,
+        /// Compression produced empty bytes — upload was skipped.
+        COMPRESSION_ERROR,
+        /// S3 service returned an error (4xx / 5xx HTTP response or client init failure).
+        S3_ERROR,
+        /// An I/O error occurred while streaming bytes to S3.
+        IO_ERROR
+    }
+
     /// The outcome of a single block upload attempt.
-    public record UploadResult(long blockNumber, boolean succeeded, long bytesUploaded, BlockSource blockSource, long uploadDurationNs) {}
+    ///
+    /// @param blockNumber     the block number that was uploaded
+    /// @param status          the upload outcome; use {@link #succeeded()} for a binary check
+    /// @param bytesUploaded   compressed bytes transferred; 0 on any failure
+    /// @param blockSource     origin of the block (forwarded to {@code PersistedNotification})
+    /// @param uploadDurationNs wall-clock time of the upload call in nanoseconds
+    public record UploadResult(
+            long blockNumber,
+            UploadStatus status,
+            long bytesUploaded,
+            BlockSource blockSource,
+            long uploadDurationNs) {
+
+        /// Returns `true` if the upload completed successfully.
+        public boolean succeeded() {
+            return status == UploadStatus.SUCCESS;
+        }
+    }
 
     private final long blockNumber;
     private final BlockUnparsed block;
@@ -84,19 +116,19 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
 
             if (compressed.length == 0) {
                 LOGGER.log(WARNING, "Block {0}: compressed bytes are empty, skipping upload.", blockNumber);
-                return new UploadResult(blockNumber, false, 0L, blockSource, System.nanoTime() - uploadStartNs);
+                return new UploadResult(blockNumber, UploadStatus.COMPRESSION_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
             }
 
             s3Client.uploadFile(objectKey, storageClass, new PayloadIterator(compressed), CONTENT_TYPE);
             LOGGER.log(TRACE, "Block {0}: uploaded to {1}", blockNumber, objectKey);
-            return new UploadResult(blockNumber, true, compressed.length, blockSource, System.nanoTime() - uploadStartNs);
+            return new UploadResult(blockNumber, UploadStatus.SUCCESS, compressed.length, blockSource, System.nanoTime() - uploadStartNs);
 
         } catch (final com.hedera.bucky.S3ClientException e) {
             LOGGER.log(WARNING, "Block {0}: S3 upload failed: ", blockNumber, e);
-            return new UploadResult(blockNumber, false, 0L, blockSource, System.nanoTime() - uploadStartNs);
+            return new UploadResult(blockNumber, UploadStatus.S3_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
         } catch (final java.io.IOException e) {
             LOGGER.log(WARNING, "Block {0}: I/O error during upload: ", blockNumber, e);
-            return new UploadResult(blockNumber, false, 0L, blockSource, System.nanoTime() - uploadStartNs);
+            return new UploadResult(blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
         }
     }
 

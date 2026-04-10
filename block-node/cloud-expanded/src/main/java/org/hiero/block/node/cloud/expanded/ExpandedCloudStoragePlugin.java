@@ -261,8 +261,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                 metricsHolder.uploadFailuresTotal().increment();
                 LOGGER.log(
                         WARNING,
-                        "Block {0}: upload failed; PersistedNotification sent with succeeded=false.",
-                        result.blockNumber());
+                        "Block {0}: upload failed ({1}); PersistedNotification sent with succeeded=false.",
+                        result.blockNumber(),
+                        result.status());
             } else {
                 metricsHolder.uploadsTotal().increment();
                 metricsHolder.uploadBytesTotal().increment(result.bytesUploaded());
