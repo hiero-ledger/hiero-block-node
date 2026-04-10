@@ -874,5 +874,11 @@ class StreamPublisherPluginTest {
             assertThat(result).startsWith(prefix);
             assertThat(result).hasSize(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH);
         }
+
+        @Test
+        @DisplayName("Null is treated as absent and returns empty string")
+        void testNullReturnsEmpty() {
+            assertThat(StreamPublisherPlugin.truncateCorrelationId(null)).isEmpty();
+        }
     }
 }

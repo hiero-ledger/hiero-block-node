@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
+import com.hedera.pbj.runtime.grpc.Pipeline;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
@@ -2066,6 +2067,111 @@ class PublisherHandlerTest {
                         manager.getBlockMessagingFacility().getSentNewestBlockKnownToNetworkNotifications();
                 assertThat(sentNotifications).hasSize(0);
             }
+
+            /// Verifies that [PublisherHandler#handleSkip] covers the false branch of
+            /// [PublisherHandler#sendResponse]: when the reply pipeline throws on [onNext],
+            /// the send-response-failed metric is incremented and the handler shuts down.
+            @Test
+            @DisplayName("handleSkip - sendResponse failure increments SEND_RESPONSE_FAILED metric")
+            void testHandleSkipSendResponseFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                manager.addHandler(handler);
+                manager.setBlockActionForBlock(BlockAction.SKIP);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(5L);
+                handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
+
+            /// Verifies that [PublisherHandler#sendEndOfStream] covers the false branch
+            /// of [PublisherHandler#sendResponse]: when END_ERROR is returned and the reply
+            /// pipeline throws on [onNext], the send-response-failed metric is incremented.
+            @Test
+            @DisplayName("handleEndError - sendEndOfStream false branch when pipeline throws")
+            void testHandleEndErrorSendEndOfStreamFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                manager.addHandler(handler);
+                manager.setBlockActionForBlock(BlockAction.END_ERROR);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(5L);
+                handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
+
+            /// Verifies that [PublisherHandler#handleSendBehind] covers the false branch of
+            /// [PublisherHandler#sendResponse]: when the reply pipeline throws on [onNext],
+            /// the send-response-failed metric is incremented and the handler shuts down.
+            @Test
+            @DisplayName("handleSendBehind - sendResponse failure increments SEND_RESPONSE_FAILED metric")
+            void testHandleSendBehindSendResponseFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                manager.addHandler(handler);
+                manager.setBlockActionForBlock(BlockAction.SEND_BEHIND);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(5L);
+                handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
         }
 
         /// Tests for the [PublisherHandler#onError(Throwable)] method.
@@ -2326,6 +2432,36 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
             }
+
+            /// Verifies that [PublisherHandler#sendAcknowledgement] covers the false branch of
+            /// [PublisherHandler#sendResponse]: when the reply pipeline throws on [onNext],
+            /// the send-response-failed metric is incremented.
+            @Test
+            @DisplayName("sendAcknowledgement - sendResponse failure increments SEND_RESPONSE_FAILED metric")
+            void testSendAcknowledgementSendResponseFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                handler.sendAcknowledgement(1L);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
         }
 
         /// Tests for the [PublisherHandler#handleFailedVerification(long)]method.
@@ -2534,6 +2670,44 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isZero();
             }
 
+            /// Verifies that when the manager returns ACCEPT but with a block number that
+            /// does not match the currently streaming block, the handler treats it as an
+            /// unexpected action and ends with an error (covers the
+            /// {@code currentStreamingNumber == actionForBlock.blockNumber()} false branch).
+            @Test
+            @DisplayName("endOfBlock - EndOfStream(ERROR) when ACCEPT has a valid but mismatched block number")
+            void testAcceptWithMismatchedBlockNumber() {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                toTest.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                // Manager returns ACCEPT for block 999, but we are streaming block 0.
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.ACCEPT, 999L));
+                endThisBlock(toTest, block.number());
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .anySatisfy(r -> assertThat(r.response().kind()).isEqualTo(ResponseOneOfType.END_STREAM));
+            }
+
+            /// Verifies that when a [BlockEnd] arrives for a different block number than
+            /// the one currently streaming, the mismatch is logged and the block is still
+            /// ended using {@code currentStreamingNumber} (covers line 453 true branch).
+            @Test
+            @DisplayName("endOfBlock - mismatch in BlockEnd block number is logged; block still ended correctly")
+            void testEndOfBlockNumberMismatch() {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                toTest.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                // Manager returns ACCEPT for current block 0.
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.ACCEPT, 0L));
+                // Send BlockEnd for block 1 — handler is streaming block 0.
+                endThisBlock(toTest, 1L);
+                // The block ended is the current streaming block (0), not the one in BlockEnd (1).
+                assertThat(manager.getEndOfBlocksReceived()).containsExactly(0L);
+            }
+
             private static Stream<Arguments> unexpectedBlockActions() {
                 return Stream.of(
                         // expected action, but invalid number
@@ -2627,6 +2801,74 @@ class PublisherHandlerTest {
                 endThisBlock(toTest, streamedBlockNumber);
                 // Assert that the manager's closeBlock method was called
                 assertThat(manager.closeBlockCallsForHandler(handlerId)).isEqualTo(1);
+            }
+
+            /// Verifies that [PublisherHandler#handleResend] covers the false branch of
+            /// [PublisherHandler#sendResponse]: when the reply pipeline throws on [onNext],
+            /// the send-response-failed metric is incremented.
+            @Test
+            @DisplayName("handleResend - sendResponse failure increments SEND_RESPONSE_FAILED metric")
+            void testHandleResendSendResponseFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                manager.addHandler(handler);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.RESEND, block.number()));
+                endThisBlock(handler, block.number());
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
+
+            /// Verifies that [PublisherHandler#handleResend] correctly handles the else branch
+            /// when [StreamPublisherManager#endOfBlock] returns a RESEND action with an invalid
+            /// (UNKNOWN) block number, triggering an END_STREAM error response.
+            @Test
+            @DisplayName(
+                    "handleResend - END_STREAM error response when endOfBlock returns RESEND with UNKNOWN block number")
+            void testHandleResendUnknownBlockNumber() {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                toTest.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                // Return RESEND with UNKNOWN_BLOCK_NUMBER (-1) to trigger the else branch in handleResend
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.RESEND, -1L));
+                endThisBlock(toTest, block.number());
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .anySatisfy(r -> assertThat(r.response().kind()).isEqualTo(ResponseOneOfType.END_STREAM));
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+            }
+
+            /// Verifies that [PublisherHandler#handleEndOfBlock] is a no-op when the handler
+            /// is not currently streaming a block (covers the true branch of
+            /// currentStreamingNumber <= UNKNOWN_BLOCK_NUMBER).
+            @Test
+            @DisplayName("endOfBlock - no-op when handler is not currently streaming a block")
+            void testEndOfBlockWhenNotStreaming() {
+                endThisBlock(toTest, 0L);
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
             }
         }
     }
