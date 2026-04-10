@@ -7,14 +7,20 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.adobe.testing.s3mock.testcontainers.S3MockContainer;
 import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import io.helidon.common.tls.Tls;
 import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
 import java.io.File;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -27,6 +33,8 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
@@ -102,11 +110,11 @@ class BlockNodeCloudStorageTests {
         // Inject S3Mock coordinates via getEnvVar override so config picks them up without
         // touching real env vars or system properties.
         final Map<String, String> s3Overrides = Map.of(
-                "EXPANDED_CLOUD_STORAGE_ENDPOINT_URL", s3Endpoint,
-                "EXPANDED_CLOUD_STORAGE_BUCKET_NAME", BUCKET,
-                "EXPANDED_CLOUD_STORAGE_OBJECT_KEY_PREFIX", PREFIX,
-                "EXPANDED_CLOUD_STORAGE_ACCESS_KEY", ACCESS_KEY,
-                "EXPANDED_CLOUD_STORAGE_SECRET_KEY", SECRET_KEY);
+                "CLOUD_EXPANDED_ENDPOINT_URL", s3Endpoint,
+                "CLOUD_EXPANDED_BUCKET_NAME", BUCKET,
+                "CLOUD_EXPANDED_OBJECT_KEY_PREFIX", PREFIX,
+                "CLOUD_EXPANDED_ACCESS_KEY", ACCESS_KEY,
+                "CLOUD_EXPANDED_SECRET_KEY", SECRET_KEY);
 
         // Clear local block data directory (same pattern as BlockNodeAPITests)
         final Path dataDir = Paths.get("build/tmp/data").toAbsolutePath();
@@ -237,6 +245,157 @@ class BlockNodeCloudStorageTests {
         assertThat(listObjectKeys())
                 .as("Exactly one S3 object must exist — duplicate rejection must not trigger a second upload")
                 .containsExactly(expectedKey);
+    }
+
+    /**
+     * Verifies that the node starts and processes blocks normally when
+     * {@code CLOUD_EXPANDED_ENDPOINT_URL} is blank (plugin inactive).
+     * No S3 objects should appear and the node must remain healthy.
+     */
+    @Test
+    void nodeRemainsHealthyWhenCloudPluginEndpointIsBlank() throws Exception {
+        // This test overrides setUp() behaviour via a subclass with blank endpoint.
+        // Tear down the app started in setUp() and restart with blank endpoint.
+        app.shutdown("nodeRemainsHealthyWhenCloudPluginEndpointIsBlank", "restarting with blank endpoint");
+
+        final Map<String, String> blankEndpointOverrides = Map.of(
+                "CLOUD_EXPANDED_ENDPOINT_URL", "",
+                "CLOUD_EXPANDED_BUCKET_NAME", BUCKET,
+                "CLOUD_EXPANDED_OBJECT_KEY_PREFIX", PREFIX,
+                "CLOUD_EXPANDED_ACCESS_KEY", ACCESS_KEY,
+                "CLOUD_EXPANDED_SECRET_KEY", SECRET_KEY);
+
+        app = new BlockNodeApp(new ServiceLoaderFunction(), false) {
+            @Override
+            protected String getEnvVar(final String name) {
+                return blankEndpointOverrides.getOrDefault(name, System.getenv(name));
+            }
+        };
+        app.start();
+        final long startDeadline = System.currentTimeMillis() + 10_000L;
+        while (app.blockNodeState() != State.RUNNING && System.currentTimeMillis() < startDeadline) {
+            Thread.sleep(50);
+        }
+        assertEquals(State.RUNNING, app.blockNodeState(),
+                "BlockNodeApp must be RUNNING even when cloud plugin endpoint is blank");
+
+        // Publish a block — node must process it normally
+        publishClient = createGrpcClient();
+        final long blockNumber = 0L;
+        final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
+        final PublishStreamRequest blockRequest = PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
+                .build();
+
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publishSvc =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(publishClient, OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> ackObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> stream = publishSvc.publishBlockStream(ackObserver);
+
+        final AtomicReference<CountDownLatch> ackLatch = ackObserver.setAndGetOnNextLatch(1);
+        stream.onNext(blockRequest);
+        endBlock(blockNumber, stream);
+        awaitLatch(ackLatch, "block 0 acknowledgement with blank endpoint plugin");
+
+        // No S3 objects must appear — the plugin is inactive
+        Thread.sleep(2_000L);
+        assertThat(listObjectKeys()).isEmpty();
+
+        // Close the stream by sending a duplicate
+        final AtomicReference<CountDownLatch> connClosedLatch = ackObserver.setAndGetConnectionEndedLatch(1);
+        stream.onNext(blockRequest);
+        awaitLatch(connClosedLatch, "connection closed by server after duplicate");
+    }
+
+    /**
+     * Publishes three consecutive blocks (0, 1, 2) and asserts each lands in S3Mock
+     * with the correct 4/4/4/4/3 folder-hierarchy key. This exercises sequential
+     * key computation across block boundaries.
+     */
+    @Test
+    void sequenceOfBlocksUploadedWithCorrectKeys() throws Exception {
+        final long[] blockNumbers = {0L, 1L, 2L};
+
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publishSvc =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(publishClient, OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> ackObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> stream = publishSvc.publishBlockStream(ackObserver);
+
+        for (final long blockNumber : blockNumbers) {
+            final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
+            final PublishStreamRequest request = PublishStreamRequest.newBuilder()
+                    .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
+                    .build();
+            final AtomicReference<CountDownLatch> ackLatch = ackObserver.setAndGetOnNextLatch(1);
+            stream.onNext(request);
+            endBlock(blockNumber, stream);
+            awaitLatch(ackLatch, "acknowledgement for block " + blockNumber);
+        }
+
+        // All three objects must appear in S3Mock
+        for (final long blockNumber : blockNumbers) {
+            final String expectedKey = buildExpectedKey(blockNumber);
+            awaitS3Object(expectedKey);
+            assertThat(listObjectKeys()).contains(expectedKey);
+        }
+
+        // Close the stream with a duplicate of block 2
+        final BlockItem[] dupItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(2L);
+        final PublishStreamRequest dupRequest = PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(dupItems).build())
+                .build();
+        final AtomicReference<CountDownLatch> connClosedLatch = ackObserver.setAndGetConnectionEndedLatch(1);
+        stream.onNext(dupRequest);
+        awaitLatch(connClosedLatch, "connection closed after duplicate of block 2");
+    }
+
+    /**
+     * Publishes block 0, waits for it to land in S3Mock, then downloads and decompresses
+     * the {@code .blk.zstd} object. Asserts the block number in the parsed protobuf matches
+     * what was published. This is the strongest guard against a silent serialisation regression.
+     */
+    @Test
+    void uploadedObjectDecompressesToOriginalBlock() throws Exception {
+        final long blockNumber = 0L;
+        final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
+        final PublishStreamRequest blockRequest = PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
+                .build();
+
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publishSvc =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(publishClient, OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> ackObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> stream = publishSvc.publishBlockStream(ackObserver);
+
+        final AtomicReference<CountDownLatch> ackLatch = ackObserver.setAndGetOnNextLatch(1);
+        stream.onNext(blockRequest);
+        endBlock(blockNumber, stream);
+        awaitLatch(ackLatch, "block 0 acknowledgement for round-trip test");
+
+        // Wait for the object to appear
+        final String expectedKey = buildExpectedKey(blockNumber);
+        awaitS3Object(expectedKey);
+
+        // Download the raw bytes from S3Mock via plain HTTP GET
+        // S3Mock is lenient about request signing in test environments.
+        final String s3Endpoint = s3MockContainer.getHttpEndpoint();
+        final String downloadUrl = s3Endpoint + "/" + BUCKET + "/" + expectedKey;
+        final HttpClient http = HttpClient.newHttpClient();
+        final HttpResponse<byte[]> response = http.send(
+                HttpRequest.newBuilder().uri(URI.create(downloadUrl)).GET().build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, response.statusCode(), "S3Mock must return 200 for the uploaded object");
+
+        // Decompress ZSTD and parse as BlockUnparsed protobuf
+        final byte[] decompressed = CompressionType.ZSTD.decompress(response.body());
+        final BlockUnparsed parsed = BlockUnparsed.PROTOBUF.parseStrict(Bytes.wrap(decompressed));
+        assertEquals(blockNumber, BlockHeader.PROTOBUF.parse(parsed.blockItems().getFirst().blockHeaderOrThrow()).number(),
+                "Decompressed block header number must match the published block number");
+
+        // Close stream via duplicate
+        final AtomicReference<CountDownLatch> connClosedLatch = ackObserver.setAndGetConnectionEndedLatch(1);
+        stream.onNext(blockRequest);
+        awaitLatch(connClosedLatch, "connection closed after duplicate for round-trip cleanup");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

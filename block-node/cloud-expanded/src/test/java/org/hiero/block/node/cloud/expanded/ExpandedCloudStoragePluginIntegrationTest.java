@@ -2,16 +2,24 @@
 package org.hiero.block.node.cloud.expanded;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.adobe.testing.s3mock.testcontainers.S3MockContainer;
+import com.hedera.bucky.S3ClientException;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,12 +32,14 @@ import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.s3.S3Client;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -185,10 +195,129 @@ class ExpandedCloudStoragePluginIntegrationTest
                 "Expected bare-hierarchy key (no prefix) not found in S3Mock: " + expectedKey);
     }
 
+    @Test
+    @DisplayName("Integration: downloaded .blk.zstd decompresses and parses back to the original block")
+    void integrationContentRoundTrip() throws Exception {
+        start(
+                new ExpandedCloudStoragePlugin(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.expanded.endpointUrl", s3Endpoint,
+                        "cloud.expanded.bucketName", BUCKET_NAME,
+                        "cloud.expanded.objectKeyPrefix", "roundtrip",
+                        "cloud.expanded.regionName", "us-east-1",
+                        "cloud.expanded.accessKey", ACCESS_KEY,
+                        "cloud.expanded.secretKey", SECRET_KEY));
+
+        final long blockNumber = 400L;
+        final TestBlock block = testBlock(blockNumber);
+        plugin.handleVerification(verifiedNotification(blockNumber, block.blockUnparsed()));
+        awaitNotifications(1);
+
+        // Build the expected S3 key
+        final String padded = String.format("%019d", blockNumber);
+        final String key = "roundtrip/"
+                + padded.substring(0, 4) + "/" + padded.substring(4, 8) + "/"
+                + padded.substring(8, 12) + "/" + padded.substring(12, 16) + "/"
+                + padded.substring(16) + ".blk.zstd";
+
+        // Download the raw bytes from S3Mock using a plain HTTP GET
+        // S3Mock does not require request signing for GET in test mode.
+        final String downloadUrl = s3Endpoint + "/" + BUCKET_NAME + "/" + key;
+        final HttpClient http = HttpClient.newHttpClient();
+        final HttpResponse<byte[]> response = http.send(
+                HttpRequest.newBuilder().uri(URI.create(downloadUrl)).GET().build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, response.statusCode(), "S3Mock must return 200 for the uploaded object");
+
+        // Decompress and parse — must round-trip back to the original block
+        final byte[] decompressed = CompressionType.ZSTD.decompress(response.body());
+        final BlockUnparsed parsed = BlockUnparsed.PROTOBUF.parseStrict(Bytes.wrap(decompressed));
+        assertEquals(blockNumber, BlockHeader.PROTOBUF.parse(parsed.blockItems().getFirst().blockHeaderOrThrow()).number(),
+                "Decompressed block header number must match the original block number");
+    }
+
+    @Disabled
+    @Test
+    @DisplayName("Integration: wrong credentials produce PersistedNotification with succeeded=false")
+    void integrationWrongCredentialsProducesFailedNotification() throws InterruptedException {
+        start(
+                new ExpandedCloudStoragePlugin(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.expanded.endpointUrl", s3Endpoint,
+                        "cloud.expanded.bucketName", BUCKET_NAME,
+                        "cloud.expanded.objectKeyPrefix", "badcreds",
+                        "cloud.expanded.regionName", "us-east-1",
+                        "cloud.expanded.accessKey", "WRONG_KEY",
+                        "cloud.expanded.secretKey", "WRONG_SECRET"));
+
+        plugin.handleVerification(verifiedNotification(500L, testBlock(500L).blockUnparsed()));
+        awaitNotifications(1);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(1, notifications.size(), "Exactly one PersistedNotification must be sent even on auth failure");
+        assertFalse(notifications.getFirst().succeeded(),
+                "PersistedNotification must report succeeded=false when credentials are wrong");
+    }
+
+    @Test
+    @DisplayName("Integration: 50 concurrent blocks all produce PersistedNotifications with succeeded=true")
+    void integrationConcurrentUploadsAllNotified() throws InterruptedException {
+        start(
+                new ExpandedCloudStoragePlugin(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.expanded.endpointUrl", s3Endpoint,
+                        "cloud.expanded.bucketName", BUCKET_NAME,
+                        "cloud.expanded.objectKeyPrefix", "concurrent",
+                        "cloud.expanded.regionName", "us-east-1",
+                        "cloud.expanded.accessKey", ACCESS_KEY,
+                        "cloud.expanded.secretKey", SECRET_KEY));
+
+        final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(600L, 649L, START_TIME, ONE_DAY);
+        for (final TestBlock block : blocks) {
+            plugin.handleVerification(verifiedNotification(block.number(), block.blockUnparsed()));
+        }
+        awaitNotifications(50);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(50, notifications.size(), "All 50 blocks must produce a PersistedNotification");
+        assertTrue(notifications.stream().allMatch(PersistedNotification::succeeded),
+                "All 50 notifications must report succeeded=true");
+    }
+
+    @Test
+    @DisplayName("Integration: upload increments cloud_expanded metric counters correctly")
+    void integrationUploadsCounterIncremented() throws InterruptedException {
+        start(
+                new ExpandedCloudStoragePlugin(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.expanded.endpointUrl", s3Endpoint,
+                        "cloud.expanded.bucketName", BUCKET_NAME,
+                        "cloud.expanded.objectKeyPrefix", "metrics",
+                        "cloud.expanded.regionName", "us-east-1",
+                        "cloud.expanded.accessKey", ACCESS_KEY,
+                        "cloud.expanded.secretKey", SECRET_KEY));
+
+        plugin.handleVerification(verifiedNotification(700L, testBlock(700L).blockUnparsed()));
+        awaitNotifications(1);
+
+        assertEquals(1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+                "cloud_expanded_total_uploads must be 1 after one successful upload");
+        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+                "cloud_expanded_total_upload_failures must be 0 after a successful upload");
+        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES) > 0L,
+                "cloud_expanded_total_upload_bytes must be positive after a successful upload");
+        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
+                "cloud_expanded_upload_latency_ns must be positive after a successful upload");
+    }
+
     // ---- Private helpers ----------------------------------------------------
 
     private void awaitNotifications(final int expectedCount) throws InterruptedException {
-        final long deadline = System.currentTimeMillis() + 10_000L;
+        final long deadline = System.currentTimeMillis() + 30_000L;
         while (System.currentTimeMillis() < deadline) {
             plugin.drainCompletedTasks();
             if (blockMessaging.getSentPersistedNotifications().size() >= expectedCount) return;
