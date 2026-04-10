@@ -89,7 +89,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with valid parameters")
         void testValidParameters() {
             assertThatNoException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, "");
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, null);
             });
         }
 
@@ -130,13 +130,13 @@ class PublisherHandlerTest {
         }
 
         /**
-         * This test aims to assert that the constructor of {@link PublisherHandler} throws a
-         * {@link NullPointerException} when the correlation ID is null.
+         * This test aims to assert that the constructor of {@link PublisherHandler} does not
+         * throw any exceptions when the correlation ID is null (null is treated as absent).
          */
         @Test
-        @DisplayName("Test constructor with null correlation ID")
+        @DisplayName("Test constructor with null correlation ID is accepted")
         void testNullCorrelationId() {
-            assertThatNullPointerException().isThrownBy(() -> {
+            assertThatNoException().isThrownBy(() -> {
                 new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, null);
             });
         }
@@ -188,18 +188,20 @@ class PublisherHandlerTest {
         }
 
         /**
-         * Verifies that when no correlation ID is set (empty string), log messages are
-         * emitted without any prefix.
+         * Verifies that when no correlation ID is set (null), log messages start with
+         * empty brackets "[]" and do not contain a real correlation ID prefix.
          */
         @Test
-        @DisplayName("Log messages have no prefix when correlation ID is empty")
+        @DisplayName("Log messages have empty brackets when correlation ID is null")
         void testNoCorrelationIdPrefix() {
-            final PublisherHandler handler = new PublisherHandler(1L, repliesPipeline, metrics, manager, "");
+            final PublisherHandler handler = new PublisherHandler(1L, repliesPipeline, metrics, manager, null);
             manager.addHandler(handler);
 
             handler.handleFailedVerification(42L);
 
-            assertThat(logHandler.getLogMessages()).noneMatch(msg -> msg.startsWith("["));
+            assertThat(logHandler.getLogMessages())
+                    .anyMatch(msg -> msg.startsWith("[]"))
+                    .noneMatch(msg -> msg.matches("\\[.+\\].*"));
         }
 
         /**
@@ -286,7 +288,7 @@ class PublisherHandlerTest {
             repliesPipeline = new TestResponsePipeline();
             metrics = createMetrics();
             manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
-            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, "");
+            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, null);
             manager.addHandler(toTest);
         }
 
@@ -2649,7 +2651,11 @@ class PublisherHandlerTest {
         @Override
         public void publish(java.util.logging.LogRecord record) {
             if (record != null && record.getMessage() != null) {
-                messages.add(record.getMessage());
+                final Object[] params = record.getParameters();
+                final String formatted = (params != null && params.length > 0)
+                        ? java.text.MessageFormat.format(record.getMessage(), params)
+                        : record.getMessage();
+                messages.add(formatted);
             }
         }
 

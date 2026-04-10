@@ -75,7 +75,7 @@ class PublisherManagerRegressionTest {
 
         sharedHandlerMetrics = PublisherHandler.MetricsHolder.createMetrics(TestUtils.createMetrics());
         responsePipeline = new TestResponsePipeline<>();
-        publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics, "");
+        publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics, null);
         publisherHandlerId = 0L;
 
         responsePipeline2 = new TestResponsePipeline<>();

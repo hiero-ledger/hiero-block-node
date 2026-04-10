@@ -15,7 +15,7 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     PublisherHandler addHandler(
             @NonNull final Pipeline<? super PublishStreamResponse> replies,
             @NonNull final PublisherHandler.MetricsHolder handlerMetrics,
-            @NonNull final String correlationId);
+            final String correlationId);
 
     /// todo(1420) add documentation
     void removeHandler(final long handlerId);

@@ -195,7 +195,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     /// @param correlationId the correlation ID from the gRPC `hiero-correlation-id` header, or empty if absent
     /// @return a new, valid, fully initialized publisher handler
     private Pipeline<? super PublishStreamRequestUnparsed> initiatePublisherHandler(
-            @NonNull final Pipeline<? super PublishStreamResponse> replies, @NonNull final String correlationId) {
+            @NonNull final Pipeline<? super PublishStreamResponse> replies, final String correlationId) {
         return publisherManager.addHandler(replies, handlerMetrics, correlationId);
     }
 
@@ -206,8 +206,10 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     ///
     /// @param correlationId the raw value from the gRPC header
     /// @return the value unchanged if within the limit, or truncated to [#MAX_CORRELATION_ID_LENGTH]
-    @NonNull
-    static String truncateCorrelationId(@NonNull final String correlationId) {
+    static String truncateCorrelationId(final String correlationId) {
+        if (correlationId == null) {
+            return "";
+        }
         if (correlationId.length() > MAX_CORRELATION_ID_LENGTH) {
             return correlationId.substring(0, MAX_CORRELATION_ID_LENGTH);
         }

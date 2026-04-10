@@ -183,7 +183,7 @@ class LiveStreamPublisherManagerTest {
             // Create a response pipeline to handle the responses from the first publisher handler.
             responsePipeline = new TestResponsePipeline();
             // Create the first publisher handler and add it to the manager.
-            publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics, "");
+            publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics, null);
             publisherHandlerId = 0L; // This should be set by the addHandler method, first call will use id 0L.
             // Create a second response pipeline to handle the responses from the second publisher handler.
             responsePipeline2 = new TestResponsePipeline();
@@ -1938,7 +1938,7 @@ class LiveStreamPublisherManagerTest {
                 // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
                 toTest = new LiveStreamPublisherManager(context, managerMetrics);
                 // Add a new handler to simulate an active publisher.
-                toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics, "");
+                toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics, null);
                 // Convert the configured timeout to milliseconds.
                 final long configuredTimeoutMillis = testPublisherConfig.publisherUnavailabilityTimeout() * 1_000L;
                 // Sleep for double the configured timeout to ensure that if a timeout notification
@@ -2067,7 +2067,7 @@ class LiveStreamPublisherManagerTest {
                         messagingFacility.getSentPublisherStatusUpdateNotifications();
                 assertThat(notificationsPreCheck).isEmpty();
                 // Add a new handler.
-                toTest.addHandler(responsePipeline, sharedHandlerMetrics, "");
+                toTest.addHandler(responsePipeline, sharedHandlerMetrics, null);
                 // Assert that a status update notification was sent.
                 final List<PublisherStatusUpdateNotification> actual =
                         messagingFacility.getSentPublisherStatusUpdateNotifications();

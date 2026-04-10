@@ -131,7 +131,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     public PublisherHandler addHandler(
             @NonNull final Pipeline<? super PublishStreamResponse> replies,
             @NonNull final PublisherHandler.MetricsHolder handlerMetrics,
-            @NonNull final String correlationId) {
+            final String correlationId) {
         final long handlerId = nextHandlerId.getAndIncrement();
         final PublisherHandler newHandler =
                 new PublisherHandler(handlerId, replies, handlerMetrics, this, correlationId);
