@@ -4,12 +4,15 @@ package org.hiero.block.node.app;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
@@ -19,6 +22,8 @@ import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -187,6 +192,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
+        // ==== LOAD APPLICATION STATE =================================================================================
+        // Must be done after the block node context is created and before plugin initialization
+        loadApplicationState();
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         LOGGER.log(INFO, "Initializing plugins:");
@@ -370,8 +378,53 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                     blockNodeContext.blockNodeVersions(),
                     tssData);
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
+            persistTssData(tssData);
         } finally {
             lock.unlock();
+        }
+    }
+
+    /**
+     * Persist the TssData
+     *
+     * Persists the TssData to the file path specified in the NodeConfig class.
+     *
+     * @param tssData The TssData to persist
+     */
+    private void persistTssData(TssData tssData) {
+        final var tssDataFilePath =
+                blockNodeContext.configuration().getConfigData(NodeConfig.class).tssDataFilePath();
+        try {
+            Files.createDirectories(tssDataFilePath.getParent());
+            Bytes serialized = TssData.PROTOBUF.toBytes(tssData);
+            Files.write(tssDataFilePath, serialized.toByteArray());
+            LOGGER.log(INFO, "Persisted TssData to file: {0}", tssDataFilePath);
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to persist TssData to {0}: {1}".formatted(tssDataFilePath, e.getMessage()), e);
+        }
+    }
+
+    /**
+     * Loads the ApplicationState
+     *
+     * Loads the ApplicationState from file path(s) specified in the NodeConfig class.
+     *
+     * This must be called after the blockNode context is created and before init()
+     */
+    private void loadApplicationState() {
+        final var tssDataFilePath =
+                blockNodeContext.configuration().getConfigData(NodeConfig.class).tssDataFilePath();
+        if (Files.exists(tssDataFilePath)) {
+            try {
+                Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssDataFilePath));
+                TssData tssData = TssData.PROTOBUF.parse(fileBytes);
+                updateTssData(tssData);
+                LOGGER.log(INFO, "Loaded TSS Data from file: {0}", tssDataFilePath);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to read TSS Data file: " + tssDataFilePath, e);
+            } catch (ParseException e) {
+                throw new IllegalStateException("Failed to parse TSS Data file: " + tssDataFilePath, e);
+            }
         }
     }
 }

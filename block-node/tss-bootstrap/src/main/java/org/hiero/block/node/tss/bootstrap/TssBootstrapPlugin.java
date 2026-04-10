@@ -1,15 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.tss.bootstrap;
 
-import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.WARNING;
-
-import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Objects;
 import org.hiero.block.api.RosterEntry;
@@ -25,8 +18,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
 ///
 /// The TssData is retrieved from TssData sources in the following order:
 ///  - `TssBootstrapConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
-///  - `tss-parameters.bin` TssData persisted by the plugin
-///  - Peer BlockNodes (future) Queries other peer BlockNodes periodically for TssData
+///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
 public class TssBootstrapPlugin implements BlockNodePlugin {
     /// The logger for this class
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -55,24 +47,10 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
         this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
         tssBootstrapConfig = this.context.configuration().getConfigData(TssBootstrapConfig.class);
 
-        final var tssParametersFile = tssBootstrapConfig.tssParametersFilePath();
-        // environment config takes precedence
-        // try processing the config data first.
-        // process the file second
-        if (!processedTssDataConfiguration(tssBootstrapConfig) && Files.exists(tssParametersFile)) {
-            try {
-                Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssParametersFile));
-                TssData tssData = TssData.PROTOBUF.parse(fileBytes);
-                applicationStateFacility.updateTssData(tssData);
-                LOGGER.log(INFO, "Loaded TSS parameters from file: {0}", tssParametersFile);
-                // todo: notify app
-            } catch (IOException e) {
-                throw new UncheckedIOException("Failed to read TSS parameters file: " + tssParametersFile, e);
-            } catch (ParseException e) {
-                throw new IllegalStateException("Failed to parse TSS parameters file: " + tssParametersFile, e);
-            }
-        }
-        // todo: query peer BNs for their TssData
+        // process the config data
+        processTssDataConfiguration(tssBootstrapConfig);
+
+        // todo: query peer BNs for their TssData, if there is no config data, or nothing in the context
     }
 
     /// {@inheritDoc}
@@ -80,28 +58,15 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     public void onContextUpdate(BlockNodeContext context) {
         // save the context update
         this.context = context;
-        // write out the new TssData when we receive the Context update
-        // This could be from this plugin or the verification plugin or any other plugin that
-        // wants to update the TssData
-        final var tssParametersFile = tssBootstrapConfig.tssParametersFilePath();
-        try {
-            Files.createDirectories(tssParametersFile.getParent());
-            Bytes serialized = TssData.PROTOBUF.toBytes(this.context.tssData());
-            Files.write(tssParametersFile, serialized.toByteArray());
-            LOGGER.log(INFO, "Persisted TssData to file: {0}", tssParametersFile);
-        } catch (IOException e) {
-            LOGGER.log(
-                    WARNING, "Failed to persist TssData to {0}: {1}".formatted(tssParametersFile, e.getMessage()), e);
-        }
     }
 
     /// process the `TssBootstrapConfig`
     ///
-    /// if the config data is valid, use that data to create the TssData and send it to the ApplicationStateFacility
+    /// if the config data is valid, create the TssData from the config data and send it to the
+    // ApplicationStateFacility
     ///
     /// @param tssBootstrapConfig The `TssBootstrapConfig` containing the TssData information
-    /// @return A boolean indication `true` if the TssData was processed, `false` if it was not
-    private boolean processedTssDataConfiguration(TssBootstrapConfig tssBootstrapConfig) {
+    private void processTssDataConfiguration(TssBootstrapConfig tssBootstrapConfig) {
         // get the TssData from the config
         String ledgerId64 = tssBootstrapConfig.ledgerId();
         String wrapsVerificationKey64 = tssBootstrapConfig.wrapsVerificationKey();
@@ -115,11 +80,10 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
                 || wrapsVerificationKey64.isBlank()
                 || schnorrPublicKey64 == null
                 || schnorrPublicKey64.isBlank()) {
-            return false;
+            return;
         }
         TssData tssData = buildTssData(ledgerId64, wrapsVerificationKey64, nodeId, weight, schnorrPublicKey64);
         applicationStateFacility.updateTssData(tssData);
-        return true;
     }
 
     /// build a `TssData` object from individual fields from the `TssBootstrapConfig`
