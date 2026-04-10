@@ -305,8 +305,14 @@ class BlockNodeCloudStorageTests {
         final ResponsePipelineUtils<PublishStreamResponse> ackObserver = new ResponsePipelineUtils<>();
         final Pipeline<? super PublishStreamRequest> stream = publishSvc.publishBlockStream(ackObserver);
 
+        // Chain block hashes: each block's proof must reference the previous block's hash.
+        // Without chaining, block 1+ fail verification because the verifier tracks block 0's
+        // actual hash and rejects a proof that claims the previous hash was all-zeros.
+        Bytes previousHash = null;
+        Bytes prevHashForBlock2 = null; // captured for duplicate creation below
         for (final long blockNumber : blockNumbers) {
-            final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
+            if (blockNumber == 2L) prevHashForBlock2 = previousHash;
+            final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber, previousHash);
             final PublishStreamRequest request = PublishStreamRequest.newBuilder()
                     .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
                     .build();
@@ -314,6 +320,7 @@ class BlockNodeCloudStorageTests {
             stream.onNext(request);
             endBlock(blockNumber, stream);
             awaitLatch(ackLatch, "acknowledgement for block " + blockNumber);
+            previousHash = BlockItemBuilderUtils.computeBlockHash(blockNumber, previousHash);
         }
 
         // All three objects must appear in S3Mock
@@ -323,8 +330,8 @@ class BlockNodeCloudStorageTests {
             assertThat(listObjectKeys()).contains(expectedKey);
         }
 
-        // Close the stream with a duplicate of block 2
-        final BlockItem[] dupItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(2L);
+        // Close the stream with a duplicate of block 2 (same content — same previousHash)
+        final BlockItem[] dupItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, prevHashForBlock2);
         final PublishStreamRequest dupRequest = PublishStreamRequest.newBuilder()
                 .blockItems(BlockItemSet.newBuilder().blockItems(dupItems).build())
                 .build();
