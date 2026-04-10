@@ -20,15 +20,10 @@ import org.hiero.block.node.spi.ServiceBuilder;
 ///  - `TssBootstrapConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
 public class TssBootstrapPlugin implements BlockNodePlugin {
-    /// The logger for this class
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
     /// The block node context, for access to core facilities.
     private BlockNodeContext context;
     /// The application state facility, for updating application state.
     private ApplicationStateFacility applicationStateFacility;
-    /// The configuration for verification
-    @SuppressWarnings("FieldCanBeLocal")
-    private TssBootstrapConfig tssBootstrapConfig;
 
     /// {@inheritDoc}
     @NonNull
@@ -45,7 +40,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
             @NonNull final ApplicationStateFacility applicationStateFacility) {
         this.context = context;
         this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
-        tssBootstrapConfig = this.context.configuration().getConfigData(TssBootstrapConfig.class);
+        TssBootstrapConfig tssBootstrapConfig = this.context.configuration().getConfigData(TssBootstrapConfig.class);
 
         // process the config data
         processTssDataConfiguration(tssBootstrapConfig);
