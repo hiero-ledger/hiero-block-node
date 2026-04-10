@@ -27,7 +27,6 @@ import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -64,9 +63,9 @@ import org.junit.jupiter.api.Timeout;
  * use a real S3-compatible server (SeaweedFS, Apache 2.0). The {@link S3Client} verification
  * and all assertions remain identical.
  *
- * <p>Config injection overrides {@link BlockNodeApp#getEnvVar(String)} via an anonymous
- * subclass, passing S3Mock coordinates into {@code AutomaticEnvironmentVariableConfigSource}
- * without touching JVM system properties or real environment variables.
+ * <p>Config injection uses {@code System.setProperty} with the raw config property names
+ * (e.g. {@code cloud.expanded.endpointUrl}) so that {@code SystemPropertiesConfigSource}
+ * (ordinal 400) picks them up ahead of env-var and file sources.
  */
 @Tag("api")
 @Timeout(value = 120, unit = TimeUnit.SECONDS)
@@ -74,6 +73,7 @@ class BlockNodeCloudStorageTests {
 
     private static final String BUCKET = "e2e-blocks";
     private static final String PREFIX = "blocks";
+    private static final String REGION = "us-east-1";
     private static final String ACCESS_KEY = "e2e-access-key";
     private static final String SECRET_KEY = "e2e-secret-key";
     private static final String S3MOCK_VERSION = "4.11.0";
@@ -104,17 +104,14 @@ class BlockNodeCloudStorageTests {
             assumeTrue(false, "Docker not available — skipping cloud storage E2E: " + e.getMessage());
             return;
         }
-        String s3Endpoint = s3MockContainer.getHttpEndpoint();
-        s3Client = new S3Client("us-east-1", s3Endpoint, BUCKET, ACCESS_KEY, SECRET_KEY);
+        final String s3Endpoint = s3MockContainer.getHttpEndpoint();
+        s3Client = new S3Client(REGION, s3Endpoint, BUCKET, ACCESS_KEY, SECRET_KEY);
 
-        // Inject S3Mock coordinates via getEnvVar override so config picks them up without
-        // touching real env vars or system properties.
-        final Map<String, String> s3Overrides = Map.of(
-                "CLOUD_EXPANDED_ENDPOINT_URL", s3Endpoint,
-                "CLOUD_EXPANDED_BUCKET_NAME", BUCKET,
-                "CLOUD_EXPANDED_OBJECT_KEY_PREFIX", PREFIX,
-                "CLOUD_EXPANDED_ACCESS_KEY", ACCESS_KEY,
-                "CLOUD_EXPANDED_SECRET_KEY", SECRET_KEY);
+        // Inject S3Mock coordinates via System properties so that SystemPropertiesConfigSource
+        // (ordinal 400) picks them up. This is the correct approach: anonymous-class overrides
+        // of getEnvVar() do not work because the captured local variables are null during the
+        // BlockNodeApp super() constructor when AutomaticEnvironmentVariableConfigSource is built.
+        setCloudExpandedProperties(s3Endpoint);
 
         // Clear local block data directory (same pattern as BlockNodeAPITests)
         final Path dataDir = Paths.get("build/tmp/data").toAbsolutePath();
@@ -125,12 +122,7 @@ class BlockNodeCloudStorageTests {
                     .forEach(File::delete);
         }
 
-        app = new BlockNodeApp(new ServiceLoaderFunction(), false) {
-            @Override
-            protected String getEnvVar(final String name) {
-                return s3Overrides.getOrDefault(name, System.getenv(name));
-            }
-        };
+        app = new BlockNodeApp(new ServiceLoaderFunction(), false);
         app.start();
         final long startDeadline = System.currentTimeMillis() + 10_000L;
         while (app.blockNodeState() != State.RUNNING && System.currentTimeMillis() < startDeadline) {
@@ -154,6 +146,7 @@ class BlockNodeCloudStorageTests {
         }
         if (s3Client != null) s3Client.close();
         if (s3MockContainer != null && s3MockContainer.isRunning()) s3MockContainer.stop();
+        clearCloudExpandedProperties();
     }
 
     // ── Tests ────────────────────────────────────────────────────────────────
@@ -254,23 +247,14 @@ class BlockNodeCloudStorageTests {
      */
     @Test
     void nodeRemainsHealthyWhenCloudPluginEndpointIsBlank() throws Exception {
-        // This test overrides setUp() behaviour via a subclass with blank endpoint.
-        // Tear down the app started in setUp() and restart with blank endpoint.
+        // Restart the app with a blank endpoint so the cloud plugin stays inactive.
+        // All other properties remain valid — the blank endpoint specifically is what disables the plugin.
         app.shutdown("nodeRemainsHealthyWhenCloudPluginEndpointIsBlank", "restarting with blank endpoint");
 
-        final Map<String, String> blankEndpointOverrides = Map.of(
-                "CLOUD_EXPANDED_ENDPOINT_URL", "",
-                "CLOUD_EXPANDED_BUCKET_NAME", BUCKET,
-                "CLOUD_EXPANDED_OBJECT_KEY_PREFIX", PREFIX,
-                "CLOUD_EXPANDED_ACCESS_KEY", ACCESS_KEY,
-                "CLOUD_EXPANDED_SECRET_KEY", SECRET_KEY);
+        // Override only the endpoint to blank; other properties remain from setUp().
+        System.setProperty("cloud.expanded.endpointUrl", "");
 
-        app = new BlockNodeApp(new ServiceLoaderFunction(), false) {
-            @Override
-            protected String getEnvVar(final String name) {
-                return blankEndpointOverrides.getOrDefault(name, System.getenv(name));
-            }
-        };
+        app = new BlockNodeApp(new ServiceLoaderFunction(), false);
         app.start();
         final long startDeadline = System.currentTimeMillis() + 10_000L;
         while (app.blockNodeState() != State.RUNNING && System.currentTimeMillis() < startDeadline) {
@@ -399,6 +383,35 @@ class BlockNodeCloudStorageTests {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Sets System properties for all cloud-expanded config values so that
+     * {@code SystemPropertiesConfigSource} (ordinal 400) injects them into the
+     * {@link BlockNodeApp} config at startup.
+     *
+     * <p>This is the reliable alternative to overriding {@code getEnvVar()}: anonymous-class
+     * captured local variables are null during the {@code BlockNodeApp} super() constructor
+     * because Java assigns captured fields only after {@code super()} returns. System properties
+     * are globally readable and are not subject to this timing issue.
+     */
+    private void setCloudExpandedProperties(final String endpoint) {
+        System.setProperty("cloud.expanded.endpointUrl", endpoint);
+        System.setProperty("cloud.expanded.bucketName", BUCKET);
+        System.setProperty("cloud.expanded.objectKeyPrefix", PREFIX);
+        System.setProperty("cloud.expanded.regionName", REGION);
+        System.setProperty("cloud.expanded.accessKey", ACCESS_KEY);
+        System.setProperty("cloud.expanded.secretKey", SECRET_KEY);
+    }
+
+    /** Clears all cloud-expanded System properties set by {@link #setCloudExpandedProperties}. */
+    private void clearCloudExpandedProperties() {
+        System.clearProperty("cloud.expanded.endpointUrl");
+        System.clearProperty("cloud.expanded.bucketName");
+        System.clearProperty("cloud.expanded.objectKeyPrefix");
+        System.clearProperty("cloud.expanded.regionName");
+        System.clearProperty("cloud.expanded.accessKey");
+        System.clearProperty("cloud.expanded.secretKey");
+    }
 
     private static String buildExpectedKey(final long blockNumber) {
         final String p = String.format("%019d", blockNumber);
