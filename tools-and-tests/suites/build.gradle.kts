@@ -36,7 +36,7 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.access.service")
     runtimeOnly("org.hiero.block.node.backfill")
     runtimeOnly("org.hiero.block.node.archive.s3cloud")
-    runtimeOnly("org.hiero.block.node.expanded.cloud.storage")
+    runtimeOnly("org.hiero.block.node.cloud.expanded")
     runtimeOnly("s3mock.testcontainers")
 }
 
