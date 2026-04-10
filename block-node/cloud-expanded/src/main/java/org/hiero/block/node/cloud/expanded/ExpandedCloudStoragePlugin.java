@@ -160,7 +160,11 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             drainCompletedTasks();
         }
         if (s3Client != null) {
-            s3Client.close();
+            try {
+                s3Client.close();
+            } catch (Exception e) {
+                LOGGER.log(WARNING, "Encountered error closing s3Client.", e);
+            }
             s3Client = null;
         }
     }
@@ -175,31 +179,29 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
         if (s3Client == null || completionService == null) {
-            return;
+            LOGGER.log(TRACE, "Skipping upload: null s3Client or completionService.");
         } else if (!notification.success()) {
             LOGGER.log(
                 TRACE, "Skipping upload for block {0}: verification did not succeed.", notification.blockNumber());
-            return;
         } else if (notification.blockNumber() < 0) {
             LOGGER.log(TRACE, "Skipping upload: invalid block number {0}.", notification.blockNumber());
-            return;
         } else if (notification.block() == null) {
             LOGGER.log(WARNING, "Skipping upload for block {0}: block payload is null.", notification.blockNumber());
-            return;
-        }
+        } else {
 
-        // Drain results from previously submitted tasks before queuing new work.
-        drainCompletedTasks();
+            // Drain results from previously submitted tasks before queuing new work.
+            drainCompletedTasks();
 
-        final String objectKey = buildBlockObjectKey(notification.blockNumber());
-        inFlightCount.incrementAndGet();
-        completionService.submit(new SingleBlockStoreTask(
-            notification.blockNumber(),
-            notification.block(),
+            final String objectKey = buildBlockObjectKey(notification.blockNumber());
+            inFlightCount.incrementAndGet();
+            completionService.submit(new SingleBlockStoreTask(
+                notification.blockNumber(),
+                notification.block(),
                 s3Client,
                 objectKey,
                 config.storageClass().name(),
                 notification.source()));
+        }
     }
 
     // ---- Private helpers ----------------------------------------------------

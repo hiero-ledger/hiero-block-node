@@ -24,9 +24,6 @@ abstract class S3UploadClient implements AutoCloseable {
             String objectKey, String storageClass, Iterator<byte[]> contentIterable, String contentType)
             throws com.hedera.bucky.S3ClientException, IOException;
 
-    /// Releases resources held by this client. Must be idempotent.
-    @Override
-    public abstract void close();
 
     /// Creates a production {@link S3UploadClient} backed by `com.hedera.bucky.S3Client`.
     ///
