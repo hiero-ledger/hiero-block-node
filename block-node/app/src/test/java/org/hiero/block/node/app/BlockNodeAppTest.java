@@ -420,4 +420,57 @@ class BlockNodeAppTest {
                 .validFromBlock(validFromBlock)
                 .build();
     }
+
+    /**
+     * Test ApplicationStateFacility persistence.
+     */
+    @Test
+    @DisplayName("should persist and load TssData")
+    void testApplicationStateFacilityPersistence() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+
+        // update the tssData which should persist to disk
+        TssData tssData = buildTssData(Bytes.fromHex("010203"), Bytes.fromHex("040506"), 1, 2, Bytes.fromHex("070809"));
+        blockNodeApp.updateTssData(tssData);
+
+        // create a new BlockNodeApp which will load the persisted TssData
+        final BlockNodeApp blocakNodeApp2 = new BlockNodeApp(serviceLoaderFunction, false);
+        TssData tssData1 = blocakNodeApp2.blockNodeContext.tssData();
+        assertEquals(tssData.ledgerId(), tssData1.ledgerId());
+        assertEquals(tssData.wrapsVerificationKey(), tssData1.wrapsVerificationKey());
+
+        RosterEntry roster = tssData.currentRoster().rosterEntries().getFirst();
+        RosterEntry roster1 = tssData1.currentRoster().rosterEntries().getFirst();
+
+        assertEquals(roster.nodeId(), roster1.nodeId());
+        assertEquals(roster.weight(), roster1.weight());
+        assertEquals(roster.schnorrPublicKey(), roster1.schnorrPublicKey());
+
+        // overwrite the persisted file with default information
+        blockNodeApp.updateTssData(TssData.DEFAULT);
+    }
+
+    /// build a `TssData` object from individual fields from the `TssBootstrapConfig`
+    ///
+    /// @param ledgerId The ledgerId Bytes
+    /// @param wrapsVerificationKey The wrapsVerificationKey Bytes
+    /// @param nodeId The node id
+    /// @param weight The weight
+    /// @param schnorrPublicKey The schnorrPublicKey Bytes
+    /// @return a `TssData` object
+    private TssData buildTssData(
+            Bytes ledgerId, Bytes wrapsVerificationKey, long nodeId, long weight, Bytes schnorrPublicKey) {
+        RosterEntry rosterEntry = RosterEntry.newBuilder()
+                .nodeId(nodeId)
+                .weight(weight)
+                .schnorrPublicKey(schnorrPublicKey)
+                .build();
+        TssRoster tssRoster = TssRoster.newBuilder().rosterEntries(rosterEntry).build();
+        return TssData.newBuilder()
+                .ledgerId(ledgerId)
+                .wrapsVerificationKey(wrapsVerificationKey)
+                .currentRoster(tssRoster)
+                .build();
+    }
 }
