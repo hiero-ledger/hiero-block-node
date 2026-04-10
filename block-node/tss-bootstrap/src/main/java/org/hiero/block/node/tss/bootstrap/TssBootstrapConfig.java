@@ -12,11 +12,8 @@ import org.hiero.block.node.base.Loggable;
 
 /// Configuration for the tss-bootstrap module.
 ///
-/// @param tssParametersFilePath path where TSS parameters (ledger ID, address book, WRAPS VK)
-///     are persisted across restarts as a serialized {@code TssData}.
 @ConfigData("tss.bootstrap")
 public record TssBootstrapConfig(
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/tss/bootstrap/tss-parameters.bin") Path tssParametersFilePath,
         @Loggable @ConfigProperty(defaultValue = "") String ledgerId,
         @Loggable @ConfigProperty(defaultValue = "") String wrapsVerificationKey,
         @Loggable @ConfigProperty(defaultValue = "0") long nodeId,
