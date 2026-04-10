@@ -149,7 +149,7 @@ public class BlockNodeApp implements HealthFacility {
         //noinspection unchecked
         final ConfigurationBuilder configurationBuilder = ConfigurationBuilder.create()
                 .autoDiscoverExtensions()
-                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, this::getEnvVar))
+                .withSource(new AutomaticEnvironmentVariableConfigSource(allConfigDataTypes, System::getenv))
                 .withSource(SystemPropertiesConfigSource.getInstance())
                 .withSources(new ClasspathFileConfigSource(Path.of(appProperties)))
                 .withConfigDataTypes(allConfigDataTypes.toArray(new Class[0]));
@@ -330,19 +330,6 @@ public class BlockNodeApp implements HealthFacility {
     public static void main(final String[] args) throws IOException {
         BlockNodeApp server = new BlockNodeApp(new ServiceLoaderFunction(), true);
         server.start();
-    }
-
-    /**
-     * Returns the value of the named environment variable.
-     *
-     * <p>Subclasses may override this method to inject config values in tests without
-     * mutating the real JVM environment or using the public constructor API.
-     *
-     * @param name the environment variable name
-     * @return the value, or {@code null} if not set
-     */
-    protected String getEnvVar(final String name) {
-        return System.getenv(name);
     }
 
     /**
