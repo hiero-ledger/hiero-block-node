@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.expanded.cloud.storage;
+package org.hiero.block.node.cloud.expanded;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -41,7 +41,7 @@ import org.junit.jupiter.api.Timeout;
 /// leaving the unit tests in {@link ExpandedCloudStoragePluginTest} unaffected.
 ///
 /// Test-side S3 verification uses {@link S3Client} from `org.hiero.block.node.base`
-/// which is already on the module path (`expanded-cloud-storage` requires `base`). No
+/// which is already on the module path (`cloud-expanded` requires `base`). No
 /// additional library dependency is needed.
 @Timeout(value = 60, unit = TimeUnit.SECONDS)
 class ExpandedCloudStoragePluginIntegrationTest
@@ -103,11 +103,11 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
-                        "expanded.cloud.storage.endpointUrl", s3Endpoint,
-                        "expanded.cloud.storage.bucketName", BUCKET_NAME,
-                        "expanded.cloud.storage.objectKeyPrefix", "blocks",
-                        "expanded.cloud.storage.accessKey", ACCESS_KEY,
-                        "expanded.cloud.storage.secretKey", SECRET_KEY));
+                        "cloud.expanded.endpointUrl", s3Endpoint,
+                        "cloud.expanded.bucketName", BUCKET_NAME,
+                        "cloud.expanded.objectKeyPrefix", "blocks",
+                        "cloud.expanded.accessKey", ACCESS_KEY,
+                        "cloud.expanded.secretKey", SECRET_KEY));
 
         final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(100L, 104L, START_TIME, ONE_DAY);
         for (final TestBlock block : blocks) {
@@ -133,11 +133,11 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
-                        "expanded.cloud.storage.endpointUrl", s3Endpoint,
-                        "expanded.cloud.storage.bucketName", BUCKET_NAME,
-                        "expanded.cloud.storage.objectKeyPrefix", "intblocks",
-                        "expanded.cloud.storage.accessKey", ACCESS_KEY,
-                        "expanded.cloud.storage.secretKey", SECRET_KEY));
+                        "cloud.expanded.endpointUrl", s3Endpoint,
+                        "cloud.expanded.bucketName", BUCKET_NAME,
+                        "cloud.expanded.objectKeyPrefix", "intblocks",
+                        "cloud.expanded.accessKey", ACCESS_KEY,
+                        "cloud.expanded.secretKey", SECRET_KEY));
 
         final TestBlock block = testBlock(200L);
         plugin.handleVerification(verifiedNotification(200L, block.blockUnparsed()));
@@ -163,11 +163,11 @@ class ExpandedCloudStoragePluginIntegrationTest
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
-                        "expanded.cloud.storage.endpointUrl", s3Endpoint,
-                        "expanded.cloud.storage.bucketName", BUCKET_NAME,
-                        "expanded.cloud.storage.objectKeyPrefix", "",
-                        "expanded.cloud.storage.accessKey", ACCESS_KEY,
-                        "expanded.cloud.storage.secretKey", SECRET_KEY));
+                        "cloud.expanded.endpointUrl", s3Endpoint,
+                        "cloud.expanded.bucketName", BUCKET_NAME,
+                        "cloud.expanded.objectKeyPrefix", "",
+                        "cloud.expanded.accessKey", ACCESS_KEY,
+                        "cloud.expanded.secretKey", SECRET_KEY));
 
         final TestBlock block = testBlock(300L);
         plugin.handleVerification(verifiedNotification(300L, block.blockUnparsed()));

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.expanded.cloud.storage;
+package org.hiero.block.node.cloud.expanded;
 
 import java.io.IOException;
 import java.util.Iterator;

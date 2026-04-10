@@ -137,7 +137,7 @@ dependencies {
     // Extended functionality
     blockNodePlugins(project(":backfill"))
     blockNodePlugins(project(":s3-archive"))
-    blockNodePlugins(project(":expanded-cloud-storage"))
+    blockNodePlugins(project(":cloud-expanded"))
 }
 
 /** Sets block node storage environment variables for the given data directory. */

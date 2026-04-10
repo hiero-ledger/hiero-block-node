@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.expanded.cloud.storage;
+package org.hiero.block.node.cloud.expanded;
 
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
@@ -64,13 +64,13 @@ import org.hiero.metrics.core.MetricRegistry;
 /// whose production instance wraps `com.hedera.bucky.S3Client` directly.
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
     public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS =
-        MetricKey.of("expanded_cloud_storage_total_uploads", LongCounter.class).addCategory(METRICS_CATEGORY);
+        MetricKey.of("cloud_expanded_total_uploads", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES =
-        MetricKey.of("expanded_cloud_storage_total_upload_failures", LongCounter.class).addCategory(METRICS_CATEGORY);
+        MetricKey.of("cloud_expanded_total_upload_failures", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES =
-        MetricKey.of("expanded_cloud_storage_total_upload_bytes", LongCounter.class).addCategory(METRICS_CATEGORY);
+        MetricKey.of("cloud_expanded_total_upload_bytes", LongCounter.class).addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS =
-        MetricKey.of("expanded_cloud_storage_upload_latency_ns", LongCounter.class).addCategory(METRICS_CATEGORY);
+        MetricKey.of("cloud_expanded_upload_latency_ns", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     private static final System.Logger LOGGER = System.getLogger(ExpandedCloudStoragePlugin.class.getName());
 
@@ -327,7 +327,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
                         .setDescription("Total compressed bytes successfully uploaded to S3-compatible storage"))
                     .getOrCreateNotLabeled(),
                 metricRegistry.register(LongCounter.builder(METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS)
-                        .setDescription("Total time spent uploading blocks in expanded_cloud_storage in nanoseconds"))
+                        .setDescription("Total time spent uploading blocks in cloud_expanded in nanoseconds"))
                     .getOrCreateNotLabeled());
         }
     }

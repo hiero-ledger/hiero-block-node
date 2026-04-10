@@ -1,4 +1,4 @@
-# Expanded Cloud Storage Plugin
+# Cloud Expanded Plugin
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@
 
 ## Purpose
 
-The `expanded-cloud-storage` plugin (ECSP) uploads each individually-verified block as a compressed
+The `cloud-expanded` plugin uploads each individually-verified block as a compressed
 `.blk.zstd` object directly to any S3-compatible object store (AWS S3, GCS via S3-interop,
 etc.). Unlike the previous `s3-archive` plugin, which batched blocks into large tar
 archives, this plugin uploads **one block per S3 object** — making individual blocks
@@ -80,7 +80,7 @@ cloud.
 
 ### `S3UploadClient` (abstract class)
 
-Package-private abstract class in `org.hiero.block.node.expanded.cloud.storage`. Exposes
+Package-private abstract class in `org.hiero.block.node.cloud.expanded`. Exposes
 a single upload method and `close()`:
 
 - `uploadFile(objectKey, storageClass, Iterator<byte[]> content, contentType)` — throws
@@ -106,7 +106,7 @@ exceptions never propagate to the caller.
 
 ### `ExpandedCloudStorageConfig`
 
-`@ConfigData("expanded.cloud.storage")` record carrying all plugin settings. The
+`@ConfigData("cloud.expanded")` record carrying all plugin settings. The
 `storageClass` field is typed as `StorageClass` (an enum), which causes the config
 framework to reject unknown values at startup. The `uploadTimeoutSeconds` field carries
 `@Min(1)` for framework-level range validation.
@@ -199,7 +199,7 @@ long seg5 = blockNumber                      % 1_000L;
 
 ### Misconfiguration handling
 
-If `expanded.cloud.storage.endpointUrl` is blank or the S3 client fails to initialise at
+If `cloud.expanded.endpointUrl` is blank or the S3 client fails to initialise at
 startup (e.g. invalid credentials, unreachable endpoint), the plugin logs a WARNING and
 remains inactive for the duration of the process — `completionService` stays `null` and
 all `handleVerification` calls are no-ops.
@@ -286,18 +286,18 @@ classDiagram
 
 ## Configuration
 
-All properties are under the `expanded.cloud.storage` namespace.
+All properties are under the `cloud.expanded` namespace.
 
 |                   Property                    |       Default       |                                   Description                                    |
 |-----------------------------------------------|---------------------|----------------------------------------------------------------------------------|
-| `expanded.cloud.storage.endpointUrl`          | `""`                | S3-compatible endpoint URL. **Required. Blank value causes plugin to log a WARNING and be inactive.** |
-| `expanded.cloud.storage.bucketName`           | `block-node-blocks` | Name of the S3 bucket.                                                           |
-| `expanded.cloud.storage.objectKeyPrefix`      | `blocks`            | Prefix prepended to every object key.                                            |
-| `expanded.cloud.storage.storageClass`         | `STANDARD`          | S3 storage class (`STANDARD`). Validated as enum at startup.                     |
-| `expanded.cloud.storage.regionName`           | `us-east-1`         | AWS / S3-compatible region.                                                      |
-| `expanded.cloud.storage.accessKey`            | `""`                | S3 access key (not logged).                                                      |
-| `expanded.cloud.storage.secretKey`            | `""`                | S3 secret key (not logged).                                                      |
-| `expanded.cloud.storage.uploadTimeoutSeconds` | `60`                | Max seconds to wait for in-flight uploads during `stop()`. Min value: 1.         |
+| `cloud.expanded.endpointUrl`                  | `""`                | S3-compatible endpoint URL. **Required. Blank value causes plugin to log a WARNING and be inactive.** |
+| `cloud.expanded.bucketName`                   | `block-node-blocks` | Name of the S3 bucket.                                                           |
+| `cloud.expanded.objectKeyPrefix`              | `blocks`            | Prefix prepended to every object key.                                            |
+| `cloud.expanded.storageClass`                 | `STANDARD`          | S3 storage class (`STANDARD`). Validated as enum at startup.                     |
+| `cloud.expanded.regionName`                   | `us-east-1`         | AWS / S3-compatible region.                                                      |
+| `cloud.expanded.accessKey`                    | `""`                | S3 access key (not logged).                                                      |
+| `cloud.expanded.secretKey`                    | `""`                | S3 secret key (not logged).                                                      |
+| `cloud.expanded.uploadTimeoutSeconds`         | `60`                | Max seconds to wait for in-flight uploads during `stop()`. Min value: 1.         |
 
 ## Metrics
 
@@ -307,10 +307,10 @@ All counters are registered under the `hiero_block_node` Prometheus category via
 
 |                  Metric name                         |                                 Description                                 |
 |------------------------------------------------------|-----------------------------------------------------------------------------|
-| `expanded_cloud_storage_total_uploads`               | Number of blocks successfully uploaded to S3-compatible storage.            |
-| `expanded_cloud_storage_total_upload_failures`       | Number of block uploads that failed (S3 error, timeout, compression error). |
-| `expanded_cloud_storage_total_upload_bytes`          | Total compressed bytes successfully uploaded to S3-compatible storage.      |
-| `expanded_cloud_storage_upload_latency_ns`           | Total wall-clock time spent in upload calls, in nanoseconds (success + failure). |
+| `cloud_expanded_total_uploads`                       | Number of blocks successfully uploaded to S3-compatible storage.            |
+| `cloud_expanded_total_upload_failures`               | Number of block uploads that failed (S3 error, timeout, compression error). |
+| `cloud_expanded_total_upload_bytes`                  | Total compressed bytes successfully uploaded to S3-compatible storage.      |
+| `cloud_expanded_upload_latency_ns`                   | Total wall-clock time spent in upload calls, in nanoseconds (success + failure). |
 
 Counters are registered in `start()`. If `start()` fails (e.g., S3 client creation error),
 `metricsHolder` remains `null` and no counters are registered.
