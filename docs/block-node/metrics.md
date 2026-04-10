@@ -34,15 +34,20 @@ The purpose of metrics is to provide a way to measure the performance of the sys
 
 ## Configuration
 
-### Prometheus
+### Metrics HTTP Server
 
-Prefix: prometheus, ie. `prometheus.configKey`
+The metrics endpoint is served by the `hiero-metrics` library (`openmetrics-httpserver` module).
+Properties are prefixed with `metrics.exporter.openmetrics.http.` and can be set via
+`app.properties`, JVM system properties (`-D` flags), or Helm chart values under `blockNode.metrics`.
 
-| ConfigKey                 | Description                                                                           | Default |
-|:--------------------------|:--------------------------------------------------------------------------------------|--------:|
-| enableEndpoint            | either `true` or `false`. Enables or disables the endpoint for metrics                |    true |
-| endpointPortNumber        | Port of the Prometheus endpoint                                                       |   16007 |
-| endpointMaxBacklogAllowed | The maximum number of incoming TCP connections which the system will queue internally |       1 |
+| Chart Value                  | JVM Property                                 | Description                         |  Default |
+|:-----------------------------|:---------------------------------------------|:------------------------------------|---------:|
+| `blockNode.metrics.hostname` | `metrics.exporter.openmetrics.http.hostname` | Bind address for the metrics server |  0.0.0.0 |
+| `blockNode.metrics.port`     | `metrics.exporter.openmetrics.http.port`     | Prometheus endpoint port            |    16007 |
+| `blockNode.metrics.path`     | `metrics.exporter.openmetrics.http.path`     | HTTP path for metrics endpoint      | /metrics |
+
+See the [Configuration Document](configuration.md#metrics-endpoint-configuration) for details
+on how these properties are injected.
 
 ## How to Access Metrics
 

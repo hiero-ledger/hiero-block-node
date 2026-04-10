@@ -8,6 +8,9 @@ metadata:
   name: {{ include "hiero-block-node.fullname" . }}-config
 data:
   VERSION: {{ include "hiero-block-node.appVersion" .  | quote }}
+  JAVA_TOOL_OPTIONS: {{ printf "%s %s" (include "hiero-block-node.javaToolOptions" .) (default "" (index .Values.blockNode.config "JAVA_TOOL_OPTIONS")) | trim | quote }}
 {{- range $key, $value := .Values.blockNode.config }}
+{{- if ne $key "JAVA_TOOL_OPTIONS" }}
   {{ $key }}: {{ $value | quote }}
+{{- end }}
 {{- end }}
