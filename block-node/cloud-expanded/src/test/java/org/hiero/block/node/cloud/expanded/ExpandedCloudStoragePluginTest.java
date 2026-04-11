@@ -250,7 +250,9 @@ class ExpandedCloudStoragePluginTest
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(1, notifications.size(), "PersistedNotification must be sent even on UploadException");
         assertEquals(7L, notifications.getFirst().blockNumber());
-        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false on UploadException");
+        assertFalse(
+                notifications.getFirst().succeeded(),
+                "PersistedNotification must report succeeded=false on UploadException");
     }
 
     @Test
@@ -295,7 +297,14 @@ class ExpandedCloudStoragePluginTest
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000", "bucket", "blocks", ExpandedCloudStorageConfig.StorageClass.STANDARD, "us-east-1", "", "", 0),
+                        "http://fake:9000",
+                        "bucket",
+                        "blocks",
+                        ExpandedCloudStorageConfig.StorageClass.STANDARD,
+                        "us-east-1",
+                        "",
+                        "",
+                        0),
                 "uploadTimeoutSeconds=0 must throw IllegalArgumentException");
     }
 
@@ -365,7 +374,6 @@ class ExpandedCloudStoragePluginTest
                 "PersistedNotification must report succeeded=false on IOException");
     }
 
-
     @Test
     @DisplayName("stop() closes the injected S3 client")
     void stopClosesS3Client() throws InterruptedException {
@@ -406,13 +414,21 @@ class ExpandedCloudStoragePluginTest
                         "cloud.expanded.endpointUrl", "http://fake:9000",
                         "cloud.expanded.objectKeyPrefix", "blocks"));
 
-        assertEquals("blocks/0000/0000/0000/0000/000.blk.zstd", plugin.buildBlockObjectKey(0L),
+        assertEquals(
+                "blocks/0000/0000/0000/0000/000.blk.zstd",
+                plugin.buildBlockObjectKey(0L),
                 "Block 0 must produce all-zero segments");
-        assertEquals("blocks/0000/0000/0000/0000/999.blk.zstd", plugin.buildBlockObjectKey(999L),
+        assertEquals(
+                "blocks/0000/0000/0000/0000/999.blk.zstd",
+                plugin.buildBlockObjectKey(999L),
                 "Block 999 must be the max leaf value before rollover");
-        assertEquals("blocks/0000/0000/0000/0001/000.blk.zstd", plugin.buildBlockObjectKey(1_000L),
+        assertEquals(
+                "blocks/0000/0000/0000/0001/000.blk.zstd",
+                plugin.buildBlockObjectKey(1_000L),
                 "Block 1000 must roll leaf into seg4");
-        assertEquals("blocks/9223/3720/3685/4775/807.blk.zstd", plugin.buildBlockObjectKey(Long.MAX_VALUE),
+        assertEquals(
+                "blocks/9223/3720/3685/4775/807.blk.zstd",
+                plugin.buildBlockObjectKey(Long.MAX_VALUE),
                 "Max 19-digit block number must saturate all segments");
     }
 
@@ -428,13 +444,19 @@ class ExpandedCloudStoragePluginTest
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
         awaitNotifications(1);
 
-        assertEquals(1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
                 "uploadsTotal must be 1 after one successful upload");
-        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+        assertEquals(
+                0L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
                 "uploadFailuresTotal must be 0 after a successful upload");
-        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES) > 0L,
+        assertTrue(
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES) > 0L,
                 "uploadBytesTotal must be positive after a successful upload");
-        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
+        assertTrue(
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
                 "uploadLatencyNs must be positive after a successful upload");
     }
 
@@ -463,13 +485,20 @@ class ExpandedCloudStoragePluginTest
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
         awaitNotifications(1);
 
-        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+        assertEquals(
+                0L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
                 "uploadsTotal must be 0 after a failed upload");
-        assertEquals(1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
                 "uploadFailuresTotal must be 1 after a failed upload");
-        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES),
+        assertEquals(
+                0L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES),
                 "uploadBytesTotal must be 0 after a failed upload");
-        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
+        assertTrue(
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
                 "uploadLatencyNs must be positive even after a failed upload");
     }
 
@@ -482,11 +511,10 @@ class ExpandedCloudStoragePluginTest
         final ExpandedCloudStoragePlugin uninitPlugin = new ExpandedCloudStoragePlugin(capturing);
 
         assertDoesNotThrow(
-                () -> uninitPlugin.handleVerification(
-                        new VerificationNotification(true, 1L, Bytes.EMPTY, testBlock(1).blockUnparsed(), BlockSource.UNKNOWN)),
+                () -> uninitPlugin.handleVerification(new VerificationNotification(
+                        true, 1L, Bytes.EMPTY, testBlock(1).blockUnparsed(), BlockSource.UNKNOWN)),
                 "handleVerification must not throw when the plugin has not been started");
-        assertEquals(0, capturing.uploads.size(),
-                "No upload must be attempted when the plugin has not been started");
+        assertEquals(0, capturing.uploads.size(), "No upload must be attempted when the plugin has not been started");
     }
 
     @Test
@@ -504,9 +532,9 @@ class ExpandedCloudStoragePluginTest
         awaitNotifications(10);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-        assertEquals(10, notifications.size(),
-                "Each of the ten blocks must produce exactly one PersistedNotification");
-        assertTrue(notifications.stream().allMatch(PersistedNotification::succeeded),
+        assertEquals(10, notifications.size(), "Each of the ten blocks must produce exactly one PersistedNotification");
+        assertTrue(
+                notifications.stream().allMatch(PersistedNotification::succeeded),
                 "All notifications must report succeeded=true");
     }
 
@@ -557,14 +585,17 @@ class ExpandedCloudStoragePluginTest
 
         stopThread.join(10_000);
 
-        assertEquals(1, blockMessaging.getSentPersistedNotifications().size(),
+        assertEquals(
+                1,
+                blockMessaging.getSentPersistedNotifications().size(),
                 "PersistedNotification must be published before stop() completes");
-        assertTrue(closedAfterNotification.get(),
-                "S3 client must be closed only after notifications have been published");
+        assertTrue(
+                closedAfterNotification.get(), "S3 client must be closed only after notifications have been published");
     }
 
     @Test
-    @DisplayName("Plugin is inactive when endpointUrl is blank: BuckyS3UploadClient throws UploadException, handleVerification is a no-op")
+    @DisplayName(
+            "Plugin is inactive when endpointUrl is blank: BuckyS3UploadClient throws UploadException, handleVerification is a no-op")
     void pluginInactiveOnBlankEndpoint() {
         // Use the public no-arg constructor so the production BuckyS3UploadClient code path
         // is exercised. BuckyS3UploadClient's constructor will throw UploadException
@@ -576,8 +607,8 @@ class ExpandedCloudStoragePluginTest
                 Map.of("cloud.expanded.endpointUrl", ""));
 
         assertDoesNotThrow(
-                () -> plugin.handleVerification(
-                        new VerificationNotification(true, 1L, Bytes.EMPTY, testBlock(1).blockUnparsed(), BlockSource.UNKNOWN)),
+                () -> plugin.handleVerification(new VerificationNotification(
+                        true, 1L, Bytes.EMPTY, testBlock(1).blockUnparsed(), BlockSource.UNKNOWN)),
                 "handleVerification must not throw when the plugin is inactive due to blank endpoint");
         assertTrue(
                 blockMessaging.getSentPersistedNotifications().isEmpty(),

@@ -18,7 +18,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -243,7 +242,11 @@ class ExpandedCloudStoragePluginIntegrationTest
         // Decompress and parse — must round-trip back to the original block
         final byte[] decompressed = CompressionType.ZSTD.decompress(response.body());
         final BlockUnparsed parsed = BlockUnparsed.PROTOBUF.parseStrict(Bytes.wrap(decompressed));
-        assertEquals(blockNumber, BlockHeader.PROTOBUF.parse(parsed.blockItems().getFirst().blockHeaderOrThrow()).number(),
+        assertEquals(
+                blockNumber,
+                BlockHeader.PROTOBUF
+                        .parse(parsed.blockItems().getFirst().blockHeaderOrThrow())
+                        .number(),
                 "Decompressed block header number must match the original block number");
     }
 
@@ -270,7 +273,8 @@ class ExpandedCloudStoragePluginIntegrationTest
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(1, notifications.size(), "Exactly one PersistedNotification must be sent even on auth failure");
-        assertFalse(notifications.getFirst().succeeded(),
+        assertFalse(
+                notifications.getFirst().succeeded(),
                 "PersistedNotification must report succeeded=false when credentials are wrong");
     }
 
@@ -296,7 +300,8 @@ class ExpandedCloudStoragePluginIntegrationTest
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(50, notifications.size(), "All 50 blocks must produce a PersistedNotification");
-        assertTrue(notifications.stream().allMatch(PersistedNotification::succeeded),
+        assertTrue(
+                notifications.stream().allMatch(PersistedNotification::succeeded),
                 "All 50 notifications must report succeeded=true");
     }
 
@@ -317,13 +322,19 @@ class ExpandedCloudStoragePluginIntegrationTest
         plugin.handleVerification(verifiedNotification(700L, testBlock(700L).blockUnparsed()));
         awaitNotifications(1);
 
-        assertEquals(1L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
                 "cloud_expanded_total_uploads must be 1 after one successful upload");
-        assertEquals(0L, getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+        assertEquals(
+                0L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
                 "cloud_expanded_total_upload_failures must be 0 after a successful upload");
-        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES) > 0L,
+        assertTrue(
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES) > 0L,
                 "cloud_expanded_total_upload_bytes must be positive after a successful upload");
-        assertTrue(getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
+        assertTrue(
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS) > 0L,
                 "cloud_expanded_upload_latency_ns must be positive after a successful upload");
     }
 

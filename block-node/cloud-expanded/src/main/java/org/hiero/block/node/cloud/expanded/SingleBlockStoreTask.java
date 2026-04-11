@@ -57,11 +57,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     /// @param blockSource     origin of the block (forwarded to {@code PersistedNotification})
     /// @param uploadDurationNs wall-clock time of the upload call in nanoseconds
     public record UploadResult(
-            long blockNumber,
-            UploadStatus status,
-            long bytesUploaded,
-            BlockSource blockSource,
-            long uploadDurationNs) {
+            long blockNumber, UploadStatus status, long bytesUploaded, BlockSource blockSource, long uploadDurationNs) {
 
         /// Returns `true` if the upload completed successfully.
         public boolean succeeded() {
@@ -116,19 +112,31 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
 
             if (compressed.length == 0) {
                 LOGGER.log(WARNING, "Block {0}: compressed bytes are empty, skipping upload.", blockNumber);
-                return new UploadResult(blockNumber, UploadStatus.COMPRESSION_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
+                return new UploadResult(
+                        blockNumber,
+                        UploadStatus.COMPRESSION_ERROR,
+                        0L,
+                        blockSource,
+                        System.nanoTime() - uploadStartNs);
             }
 
             s3Client.uploadFile(objectKey, storageClass, new PayloadIterator(compressed), CONTENT_TYPE);
             LOGGER.log(TRACE, "Block {0}: uploaded to {1}", blockNumber, objectKey);
-            return new UploadResult(blockNumber, UploadStatus.SUCCESS, compressed.length, blockSource, System.nanoTime() - uploadStartNs);
+            return new UploadResult(
+                    blockNumber,
+                    UploadStatus.SUCCESS,
+                    compressed.length,
+                    blockSource,
+                    System.nanoTime() - uploadStartNs);
 
         } catch (final UploadException e) {
             LOGGER.log(WARNING, "Block {0}: S3 upload failed: ", blockNumber, e);
-            return new UploadResult(blockNumber, UploadStatus.S3_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
+            return new UploadResult(
+                    blockNumber, UploadStatus.S3_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
         } catch (final java.io.IOException e) {
             LOGGER.log(WARNING, "Block {0}: I/O error during upload: ", blockNumber, e);
-            return new UploadResult(blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
+            return new UploadResult(
+                    blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
         }
     }
 
