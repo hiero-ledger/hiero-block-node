@@ -26,17 +26,23 @@ import org.junit.jupiter.api.Test;
 /// status is synchronously available and no drain loop is needed.
 class SingleBlockStoreTaskTest {
 
+    /// Fixed epoch used as the first block's start time — keeps generated block hashes deterministic.
     private static final Instant START_TIME =
             ZonedDateTime.of(2025, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant();
+    /// One-day block duration passed to {@link TestBlockBuilder} — only the block number matters here.
     private static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
 
     // ---- Helpers ------------------------------------------------------------
 
+    /// Generates a single {@link TestBlock} for the given block number using a fixed start time
+    /// and one-day duration so the block content is deterministic across test runs.
     private TestBlock testBlock(final long blockNumber) {
         return TestBlockBuilder.generateBlocksInRange(blockNumber, blockNumber, START_TIME, ONE_DAY)
                 .getFirst();
     }
 
+    /// Returns an {@link S3UploadClient} whose {@code uploadFile} completes silently —
+    /// simulates a fully successful S3 upload without a real endpoint.
     private S3UploadClient successClient() {
         return new S3UploadClient() {
             @Override
@@ -47,6 +53,8 @@ class SingleBlockStoreTaskTest {
         };
     }
 
+    /// Returns an {@link S3UploadClient} that always throws {@link S3ClientException} —
+    /// simulates a transient or permanent S3 service error.
     private S3UploadClient throwingS3Client() {
         return new S3UploadClient() {
             @Override
@@ -60,6 +68,8 @@ class SingleBlockStoreTaskTest {
         };
     }
 
+    /// Returns an {@link S3UploadClient} that always throws {@link IOException} —
+    /// simulates a network I/O failure during streaming upload.
     private S3UploadClient throwingIoClient() {
         return new S3UploadClient() {
             @Override

@@ -69,6 +69,11 @@ class ExpandedCloudStoragePluginIntegrationTest
     private static S3Client s3Client;
     private static String s3Endpoint;
 
+    /// Starts the S3Mock container once for the entire test class.
+    ///
+    /// If Docker is not available the container start throws {@link IllegalStateException},
+    /// which is caught and converted to an {@link org.junit.jupiter.api.Assumptions} skip so
+    /// the unit tests in {@link ExpandedCloudStoragePluginTest} remain unaffected.
     @BeforeAll
     @SuppressWarnings("resource")
     static void startS3Mock() throws Exception {
@@ -83,23 +88,29 @@ class ExpandedCloudStoragePluginIntegrationTest
         s3Client = new S3Client("us-east-1", s3Endpoint, BUCKET_NAME, ACCESS_KEY, SECRET_KEY);
     }
 
+    /// Closes the test-side {@link S3Client} and stops the S3Mock container after all tests complete.
     @AfterAll
     static void stopS3Mock() {
         if (s3Client != null) s3Client.close();
         if (s3MockContainer != null && s3MockContainer.isRunning()) s3MockContainer.stop();
     }
 
+    /// Provides the single-threaded executors required by {@link PluginTestBase}.
     public ExpandedCloudStoragePluginIntegrationTest() {
         super(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
     }
 
     // ---- Helpers ------------------------------------------------------------
 
+    /// Generates a single {@link TestBlock} for the given block number using a fixed start time
+    /// and one-day duration so block content is deterministic across test runs.
     private TestBlock testBlock(final long blockNumber) {
         return TestBlockBuilder.generateBlocksInRange(blockNumber, blockNumber, START_TIME, ONE_DAY)
                 .getFirst();
     }
 
+    /// Builds a {@link VerificationNotification} that reports {@code success=true} for the
+    /// given block number and payload — the normal path that triggers an upload.
     private VerificationNotification verifiedNotification(final long blockNumber, final BlockUnparsed block) {
         return new VerificationNotification(true, blockNumber, Bytes.EMPTY, block, BlockSource.UNKNOWN);
     }
@@ -237,6 +248,9 @@ class ExpandedCloudStoragePluginIntegrationTest
                 "Decompressed block header number must match the original block number");
     }
 
+    /// Disabled because S3Mock is lenient about request authentication — it accepts any
+    /// credential values and never returns a 403. Enable this test when running against a
+    /// real S3-compatible endpoint (e.g. MinIO in strict mode) that enforces auth.
     @Disabled
     @Test
     @DisplayName("Integration: wrong credentials produce PersistedNotification with succeeded=false")
@@ -316,6 +330,11 @@ class ExpandedCloudStoragePluginIntegrationTest
 
     // ---- Private helpers ----------------------------------------------------
 
+    /// Drives the plugin's drain loop and polls until at least {@code expectedCount}
+    /// {@link PersistedNotification}s have been dispatched, or the 30-second timeout elapses.
+    ///
+    /// Uses the package-private {@link ExpandedCloudStoragePlugin#drainCompletedTasks()} so
+    /// tests do not need a second {@code handleVerification} call to flush upload results.
     private void awaitNotifications(final int expectedCount) throws InterruptedException {
         final long deadline = System.currentTimeMillis() + 30_000L;
         while (System.currentTimeMillis() < deadline) {
@@ -325,6 +344,9 @@ class ExpandedCloudStoragePluginIntegrationTest
         }
     }
 
+    /// Lists all object keys in S3Mock whose key starts with {@code prefix}.
+    ///
+    /// Pass an empty string to list the entire bucket (no prefix filter).
     private Set<String> listAllObjects(final String prefix) {
         try {
             return Set.copyOf(s3Client.listObjects(prefix.isEmpty() ? "" : prefix, 1000));

@@ -63,12 +63,19 @@ import org.hiero.metrics.core.MetricRegistry;
 /// Uploads are performed via {@link S3UploadClient}, a package-private abstract class
 /// whose production instance wraps `com.hedera.bucky.S3Client` directly.
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
+
+    // ---- Metric keys --------------------------------------------------------
+
+    /// Total number of blocks successfully uploaded to S3-compatible storage.
     public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS =
         MetricKey.of("cloud_expanded_total_uploads", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /// Total number of block uploads that failed (S3 error, I/O error, or compression error).
     public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES =
         MetricKey.of("cloud_expanded_total_upload_failures", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /// Total compressed bytes successfully transferred to S3-compatible storage.
     public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADED_BYTES =
         MetricKey.of("cloud_expanded_total_upload_bytes", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /// Total wall-clock time spent in S3 upload calls, in nanoseconds (includes all attempts, success and failure).
     public static final MetricKey<LongCounter> METRIC_EXPANDED_CLOUD_STORAGE_UPLOAD_LATENCY_NS =
         MetricKey.of("cloud_expanded_upload_latency_ns", LongCounter.class).addCategory(METRICS_CATEGORY);
 
