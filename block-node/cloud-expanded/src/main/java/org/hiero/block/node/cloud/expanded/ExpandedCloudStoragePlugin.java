@@ -60,8 +60,9 @@ import org.hiero.metrics.core.MetricRegistry;
 /// ```
 ///
 /// ## S3 client implementation
-/// Uploads are performed via {@link S3UploadClient}, a package-private abstract class
-/// whose production instance wraps `com.hedera.bucky.S3Client` directly.
+/// Uploads are performed via {@link BuckyS3UploadClient}, a package-private concrete
+/// class that wraps `com.hedera.bucky.S3Client` directly. Unit tests inject a
+/// custom {@link S3UploadClient} subclass via the package-private constructor.
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
 
     // ---- Metric keys --------------------------------------------------------
@@ -145,7 +146,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     public void start() {
         try {
             if (s3Client == null) {
-                s3Client = S3UploadClient.getInstance(config);
+                s3Client = new BuckyS3UploadClient(config);
             }
             completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
             metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metricRegistry));
@@ -195,7 +196,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         } else if (notification.block() == null) {
             LOGGER.log(WARNING, "Skipping upload for block {0}: block payload is null.", notification.blockNumber());
         } else {
-
             // Drain results from previously submitted tasks before queuing new work.
             drainCompletedTasks();
 

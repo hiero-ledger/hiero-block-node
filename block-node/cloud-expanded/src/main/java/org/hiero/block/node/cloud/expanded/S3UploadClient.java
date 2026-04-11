@@ -6,10 +6,9 @@ import java.util.Iterator;
 
 /// Minimal abstraction over S3 upload operations used by this plugin.
 ///
-/// The production instance is obtained via {@link #getInstance}, which wraps
-/// `com.hedera.bucky.S3Client` directly. Package-private subclasses in the test
-/// source tree override {@link #uploadFile} to capture or throw as needed — no Docker
-/// or real S3 endpoint required for unit tests.
+/// The production implementation is {@link BuckyS3UploadClient}. Package-private
+/// subclasses in the test source tree override {@link #uploadFile} to capture or
+/// throw as needed — no Docker or real S3 endpoint required for unit tests.
 abstract class S3UploadClient implements AutoCloseable {
 
     /// Uploads content to S3 using multipart upload.
@@ -25,15 +24,5 @@ abstract class S3UploadClient implements AutoCloseable {
             throws com.hedera.bucky.S3ClientException, IOException;
 
 
-    /// Creates a production {@link S3UploadClient} backed by `com.hedera.bucky.S3Client`.
-    ///
-    /// Returns a {@link BuckyS3UploadClient} instance.
-    ///
-    /// @param config the plugin configuration supplying endpoint, bucket, region, and credentials
-    /// @return a new upload client
-    /// @throws com.hedera.bucky.S3ClientInitializationException if the underlying client cannot be initialised
-    static S3UploadClient getInstance(final ExpandedCloudStorageConfig config)
-            throws com.hedera.bucky.S3ClientInitializationException {
-        return new BuckyS3UploadClient(config);
-    }
+
 }
