@@ -109,7 +109,7 @@ class BlockNodeCloudStorageTests {
 
         // Inject S3Mock coordinates via System properties so that SystemPropertiesConfigSource
         // (ordinal 400) picks them up. This is the correct approach: anonymous-class overrides
-        // of getEnvVar() do not work because the captured local variables are null during the
+        // of environment variables do not work because the captured local variables are null during the
         // BlockNodeApp super() constructor when AutomaticEnvironmentVariableConfigSource is built.
         setCloudExpandedProperties(s3Endpoint);
 
@@ -396,8 +396,8 @@ class BlockNodeCloudStorageTests {
      * {@code SystemPropertiesConfigSource} (ordinal 400) injects them into the
      * {@link BlockNodeApp} config at startup.
      *
-     * <p>This is the reliable alternative to overriding {@code getEnvVar()}: anonymous-class
-     * captured local variables are null during the {@code BlockNodeApp} super() constructor
+     * <p>This is the reliable alternative to overriding environment variables with an anonymous class
+     * Anonymous-class captured local variables are null during the {@code BlockNodeApp} super() constructor
      * because Java assigns captured fields only after {@code super()} returns. System properties
      * are globally readable and are not subject to this timing issue.
      */
