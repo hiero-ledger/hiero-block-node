@@ -8,20 +8,16 @@ import org.hiero.block.node.base.Loggable;
 
 /// Configuration for the expanded cloud storage plugin.
 ///
-/// ## Enabling the plugin
-/// Set `cloud.expanded.endpointUrl` to a non-blank value to enable the plugin.
-/// Leave it blank (the default) to disable the plugin at startup.
-///
 /// ## Credential options
 /// Three credential strategies are supported, in priority order:
 ///
 /// 1. **Config properties** — set `cloud.expanded.accessKey` and
 ///    `cloud.expanded.secretKey` directly. Swirlds Config supports
-///    environment-variable substitution: use `${AWS_ACCESS_KEY_ID}` in the value
+///    environment-variable substitution: use `${CLOUD_EXPANDED_ACCESS_KEY}` in the value
 ///    to avoid embedding credentials in config files on disk.
 /// 2. **Environment variables** — if `accessKey` and `secretKey` are blank,
 ///    the underlying S3 client falls back to the standard chain:
-///    `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.
+///    `CLOUD_EXPANDED_ACCESS_KEY` / `CLOUD_EXPANDED_SECRET_KEY`.
 /// 3. **IAM / instance role** — leave both fields blank and attach an IAM role with
 ///    `s3:PutObject` on the bucket. This is the recommended approach for
 ///    cloud-native (EC2 / ECS / GKE Workload Identity) deployments.

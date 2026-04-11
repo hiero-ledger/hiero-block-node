@@ -75,21 +75,31 @@ class ExpandedCloudStoragePluginTest
         public void close() {}
     }
 
+    /// Provides the single-threaded executors required by {@link PluginTestBase}.
+    /// A single thread is sufficient here because {@code handleVerification} is always
+    /// called from the test thread; the virtual-thread executor is used internally by
+    /// the plugin for async upload tasks.
     public ExpandedCloudStoragePluginTest() {
         super(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
     }
 
     // ---- Helpers ------------------------------------------------------------
 
+    /// Generates a single {@link TestBlock} for the given block number using a fixed start time
+    /// and one-day duration so block content is deterministic across test runs.
     private TestBlock testBlock(final long blockNumber) {
         return TestBlockBuilder.generateBlocksInRange(blockNumber, blockNumber, START_TIME, ONE_DAY)
                 .getFirst();
     }
 
+    /// Builds a {@link VerificationNotification} that reports {@code success=true} for the
+    /// given block number and payload — the normal path that triggers an upload.
     private VerificationNotification verifiedNotification(final long blockNumber, final BlockUnparsed block) {
         return new VerificationNotification(true, blockNumber, Bytes.EMPTY, block, BlockSource.UNKNOWN);
     }
 
+    /// Builds a {@link VerificationNotification} that reports {@code success=false} —
+    /// the plugin must skip the upload for these notifications.
     private VerificationNotification failedNotification(final long blockNumber) {
         return new VerificationNotification(false, blockNumber, Bytes.EMPTY, null, BlockSource.UNKNOWN);
     }

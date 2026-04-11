@@ -11,6 +11,7 @@ import java.util.Iterator;
 /// stack traces and heap dumps, making debugging easier.
 final class BuckyS3UploadClient extends S3UploadClient {
 
+    /// Underlying bucky S3 client that performs the actual HTTP multipart upload.
     private final com.hedera.bucky.S3Client bucky;
 
     /// Constructs a new client from plugin configuration.
@@ -25,6 +26,7 @@ final class BuckyS3UploadClient extends S3UploadClient {
                 config.accessKey(), config.secretKey());
     }
 
+    /// {@inheritDoc}
     @Override
     void uploadFile(
             final String objectKey,
@@ -35,6 +37,7 @@ final class BuckyS3UploadClient extends S3UploadClient {
         bucky.uploadFile(objectKey, storageClass, contentIterable, contentType);
     }
 
+    /// Closes the underlying bucky S3 client and releases its connection pool.
     @Override
     public void close() {
         bucky.close();
