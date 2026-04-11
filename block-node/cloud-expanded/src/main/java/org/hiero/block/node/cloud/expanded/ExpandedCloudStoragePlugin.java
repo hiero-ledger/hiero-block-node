@@ -150,7 +150,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             }
             completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
             metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metricRegistry));
-        } catch (final com.hedera.bucky.S3ClientException e) {
+        } catch (final UploadException e) {
             LOGGER.log(WARNING, "Failed to create S3 client; plugin will be inactive.", e);
         }
     }

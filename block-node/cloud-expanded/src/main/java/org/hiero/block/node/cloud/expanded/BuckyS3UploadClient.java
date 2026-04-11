@@ -16,25 +16,39 @@ final class BuckyS3UploadClient extends S3UploadClient {
 
     /// Constructs a new client from plugin configuration.
     ///
+    /// Wraps {@code com.hedera.bucky.S3ClientInitializationException} in {@link UploadException}
+    /// so that bucky initialisation failures are expressed through the package abstraction.
+    ///
     /// @param config the plugin configuration supplying endpoint, bucket, region, and credentials
-    /// @throws com.hedera.bucky.S3ClientInitializationException if the underlying bucky client
-    ///         cannot be initialised (e.g. invalid credentials, unreachable endpoint)
-    BuckyS3UploadClient(final ExpandedCloudStorageConfig config)
-            throws com.hedera.bucky.S3ClientInitializationException {
-        this.bucky = new com.hedera.bucky.S3Client(
-                config.regionName(), config.endpointUrl(), config.bucketName(),
-                config.accessKey(), config.secretKey());
+    /// @throws UploadException if the underlying bucky client cannot be initialised
+    ///         (e.g. blank required fields, unreachable endpoint)
+    BuckyS3UploadClient(final ExpandedCloudStorageConfig config) throws UploadException {
+        try {
+            this.bucky = new com.hedera.bucky.S3Client(
+                    config.regionName(), config.endpointUrl(), config.bucketName(),
+                    config.accessKey(), config.secretKey());
+        } catch (final com.hedera.bucky.S3ClientInitializationException e) {
+            throw new UploadException(e.getMessage(), e);
+        }
     }
 
     /// {@inheritDoc}
+    ///
+    /// Translates {@code com.hedera.bucky.S3ClientException} into {@link UploadException}
+    /// so that bucky types stay contained within this class and do not leak into the
+    /// abstract {@link S3UploadClient} interface or any callers.
     @Override
     void uploadFile(
             final String objectKey,
             final String storageClass,
             final Iterator<byte[]> contentIterable,
             final String contentType)
-            throws com.hedera.bucky.S3ClientException, IOException {
-        bucky.uploadFile(objectKey, storageClass, contentIterable, contentType);
+            throws UploadException, IOException {
+        try {
+            bucky.uploadFile(objectKey, storageClass, contentIterable, contentType);
+        } catch (final com.hedera.bucky.S3ClientException e) {
+            throw new UploadException(e.getMessage(), e);
+        }
     }
 
     /// Closes the underlying bucky S3 client and releases its connection pool.
