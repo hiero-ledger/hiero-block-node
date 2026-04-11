@@ -17,12 +17,9 @@ abstract class S3UploadClient implements AutoCloseable {
     /// @param storageClass    the S3 storage class (e.g., `"STANDARD"`)
     /// @param contentIterable an iterator of byte-array chunks representing the file content
     /// @param contentType     the MIME content type (e.g., `"application/octet-stream"`)
-    /// @throws com.hedera.bucky.S3ClientException if the S3 service returns an error
-    /// @throws IOException                         if an I/O error occurs
+    /// @throws UploadException if the S3 service returns an error response
+    /// @throws IOException     if a transport-level I/O error occurs
     abstract void uploadFile(
             String objectKey, String storageClass, Iterator<byte[]> contentIterable, String contentType)
-            throws com.hedera.bucky.S3ClientException, IOException;
-
-
-
+            throws UploadException, IOException;
 }

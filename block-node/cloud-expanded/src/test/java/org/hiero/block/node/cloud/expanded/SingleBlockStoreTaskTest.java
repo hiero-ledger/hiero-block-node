@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.hedera.bucky.S3ClientException;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -53,14 +52,14 @@ class SingleBlockStoreTaskTest {
         };
     }
 
-    /// Returns an {@link S3UploadClient} that always throws {@link S3ClientException} —
-    /// simulates a transient or permanent S3 service error.
+    /// Returns an {@link S3UploadClient} that always throws {@link UploadException} —
+    /// simulates a transient or permanent S3 service error (as translated by {@link BuckyS3UploadClient}).
     private S3UploadClient throwingS3Client() {
         return new S3UploadClient() {
             @Override
             void uploadFile(String k, String sc, Iterator<byte[]> c, String ct)
-                    throws S3ClientException {
-                throw new S3ClientException("Simulated S3 failure");
+                    throws UploadException {
+                throw new UploadException("Simulated S3 failure", null);
             }
 
             @Override
@@ -106,8 +105,8 @@ class SingleBlockStoreTaskTest {
     }
 
     @Test
-    @DisplayName("S3ClientException sets UploadStatus.S3_ERROR and succeeded() returns false")
-    void s3ExceptionSetsS3ErrorStatus() {
+    @DisplayName("UploadException sets UploadStatus.S3_ERROR and succeeded() returns false")
+    void uploadExceptionSetsS3ErrorStatus() {
         final SingleBlockStoreTask task = new SingleBlockStoreTask(
                 2L,
                 testBlock(2L).blockUnparsed(),
@@ -119,7 +118,7 @@ class SingleBlockStoreTaskTest {
         final SingleBlockStoreTask.UploadResult result = task.call();
 
         assertEquals(SingleBlockStoreTask.UploadStatus.S3_ERROR, result.status(),
-                "S3ClientException must set status to S3_ERROR");
+                "UploadException must set status to S3_ERROR");
         assertFalse(result.succeeded(), "succeeded() must return false for S3_ERROR status");
         assertEquals(0L, result.bytesUploaded(), "bytesUploaded must be 0 on S3 failure");
     }

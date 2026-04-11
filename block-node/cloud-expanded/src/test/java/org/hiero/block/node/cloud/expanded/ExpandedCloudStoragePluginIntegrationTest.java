@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.adobe.testing.s3mock.testcontainers.S3MockContainer;
-import com.hedera.bucky.S3ClientException;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.net.URI;

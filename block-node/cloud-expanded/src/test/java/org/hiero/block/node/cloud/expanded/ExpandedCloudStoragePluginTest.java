@@ -7,8 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.hedera.bucky.S3ClientException;
-import com.hedera.bucky.S3ResponseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.time.Duration;
@@ -225,10 +223,8 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
-    @DisplayName("S3ResponseException (HTTP 503) produces PersistedNotification with succeeded=false")
-    void responseExceptionProducesFailedNotification() throws InterruptedException {
-        final int statusCode = 503;
-        final byte[] body = "Service Unavailable".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    @DisplayName("UploadException from uploadFile produces PersistedNotification with succeeded=false")
+    void uploadExceptionProducesFailedNotification() throws InterruptedException {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
             void uploadFile(
@@ -236,8 +232,8 @@ class ExpandedCloudStoragePluginTest
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
                     final String contentType)
-                    throws S3ClientException, IOException {
-                throw new S3ResponseException(statusCode, body, null, "S3 returned 503");
+                    throws UploadException {
+                throw new UploadException("Simulated S3 service error", null);
             }
 
             @Override
@@ -252,14 +248,14 @@ class ExpandedCloudStoragePluginTest
         awaitNotifications(1);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-        assertEquals(1, notifications.size(), "PersistedNotification must be sent even on S3ResponseException");
+        assertEquals(1, notifications.size(), "PersistedNotification must be sent even on UploadException");
         assertEquals(7L, notifications.getFirst().blockNumber());
-        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false on 503");
+        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false on UploadException");
     }
 
     @Test
-    @DisplayName("S3ResponseException (HTTP 403 Forbidden) is not rethrown by handleVerification")
-    void responseExceptionForbiddenNotRethrown() {
+    @DisplayName("UploadException thrown by uploadFile is not rethrown by handleVerification")
+    void uploadExceptionNotRethrown() {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
             void uploadFile(
@@ -267,9 +263,8 @@ class ExpandedCloudStoragePluginTest
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
                     final String contentType)
-                    throws S3ClientException, IOException {
-                throw new S3ResponseException(
-                        403, "Forbidden".getBytes(java.nio.charset.StandardCharsets.UTF_8), null, "Access denied");
+                    throws UploadException {
+                throw new UploadException("Simulated S3 failure", null);
             }
 
             @Override
@@ -283,70 +278,7 @@ class ExpandedCloudStoragePluginTest
         assertDoesNotThrow(
                 () -> plugin.handleVerification(
                         verifiedNotification(0L, testBlock(0).blockUnparsed())),
-                "S3ResponseException (403) must never propagate out of handleVerification");
-    }
-
-    @Test
-    @DisplayName("S3ClientException thrown by uploadFile is not rethrown by handleVerification")
-    void s3ExceptionNotRethrown() {
-        final S3UploadClient throwingClient = new S3UploadClient() {
-            @Override
-            void uploadFile(
-                    final String objectKey,
-                    final String storageClass,
-                    final Iterator<byte[]> contentIterable,
-                    final String contentType)
-                    throws S3ClientException, IOException {
-                throw new S3ClientException("Simulated base S3 failure");
-            }
-
-            @Override
-            public void close() {}
-        };
-        start(
-                new ExpandedCloudStoragePlugin(throwingClient),
-                new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.expanded.endpointUrl", "http://fake:9000"));
-
-        assertDoesNotThrow(
-                () -> plugin.handleVerification(
-                        verifiedNotification(0L, testBlock(0).blockUnparsed())),
-                "S3ClientException must never propagate out of handleVerification");
-    }
-
-    @Test
-    @DisplayName("S3ResponseException carries HTTP status code and body regardless of status code")
-    void responseExceptionDetailsAreNotRethrown() {
-        final int[] statusCodes = {400, 403, 404, 409, 500, 503};
-        for (final int code : statusCodes) {
-            final byte[] responseBody = ("Error " + code).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            final S3UploadClient throwingClient = new S3UploadClient() {
-                @Override
-                void uploadFile(
-                        final String objectKey,
-                        final String storageClass,
-                        final Iterator<byte[]> contentIterable,
-                        final String contentType)
-                        throws S3ClientException, IOException {
-                    final S3ResponseException ex = new S3ResponseException(code, responseBody, null);
-                    assertEquals(code, ex.getResponseStatusCode());
-                    assertTrue(ex.getResponseBody().length > 0);
-                    throw ex;
-                }
-
-                @Override
-                public void close() {}
-            };
-            start(
-                    new ExpandedCloudStoragePlugin(throwingClient),
-                    new SimpleInMemoryHistoricalBlockFacility(),
-                    Map.of("cloud.expanded.endpointUrl", "http://fake:9000"));
-
-            assertDoesNotThrow(
-                    () -> plugin.handleVerification(
-                            verifiedNotification(0L, testBlock(0).blockUnparsed())),
-                    "S3ResponseException (HTTP " + code + ") must not propagate from handleVerification");
-        }
+                "UploadException must never propagate out of handleVerification");
     }
 
     @Test
@@ -410,7 +342,7 @@ class ExpandedCloudStoragePluginTest
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
                     final String contentType)
-                    throws S3ClientException, IOException {
+                    throws UploadException, IOException {
                 throw new IOException("Simulated I/O failure");
             }
 
@@ -433,36 +365,6 @@ class ExpandedCloudStoragePluginTest
                 "PersistedNotification must report succeeded=false on IOException");
     }
 
-    @Test
-    @DisplayName("Base S3ClientException from uploadFile produces PersistedNotification with succeeded=false")
-    void s3ClientExceptionProducesFailedNotification() throws InterruptedException {
-        final S3UploadClient throwingClient = new S3UploadClient() {
-            @Override
-            void uploadFile(
-                    final String objectKey,
-                    final String storageClass,
-                    final Iterator<byte[]> contentIterable,
-                    final String contentType)
-                    throws S3ClientException, IOException {
-                throw new S3ClientException("Simulated base S3 failure");
-            }
-
-            @Override
-            public void close() {}
-        };
-        start(
-                new ExpandedCloudStoragePlugin(throwingClient),
-                new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.expanded.endpointUrl", "http://fake:9000"));
-
-        plugin.handleVerification(verifiedNotification(9L, testBlock(9).blockUnparsed()));
-        awaitNotifications(1);
-
-        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
-        assertEquals(1, notifications.size(), "PersistedNotification must be sent even on base S3ClientException");
-        assertEquals(9L, notifications.getFirst().blockNumber());
-        assertFalse(notifications.getFirst().succeeded(), "PersistedNotification must report succeeded=false");
-    }
 
     @Test
     @DisplayName("stop() closes the injected S3 client")
@@ -546,8 +448,8 @@ class ExpandedCloudStoragePluginTest
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
                     final String contentType)
-                    throws S3ClientException {
-                throw new S3ClientException("Simulated failure for metrics test");
+                    throws UploadException {
+                throw new UploadException("Simulated failure for metrics test", null);
             }
 
             @Override
