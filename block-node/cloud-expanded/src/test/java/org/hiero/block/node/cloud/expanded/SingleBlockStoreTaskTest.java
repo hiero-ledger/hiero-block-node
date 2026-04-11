@@ -57,8 +57,7 @@ class SingleBlockStoreTaskTest {
     private S3UploadClient throwingS3Client() {
         return new S3UploadClient() {
             @Override
-            void uploadFile(String k, String sc, Iterator<byte[]> c, String ct)
-                    throws UploadException {
+            void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) throws UploadException {
                 throw new UploadException("Simulated S3 failure", null);
             }
 
@@ -72,8 +71,7 @@ class SingleBlockStoreTaskTest {
     private S3UploadClient throwingIoClient() {
         return new S3UploadClient() {
             @Override
-            void uploadFile(String k, String sc, Iterator<byte[]> c, String ct)
-                    throws IOException {
+            void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) throws IOException {
                 throw new IOException("Simulated I/O failure");
             }
 
@@ -97,7 +95,9 @@ class SingleBlockStoreTaskTest {
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
-        assertEquals(SingleBlockStoreTask.UploadStatus.SUCCESS, result.status(),
+        assertEquals(
+                SingleBlockStoreTask.UploadStatus.SUCCESS,
+                result.status(),
                 "Successful upload must set status to SUCCESS");
         assertTrue(result.succeeded(), "succeeded() must return true for SUCCESS status");
         assertTrue(result.bytesUploaded() > 0L, "bytesUploaded must be positive on success");
@@ -117,7 +117,9 @@ class SingleBlockStoreTaskTest {
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
-        assertEquals(SingleBlockStoreTask.UploadStatus.S3_ERROR, result.status(),
+        assertEquals(
+                SingleBlockStoreTask.UploadStatus.S3_ERROR,
+                result.status(),
                 "UploadException must set status to S3_ERROR");
         assertFalse(result.succeeded(), "succeeded() must return false for S3_ERROR status");
         assertEquals(0L, result.bytesUploaded(), "bytesUploaded must be 0 on S3 failure");
@@ -136,8 +138,8 @@ class SingleBlockStoreTaskTest {
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
-        assertEquals(SingleBlockStoreTask.UploadStatus.IO_ERROR, result.status(),
-                "IOException must set status to IO_ERROR");
+        assertEquals(
+                SingleBlockStoreTask.UploadStatus.IO_ERROR, result.status(), "IOException must set status to IO_ERROR");
         assertFalse(result.succeeded(), "succeeded() must return false for IO_ERROR status");
         assertEquals(0L, result.bytesUploaded(), "bytesUploaded must be 0 on I/O failure");
     }
@@ -160,12 +162,7 @@ class SingleBlockStoreTaskTest {
     @DisplayName("UploadResult carries the correct blockNumber and blockSource")
     void uploadResultCarriesBlockNumberAndSource() {
         final SingleBlockStoreTask task = new SingleBlockStoreTask(
-                99L,
-                testBlock(99L).blockUnparsed(),
-                successClient(),
-                "blocks/key",
-                "STANDARD",
-                BlockSource.PUBLISHER);
+                99L, testBlock(99L).blockUnparsed(), successClient(), "blocks/key", "STANDARD", BlockSource.PUBLISHER);
 
         final SingleBlockStoreTask.UploadResult result = task.call();
 
