@@ -562,4 +562,25 @@ class ExpandedCloudStoragePluginTest
         assertTrue(closedAfterNotification.get(),
                 "S3 client must be closed only after notifications have been published");
     }
+
+    @Test
+    @DisplayName("Plugin is inactive when endpointUrl is blank: BuckyS3UploadClient throws UploadException, handleVerification is a no-op")
+    void pluginInactiveOnBlankEndpoint() {
+        // Use the public no-arg constructor so the production BuckyS3UploadClient code path
+        // is exercised. BuckyS3UploadClient's constructor will throw UploadException
+        // (wrapping S3ClientInitializationException) for a blank endpoint URL, which start()
+        // catches and logs — leaving completionService null.
+        start(
+                new ExpandedCloudStoragePlugin(),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of("cloud.expanded.endpointUrl", ""));
+
+        assertDoesNotThrow(
+                () -> plugin.handleVerification(
+                        new VerificationNotification(true, 1L, Bytes.EMPTY, testBlock(1).blockUnparsed(), BlockSource.UNKNOWN)),
+                "handleVerification must not throw when the plugin is inactive due to blank endpoint");
+        assertTrue(
+                blockMessaging.getSentPersistedNotifications().isEmpty(),
+                "No PersistedNotification must be sent when the plugin is inactive");
+    }
 }
