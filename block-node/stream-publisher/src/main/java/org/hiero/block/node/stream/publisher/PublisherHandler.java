@@ -220,7 +220,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
             LOGGER.log(
                     TRACE,
-                    "metric-end-to-end-latency-by-block-end block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId=[{3}]",
+                    // Note: not surrounding correlationId={3} with [] intentionally as it will break Loki's parsing.
+                    "metric-end-to-end-latency-by-block-end block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}",
                     newLastAcknowledgedBlockNumber,
                     System.nanoTime(),
                     handlerId,
@@ -361,7 +362,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             currentStreamingBlockHeaderReceivedTime = System.nanoTime();
             LOGGER.log(
                     TRACE,
-                    "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId=[{3}]",
+                    // Note: not surrounding correlationId={3} with [] intentionally as it will break Loki's parsing.
+                    "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}",
                     blockNumber,
                     currentStreamingBlockHeaderReceivedTime,
                     handlerId,
