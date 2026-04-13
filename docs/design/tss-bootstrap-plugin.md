@@ -70,7 +70,7 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 
 - Responsible for updating the plugins when context changes.
 - Calls the `BlockNodePlugin.onContextUpdate()` on all plugins when the `BlockNodeContext` changes.
-- Passed directly to the plugins as a parameter to the `init()` method.
+- Passed directly to the plugins as a member of the `BlockNodeContext`.
 - Plugins can use the `updateTssData` method to update the `TssData` in the `BlockNodeContext`
 - Processes requests to change `TssData`
 - Persists `TssData`
@@ -174,6 +174,7 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 
 - Oustanding design decisions
   - Should the TssData or TssRoster messages have the starting block number that the TssData is valid from.
+    - valid_from_block has been added to both TssData and TssRoster.
 
 ## Diagram
 
