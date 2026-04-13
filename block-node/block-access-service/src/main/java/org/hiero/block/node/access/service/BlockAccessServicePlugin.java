@@ -15,7 +15,6 @@ import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.internal.BlockResponseUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -163,10 +162,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
      * {@inheritDoc}
      */
     @Override
-    public void init(
-            BlockNodeContext context,
-            ServiceBuilder serviceBuilder,
-            ApplicationStateFacility applicationStateFacility) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         // Create the metrics
         final MetricRegistry metricRegistry = context.metricRegistry();
         requestCounter = metricRegistry

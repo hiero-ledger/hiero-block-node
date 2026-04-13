@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
@@ -227,10 +226,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
-    public void init(
-            BlockNodeContext context,
-            ServiceBuilder serviceBuilder,
-            ApplicationStateFacility applicationStateFacility) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         final MessagingConfig messagingConfig = context.configuration().getConfigData(MessagingConfig.class);
         blockItemDisruptor = new Disruptor<>(
                 BlockItemBatchRingEvent::new,

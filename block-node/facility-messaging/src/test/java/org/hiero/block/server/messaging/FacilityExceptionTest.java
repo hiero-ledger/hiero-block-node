@@ -16,7 +16,6 @@ import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -32,7 +31,7 @@ import org.junit.jupiter.api.Test;
  * Unit tests for the {@link BlockMessagingFacilityImpl} class.
  */
 @SuppressWarnings("BusyWait")
-public class FacilityExceptionTest implements ApplicationStateFacility {
+public class FacilityExceptionTest {
 
     /** The logger used for logging messages. */
     private java.util.logging.Logger logger;
@@ -81,7 +80,7 @@ public class FacilityExceptionTest implements ApplicationStateFacility {
     @Test
     void testBlockItemHandlerException() {
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
-        service.init(TestConfig.getBlockNodeContext(), null, this);
+        service.init(TestConfig.getBlockNodeContext(), null);
         // register a block item handler that just throws an exception
         service.registerBlockItemHandler(
                 (blockItems) -> {
@@ -122,7 +121,7 @@ public class FacilityExceptionTest implements ApplicationStateFacility {
     @Test
     void testBlockNotificationHandlerException() {
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
-        service.init(context, null, this);
+        service.init(context, null);
         // register a block notification handler that just throws an exception
         service.registerBlockNotificationHandler(
                 new BlockNotificationHandler() {
