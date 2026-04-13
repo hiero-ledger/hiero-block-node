@@ -43,6 +43,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * notifications. It is designed to be thread safe and can be used by multiple threads.
  */
 public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
+
     /** Logger for the messaging service. */
     private static final System.Logger LOGGER = System.getLogger(BlockMessagingFacilityImpl.class.getName());
 

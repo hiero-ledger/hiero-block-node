@@ -113,6 +113,7 @@ public class BlockNodePluginTest {
     void testDefaultInit() {
         BlockNodePlugin plugin = new TestBlockNodePlugin();
         plugin.init(null, new ServiceBuilder() {
+
             @Override
             public void registerHttpService(String path, HttpService... service) {
                 assertEquals("foo", path);
@@ -148,6 +149,7 @@ public class BlockNodePluginTest {
     void testDefaultOnContextUpdate() {
         TestBlockNodePlugin plugin = new TestBlockNodePlugin();
         plugin.init(null, new ServiceBuilder() {
+
             @Override
             public void registerHttpService(String path, HttpService... service) {
                 assertEquals("foo", path);

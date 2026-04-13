@@ -52,10 +52,10 @@ class BlockNodeAppTest {
     /**
      * Create a mocked plugin of the given class.
      *
-     * @param num         The instance number of the plugin to create. This is used to differentiate different instances
-     *                    of the plugin.
+     * @param num The instance number of the plugin to create. This is used to differentiate different instances of the
+     *            plugin.
      * @param pluginClass The class of the plugin to create. This is used to create the plugin.
-     * @param <T>         The type of the plugin to create. This is used to create the plugin.
+     * @param <T> The type of the plugin to create. This is used to create the plugin.
      * @return The mocked plugin instance.
      */
     private static <T extends BlockNodePlugin> T createMockedPlugin(int num, Class<T> pluginClass) {
@@ -145,8 +145,8 @@ class BlockNodeAppTest {
     }
 
     /**
-     * This test aims to insure the independence of plugins by starting them in varying order. Validate that starting
-     * plugins in parallel works
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Validate that starting plugins in parallel works
      */
     @Test
     @DisplayName("Test plugin startup in parallel")
@@ -159,8 +159,8 @@ class BlockNodeAppTest {
     }
 
     /**
-     * This test aims to insure the independence of plugins by starting them in varying order. Test in ServiceLoader
-     * Order to make sure plugins load correctly
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Test in ServiceLoader Order to make sure plugins load correctly
      */
     @Test
     @DisplayName("Test plugin startup in ServiceLoader order")
@@ -181,9 +181,9 @@ class BlockNodeAppTest {
     }
 
     /**
-     * This test aims to insure the independence of plugins by starting them in varying order. Test in reverse
-     * ServiceLoader Order to make sure plugins load correctly This should identify any dependencies on ServiceLoader
-     * order
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Test in reverse ServiceLoader Order to make sure plugins load correctly
+     * This should identify any dependencies on ServiceLoader order
      */
     @Test
     @DisplayName("Test plugin startup in reverse order")
@@ -204,9 +204,9 @@ class BlockNodeAppTest {
     }
 
     /**
-     * This test aims to insure the independence of plugins by starting them in varying order. Use
-     * {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness. as this
-     * greatly increases the unit test time.
+     * This test aims to insure the independence of plugins by starting them in varying order.
+     * Use {@code Collections.shuffle()} to test a few more permutations to introduce some controlled randomness.
+     * as this greatly increases the unit test time.
      */
     @Test
     @DisplayName("Test plugin startup in shuffled order")
