@@ -203,16 +203,19 @@ Consider using mermaid to generate one or more of the following:
 ## Configuration
 
 ### ApplicationStateFacility (NodeConfig)
+
 - `tssDataFilePath` in `NodeConfig`
   - The file path to use to persist and load `TssData`
 
 ### TssBootstrapPlugin (TssBootstrapConfig)
-- `ledgerId`. Base64 encoded ledgerId
-- `wrapsVerificationKey`. Base64 encoded wrapsVerificationKey
+
+- `ledgerId`. Base64 encoded `ledgerId`
+- `wrapsVerificationKey`. Base64 encoded `wrapsVerificationKey`
 - `nodeId`. The node id
 - `weight`. The weight
-- `schnorrPublicKey`, Base64 encoded schnorrPublicKey
-- `validFromBlock`, The block number this TssData is valid from
+- `schnorrPublicKey`, Base64 encoded 'schnorrPublicKey'
+- `validFromBlock`, The block number this 'TssData' is valid from
+- `rosterValidFromBlock`, The block number this 'TssRoster' is valid from
 
 ## Metrics
 
