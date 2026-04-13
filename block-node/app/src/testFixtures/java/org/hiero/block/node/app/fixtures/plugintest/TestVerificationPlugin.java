@@ -12,7 +12,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -37,10 +36,7 @@ public class TestVerificationPlugin implements BlockNodePlugin, BlockNotificatio
     }
 
     @Override
-    public void init(
-            final BlockNodeContext context,
-            final ServiceBuilder serviceBuilder,
-            final ApplicationStateFacility applicationStateFacility) {
+    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = Objects.requireNonNull(context);
     }
 
