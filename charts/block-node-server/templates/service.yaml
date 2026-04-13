@@ -21,7 +21,7 @@ spec:
       protocol: TCP
       name: http
     - name: metrics
-      port: {{ .Values.blockNode.health.metrics.port }}
+      port: {{ .Values.blockNode.metrics.port }}
       targetPort: metrics
   selector:
     {{- include "hiero-block-node.selectorLabels" . | nindent 4 }}

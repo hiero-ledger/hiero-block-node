@@ -80,6 +80,19 @@ Usage: {{ include "hiero-block-node.app.version" . }}
 {{- end -}}
 
 {{/*
+Build JAVA_TOOL_OPTIONS combining logging config and metrics system properties.
+*/}}
+{{- define "hiero-block-node.javaToolOptions" -}}
+-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties
+{{- with .Values.blockNode.metrics }}
+{{- if .hostname }} -Dmetrics.exporter.openmetrics.http.hostname={{ .hostname }}{{ end }}
+{{- if .port }} -Dmetrics.exporter.openmetrics.http.port={{ .port }}{{ end }}
+{{- if .path }} -Dmetrics.exporter.openmetrics.http.path={{ .path }}{{ end }}
+{{- if .decimalFormat }} -Dmetrics.exporter.openmetrics.http.decimalFormat={{ .decimalFormat }}{{ end }}
+{{- end }}
+{{- end }}
+
+{{/*
 The service name to connect to Loki. Defaults to the same logic as "loki.fullname"
 */}}
 {{- define "loki.serviceName" -}}

@@ -200,24 +200,32 @@ Use the runbooks below during incidents. Each follows a consistent pattern:
        - Success: HTTP 200 with Prometheus text output.
        - Failure: connection refused / timeout.
 2. **Node-local checks**
-   - Ensure metrics are enabled in the Block Node configuration (`prometheus.enableEndpoint=true`).
    - From the node itself:
      - `curl -v http://localhost:16007/metrics`
        - If this fails, suspect local config or process issues.
-   - Confirm `prometheus.endpointPortNumber` matches the expected port (default `16007`).
-3. **Network and firewall**
-   - If [localhost](http://localhost) works but remote scrape fails:
+   - Confirm `metrics.exporter.openmetrics.http.port` matches the expected port (default `16007`).
+     In Kubernetes, check `blockNode.metrics.port` in your Helm values.
+3. **Bind address**
+   - If localhost works but remote scrape fails, verify the metrics server binds to
+     `0.0.0.0` (all interfaces) and not `127.0.0.1` (localhost only).
+   - Check `blockNode.metrics.hostname` in your Helm values (default: `0.0.0.0`).
+   - Outside Kubernetes, check `metrics.exporter.openmetrics.http.hostname` in
+     `app.properties` or via `-Dmetrics.exporter.openmetrics.http.hostname=0.0.0.0`.
+   - Binding to `127.0.0.1` will cause all remote Prometheus scrapes to fail with
+     "connection refused".
+4. **Network and firewall**
+   - If the bind address is correct but remote scrape still fails:
      - Check host firewall / security group rules for port `16007`.
      - Confirm any load balancers or service meshes expose the metrics port.
-4. **Scraper configuration**
+5. **Scraper configuration**
    - Verify Prometheus target configuration:
      - Correct job name, scheme (http / https), and port.
      - No incorrect path overrides.
-5. **Resolution**
+6. **Resolution**
    - Enable metrics in config and restart the Block Node if required.
    - Open or adjust firewall / security rules for the metrics port.
    - Fix Prometheus / Grafana scrape configuration.
-6. **Verification**
+7. **Verification**
    - Confirm the Prometheus target is `UP` and `up\{job="block-node-metrics", instance="\<node\>"\} == 1`.
    - Grafana dashboards populate and scrape errors clear.
 

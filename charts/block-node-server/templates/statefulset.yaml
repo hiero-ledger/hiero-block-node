@@ -212,7 +212,7 @@ spec:
             {{- end }}
             protocol: TCP
           - name: metrics
-            containerPort: {{ .Values.blockNode.health.metrics.port }}
+            containerPort: {{ .Values.blockNode.metrics.port }}
             {{- if hasKey $hostPorts "metrics" }}
             hostPort: {{ index $hostPorts "metrics" }}
             {{- end }}

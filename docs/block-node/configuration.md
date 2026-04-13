@@ -59,11 +59,24 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 ### Metrics Endpoint Configuration
 
-| ConfigKey                 | Description                          | Default |
-|:--------------------------|:-------------------------------------|--------:|
-| enableEndpoint            | Enable/disable Prometheus endpoint.  |    true |
-| endpointPortNumber        | Prometheus endpoint port.            |   16007 |
-| endpointMaxBacklogAllowed | Max queued incoming TCP connections. |       1 |
+The metrics HTTP server is provided by the `hiero-metrics` library and exposes
+Prometheus-format metrics. Its properties are prefixed with
+`metrics.exporter.openmetrics.http.` and can be set via:
+
+- `app.properties` (classpath, lowest priority)
+- JVM system properties (`-D` flags via `JAVA_TOOL_OPTIONS`, highest priority)
+- Helm chart `blockNode.metrics.*` values (which inject `-D` flags automatically)
+
+| Chart Value                  | JVM Property                                 | Description                         |  Default |
+|:-----------------------------|:---------------------------------------------|:------------------------------------|---------:|
+| `blockNode.metrics.hostname` | `metrics.exporter.openmetrics.http.hostname` | Bind address for the metrics server |  0.0.0.0 |
+| `blockNode.metrics.port`     | `metrics.exporter.openmetrics.http.port`     | Prometheus endpoint port            |    16007 |
+| `blockNode.metrics.path`     | `metrics.exporter.openmetrics.http.path`     | HTTP path for metrics endpoint      | /metrics |
+
+> **Note:** These properties come from the `hiero-metrics` library, not from a Block
+> Node `@ConfigData` record. They cannot be set via environment variable
+> mapping (`AutomaticEnvironmentVariableConfigSource`). The chart injects them as
+> JVM system properties through `JAVA_TOOL_OPTIONS`.
 
 ## Configurations By Plugin
 

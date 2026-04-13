@@ -158,15 +158,15 @@ blockNode:
   config:
     # Add any additional env configuration here
     # key: value
-    JAVA_TOOL_OPTIONS: "-Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties"
+    # JAVA_TOOL_OPTIONS is merged with auto-generated metrics and logging flags.
+    # Add extra JVM flags here (e.g., debug agent, profiler).
+    JAVA_TOOL_OPTIONS: ""
     JAVA_OPTS: '-Xms16G -Xmx16G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath="/tmp/dump.hprof"'
     # PRODUCER_TYPE: "NO_OP"
     # PERSISTENCE_STORAGE_TYPE: "NO_OP"
     # VERIFICATION_TYPE: "NO_OP"
     # MESSAGING_BLOCK_ITEM_QUEUE_SIZE: "512"
     # MESSAGING_BLOCK_NOTIFICATION_QUEUE_SIZE: "16"
-    PROMETHEUS_ENDPOINT_ENABLED: true
-    PROMETHEUS_ENDPOINT_PORT_NUMBER: "16007"
     SERVER_PORT: "40840"
     # The path to the block-node-sources.json file must match the path property in the backfill.sources.path
     # if using the backfill sources created with this helm chart
@@ -241,8 +241,14 @@ blockNode:
       timeoutSeconds: 2
       successThreshold: 1
       failureThreshold: 3
-    metrics:
-      port: 16007
+  metrics:
+    # Metrics HTTP server configuration (hiero-metrics openmetrics-httpserver).
+    # These are injected as JVM system properties via JAVA_TOOL_OPTIONS
+    # and override the defaults in app.properties.
+    hostname: "0.0.0.0"
+    port: 16007
+    path: "/metrics"
+    # decimalFormat: ""
   logs:
     # Available Levels are (from most verbose to least verbose):
     # ALL FINEST FINER FINE CONFIG INFO WARNING SEVERE OFF
