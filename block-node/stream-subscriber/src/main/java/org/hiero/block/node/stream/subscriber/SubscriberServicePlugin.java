@@ -29,7 +29,6 @@ import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -67,10 +66,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
      * {@inheritDoc}
      */
     @Override
-    public void init(
-            @NonNull final BlockNodeContext context,
-            @NonNull final ServiceBuilder serviceBuilder,
-            @NonNull final ApplicationStateFacility applicationStateFacility) {
+    public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
         // register us as a service
         serviceBuilder.registerGrpcService(this);

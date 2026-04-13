@@ -6,7 +6,6 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -27,10 +26,7 @@ public class VerificationHandlingHistoricalBlockFacility implements HistoricalBl
     }
 
     @Override
-    public void init(
-            final BlockNodeContext context,
-            final ServiceBuilder serviceBuilder,
-            final ApplicationStateFacility applicationStateFacility) {
+    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = context;
     }
 

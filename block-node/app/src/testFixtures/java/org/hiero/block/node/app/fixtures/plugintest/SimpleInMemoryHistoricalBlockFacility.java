@@ -14,7 +14,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
@@ -40,10 +39,7 @@ public class SimpleInMemoryHistoricalBlockFacility implements HistoricalBlockFac
     private BlockNodeContext blockNodeContext;
 
     @Override
-    public void init(
-            BlockNodeContext context,
-            ServiceBuilder serviceBuilder,
-            final ApplicationStateFacility applicationStateFacility) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.blockNodeContext = context;
     }
 

@@ -10,7 +10,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
 import java.lang.System.Logger;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -30,10 +29,7 @@ public class HealthServicePlugin implements BlockNodePlugin {
      * {@inheritDoc}
      */
     @Override
-    public void init(
-            BlockNodeContext context,
-            ServiceBuilder serviceBuilder,
-            @NonNull final ApplicationStateFacility applicationStateFacility) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         healthFacility = context.serverHealth();
         serviceBuilder.registerHttpService(
                 HEALTHZ_PATH,
