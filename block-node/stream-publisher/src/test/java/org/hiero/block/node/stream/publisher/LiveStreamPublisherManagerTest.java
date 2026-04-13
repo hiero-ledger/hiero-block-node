@@ -113,7 +113,7 @@ class LiveStreamPublisherManagerTest {
     /// Functionality tests for the [LiveStreamPublisherManager].
     @Nested
     @DisplayName("Functionality Tests")
-    class FunctionalityTests implements ApplicationStateFacility {
+    class FunctionalityTests {
         /// The test historical block facility to use when testing
         private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
         /// The thread pool manager to use when testing
@@ -170,7 +170,7 @@ class LiveStreamPublisherManagerTest {
             final BlockNodeContext context =
                     generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
             // Initialize the historical block facility with the context.
-            historicalBlockFacility.init(context, null, this);
+            historicalBlockFacility.init(context, null);
             // Create a shared registry so manager and handler metrics are visible through one exporter.
             final MetricRegistry registry = newRegistry();
             managerMetrics = MetricsHolder.createMetrics(registry);
@@ -2356,12 +2356,14 @@ class LiveStreamPublisherManagerTest {
         final MetricRegistry metricRegistry = TestUtils.createMetrics();
         final HealthFacility serverHealth = null;
         final ServiceLoaderFunction serviceLoader = null;
+        final ApplicationStateFacility applicationStateFacility = null;
         return new BlockNodeContext(
                 configuration,
                 metricRegistry,
                 serverHealth,
                 blockMessagingFacility,
                 historicalBlockFacility,
+                applicationStateFacility,
                 serviceLoader,
                 threadPoolManager,
                 BlockNodeVersions.DEFAULT,

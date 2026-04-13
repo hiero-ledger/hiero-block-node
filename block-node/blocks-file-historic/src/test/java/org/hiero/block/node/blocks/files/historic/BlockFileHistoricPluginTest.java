@@ -44,7 +44,6 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.base.CompressionType;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -156,7 +155,7 @@ class BlockFileHistoricPluginTest {
      */
     @Nested
     @DisplayName("Constructor & Init Tests")
-    final class ConstructorAndInitTests implements ApplicationStateFacility {
+    final class ConstructorAndInitTests {
         /**
          * This test aims to verify that the no args constructor of
          * {@link BlockFileHistoricPlugin} does not throw any exceptions.
@@ -169,19 +168,19 @@ class BlockFileHistoricPluginTest {
 
         /**
          * This test aims to verify that the
-         * {@link BlockFileHistoricPlugin#init(BlockNodeContext, ServiceBuilder, ApplicationStateFacility)}
+         * {@link BlockFileHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
          * method throws a {@link NullPointerException} if the context is null.
          */
         @Test
         @DisplayName("Test init throws null pointer when supplied with null context")
         void testInitNullContext() {
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
-            assertThatNullPointerException().isThrownBy(() -> toTest.init(null, new NoOpServiceBuilder(), this));
+            assertThatNullPointerException().isThrownBy(() -> toTest.init(null, new NoOpServiceBuilder()));
         }
 
         /**
          * This test aims to verify that the
-         * {@link BlockFileHistoricPlugin#init(BlockNodeContext, ServiceBuilder, ApplicationStateFacility)}
+         * {@link BlockFileHistoricPlugin#init(BlockNodeContext, ServiceBuilder)}
          * method throws a {@link NullPointerException} if the context is null.
          */
         @Test
@@ -201,6 +200,7 @@ class BlockFileHistoricPluginTest {
                     new TestBlockMessagingFacility(),
                     historicalBlockProvider,
                     null,
+                    null,
                     new TestThreadPoolManager<>(
                             new BlockingExecutor(new LinkedBlockingQueue<>()),
                             new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
@@ -208,7 +208,7 @@ class BlockFileHistoricPluginTest {
                     TssData.DEFAULT);
             // call
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
-            assertThatNoException().isThrownBy(() -> toTest.init(testContext, null, this));
+            assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));
         }
 
         /**

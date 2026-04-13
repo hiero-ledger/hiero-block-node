@@ -37,6 +37,7 @@ import org.hiero.block.common.hasher.StreamingTreeHasher;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -313,6 +314,7 @@ class AllBlocksHasherHandlerTest {
                 mock(HealthFacility.class),
                 mock(BlockMessagingFacility.class),
                 facility,
+                mock(ApplicationStateFacility.class),
                 mock(ServiceLoaderFunction.class),
                 mock(ThreadPoolManager.class),
                 BlockNodeVersions.DEFAULT,

@@ -159,6 +159,7 @@ public abstract class PluginTestBase<
                 healthFacility,
                 blockMessaging,
                 historicalBlockFacility,
+                this,
                 new ServiceLoaderFunction(),
                 testThreadPoolManager,
                 buildBlockNodeVersions(),
@@ -174,7 +175,7 @@ public abstract class PluginTestBase<
                     public void registerGrpcService(@NonNull ServiceInterface service) {}
                 };
         // initialize the block messaging facility
-        historicalBlockFacility.init(blockNodeContext, mockServiceBuilder, this);
+        historicalBlockFacility.init(blockNodeContext, mockServiceBuilder);
         // if HistoricalBlockFacility is a BlockItemHandler, register it with the messaging facility
         if (historicalBlockFacility instanceof BlockItemHandler blockItemHandler) {
             blockMessaging.registerBlockItemHandler(
@@ -189,12 +190,12 @@ public abstract class PluginTestBase<
         }
         if (additionalPlugins != null) {
             for (final BlockNodePlugin additionalPlugin : additionalPlugins) {
-                additionalPlugin.init(blockNodeContext, mockServiceBuilder, this);
+                additionalPlugin.init(blockNodeContext, mockServiceBuilder);
                 additionalPlugin.start();
             }
         }
         // init plugin
-        plugin.init(blockNodeContext, mockServiceBuilder, this);
+        plugin.init(blockNodeContext, mockServiceBuilder);
         // start everything
         historicalBlockFacility.start();
         plugin.start();
@@ -271,6 +272,7 @@ public abstract class PluginTestBase<
                 blockNodeContext.serverHealth(),
                 blockNodeContext.blockMessaging(),
                 blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
                 blockNodeContext.serviceLoader(),
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),

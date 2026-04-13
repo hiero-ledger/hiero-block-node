@@ -1436,6 +1436,7 @@ class BlockStreamSubscriberSessionTest {
                 historicalBlockFacility,
                 null,
                 null,
+                null,
                 BlockNodeVersions.DEFAULT,
                 TssData.DEFAULT);
     }

@@ -20,7 +20,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.util.List;
 import org.hiero.block.node.app.config.node.NodeConfig;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -148,10 +147,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
      * {@inheritDoc}
      */
     @Override
-    public void init(
-            BlockNodeContext context,
-            ServiceBuilder serviceBuilder,
-            @NonNull final ApplicationStateFacility applicationStateFacility) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         // setting config and context
         this.context = context;
         verificationConfig = context.configuration().getConfigData(VerificationConfig.class);

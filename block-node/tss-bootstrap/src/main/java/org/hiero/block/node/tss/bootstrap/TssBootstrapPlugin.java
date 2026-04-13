@@ -35,12 +35,9 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
 
     /// {@inheritDoc}
     @Override
-    public void init(
-            BlockNodeContext context,
-            ServiceBuilder serviceBuilder,
-            @NonNull final ApplicationStateFacility applicationStateFacility) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
-        this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
+        this.applicationStateFacility = Objects.requireNonNull(this.context.applicationStateFacility());
         TssBootstrapConfig tssBootstrapConfig = this.context.configuration().getConfigData(TssBootstrapConfig.class);
 
         // process the config data

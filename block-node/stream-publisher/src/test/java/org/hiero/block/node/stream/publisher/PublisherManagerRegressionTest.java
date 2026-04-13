@@ -43,7 +43,7 @@ import org.junit.jupiter.api.Test;
 /// Regression tests for [LiveStreamPublisherManager]: backfill gap
 /// advancement and stall detection when the ACCEPT winner goes silent.
 @DisplayName("PublisherManager Regression Tests")
-class PublisherManagerRegressionTest implements ApplicationStateFacility {
+class PublisherManagerRegressionTest {
 
     private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
     private TestThreadPoolManager<BlockingExecutor, ScheduledBlockingExecutor> threadPoolManager;
@@ -67,7 +67,7 @@ class PublisherManagerRegressionTest implements ApplicationStateFacility {
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         messagingFacility = new TestBlockMessagingFacility();
         final BlockNodeContext context = generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
-        historicalBlockFacility.init(context, null, this);
+        historicalBlockFacility.init(context, null);
 
         managerMetrics = MetricsHolder.createMetrics(TestUtils.createMetrics());
         toTest = new LiveStreamPublisherManager(context, managerMetrics);
@@ -307,6 +307,7 @@ class PublisherManagerRegressionTest implements ApplicationStateFacility {
                 .build();
         final MetricRegistry metrics = TestUtils.createMetrics();
         final HealthFacility serverHealth = null;
+        final ApplicationStateFacility applicationStateFacility = null;
         final ServiceLoaderFunction serviceLoader = null;
         return new BlockNodeContext(
                 configuration,
@@ -314,6 +315,7 @@ class PublisherManagerRegressionTest implements ApplicationStateFacility {
                 serverHealth,
                 blockMessagingFacility,
                 historicalBlockFacility,
+                applicationStateFacility,
                 serviceLoader,
                 threadPoolManager,
                 BlockNodeVersions.DEFAULT,

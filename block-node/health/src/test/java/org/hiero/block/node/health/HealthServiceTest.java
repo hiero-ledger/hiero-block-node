@@ -8,7 +8,6 @@ import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.health.HealthFacility;
@@ -18,7 +17,7 @@ import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-class HealthServiceTest implements ApplicationStateFacility {
+class HealthServiceTest {
 
     @Mock
     ServerRequest serverRequest;
@@ -42,7 +41,7 @@ class HealthServiceTest implements ApplicationStateFacility {
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
-        healthServicePlugin.init(context, serviceBuilder, this);
+        healthServicePlugin.init(context, serviceBuilder);
         healthServicePlugin.handleLivez(serverRequest, serverResponse);
 
         // then
@@ -62,7 +61,7 @@ class HealthServiceTest implements ApplicationStateFacility {
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
-        healthServicePlugin.init(context, serviceBuilder, this);
+        healthServicePlugin.init(context, serviceBuilder);
         healthServicePlugin.handleLivez(serverRequest, serverResponse);
 
         // then
@@ -83,7 +82,7 @@ class HealthServiceTest implements ApplicationStateFacility {
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
-        healthServicePlugin.init(context, serviceBuilder, this);
+        healthServicePlugin.init(context, serviceBuilder);
         healthServicePlugin.handleReadyz(serverRequest, serverResponse);
 
         // then
@@ -103,7 +102,7 @@ class HealthServiceTest implements ApplicationStateFacility {
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
-        healthServicePlugin.init(context, serviceBuilder, this);
+        healthServicePlugin.init(context, serviceBuilder);
         healthServicePlugin.handleLivez(serverRequest, serverResponse);
 
         // then
@@ -122,7 +121,7 @@ class HealthServiceTest implements ApplicationStateFacility {
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
-        healthServicePlugin.init(context, serviceBuilder, this);
+        healthServicePlugin.init(context, serviceBuilder);
 
         // then
         Mockito.verify(serviceBuilder, Mockito.times(1))

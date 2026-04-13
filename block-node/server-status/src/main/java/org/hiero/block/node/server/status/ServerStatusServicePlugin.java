@@ -12,7 +12,6 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -124,10 +123,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     }
 
     @Override
-    public void init(
-            @NonNull final BlockNodeContext context,
-            @NonNull final ServiceBuilder serviceBuilder,
-            @NonNull final ApplicationStateFacility applicationStateFacility) {
+    public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         requireNonNull(serviceBuilder);
         this.context = requireNonNull(context);
         this.blockProvider = requireNonNull(context.historicalBlockProvider());

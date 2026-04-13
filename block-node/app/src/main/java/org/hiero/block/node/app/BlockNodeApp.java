@@ -185,6 +185,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 this,
                 blockMessagingService,
                 historicalBlockFacility,
+                this,
                 serviceLoader,
                 threadPoolManager,
                 versionInfo(loadedPlugins),
@@ -200,7 +201,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         LOGGER.log(INFO, "Initializing plugins:");
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, "    " + plugin.name());
-            plugin.init(blockNodeContext, serviceBuilder, this);
+            plugin.init(blockNodeContext, serviceBuilder);
         }
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
         // Override the default message size in PBJ
@@ -387,6 +388,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 blockNodeContext.serverHealth(),
                 blockNodeContext.blockMessaging(),
                 blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
                 blockNodeContext.serviceLoader(),
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),

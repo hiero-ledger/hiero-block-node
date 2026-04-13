@@ -41,6 +41,7 @@ public class TestConfig {
                 null,
                 null,
                 null,
+                null,
                 new TestThreadPoolManager<>(
                         new BlockingExecutor(new LinkedBlockingQueue<>()),
                         new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
@@ -52,6 +53,7 @@ public class TestConfig {
         return new BlockNodeContext(
                 getConfig(),
                 getMetrics(),
+                null,
                 null,
                 null,
                 null,

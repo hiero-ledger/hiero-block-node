@@ -35,7 +35,6 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -131,10 +130,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
      * {@inheritDoc}
      */
     @Override
-    public void init(
-            final BlockNodeContext context,
-            final ServiceBuilder serviceBuilder,
-            @NonNull final ApplicationStateFacility applicationStateFacility) {
+    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         try {
             this.context = Objects.requireNonNull(context);
             config = context.configuration().getConfigData(FilesHistoricConfig.class);

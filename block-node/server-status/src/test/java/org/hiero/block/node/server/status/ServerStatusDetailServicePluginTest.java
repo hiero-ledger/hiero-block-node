@@ -134,6 +134,7 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.serverHealth(),
                 blockNodeContext.blockMessaging(),
                 blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
                 blockNodeContext.serviceLoader(),
                 blockNodeContext.threadPoolManager(),
                 BlockNodeVersions.DEFAULT,

@@ -22,7 +22,6 @@ import java.util.function.Consumer;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -121,10 +120,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
      * {@inheritDoc}
      */
     @Override
-    public void init(
-            BlockNodeContext context,
-            ServiceBuilder serviceBuilder,
-            @NonNull final ApplicationStateFacility applicationStateFacility) {
+    public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
         backfillConfiguration = context.configuration().getConfigData(BackfillConfiguration.class);
         earliestManagedBlock =

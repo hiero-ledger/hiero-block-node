@@ -79,6 +79,7 @@ class ZipBlockArchiveTest {
                 null,
                 null,
                 null,
+                null,
                 BlockNodeVersions.DEFAULT,
                 TssData.DEFAULT);
         // the instance under test
