@@ -18,6 +18,8 @@ public record TssBootstrapConfig(
         @Loggable @ConfigProperty(defaultValue = "") String wrapsVerificationKey,
         @Loggable @ConfigProperty(defaultValue = "0") long nodeId,
         @Loggable @ConfigProperty(defaultValue = "0") long weight,
-        @Loggable @ConfigProperty(defaultValue = "") String schnorrPublicKey) {}
+        @Loggable @ConfigProperty(defaultValue = "") String schnorrPublicKey,
+        @Loggable @ConfigProperty(defaultValue = "0") long validFromBlock,
+        @Loggable @ConfigProperty(defaultValue = "0") long rosterValidFromBlock) {}
 
 // spotless:on
