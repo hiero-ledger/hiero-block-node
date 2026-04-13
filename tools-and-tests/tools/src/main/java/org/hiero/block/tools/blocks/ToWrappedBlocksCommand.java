@@ -50,6 +50,8 @@ import org.hiero.block.tools.blocks.model.BlockWriter.BlockZipAppender;
 import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
+import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
+import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.config.NetworkConfig;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.NodeStakeRegistry;
@@ -295,6 +297,10 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
         // Create an amendment provider based on network selection
         final AmendmentProvider amendmentProvider =
                 createAmendmentProvider(NetworkConfig.current().networkName());
+
+        // Create signature stats collector for CSV output
+        final SignatureStatsCollector statsCollector =
+                new SignatureStatsCollector(outputBlocksDir.resolve("signature_statistics_wrap.csv"));
 
         // ---- Pipeline executor services ----
         final int resolvedPrefetch = prefetchSize < 1 ? parseThreads : prefetchSize;
@@ -650,6 +656,26 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                             System.err.printf("Warning: node stake auto-update failed at block %d: %s%n", blockNum, e);
                         }
 
+                        // Collect signature stats from pre-verified data
+                        {
+                            final var blockTime = effectiveBlock.recordBlock().blockTime();
+                            final List<Long> verifiedNodeIds = effectiveBlock.verifiedSignatures().stream()
+                                    .map(RecordFileSignature::nodeId)
+                                    .toList();
+                            final List<Long> addressBookNodeIds = effectiveBlock.addressBook().nodeAddress().stream()
+                                    .map(na -> na.nodeId())
+                                    .toList();
+                            final Map<Long, Long> stakeMap = nodeStakeRegistry.getStakeMapForBlock(blockTime);
+                            final SignatureBlockStats blockStats = SignatureBlockStats.fromPreVerifiedData(
+                                    blockNum,
+                                    blockTime,
+                                    verifiedNodeIds,
+                                    effectiveBlock.verifiedSignatures().size(),
+                                    addressBookNodeIds,
+                                    stakeMap);
+                            statsCollector.accept(blockStats);
+                        }
+
                         // Monthly checkpoint: save state once per calendar month of blockchain data.
                         // Worst-case on corruption: re-process at most ~1 month of blocks.
                         // Check BEFORE updating chain state so the saved state is consistent with
@@ -833,6 +859,11 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
 
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
             nodeStakeRegistry.saveToJsonFile(nodeStakeFile);
+
+            // Finalize and close signature stats collector
+            statsCollector.finalizeDayStats();
+            statsCollector.printFinalSummary();
+            statsCollector.close();
 
             // If we stopped due to a parse failure, throw after saving state
             if (parseFailureMessage != null) {

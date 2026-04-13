@@ -360,26 +360,12 @@ function deploy_block_nodes {
     log_line "  Generated ${overlay_count} overlay files (use --verbose to see contents)"
   fi
 
-  # TODO: Solo 0.63.0 has a built-in TSS overlay (block-node-tss-values.yaml) that provides
-  # identical resources, but it only activates when tssEnabled is in the remote config. Since BNs
-  # deploy before CNs (which set the TSS flag via --tss), Solo's overlay doesn't apply in time.
-  # This mini overlay remains necessary until Solo supports setting TSS state before BN deployment.
-  local resource_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/mini.yaml"
-
   # Path to observability overlay (relative to scripts dir)
   local observability_overlay="${SCRIPT_DIR}/../../../../charts/block-node-server/values-overrides/enable-observability.yaml"
 
   for ((i = 1; i <= BN_COUNT; i++)); do
     local bn_overlay="${overlay_dir}/bn-block-node-${i}-values.yaml"
     local overlay_args=""
-
-    # Apply mini resource overlay to all block nodes
-    if [[ -f "${resource_overlay}" ]]; then
-      overlay_args="-f ${resource_overlay}"
-      log_line "  Using resource overlay (mini) for block-node-${i}"
-    else
-      log_line "  WARNING: Resource overlay not found: ${resource_overlay}"
-    fi
 
     if [[ -f "${bn_overlay}" ]]; then
       overlay_args="${overlay_args} -f ${bn_overlay}"
@@ -416,6 +402,7 @@ function deploy_block_nodes {
     solo block node add \
       --deployment "${DEPLOYMENT}" \
       --cluster-ref "${CLUSTER_REF}" \
+      --block-node-tss-overlay \
       ${bn_args} \
       ${overlay_args} \
       ${priority_mapping_args} || fail "ERROR: Failed to deploy Block Node ${i}" 1

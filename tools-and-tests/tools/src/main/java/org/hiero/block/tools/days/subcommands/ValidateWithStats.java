@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.days.subcommands;
 
-import static java.nio.file.StandardOpenOption.*;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.time.ZoneOffset.UTC;
@@ -20,22 +19,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.days.model.TarZstdDayReaderUsingExec;
 import org.hiero.block.tools.days.model.TarZstdDayUtils;
 import org.hiero.block.tools.mirrornode.DayBlockInfo;
-import org.hiero.block.tools.records.model.unparsed.InMemoryFile;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock;
 import org.hiero.block.tools.records.model.unparsed.UnparsedRecordBlock.ValidationResult;
 import org.hiero.block.tools.utils.PrettyPrint;
@@ -82,322 +78,7 @@ public class ValidateWithStats implements Runnable {
     /** Gson instance for Status JSON serialization */
     private static final Gson GSON = new GsonBuilder().create();
 
-    /**
-     * Per-day statistics for signature validation
-     */
-    private static class DayStatistics {
-        final LocalDate date;
-        int totalBlocks = 0;
-        int totalSignatures = 0;
-        int totalValidSignatures = 0;
-        long totalNodeSlots = 0; // Sum of address book node counts across all blocks
-        int minSignaturesInBlock = Integer.MAX_VALUE;
-        // Histogram: blocks grouped by total signature count (index = sig count, value = block count)
-        final Map<Integer, Integer> blocksBySignatureCount = new TreeMap<>();
-
-        DayStatistics(LocalDate date) {
-            this.date = date;
-        }
-
-        void recordBlock(int signatureCount, int validSignatureCount, int addressBookNodeCount) {
-            totalBlocks++;
-            totalSignatures += signatureCount;
-            totalValidSignatures += validSignatureCount;
-            totalNodeSlots += addressBookNodeCount;
-            if (signatureCount < minSignaturesInBlock) {
-                minSignaturesInBlock = signatureCount;
-            }
-            blocksBySignatureCount.merge(signatureCount, 1, Integer::sum);
-        }
-
-        int getAverageAddressBookNodeCount() {
-            if (totalBlocks == 0) return 0;
-            return (int) (totalNodeSlots / totalBlocks);
-        }
-
-        double getAveragePercentage() {
-            if (totalBlocks == 0 || totalNodeSlots == 0) return 0.0;
-            return (100.0 * totalSignatures) / totalNodeSlots;
-        }
-
-        double getValidPercentage() {
-            if (totalBlocks == 0 || totalNodeSlots == 0) return 0.0;
-            return (100.0 * totalValidSignatures) / totalNodeSlots;
-        }
-
-        double getMinPercentage() {
-            int avgNodes = getAverageAddressBookNodeCount();
-            if (totalBlocks == 0 || avgNodes == 0 || minSignaturesInBlock == Integer.MAX_VALUE) return 0.0;
-            return (100.0 * minSignaturesInBlock) / avgNodes;
-        }
-
-        double getAveragePercentagePerBlock() {
-            if (totalBlocks == 0) return 0.0;
-            double avgSigsPerBlock = (double) totalSignatures / totalBlocks;
-            int avgNodes = getAverageAddressBookNodeCount();
-            if (avgNodes == 0) return 0.0;
-            return (100.0 * avgSigsPerBlock) / avgNodes;
-        }
-    }
-
-    /**
-     * Statistics tracker for signature counts per node
-     */
-    private static class SignatureStats {
-        // Node ID -> list of signature counts per block
-        private final Map<String, List<Integer>> nodeSignatureCounts = new TreeMap<>();
-        // Node ID -> list of signature counts per day
-        private final Map<String, List<DayStats>> nodeDayStats = new TreeMap<>();
-        // Per-day statistics
-        private final List<DayStatistics> dailyStatistics = new ArrayList<>();
-        // Current day being tracked
-        private LocalDate currentDay = null;
-        // Current day signature counts per node
-        private final Map<String, Integer> currentDaySignatures = new TreeMap<>();
-        // Current day statistics
-        private DayStatistics currentDayStats = null;
-        // Rolling window for rolling average (last N blocks)
-        private final int rollingWindowSize = 1000;
-        private final Map<String, LinkedList<Integer>> rollingWindows = new TreeMap<>();
-        // CSV output file
-        private final Path csvOutputFile;
-        private boolean csvHeaderWritten = false;
-
-        private static class DayStats {
-            final LocalDate date;
-            final int count;
-
-            DayStats(LocalDate date, int count) {
-                this.date = date;
-                this.count = count;
-            }
-        }
-
-        SignatureStats(Path csvOutputFile) {
-            this.csvOutputFile = csvOutputFile;
-        }
-
-        void startDay(LocalDate day, int addressBookNodeCount) {
-            // Save previous day stats if any
-            if (currentDay != null && currentDayStats != null) {
-                for (Map.Entry<String, Integer> entry : currentDaySignatures.entrySet()) {
-                    nodeDayStats
-                            .computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
-                            .add(new DayStats(currentDay, entry.getValue()));
-                }
-                dailyStatistics.add(currentDayStats);
-                writeDayToCsv(currentDayStats);
-                currentDaySignatures.clear();
-            }
-            currentDay = day;
-            currentDayStats = new DayStatistics(day);
-        }
-
-        void recordBlock(List<InMemoryFile> signatureFiles, int validSignatureCount, int addressBookNodeCount) {
-            // Count signatures per node
-            Map<String, Integer> blockSignatures = new TreeMap<>();
-            int totalSignaturesInBlock = 0;
-
-            for (InMemoryFile sigFile : signatureFiles) {
-                String fileName = sigFile.path().getFileName().toString();
-                // Extract node ID from filename like "node_0.0.3.rcd_sig" or "node_0.0.3.rcs_sig"
-                if (fileName.startsWith("node_") && (fileName.endsWith(".rcd_sig") || fileName.endsWith(".rcs_sig"))) {
-                    String nodeId = fileName.substring(5, fileName.lastIndexOf('.'));
-                    blockSignatures.merge(nodeId, 1, Integer::sum);
-                    totalSignaturesInBlock++;
-                }
-            }
-
-            // Record total signatures for this block in daily statistics
-            if (currentDayStats != null) {
-                currentDayStats.recordBlock(totalSignaturesInBlock, validSignatureCount, addressBookNodeCount);
-            }
-
-            // Record per-block counts
-            for (Map.Entry<String, Integer> entry : blockSignatures.entrySet()) {
-                String nodeId = entry.getKey();
-                int count = entry.getValue();
-
-                nodeSignatureCounts
-                        .computeIfAbsent(nodeId, k -> new ArrayList<>())
-                        .add(count);
-                currentDaySignatures.merge(nodeId, count, Integer::sum);
-
-                // Update rolling window
-                LinkedList<Integer> window = rollingWindows.computeIfAbsent(nodeId, k -> new LinkedList<>());
-                window.addLast(count);
-                if (window.size() > rollingWindowSize) {
-                    window.removeFirst();
-                }
-            }
-        }
-
-        void finalizeDayStats() {
-            if (currentDay != null && currentDayStats != null) {
-                for (Map.Entry<String, Integer> entry : currentDaySignatures.entrySet()) {
-                    nodeDayStats
-                            .computeIfAbsent(entry.getKey(), k -> new ArrayList<>())
-                            .add(new DayStats(currentDay, entry.getValue()));
-                }
-                dailyStatistics.add(currentDayStats);
-                writeDayToCsv(currentDayStats);
-            }
-        }
-
-        private void writeCsvHeader() {
-            if (csvHeaderWritten || csvOutputFile == null) return;
-            try {
-                // If file exists, always append (resume case) - never overwrite existing data
-                if (Files.exists(csvOutputFile)) {
-                    long fileSize = Files.size(csvOutputFile);
-                    if (fileSize > 0) {
-                        csvHeaderWritten = true;
-                        System.out.println("[CSV] Resuming - appending to existing file (" + fileSize + " bytes): "
-                                + csvOutputFile);
-                        return;
-                    }
-                    // File exists but is empty - delete it so we can create fresh
-                    System.out.println("[CSV] Removing empty CSV file: " + csvOutputFile);
-                    Files.delete(csvOutputFile);
-                }
-                // Create new file with header
-                int maxSigCount = 40;
-                StringBuilder header = new StringBuilder();
-                header.append(
-                        "date,percentage,number_of_blocks,number_of_nodes,valid_signatures,worst_block_signature_coverage_percentage,avg_percentage_per_block");
-                for (int i = 1; i <= maxSigCount; i++) {
-                    header.append(",blocks_with_").append(i).append("_sig");
-                }
-                header.append("\n");
-
-                // Use CREATE_NEW to fail if file somehow exists (safety check)
-                Files.writeString(csvOutputFile, header.toString(), StandardCharsets.UTF_8, CREATE_NEW, WRITE);
-                csvHeaderWritten = true;
-                System.out.println("[CSV] Created new CSV file: " + csvOutputFile);
-            } catch (IOException e) {
-                System.err.println("Failed to write CSV header to " + csvOutputFile + ": " + e.getMessage());
-            }
-        }
-
-        private void writeDayToCsv(DayStatistics dayStats) {
-            if (csvOutputFile == null) return;
-
-            try {
-                if (!csvHeaderWritten) {
-                    writeCsvHeader();
-                }
-
-                StringBuilder row = new StringBuilder();
-                row.append(dayStats.date).append(",");
-                row.append(String.format("%.4f", dayStats.getAveragePercentage()))
-                        .append(",");
-                row.append(dayStats.totalBlocks).append(",");
-                row.append(dayStats.getAverageAddressBookNodeCount()).append(",");
-                row.append(dayStats.totalValidSignatures).append(",");
-                row.append(String.format("%.4f", dayStats.getMinPercentage())).append(",");
-                row.append(String.format("%.4f", dayStats.getAveragePercentagePerBlock()));
-
-                // Write histogram data (blocks with 1 sig, blocks with 2 sigs, etc.)
-                int maxSigCount = 40;
-                for (int i = 1; i <= maxSigCount; i++) {
-                    int blockCount = dayStats.blocksBySignatureCount.getOrDefault(i, 0);
-                    row.append(",").append(blockCount);
-                }
-                row.append("\n");
-
-                Files.writeString(csvOutputFile, row.toString(), StandardCharsets.UTF_8, APPEND, CREATE);
-
-                System.out.println("[CSV] Written statistics for " + dayStats.date + " to " + csvOutputFile);
-            } catch (IOException e) {
-                System.err.println("Failed to write day stats to CSV for " + dayStats.date + ": " + e.getMessage());
-            }
-        }
-
-        void printStatistics() {
-            System.out.println("\n" + "=".repeat(80));
-            System.out.println("VALIDATION COMPLETE - ALL STATISTICS WRITTEN TO CSV");
-            System.out.println("=".repeat(80));
-
-            if (dailyStatistics.isEmpty()) {
-                System.out.println("No daily statistics collected.");
-                return;
-            }
-
-            // Print overall summary
-            long totalBlocks =
-                    dailyStatistics.stream().mapToLong(ds -> ds.totalBlocks).sum();
-            long totalSignatures =
-                    dailyStatistics.stream().mapToLong(ds -> ds.totalSignatures).sum();
-            int totalDays = dailyStatistics.size();
-
-            System.out.printf("Total Days:        %d%n", totalDays);
-            System.out.printf("Total Blocks:      %,d%n", totalBlocks);
-            System.out.printf("Total Signatures:  %,d%n", totalSignatures);
-
-            if (totalBlocks > 0) {
-                double avgSigsPerBlock = (double) totalSignatures / (double) totalBlocks;
-                System.out.printf("Avg Sigs/Block:    %.2f%n", avgSigsPerBlock);
-            }
-
-            System.out.println("\nDetailed per-day statistics have been written to:");
-            System.out.println("  " + csvOutputFile);
-            System.out.println("\n" + "=".repeat(80));
-        }
-
-        void printDayCompletedSummary(LocalDate day) {
-            // Use currentDayStats if it matches, otherwise search in dailyStatistics
-            final DayStatistics dayStats;
-            if (currentDayStats != null && currentDayStats.date.equals(day)) {
-                dayStats = currentDayStats;
-            } else {
-                dayStats = dailyStatistics.stream()
-                        .filter(ds -> ds.date.equals(day))
-                        .findFirst()
-                        .orElse(null);
-            }
-
-            if (dayStats == null) {
-                System.out.println("\n[WARNING] No statistics found for day: " + day);
-                return;
-            }
-
-            PrettyPrint.clearProgress();
-            System.out.println("\n" + "═".repeat(80));
-            System.out.println("DAY COMPLETED: " + day);
-            System.out.println("═".repeat(80));
-            System.out.printf("  Date:                     %s%n", dayStats.date);
-            System.out.printf("  Total Blocks:             %,d%n", dayStats.totalBlocks);
-            System.out.printf("  Total Signatures:         %,d%n", dayStats.totalSignatures);
-            System.out.printf("  Valid Signatures:         %,d%n", dayStats.totalValidSignatures);
-            System.out.printf("  Address Book Nodes (avg): %d%n", dayStats.getAverageAddressBookNodeCount());
-            System.out.printf("  Worst Block Coverage:     %.2f%%%n", dayStats.getMinPercentage());
-            System.out.printf("  Avg Percentage Per Block: %.2f%%%n", dayStats.getAveragePercentagePerBlock());
-            System.out.printf("  Average Percentage:       %.2f%%%n", dayStats.getAveragePercentage());
-            System.out.printf("  Valid Percentage:         %.2f%%%n", dayStats.getValidPercentage());
-
-            // Print histogram summary (show top signature counts)
-            if (!dayStats.blocksBySignatureCount.isEmpty()) {
-                System.out.println("\n  Signature Distribution:");
-                System.out.println("  " + "─".repeat(60));
-                System.out.printf("  %-20s %10s %10s%n", "Signatures/Block", "Block Count", "Percentage");
-                System.out.println("  " + "─".repeat(60));
-
-                // Show top 10 most common signature counts
-                dayStats.blocksBySignatureCount.entrySet().stream()
-                        .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
-                        .limit(10)
-                        .forEach(entry -> {
-                            int sigCount = entry.getKey();
-                            int blockCount = entry.getValue();
-                            double percentage = (100.0 * blockCount) / dayStats.totalBlocks;
-                            System.out.printf("  %-20d %,10d %9.2f%%%n", sigCount, blockCount, percentage);
-                        });
-
-                System.out.println("  " + "─".repeat(60));
-            }
-            System.out.println("═".repeat(80) + "\n");
-        }
-    }
+    // Statistics tracking is delegated to SignatureStatsCollector
 
     /**
      * Simple wrapper for producer-consumer communication (day boundaries + blocks)
@@ -514,7 +195,7 @@ public class ValidateWithStats implements Runnable {
         System.out.println("CSV output will be written to: " + csvOutputFile);
 
         // Initialize statistics tracker
-        final SignatureStats stats = new SignatureStats(csvOutputFile);
+        final SignatureStatsCollector stats = new SignatureStatsCollector(csvOutputFile);
 
         // create AddressBookRegistry
         final Path addressBookFile = compressedDaysDir.toPath().resolve("addressBookHistory.json");
@@ -635,7 +316,7 @@ public class ValidateWithStats implements Runnable {
                             }
                             // Print statistics on shutdown
                             stats.finalizeDayStats();
-                            stats.printStatistics();
+                            stats.printFinalSummary();
                         },
                         "validate-shutdown-hook"));
 
@@ -903,7 +584,7 @@ public class ValidateWithStats implements Runnable {
 
         // Finalize and print statistics
         stats.finalizeDayStats();
-        stats.printStatistics();
+        stats.printFinalSummary();
 
         Status sFinal = lastGood.get();
         if (sFinal != null) Status.writeStatusFile(statusFile, sFinal);

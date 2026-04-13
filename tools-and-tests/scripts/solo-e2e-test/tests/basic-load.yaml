@@ -24,34 +24,27 @@ events:
       test_class: CryptoTransferLoadTest
       concurrency: 5
       accounts: 100
-      duration: 420  # 7 minutes - ends at ~430s
+      duration: 180  # 3 minutes
       max_tps: 1000
-
-  - id: early-metrics
-    type: print-metrics
-    description: "Print early metrics"
-    delay: 120  # 2 minutes
-    args:
-      target: all
 
   - id: mid-metrics
     type: print-metrics
     description: "Print mid-test metrics"
-    delay: 300  # 5 minutes
+    delay: 120  # 2 minutes
     args:
       target: all
 
   - id: stop-load
     type: load-stop
     description: "Stop load generation (cleanup)"
-    delay: 510  # 8.5 minutes - 80s buffer after NLG should end naturally
+    delay: 220  # ~30s buffer after load ends naturally
     args:
       test_class: CryptoTransferLoadTest
 
   - id: final-metrics
     type: print-metrics
     description: "Print final metrics"
-    delay: 570  # 9.5 minutes
+    delay: 240  # 4 minutes total
     args:
       target: all
 

@@ -44,6 +44,8 @@ import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
 import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
+import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
+import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
 import org.hiero.block.tools.blocks.validation.SignatureValidation;
 import org.hiero.block.tools.blocks.validation.StreamingMerkleTreeValidation;
 import org.hiero.block.tools.blocks.wrapped.BalanceCheckpointValidator;
@@ -395,7 +397,7 @@ public class ValidateBlocksCommand implements Runnable {
         parallelValidations.add(new BlockStructureValidation());
         SignatureValidation sigVal = null;
         if (!skipSignatures) {
-            sigVal = new SignatureValidation(abRegistry, nodeStakeRegistry);
+            sigVal = new SignatureValidation(abRegistry, nodeStakeRegistry, true);
             parallelValidations.add(sigVal);
         } else {
             System.out.println(Ansi.AUTO.string("@|yellow Skipping:|@ Signature validation (--skip-signatures)"));
@@ -545,6 +547,14 @@ public class ValidateBlocksCommand implements Runnable {
                 }
             }
         }
+
+        // Determine signature stats output directory. If files[0] is a regular file (e.g. a
+        // .blk.zip), fall back to its parent directory so the CSV is written alongside it.
+        final Path statsOutputDir = Arrays.stream(files)
+                .filter(Files::isDirectory)
+                .findFirst()
+                .orElseGet(() -> files[0].getParent() != null ? files[0].getParent() : Path.of("."));
+        final Path statsCsvPath = statsOutputDir.resolve("signature_statistics_validate_block_command.csv");
 
         // Track validation progress
         final long startNanos = System.nanoTime();
@@ -703,230 +713,244 @@ public class ValidateBlocksCommand implements Runnable {
         long failedBlockNumber = -1;
         long skippedBlockCount = 0;
 
-        try {
-            long lastCheckpointSaveMs = System.currentTimeMillis();
-            long lastProgressMs = System.currentTimeMillis();
+        try (final SignatureStatsCollector statsCollector = new SignatureStatsCollector(statsCsvPath)) {
+            try {
+                long lastCheckpointSaveMs = System.currentTimeMillis();
+                long lastProgressMs = System.currentTimeMillis();
 
-            while (true) {
+                while (true) {
 
-                try {
-                    Future<PreValidatedBlock> future = blockQueue.take();
-                    if (future == endOfStream) break;
+                    try {
+                        Future<PreValidatedBlock> future = blockQueue.take();
+                        if (future == endOfStream) break;
 
-                    PreValidatedBlock preValidated = future.get();
-                    if (preValidated.block() == null) {
-                        skippedBlockCount++;
-                        continue; // block skipped (corrupt zip mid-stream)
-                    }
+                        PreValidatedBlock preValidated = future.get();
+                        if (preValidated.block() == null) {
+                            skippedBlockCount++;
+                            continue; // block skipped (corrupt zip mid-stream)
+                        }
 
-                    // Check for pre-validation errors (from parallel stage)
-                    // Signature errors may be caused by a stale address book — the prefetch
-                    // queue may have validated this block before AddressBookUpdateValidation
-                    // discovered an address book change in an earlier block. We defer the
-                    // error and retry after running sequential validations (which update
-                    // the address book).
-                    boolean signatureRetryNeeded = false;
-                    if (preValidated.preValidationError() != null) {
-                        if ("Signatures".equals(preValidated.preValidationName()) && signatureValidation != null) {
-                            // Defer — will retry after sequential validations update the address book
-                            signatureRetryNeeded = true;
-                        } else {
-                            failedValidationName = preValidated.preValidationName();
-                            failureMessage = preValidated.preValidationError().getMessage();
-                            failedBlockNumber = preValidated.blockNumber();
+                        // Check for pre-validation errors (from parallel stage)
+                        // Signature errors may be caused by a stale address book — the prefetch
+                        // queue may have validated this block before AddressBookUpdateValidation
+                        // discovered an address book change in an earlier block. We defer the
+                        // error and retry after running sequential validations (which update
+                        // the address book).
+                        boolean signatureRetryNeeded = false;
+                        if (preValidated.preValidationError() != null) {
+                            if ("Signatures".equals(preValidated.preValidationName()) && signatureValidation != null) {
+                                // Defer — will retry after sequential validations update the address book
+                                signatureRetryNeeded = true;
+                            } else {
+                                failedValidationName = preValidated.preValidationName();
+                                failureMessage =
+                                        preValidated.preValidationError().getMessage();
+                                failedBlockNumber = preValidated.blockNumber();
+                                try {
+                                    Files.createDirectories(checkpointDir);
+                                } catch (IOException ignored) {
+                                }
+                                saveCheckpoint(
+                                        checkpointDir,
+                                        lastValidatedRef[0],
+                                        blocksValidatedRef[0],
+                                        chainValidation,
+                                        validations);
+                                break;
+                            }
+                        }
+
+                        BlockUnparsed block = preValidated.block();
+                        long blockNum = preValidated.blockNumber();
+
+                        // Phase 1: validate sequential (stateful) validations only
+                        for (BlockValidation v : sequentialValidations) {
+                            try {
+                                v.validate(block, blockNum);
+                            } catch (ValidationException e) {
+                                failedValidationName = v.name();
+                                failureMessage = e.getMessage();
+                                failedBlockNumber = blockNum;
+                                // Save checkpoint before reporting
+                                try {
+                                    Files.createDirectories(checkpointDir);
+                                } catch (IOException ignored) {
+                                }
+                                saveCheckpoint(
+                                        checkpointDir,
+                                        lastValidatedRef[0],
+                                        blocksValidatedRef[0],
+                                        chainValidation,
+                                        validations);
+                                break;
+                            }
+                        }
+                        if (failedValidationName != null) break;
+
+                        // Retry signature validation with the (now potentially updated) address book
+                        if (signatureRetryNeeded) {
+                            try {
+                                signatureValidation.validate(block, blockNum);
+                            } catch (ValidationException e) {
+                                failedValidationName = signatureValidation.name();
+                                failureMessage = e.getMessage();
+                                failedBlockNumber = blockNum;
+                                try {
+                                    Files.createDirectories(checkpointDir);
+                                } catch (IOException ignored) {
+                                }
+                                saveCheckpoint(
+                                        checkpointDir,
+                                        lastValidatedRef[0],
+                                        blocksValidatedRef[0],
+                                        chainValidation,
+                                        validations);
+                                break;
+                            }
+                        }
+
+                        // Phase 2: commit all validations (under lock to prevent shutdown hook
+                        // from saving a partially-committed state)
+                        synchronized (commitLock) {
+                            for (BlockValidation v : validations) {
+                                v.commitState(block, blockNum);
+                            }
+
+                            lastValidatedRef[0] = blockNum;
+                            blocksValidated++;
+                            blocksValidatedRef[0] = blocksValidated;
+                        }
+
+                        // Collect signature stats from the validation
+                        if (signatureValidation != null) {
+                            SignatureBlockStats blockStats = signatureValidation.popBlockStats(blockNum);
+                            if (blockStats != null) {
+                                statsCollector.accept(blockStats);
+                            }
+                        }
+
+                        // Periodic registry sync for crash safety (~every 100 blocks)
+                        if (registry != null && blocksValidated % 100 == 0) {
+                            registry.sync();
+                        }
+
+                        // Periodic checkpoint save
+                        long nowMs = System.currentTimeMillis();
+                        if (nowMs - lastCheckpointSaveMs >= 60_000L) {
                             try {
                                 Files.createDirectories(checkpointDir);
                             } catch (IOException ignored) {
                             }
-                            saveCheckpoint(
-                                    checkpointDir,
-                                    lastValidatedRef[0],
-                                    blocksValidatedRef[0],
-                                    chainValidation,
-                                    validations);
-                            break;
-                        }
-                    }
-
-                    BlockUnparsed block = preValidated.block();
-                    long blockNum = preValidated.blockNumber();
-
-                    // Phase 1: validate sequential (stateful) validations only
-                    for (BlockValidation v : sequentialValidations) {
-                        try {
-                            v.validate(block, blockNum);
-                        } catch (ValidationException e) {
-                            failedValidationName = v.name();
-                            failureMessage = e.getMessage();
-                            failedBlockNumber = blockNum;
-                            // Save checkpoint before reporting
-                            try {
-                                Files.createDirectories(checkpointDir);
-                            } catch (IOException ignored) {
-                            }
-                            saveCheckpoint(
-                                    checkpointDir,
-                                    lastValidatedRef[0],
-                                    blocksValidatedRef[0],
-                                    chainValidation,
-                                    validations);
-                            break;
-                        }
-                    }
-                    if (failedValidationName != null) break;
-
-                    // Retry signature validation with the (now potentially updated) address book
-                    if (signatureRetryNeeded) {
-                        try {
-                            signatureValidation.validate(block, blockNum);
-                        } catch (ValidationException e) {
-                            failedValidationName = signatureValidation.name();
-                            failureMessage = e.getMessage();
-                            failedBlockNumber = blockNum;
-                            try {
-                                Files.createDirectories(checkpointDir);
-                            } catch (IOException ignored) {
-                            }
-                            saveCheckpoint(
-                                    checkpointDir,
-                                    lastValidatedRef[0],
-                                    blocksValidatedRef[0],
-                                    chainValidation,
-                                    validations);
-                            break;
-                        }
-                    }
-
-                    // Phase 2: commit all validations (under lock to prevent shutdown hook
-                    // from saving a partially-committed state)
-                    synchronized (commitLock) {
-                        for (BlockValidation v : validations) {
-                            v.commitState(block, blockNum);
+                            saveCheckpoint(checkpointDir, blockNum, blocksValidated, chainValidation, validations);
+                            lastCheckpointSaveMs = nowMs;
                         }
 
-                        lastValidatedRef[0] = blockNum;
-                        blocksValidated++;
-                        blocksValidatedRef[0] = blocksValidated;
-                    }
-
-                    // Periodic registry sync for crash safety (~every 100 blocks)
-                    if (registry != null && blocksValidated % 100 == 0) {
-                        registry.sync();
-                    }
-
-                    // Periodic checkpoint save
-                    long nowMs = System.currentTimeMillis();
-                    if (nowMs - lastCheckpointSaveMs >= 60_000L) {
-                        try {
-                            Files.createDirectories(checkpointDir);
-                        } catch (IOException ignored) {
+                        if (verbose) {
+                            final String blockHash = (chainValidation.getPreviousBlockHash() != null)
+                                    ? Bytes.wrap(chainValidation.getPreviousBlockHash())
+                                            .toHex()
+                                    : "null";
+                            System.out.println("Block " + blockNum + ": "
+                                    + Ansi.AUTO.string("@|green VALID|@") + " (hash: "
+                                    + blockHash
+                                    + ")");
                         }
-                        saveCheckpoint(checkpointDir, blockNum, blocksValidated, chainValidation, validations);
-                        lastCheckpointSaveMs = nowMs;
-                    }
 
-                    if (verbose) {
-                        final String blockHash = (chainValidation.getPreviousBlockHash() != null)
-                                ? Bytes.wrap(chainValidation.getPreviousBlockHash())
-                                        .toHex()
-                                : "null";
-                        System.out.println("Block " + blockNum + ": "
-                                + Ansi.AUTO.string("@|green VALID|@") + " (hash: "
-                                + blockHash
-                                + ")");
-                    }
+                        // Progress every 5 seconds
+                        if (nowMs - lastProgressMs >= 5_000L) {
+                            long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
+                            long currentPercent = (blocksValidated * 100) / estimatedTotalBlocks;
+                            long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
+                                    blocksValidated, estimatedTotalBlocks, elapsedMillis);
 
-                    // Progress every 5 seconds
-                    if (nowMs - lastProgressMs >= 5_000L) {
-                        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000L;
-                        long currentPercent = (blocksValidated * 100) / estimatedTotalBlocks;
-                        long remainingMillis = PrettyPrint.computeRemainingMilliseconds(
-                                blocksValidated, estimatedTotalBlocks, elapsedMillis);
-
-                        // Compute speed multiplier (consensus-time / wall-clock)
-                        BlockHeader parsedHeader = BlockHeader.PROTOBUF.parse(
-                                block.blockItems().getFirst().blockHeaderOrThrow());
-                        Timestamp blockTs = parsedHeader.blockTimestampOrThrow();
-                        long blockEpochMillis = blockTs.seconds() * 1000L + blockTs.nanos() / 1_000_000L;
-                        long currentNanos = System.nanoTime();
-                        if (speedCalcBlockTimeMillis == 0) {
-                            speedCalcBlockTimeMillis = blockEpochMillis;
-                            speedCalcRealTimeNanos = currentNanos;
-                            speedString = "";
-                        } else {
-                            long realElapsedNanos = currentNanos - speedCalcRealTimeNanos;
-                            // Reset tracking window every 10 seconds of real time
-                            if (realElapsedNanos >= 10_000_000_000L) {
-                                long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
-                                long realTimeMs = realElapsedNanos / 1_000_000L;
-                                double multiplier = (double) dataTimeMs / (double) realTimeMs;
-                                speedString = String.format(" speed %.1fx", multiplier);
+                            // Compute speed multiplier (consensus-time / wall-clock)
+                            BlockHeader parsedHeader = BlockHeader.PROTOBUF.parse(
+                                    block.blockItems().getFirst().blockHeaderOrThrow());
+                            Timestamp blockTs = parsedHeader.blockTimestampOrThrow();
+                            long blockEpochMillis = blockTs.seconds() * 1000L + blockTs.nanos() / 1_000_000L;
+                            long currentNanos = System.nanoTime();
+                            if (speedCalcBlockTimeMillis == 0) {
                                 speedCalcBlockTimeMillis = blockEpochMillis;
                                 speedCalcRealTimeNanos = currentNanos;
-                            } else if (realElapsedNanos >= 1_000_000_000L) {
-                                long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
-                                long realTimeMs = realElapsedNanos / 1_000_000L;
-                                double multiplier = (double) dataTimeMs / (double) realTimeMs;
-                                speedString = String.format(" speed %.1fx", multiplier);
+                                speedString = "";
+                            } else {
+                                long realElapsedNanos = currentNanos - speedCalcRealTimeNanos;
+                                // Reset tracking window every 10 seconds of real time
+                                if (realElapsedNanos >= 10_000_000_000L) {
+                                    long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
+                                    long realTimeMs = realElapsedNanos / 1_000_000L;
+                                    double multiplier = (double) dataTimeMs / (double) realTimeMs;
+                                    speedString = String.format(" speed %.1fx", multiplier);
+                                    speedCalcBlockTimeMillis = blockEpochMillis;
+                                    speedCalcRealTimeNanos = currentNanos;
+                                } else if (realElapsedNanos >= 1_000_000_000L) {
+                                    long dataTimeMs = blockEpochMillis - speedCalcBlockTimeMillis;
+                                    long realTimeMs = realElapsedNanos / 1_000_000L;
+                                    double multiplier = (double) dataTimeMs / (double) realTimeMs;
+                                    speedString = String.format(" speed %.1fx", multiplier);
+                                }
                             }
+
+                            String progressString = "Validated " + blocksValidated + "/~" + estimatedTotalBlocks
+                                    + " blocks" + speedString;
+                            PrettyPrint.printProgressWithEta(currentPercent, progressString, remainingMillis);
+                            lastProgressMs = nowMs;
                         }
 
-                        String progressString =
-                                "Validated " + blocksValidated + "/~" + estimatedTotalBlocks + " blocks" + speedString;
-                        PrettyPrint.printProgressWithEta(currentPercent, progressString, remainingMillis);
-                        lastProgressMs = nowMs;
-                    }
-
-                } catch (Exception e) {
-                    failedValidationName = "Block Processing";
-                    // Unwrap ExecutionException to surface the actual cause
-                    Throwable cause = (e instanceof java.util.concurrent.ExecutionException && e.getCause() != null)
-                            ? e.getCause()
-                            : e;
-                    failureMessage = cause.getMessage() != null ? cause.getMessage() : cause.toString();
-                    failedBlockNumber = lastValidatedRef[0] + 1;
-                    // Always print for unexpected errors (not just in verbose mode)
-                    System.err.println("Unexpected error near block " + failedBlockNumber + ": " + failureMessage);
-                    cause.printStackTrace();
-                    break;
-                }
-            }
-
-            // Stop reader and decompression pool
-            readerThread.interrupt();
-            decompPool.shutdownNow();
-
-            // ── Finalize all validations (end-of-stream checks) ─────────────
-            if (failedValidationName == null && failureMessage == null) {
-                for (BlockValidation v : validations) {
-                    try {
-                        v.finalize(blocksValidated, lastValidatedRef[0]);
-                    } catch (ValidationException e) {
-                        failedValidationName = v.name();
-                        failureMessage = e.getMessage();
-                        failedBlockNumber = -1; // not a per-block error
+                    } catch (Exception e) {
+                        failedValidationName = "Block Processing";
+                        // Unwrap ExecutionException to surface the actual cause
+                        Throwable cause = (e instanceof java.util.concurrent.ExecutionException && e.getCause() != null)
+                                ? e.getCause()
+                                : e;
+                        failureMessage = cause.getMessage() != null ? cause.getMessage() : cause.toString();
+                        failedBlockNumber = lastValidatedRef[0] + 1;
+                        // Always print for unexpected errors (not just in verbose mode)
+                        System.err.println("Unexpected error near block " + failedBlockNumber + ": " + failureMessage);
+                        cause.printStackTrace();
                         break;
                     }
                 }
-            }
 
-            // Fail if blocks were skipped due to corrupt zips
-            if (failedValidationName == null && failureMessage == null && skippedBlockCount > 0) {
-                failedValidationName = "Skipped Blocks";
-                failureMessage =
-                        skippedBlockCount + " blocks were skipped (corrupt zip files) and could not be" + " validated";
-            }
+                // Stop reader and decompression pool
+                readerThread.interrupt();
+                decompPool.shutdownNow();
 
-        } finally {
-            completed[0] = true;
-            try {
-                Runtime.getRuntime().removeShutdownHook(shutdownHook);
-            } catch (IllegalStateException ignored) {
-                // JVM already shutting down
-            }
-            // Close all validations
-            for (BlockValidation v : validations) {
-                v.close();
+                // ── Finalize all validations (end-of-stream checks) ─────────────
+                if (failedValidationName == null && failureMessage == null) {
+                    for (BlockValidation v : validations) {
+                        try {
+                            v.finalize(blocksValidated, lastValidatedRef[0]);
+                        } catch (ValidationException e) {
+                            failedValidationName = v.name();
+                            failureMessage = e.getMessage();
+                            failedBlockNumber = -1; // not a per-block error
+                            break;
+                        }
+                    }
+                }
+
+                // Fail if blocks were skipped due to corrupt zips
+                if (failedValidationName == null && failureMessage == null && skippedBlockCount > 0) {
+                    failedValidationName = "Skipped Blocks";
+                    failureMessage = skippedBlockCount + " blocks were skipped (corrupt zip files) and could not be"
+                            + " validated";
+                }
+
+            } finally {
+                completed[0] = true;
+                try {
+                    Runtime.getRuntime().removeShutdownHook(shutdownHook);
+                } catch (IllegalStateException ignored) {
+                    // JVM already shutting down
+                }
+                // Close all validations
+                for (BlockValidation v : validations) {
+                    v.close();
+                }
+                // Finalize signature statistics (statsCollector is closed automatically by try-with-resources)
+                statsCollector.finalizeDayStats();
+                statsCollector.printFinalSummary();
             }
         }
 

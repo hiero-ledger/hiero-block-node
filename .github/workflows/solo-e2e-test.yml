@@ -32,7 +32,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         type: string
-        default: "0.63.0"
+        default: "0.68.0"
       tss-enabled:
         description: "Enable TSS/WRAPS on consensus nodes"
         type: boolean
@@ -41,6 +41,10 @@ on:
         description: "Run TCK regression test"
         type: boolean
         default: false
+      tck-test-file:
+        description: "TCK test file(s) to run ('all' for full suite, or space-separated paths)"
+        type: string
+        default: ""
       nlg-enabled:
         description: "Enable NLG load generation"
         type: boolean
@@ -112,7 +116,7 @@ on:
       solo-version:
         description: "Solo CLI Version"
         required: false
-        default: "0.63.0"
+        default: "0.68.0"
       tss-enabled:
         description: "Enable TSS (Threshold Signature Scheme) on consensus nodes"
         required: false
@@ -123,6 +127,10 @@ on:
         required: false
         default: false
         type: boolean
+      tck-test-file:
+        description: "TCK test file(s) to run ('all' for full suite, or space-separated paths)"
+        required: false
+        default: ""
       nlg-enabled:
         description: "Enable NLG load generation"
         required: false
@@ -768,11 +776,18 @@ jobs:
         if: ${{ inputs.run-tck-regression-tests }}
         continue-on-error: true # Allow workflow to continue; results shown in TCK-SDK Results Summary
         run: |
+          TCK_TEST_FILE="${{ inputs.tck-test-file }}"
+          EXTRA_ARGS=""
+          if [[ -n "${TCK_TEST_FILE}" ]]; then
+            EXTRA_ARGS="--test-file ${TCK_TEST_FILE}"
+          fi
+          # shellcheck disable=SC2086
           ./tools-and-tests/scripts/solo-e2e-test/scripts/solo-tck-sdk-run.sh \
             --sdk-dir "sdk-tck/sdk-server" \
             --tck-dir "sdk-tck/regression" \
             --deployment "${DEPLOYMENT}" \
-            --namespace "${NAMESPACE}"
+            --namespace "${NAMESPACE}" \
+            ${EXTRA_ARGS}
 
       # Add TCK-SDK Results to Summary
       - name: TCK-SDK Results Summary
