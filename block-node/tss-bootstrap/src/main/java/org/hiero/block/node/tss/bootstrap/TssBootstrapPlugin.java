@@ -66,6 +66,8 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
         String schnorrPublicKey64 = tssBootstrapConfig.schnorrPublicKey();
         long nodeId = tssBootstrapConfig.nodeId();
         long weight = tssBootstrapConfig.weight();
+        long validFromBlock = tssBootstrapConfig.validFromBlock();
+        long rosterValidFromBlock = tssBootstrapConfig.rosterValidFromBlock();
 
         if (StringUtilities.isBlank(ledgerId64)
                 || StringUtilities.isBlank(wrapsVerificationKey64)
@@ -73,7 +75,14 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
             return;
         }
 
-        TssData tssData = buildTssData(ledgerId64, wrapsVerificationKey64, nodeId, weight, schnorrPublicKey64);
+        TssData tssData = buildTssData(
+                ledgerId64,
+                wrapsVerificationKey64,
+                nodeId,
+                weight,
+                schnorrPublicKey64,
+                validFromBlock,
+                rosterValidFromBlock);
         applicationStateFacility.updateTssData(tssData);
     }
 
@@ -86,17 +95,27 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     /// @param schnorrPublicKey64 The schnorrPublicKey base64 string
     /// @return a `TssData` object
     private TssData buildTssData(
-            String ledgerId64, String wrapsVerificationKey64, long nodeId, long weight, String schnorrPublicKey64) {
+            String ledgerId64,
+            String wrapsVerificationKey64,
+            long nodeId,
+            long weight,
+            String schnorrPublicKey64,
+            long validFromBlock,
+            long rosterValidFromBlock) {
         RosterEntry rosterEntry = RosterEntry.newBuilder()
                 .nodeId(nodeId)
                 .weight(weight)
                 .schnorrPublicKey(Bytes.fromBase64(schnorrPublicKey64))
                 .build();
-        TssRoster tssRoster = TssRoster.newBuilder().rosterEntries(rosterEntry).build();
+        TssRoster tssRoster = TssRoster.newBuilder()
+                .rosterEntries(rosterEntry)
+                .validFromBlock(rosterValidFromBlock)
+                .build();
         return TssData.newBuilder()
                 .ledgerId(Bytes.fromBase64(ledgerId64))
                 .wrapsVerificationKey(Bytes.fromBase64(wrapsVerificationKey64))
                 .currentRoster(tssRoster)
+                .validFromBlock(validFromBlock)
                 .build();
     }
 }

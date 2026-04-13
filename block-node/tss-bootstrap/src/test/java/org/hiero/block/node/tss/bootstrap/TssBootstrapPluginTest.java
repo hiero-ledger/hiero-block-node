@@ -42,6 +42,8 @@ public class TssBootstrapPluginTest
                 "NTUyZTAxNDNjMGE4MTBmNmYwN2VkOGUyZWI0ZGM1MTkwNWEzMmFkMzljZDQ5Yzk0MWE0MGU1YmM4YWEyZDg4NA==");
         defaultConfig.put("tss.bootstrap.nodeId", "1");
         defaultConfig.put("tss.bootstrap.weight", "3");
+        defaultConfig.put("tss.bootstrap.validFromBlock", "100");
+        defaultConfig.put("tss.bootstrap.rosterValidFromBlock", "50");
         defaultConfig.put(
                 "tss.bootstrap.schnorrPublicKey",
                 "NWFkYWI2ZjBmYjQzMjk1OGU3OTdiNTI2NjRmNjY4OWQ1Yjg2MTRiYzE5NDE4MTQzODRlZDI4NmQyOTM4MDQxNg==");
@@ -87,6 +89,14 @@ public class TssBootstrapPluginTest
                         Integer.valueOf(defaultConfig.get("tss.bootstrap.weight"))
                                 .longValue(),
                         context.tssData().currentRoster().rosterEntries().get(0).weight());
+                assertEquals(
+                        Integer.valueOf(defaultConfig.get("tss.bootstrap.validFromBlock"))
+                                .longValue(),
+                        context.tssData().validFromBlock());
+                assertEquals(
+                        Integer.valueOf(defaultConfig.get("tss.bootstrap.rosterValidFromBlock"))
+                                .longValue(),
+                        context.tssData().currentRoster().validFromBlock());
             }
         };
         start(tssBootstrapPlugin, new NoBlocksHistoricalBlockFacility(), defaultConfig);
