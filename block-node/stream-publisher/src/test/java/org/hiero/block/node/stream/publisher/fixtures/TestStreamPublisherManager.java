@@ -58,7 +58,8 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     @Override
     public PublisherHandler addHandler(
             @NonNull final Pipeline<? super PublishStreamResponse> replies,
-            @NonNull final MetricsHolder handlerMetrics) {
+            @NonNull final MetricsHolder handlerMetrics,
+            final String correlationId) {
         // do nothing, implement when needed
         return null;
     }

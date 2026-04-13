@@ -183,12 +183,12 @@ class LiveStreamPublisherManagerTest {
             // Create a response pipeline to handle the responses from the first publisher handler.
             responsePipeline = new TestResponsePipeline();
             // Create the first publisher handler and add it to the manager.
-            publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics);
+            publisherHandler = toTest.addHandler(responsePipeline, sharedHandlerMetrics, null);
             publisherHandlerId = 0L; // This should be set by the addHandler method, first call will use id 0L.
             // Create a second response pipeline to handle the responses from the second publisher handler.
             responsePipeline2 = new TestResponsePipeline();
             // Create the second publisher handler and add it to the manager.
-            publisherHandler2 = toTest.addHandler(responsePipeline2, sharedHandlerMetrics);
+            publisherHandler2 = toTest.addHandler(responsePipeline2, sharedHandlerMetrics, "");
             publisherHandlerId2 = 1L; // This should be set by the addHandler method, second call will use id 1L.
         }
 
@@ -1392,6 +1392,60 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
+            /// Verifies that a failed [PersistedNotification] (succeeded = false)
+            /// clears the queue map and sends [PublisherHandler#handleFailedPersistence]
+            /// to all handlers rather than sending an acknowledgement.
+            @Test
+            @DisplayName("handlePersisted() clears queue and sends failedPersistence to handlers on failure")
+            void testHandlePersistedFailedNotification() {
+                // Pre-condition: no responses yet.
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // Send a failed persistence notification.
+                toTest.handlePersisted(new PersistedNotification(0L, false, 0, BlockSource.PUBLISHER));
+                // Failed persistence sends EndOfStream(PERSISTENCE_FAILED) to each handler, triggering onComplete.
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .anySatisfy(response ->
+                                assertThat(response.response().kind()).isEqualTo(ResponseOneOfType.END_STREAM));
+            }
+
+            /// Verifies that a second [PersistedNotification] with the same
+            /// (or lower) block number does not trigger another acknowledgement.
+            /// This exercises the false branch of the
+            /// {@code newLastPersistedBlock > lastPersistedBlockNumber} guard.
+            @Test
+            @DisplayName("handlePersisted() skips acknowledgement when block number does not advance lastPersisted")
+            void testHandlePersistedWithNonAdvancingBlockNumber() {
+                final long blockNumber = 5L;
+                final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
+                availableBlocks.add(0L, blockNumber);
+                historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
+                // First call — advances lastPersisted to blockNumber.
+                toTest.handlePersisted(new PersistedNotification(blockNumber, true, 0, BlockSource.PUBLISHER));
+                final int ackCountAfterFirst = responsePipeline.getOnNextCalls().size();
+                assertThat(ackCountAfterFirst).isPositive();
+                // Second call with the same block number — must NOT send another acknowledgement.
+                toTest.handlePersisted(new PersistedNotification(blockNumber, true, 0, BlockSource.PUBLISHER));
+                assertThat(responsePipeline.getOnNextCalls()).hasSize(ackCountAfterFirst);
+            }
+
+            /// Verifies that [clearObsoleteQueueItems] handles an empty queue deque
+            /// without error, covering the {@code !deque.isEmpty()} false branch inside
+            /// {@code getLastDequeItem}.
+            @Test
+            @DisplayName("handlePersisted() clears an empty registered queue without error")
+            void testHandlePersistedClearsEmptyQueue() {
+                // Register an empty queue for block 3 (before the persisted block).
+                toTest.registerQueueForBlock(publisherHandlerId, new ConcurrentLinkedDeque<>(), 3L);
+                // Persist block 5 — clearObsoleteQueueItems will inspect block 3's empty queue.
+                final SimpleBlockRangeSet available = new SimpleBlockRangeSet();
+                available.add(0L, 5L);
+                historicalBlockFacility.setTemporaryAvailableBlocks(available);
+                assertThatNoException()
+                        .isThrownBy(() ->
+                                toTest.handlePersisted(new PersistedNotification(5L, true, 0, BlockSource.PUBLISHER)));
+            }
+
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#handlePersisted(PersistedNotification)]
             /// will not send acknowledgement to registered publisher handlers
@@ -1862,6 +1916,33 @@ class LiveStreamPublisherManagerTest {
                         .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
                         .returns(block0.number(), endStreamBlockNumberExtractor);
             }
+
+            /// Verifies that [LiveStreamPublisherManager#blockIsEnding(long, long)]
+            /// is a no-op when no queue has been registered for the given block
+            /// (covers the {@code deque == null} branch).
+            @Test
+            @DisplayName("blockIsEnding() is a no-op when no queue is registered for the block")
+            void testBlockIsEndingNoQueueRegistered() {
+                // Block 999 was never registered — deque will be null.
+                assertThatNoException().isThrownBy(() -> toTest.blockIsEnding(999L, publisherHandlerId));
+            }
+
+            /// Verifies that [LiveStreamPublisherManager#blockIsEnding(long, long)]
+            /// does NOT add the block to resend when it is already persisted
+            /// (covers the {@code blockNumber > lastPersistedBlockNumber} false branch).
+            @Test
+            @DisplayName("blockIsEnding() does not schedule resend for a block already persisted")
+            void testBlockIsEndingForAlreadyPersistedBlock() {
+                final long blockNumber = 5L;
+                final SimpleBlockRangeSet available = new SimpleBlockRangeSet();
+                available.add(0L, blockNumber);
+                historicalBlockFacility.setTemporaryAvailableBlocks(available);
+                toTest.handlePersisted(new PersistedNotification(blockNumber, true, 0, BlockSource.PUBLISHER));
+                // Register an empty queue for the same block so deque != null.
+                toTest.registerQueueForBlock(publisherHandlerId, new ConcurrentLinkedDeque<>(), blockNumber);
+                // blockIsEnding for an already-persisted block must not throw.
+                assertThatNoException().isThrownBy(() -> toTest.blockIsEnding(blockNumber, publisherHandlerId));
+            }
         }
 
         /// Tests for usage of [PublisherStatusUpdateNotification].
@@ -1938,7 +2019,7 @@ class LiveStreamPublisherManagerTest {
                 // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
                 toTest = new LiveStreamPublisherManager(context, managerMetrics);
                 // Add a new handler to simulate an active publisher.
-                toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics);
+                toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics, null);
                 // Convert the configured timeout to milliseconds.
                 final long configuredTimeoutMillis = testPublisherConfig.publisherUnavailabilityTimeout() * 1_000L;
                 // Sleep for double the configured timeout to ensure that if a timeout notification
@@ -1969,7 +2050,7 @@ class LiveStreamPublisherManagerTest {
                 // Create the LiveStreamPublisherManager instance to test, this also starts the timeout future.
                 toTest = new LiveStreamPublisherManager(context, managerMetrics);
                 // Add a new handler to simulate an active publisher.
-                final long activeHandlerId = toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics)
+                final long activeHandlerId = toTest.addHandler(new TestResponsePipeline<>(), sharedHandlerMetrics, "")
                         .getId();
                 // Convert the configured timeout to milliseconds.
                 final long configuredTimeoutMillis = testPublisherConfig.publisherUnavailabilityTimeout() * 1_000L;
@@ -2067,7 +2148,7 @@ class LiveStreamPublisherManagerTest {
                         messagingFacility.getSentPublisherStatusUpdateNotifications();
                 assertThat(notificationsPreCheck).isEmpty();
                 // Add a new handler.
-                toTest.addHandler(responsePipeline, sharedHandlerMetrics);
+                toTest.addHandler(responsePipeline, sharedHandlerMetrics, null);
                 // Assert that a status update notification was sent.
                 final List<PublisherStatusUpdateNotification> actual =
                         messagingFacility.getSentPublisherStatusUpdateNotifications();
@@ -2089,7 +2170,7 @@ class LiveStreamPublisherManagerTest {
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
                         .isZero();
                 // Add a new handler.
-                toTest.addHandler(responsePipeline, sharedHandlerMetrics);
+                toTest.addHandler(responsePipeline, sharedHandlerMetrics, "");
                 // Assert that the active publishers metric is now 1.
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
                         .isEqualTo(1);
@@ -2131,6 +2212,19 @@ class LiveStreamPublisherManagerTest {
                         .last()
                         .returns(UpdateType.PUBLISHER_DISCONNECTED, PublisherStatusUpdateNotification::type)
                         .returns(0, PublisherStatusUpdateNotification::activePublishers);
+            }
+
+            /// Verifies that removing a handler ID that was never registered
+            /// (handlerRemoved == null) is a no-op: no timeout is scheduled
+            /// and the active count stays unchanged.
+            @Test
+            @DisplayName("removeHandler() with non-existent handler ID is a no-op")
+            void testRemoveHandlerNonExistentIdIsNoOp() {
+                final long nonExistentId = 999L;
+                final long countBefore = getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS);
+                toTest.removeHandler(nonExistentId);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS))
+                        .isEqualTo(countBefore);
             }
 
             /// This test aims to assert that removing a handler

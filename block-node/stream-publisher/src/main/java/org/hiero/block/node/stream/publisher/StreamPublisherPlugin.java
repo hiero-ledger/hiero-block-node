@@ -42,6 +42,11 @@ import org.hiero.metrics.core.MetricRegistry;
 /// appropriate responses to their publishers.
 public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStreamPublishServiceInterface {
 
+    /// Maximum length for the correlation ID header value.
+    /// Chosen to accommodate current formats (e.g. `N#-STR#`, `N#-STR#-BLK#-REQ#`) and
+    /// future formats such as prefixed UUIDs, while bounding log line growth.
+    static final int MAX_CORRELATION_ID_LENGTH = 64;
+
     // Metric key constants
     public static final MetricKey<LongCounter> METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED =
             MetricKey.of("publisher_block_items_received", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -86,7 +91,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
             .addCategory(METRICS_CATEGORY);
 
     /// The logger for this class.
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    private static final System.Logger LOGGER = System.getLogger(StreamPublisherPlugin.class.getName());
 
     /// The block node context, for access to core facilities.
     private BlockNodeContext context;
@@ -122,6 +127,9 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         final int maxMessageSize =
                 context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes() - 16384;
 
+        final String rawCorrelationId = options.metadata().getOrDefault("hiero-correlation-id", "");
+        final String correlationId = truncateCorrelationId(rawCorrelationId);
+
         return switch (blockStreamPublisherServiceMethod) {
             case publishBlockStream ->
                 Pipelines.<PublishStreamRequestUnparsed, PublishStreamResponse>bidiStreaming()
@@ -133,7 +141,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
                                         maxMessageSize / 8,
                                         maxMessageSize) // maxDepth
                                 )
-                        .method(this::initiatePublisherHandler)
+                        .method(r -> initiatePublisherHandler(r, correlationId))
                         .respondTo(replies)
                         .mapResponse(PublishStreamResponse.PROTOBUF::toBytes)
                         .build();
@@ -177,10 +185,34 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     ///
     /// A new handler is created when a new publisher connects to the block node.
     /// @param replies the pipeline to which the replies will be sent
+    /// @param correlationId the correlation ID from the gRPC `hiero-correlation-id` header, or empty if absent
     /// @return a new, valid, fully initialized publisher handler
     private Pipeline<? super PublishStreamRequestUnparsed> initiatePublisherHandler(
-            @NonNull final Pipeline<? super PublishStreamResponse> replies) {
-        return publisherManager.addHandler(replies, handlerMetrics);
+            @NonNull final Pipeline<? super PublishStreamResponse> replies, final String correlationId) {
+        return publisherManager.addHandler(replies, handlerMetrics, correlationId);
+    }
+
+    /// Truncates the given correlation ID to [#MAX_CORRELATION_ID_LENGTH] characters.
+    ///
+    /// Protects against oversized header values that could inflate every log line.
+    /// If the value exceeds the limit, it is truncated and a warning is logged.
+    ///
+    /// @param correlationId the raw value from the gRPC header
+    /// @return the value unchanged if within the limit, or truncated to [#MAX_CORRELATION_ID_LENGTH]
+    static String truncateCorrelationId(final String correlationId) {
+        if (correlationId == null) {
+            return "";
+        }
+        if (correlationId.length() > MAX_CORRELATION_ID_LENGTH) {
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Received hiero-correlation-id header of {0} characters exceeds limit of {1} and will be truncated: {2}",
+                    correlationId.length(),
+                    MAX_CORRELATION_ID_LENGTH,
+                    correlationId.substring(0, MAX_CORRELATION_ID_LENGTH));
+            return correlationId.substring(0, MAX_CORRELATION_ID_LENGTH);
+        }
+        return correlationId;
     }
 
     /// Initialize all metrics for the publisher service plugin.

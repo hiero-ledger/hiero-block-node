@@ -16,6 +16,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -206,6 +207,32 @@ class StreamPublisherPluginTest {
                     .isNotNull()
                     .returns(ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
                     .returns(blockNumber, acknowledgementBlockNumberExtractor);
+        }
+
+        /// Verifies that {@code open()} with an oversized {@code hiero-correlation-id} header
+        /// truncates the ID and still opens the pipeline successfully (covers the warning log branch).
+        @Test
+        @DisplayName("open() with oversized correlation ID truncates and returns a valid pipeline")
+        void testOpenWithOversizedCorrelationIdTruncates() {
+            final String oversizedId = "X".repeat(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH + 10);
+            final ServiceInterface.RequestOptions optionsWithOversizedId = new ServiceInterface.RequestOptions() {
+                @Override
+                public Optional<String> authority() {
+                    return Optional.empty();
+                }
+
+                @Override
+                public String contentType() {
+                    return "application/grpc";
+                }
+
+                @Override
+                public Map<String, String> metadata() {
+                    return Map.of("hiero-correlation-id", oversizedId);
+                }
+            };
+            final Pipeline<? super Bytes> pipe = serviceInterface.open(method, optionsWithOversizedId, fromPluginPipe);
+            assertThat(pipe).isNotNull();
         }
 
         @Test
@@ -801,6 +828,57 @@ class StreamPublisherPluginTest {
                     .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
                     .returns(block.number(), resendBlockNumberExtractor);
             resendReceiver.clear();
+        }
+    }
+
+    /// Tests for {@link StreamPublisherPlugin#truncateCorrelationId(String)}.
+    @Nested
+    @DisplayName("truncateCorrelationId() Tests")
+    class TruncateCorrelationIdTest {
+
+        @Test
+        @DisplayName("Value within limit is returned unchanged")
+        void testValueWithinLimit() {
+            final String id = "N3-STR1";
+            assertThat(StreamPublisherPlugin.truncateCorrelationId(id)).isEqualTo(id);
+        }
+
+        @Test
+        @DisplayName("Empty string is returned unchanged")
+        void testEmptyString() {
+            assertThat(StreamPublisherPlugin.truncateCorrelationId("")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Value exactly at limit is returned unchanged")
+        void testValueAtLimit() {
+            final String id = "A".repeat(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH);
+            assertThat(StreamPublisherPlugin.truncateCorrelationId(id)).isEqualTo(id);
+        }
+
+        @Test
+        @DisplayName("Value exceeding limit is truncated to MAX_CORRELATION_ID_LENGTH characters")
+        void testValueExceedingLimit() {
+            final String id = "A".repeat(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH + 10);
+            final String result = StreamPublisherPlugin.truncateCorrelationId(id);
+            assertThat(result).hasSize(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH);
+            assertThat(result).isEqualTo("A".repeat(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH));
+        }
+
+        @Test
+        @DisplayName("Truncated value preserves the first MAX_CORRELATION_ID_LENGTH characters")
+        void testTruncationPreservesPrefix() {
+            final String prefix = "N3-STR1-";
+            final String id = prefix + "X".repeat(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH);
+            final String result = StreamPublisherPlugin.truncateCorrelationId(id);
+            assertThat(result).startsWith(prefix);
+            assertThat(result).hasSize(StreamPublisherPlugin.MAX_CORRELATION_ID_LENGTH);
+        }
+
+        @Test
+        @DisplayName("Null is treated as absent and returns empty string")
+        void testNullReturnsEmpty() {
+            assertThat(StreamPublisherPlugin.truncateCorrelationId(null)).isEmpty();
         }
     }
 }

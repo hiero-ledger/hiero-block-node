@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatCode;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
+import com.hedera.pbj.runtime.grpc.Pipeline;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
@@ -89,7 +90,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with valid parameters")
         void testValidParameters() {
             assertThatNoException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager);
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, null);
             });
         }
 
@@ -101,7 +102,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null reply pipeline")
         void testNullReplyPipeline() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, null, validMetricsHodler, validPublisherManager);
+                new PublisherHandler(validNextId, null, validMetricsHodler, validPublisherManager, "");
             });
         }
 
@@ -113,7 +114,7 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null metrics holder")
         void testNullMetricsHolder() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, null, validPublisherManager);
+                new PublisherHandler(validNextId, validReplyPipeline, null, validPublisherManager, "");
             });
         }
 
@@ -125,8 +126,128 @@ class PublisherHandlerTest {
         @DisplayName("Test constructor with null publisher manager")
         void testNullPublisherManager() {
             assertThatNullPointerException().isThrownBy(() -> {
-                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, null);
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, null, "");
             });
+        }
+
+        /**
+         * This test aims to assert that the constructor of {@link PublisherHandler} does not
+         * throw any exceptions when the correlation ID is null (null is treated as absent).
+         */
+        @Test
+        @DisplayName("Test constructor with null correlation ID is accepted")
+        void testNullCorrelationId() {
+            assertThatNoException().isThrownBy(() -> {
+                new PublisherHandler(validNextId, validReplyPipeline, validMetricsHodler, validPublisherManager, null);
+            });
+        }
+    }
+
+    /// Tests verifying that the correlation ID from the gRPC header is prefixed on all log messages.
+    @Nested
+    @DisplayName("Correlation ID Logging Tests")
+    class CorrelationIdLoggingTest {
+        private static final String TEST_CORRELATION_ID = "N3-STR1";
+
+        private TestResponsePipeline<PublishStreamResponse> repliesPipeline;
+        private MetricsHolder metrics;
+        private TestStreamPublisherManager manager;
+        private java.util.logging.Logger julLogger;
+        private TestLogHandler logHandler;
+
+        @BeforeEach
+        void setup() {
+            repliesPipeline = new TestResponsePipeline<>();
+            metrics = createMetrics();
+            manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
+
+            julLogger = java.util.logging.Logger.getLogger(PublisherHandler.class.getName());
+            logHandler = new TestLogHandler();
+            julLogger.addHandler(logHandler);
+            julLogger.setLevel(java.util.logging.Level.ALL);
+        }
+
+        @org.junit.jupiter.api.AfterEach
+        void tearDown() {
+            julLogger.removeHandler(logHandler);
+        }
+
+        /**
+         * Verifies that when a correlation ID is set, all log messages emitted by
+         * {@link PublisherHandler} are prefixed with {@code [correlationId] }.
+         */
+        @Test
+        @DisplayName("Log messages are prefixed with correlation ID when set")
+        void testCorrelationIdPrefixedInLogs() {
+            final PublisherHandler handler =
+                    new PublisherHandler(1L, repliesPipeline, metrics, manager, TEST_CORRELATION_ID);
+            manager.addHandler(handler);
+
+            handler.handleFailedVerification(42L);
+
+            assertThat(logHandler.getLogMessages()).anyMatch(msg -> msg.startsWith("[" + TEST_CORRELATION_ID + "] "));
+        }
+
+        /**
+         * Verifies that when no correlation ID is set (null), log messages start with
+         * empty brackets "[]" and do not contain a real correlation ID prefix.
+         */
+        @Test
+        @DisplayName("Log messages have empty brackets when correlation ID is null")
+        void testNoCorrelationIdPrefix() {
+            final PublisherHandler handler = new PublisherHandler(1L, repliesPipeline, metrics, manager, null);
+            manager.addHandler(handler);
+
+            handler.handleFailedVerification(42L);
+
+            assertThat(logHandler.getLogMessages())
+                    .anyMatch(msg -> msg.startsWith("[]"))
+                    .noneMatch(msg -> msg.matches("\\[.+\\].*"));
+        }
+
+        /**
+         * Verifies that the correlation ID prefix appears on multiple distinct log call-sites,
+         * covering both DEBUG and TRACE level messages.
+         */
+        @Test
+        @DisplayName("Correlation ID prefix appears on both DEBUG and TRACE log messages")
+        void testCorrelationIdPrefixOnMultipleLevels() {
+            final PublisherHandler handler =
+                    new PublisherHandler(1L, repliesPipeline, metrics, manager, TEST_CORRELATION_ID);
+            manager.addHandler(handler);
+
+            // Triggers a DEBUG log: "Handler {0} handling failed verification for block {1}"
+            handler.handleFailedVerification(10L);
+            // Triggers a DEBUG log: "Handler {0} handling failed persistence"
+            handler.handleFailedPersistence();
+
+            final long prefixedCount = logHandler.getLogMessages().stream()
+                    .filter(msg -> msg.startsWith("[" + TEST_CORRELATION_ID + "] "))
+                    .count();
+            assertThat(prefixedCount).isGreaterThanOrEqualTo(2);
+        }
+
+        /**
+         * Verifies that the correct correlation ID value from the gRPC header is embedded
+         * in the log prefix, distinguishing multiple concurrent handler instances.
+         */
+        @Test
+        @DisplayName("Each handler uses its own correlation ID in log prefix")
+        void testDistinctCorrelationIdsPerHandler() {
+            final String idA = "N1-STR10";
+            final String idB = "N2-STR20";
+            final PublisherHandler handlerA = new PublisherHandler(1L, repliesPipeline, metrics, manager, idA);
+            final PublisherHandler handlerB =
+                    new PublisherHandler(2L, new TestResponsePipeline<>(), metrics, manager, idB);
+            manager.addHandler(handlerA);
+            manager.addHandler(handlerB);
+
+            handlerA.handleFailedVerification(1L);
+            handlerB.handleFailedVerification(2L);
+
+            assertThat(logHandler.getLogMessages())
+                    .anyMatch(msg -> msg.startsWith("[" + idA + "] "))
+                    .anyMatch(msg -> msg.startsWith("[" + idB + "] "));
         }
     }
 
@@ -168,7 +289,7 @@ class PublisherHandlerTest {
             repliesPipeline = new TestResponsePipeline();
             metrics = createMetrics();
             manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
-            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager);
+            toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, null);
             manager.addHandler(toTest);
         }
 
@@ -1946,6 +2067,111 @@ class PublisherHandlerTest {
                         manager.getBlockMessagingFacility().getSentNewestBlockKnownToNetworkNotifications();
                 assertThat(sentNotifications).hasSize(0);
             }
+
+            /// Verifies that [PublisherHandler#handleSkip] covers the false branch of
+            /// [PublisherHandler#sendResponse]: when the reply pipeline throws on [onNext],
+            /// the send-response-failed metric is incremented and the handler shuts down.
+            @Test
+            @DisplayName("handleSkip - sendResponse failure increments SEND_RESPONSE_FAILED metric")
+            void testHandleSkipSendResponseFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                manager.addHandler(handler);
+                manager.setBlockActionForBlock(BlockAction.SKIP);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(5L);
+                handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
+
+            /// Verifies that [PublisherHandler#sendEndOfStream] covers the false branch
+            /// of [PublisherHandler#sendResponse]: when END_ERROR is returned and the reply
+            /// pipeline throws on [onNext], the send-response-failed metric is incremented.
+            @Test
+            @DisplayName("handleEndError - sendEndOfStream false branch when pipeline throws")
+            void testHandleEndErrorSendEndOfStreamFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                manager.addHandler(handler);
+                manager.setBlockActionForBlock(BlockAction.END_ERROR);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(5L);
+                handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
+
+            /// Verifies that [PublisherHandler#handleSendBehind] covers the false branch of
+            /// [PublisherHandler#sendResponse]: when the reply pipeline throws on [onNext],
+            /// the send-response-failed metric is incremented and the handler shuts down.
+            @Test
+            @DisplayName("handleSendBehind - sendResponse failure increments SEND_RESPONSE_FAILED metric")
+            void testHandleSendBehindSendResponseFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                manager.addHandler(handler);
+                manager.setBlockActionForBlock(BlockAction.SEND_BEHIND);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(5L);
+                handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
         }
 
         /// Tests for the [PublisherHandler#onError(Throwable)] method.
@@ -2206,6 +2432,36 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
             }
+
+            /// Verifies that [PublisherHandler#sendAcknowledgement] covers the false branch of
+            /// [PublisherHandler#sendResponse]: when the reply pipeline throws on [onNext],
+            /// the send-response-failed metric is incremented.
+            @Test
+            @DisplayName("sendAcknowledgement - sendResponse failure increments SEND_RESPONSE_FAILED metric")
+            void testSendAcknowledgementSendResponseFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                handler.sendAcknowledgement(1L);
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
         }
 
         /// Tests for the [PublisherHandler#handleFailedVerification(long)]method.
@@ -2414,6 +2670,44 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isZero();
             }
 
+            /// Verifies that when the manager returns ACCEPT but with a block number that
+            /// does not match the currently streaming block, the handler treats it as an
+            /// unexpected action and ends with an error (covers the
+            /// {@code currentStreamingNumber == actionForBlock.blockNumber()} false branch).
+            @Test
+            @DisplayName("endOfBlock - EndOfStream(ERROR) when ACCEPT has a valid but mismatched block number")
+            void testAcceptWithMismatchedBlockNumber() {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                toTest.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                // Manager returns ACCEPT for block 999, but we are streaming block 0.
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.ACCEPT, 999L));
+                endThisBlock(toTest, block.number());
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .anySatisfy(r -> assertThat(r.response().kind()).isEqualTo(ResponseOneOfType.END_STREAM));
+            }
+
+            /// Verifies that when a [BlockEnd] arrives for a different block number than
+            /// the one currently streaming, the mismatch is logged and the block is still
+            /// ended using {@code currentStreamingNumber} (covers line 453 true branch).
+            @Test
+            @DisplayName("endOfBlock - mismatch in BlockEnd block number is logged; block still ended correctly")
+            void testEndOfBlockNumberMismatch() {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                toTest.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                // Manager returns ACCEPT for current block 0.
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.ACCEPT, 0L));
+                // Send BlockEnd for block 1 — handler is streaming block 0.
+                endThisBlock(toTest, 1L);
+                // The block ended is the current streaming block (0), not the one in BlockEnd (1).
+                assertThat(manager.getEndOfBlocksReceived()).containsExactly(0L);
+            }
+
             private static Stream<Arguments> unexpectedBlockActions() {
                 return Stream.of(
                         // expected action, but invalid number
@@ -2508,6 +2802,74 @@ class PublisherHandlerTest {
                 // Assert that the manager's closeBlock method was called
                 assertThat(manager.closeBlockCallsForHandler(handlerId)).isEqualTo(1);
             }
+
+            /// Verifies that [PublisherHandler#handleResend] covers the false branch of
+            /// [PublisherHandler#sendResponse]: when the reply pipeline throws on [onNext],
+            /// the send-response-failed metric is incremented.
+            @Test
+            @DisplayName("handleResend - sendResponse failure increments SEND_RESPONSE_FAILED metric")
+            void testHandleResendSendResponseFailure() {
+                final Pipeline<PublishStreamResponse> throwingPipeline = new Pipeline<>() {
+                    @Override
+                    public void onNext(final PublishStreamResponse item) {
+                        throw new RuntimeException("Simulated pipeline failure");
+                    }
+
+                    @Override
+                    public void onSubscribe(final Subscription subscription) {}
+
+                    @Override
+                    public void onError(final Throwable throwable) {}
+
+                    @Override
+                    public void onComplete() {}
+
+                    @Override
+                    public void clientEndStreamReceived() {}
+                };
+                final PublisherHandler handler = new PublisherHandler(2L, throwingPipeline, metrics, manager, null);
+                manager.addHandler(handler);
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                handler.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.RESEND, block.number()));
+                endThisBlock(handler, block.number());
+                assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED))
+                        .isEqualTo(1);
+            }
+
+            /// Verifies that [PublisherHandler#handleResend] correctly handles the else branch
+            /// when [StreamPublisherManager#endOfBlock] returns a RESEND action with an invalid
+            /// (UNKNOWN) block number, triggering an END_STREAM error response.
+            @Test
+            @DisplayName(
+                    "handleResend - END_STREAM error response when endOfBlock returns RESEND with UNKNOWN block number")
+            void testHandleResendUnknownBlockNumber() {
+                final TestBlock block = TestBlockBuilder.generateBlockWithNumber(0L);
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
+                toTest.onNext(PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(block.asItemSetUnparsed())
+                        .build());
+                // Return RESEND with UNKNOWN_BLOCK_NUMBER (-1) to trigger the else branch in handleResend
+                manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.RESEND, -1L));
+                endThisBlock(toTest, block.number());
+                assertThat(repliesPipeline.getOnNextCalls())
+                        .anySatisfy(r -> assertThat(r.response().kind()).isEqualTo(ResponseOneOfType.END_STREAM));
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+            }
+
+            /// Verifies that [PublisherHandler#handleEndOfBlock] is a no-op when the handler
+            /// is not currently streaming a block (covers the true branch of
+            /// currentStreamingNumber <= UNKNOWN_BLOCK_NUMBER).
+            @Test
+            @DisplayName("endOfBlock - no-op when handler is not currently streaming a block")
+            void testEndOfBlockWhenNotStreaming() {
+                endThisBlock(toTest, 0L);
+                assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isZero();
+            }
         }
     }
 
@@ -2521,5 +2883,32 @@ class PublisherHandlerTest {
 
     private long getMetricValue(org.hiero.metrics.core.MetricKey<?> metricKey) {
         return metricsExporter.getMetricValue(metricKey.name());
+    }
+
+    /// A simple JUL {@link java.util.logging.Handler} that accumulates formatted log messages
+    /// for assertion in tests.
+    private static class TestLogHandler extends java.util.logging.Handler {
+        private final java.util.List<String> messages = new java.util.ArrayList<>();
+
+        @Override
+        public void publish(java.util.logging.LogRecord record) {
+            if (record != null && record.getMessage() != null) {
+                final Object[] params = record.getParameters();
+                final String formatted = (params != null && params.length > 0)
+                        ? java.text.MessageFormat.format(record.getMessage(), params)
+                        : record.getMessage();
+                messages.add(formatted);
+            }
+        }
+
+        @Override
+        public void flush() {}
+
+        @Override
+        public void close() {}
+
+        java.util.List<String> getLogMessages() {
+            return java.util.Collections.unmodifiableList(messages);
+        }
     }
 }
