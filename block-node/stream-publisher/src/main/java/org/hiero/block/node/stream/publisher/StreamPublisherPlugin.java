@@ -91,7 +91,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
             .addCategory(METRICS_CATEGORY);
 
     /// The logger for this class.
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    private static final System.Logger LOGGER = System.getLogger(StreamPublisherPlugin.class.getName());
 
     /// The block node context, for access to core facilities.
     private BlockNodeContext context;
@@ -128,13 +128,6 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
                 context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes() - 16384;
 
         final String rawCorrelationId = options.metadata().getOrDefault("hiero-correlation-id", "");
-        if (rawCorrelationId.length() > MAX_CORRELATION_ID_LENGTH) {
-            LOGGER.log(
-                    System.Logger.Level.WARNING,
-                    "Received hiero-correlation-id header exceeds {0} characters and will be truncated: {1}",
-                    MAX_CORRELATION_ID_LENGTH,
-                    rawCorrelationId.substring(0, MAX_CORRELATION_ID_LENGTH));
-        }
         final String correlationId = truncateCorrelationId(rawCorrelationId);
 
         return switch (blockStreamPublisherServiceMethod) {
@@ -211,6 +204,12 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
             return "";
         }
         if (correlationId.length() > MAX_CORRELATION_ID_LENGTH) {
+            LOGGER.log(
+                    System.Logger.Level.WARNING,
+                    "Received hiero-correlation-id header of {0} characters exceeds limit of {1} and will be truncated: {2}",
+                    correlationId.length(),
+                    MAX_CORRELATION_ID_LENGTH,
+                    correlationId.substring(0, MAX_CORRELATION_ID_LENGTH));
             return correlationId.substring(0, MAX_CORRELATION_ID_LENGTH);
         }
         return correlationId;
