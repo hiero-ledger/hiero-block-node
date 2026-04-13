@@ -37,7 +37,6 @@ import org.hiero.block.node.base.s3.S3Client;
 import org.hiero.block.node.base.s3.S3ClientInitializationException;
 import org.hiero.block.node.base.s3.S3ResponseException;
 import org.hiero.block.node.base.tar.TaredBlockIterator;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -99,10 +98,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
      * {@inheritDoc}
      */
     @Override
-    public void init(
-            final BlockNodeContext context,
-            final ServiceBuilder serviceBuilder,
-            @NonNull final ApplicationStateFacility applicationStateFacility) {
+    public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = context;
         this.archiveConfig = context.configuration().getConfigData(S3ArchiveConfig.class);
         // check if enabled by the "endpointUrl" property being non-empty in config

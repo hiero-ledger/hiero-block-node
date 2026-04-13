@@ -20,13 +20,12 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.messaging.MessagingConfig;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.junit.jupiter.api.Test;
 
-public class DynamicBlockItemTest implements ApplicationStateFacility {
+public class DynamicBlockItemTest {
 
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
@@ -110,7 +109,7 @@ public class DynamicBlockItemTest implements ApplicationStateFacility {
         };
         // create message service to test, add handlers and start the service
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(TestConfig.getBlockNodeContext(), null, this);
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
         messagingService.registerNoBackpressureBlockItemHandler(slowHandler, false, null);
         messagingService.registerNoBackpressureBlockItemHandler(fastHandler, false, null);
         messagingService.start();
@@ -193,7 +192,7 @@ public class DynamicBlockItemTest implements ApplicationStateFacility {
         };
         // create message service to test, add handlers and start the service
         final BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(TestConfig.getBlockNodeContext(), null, this);
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
         messagingService.registerNoBackpressureBlockItemHandler(handler1, false, null);
         messagingService.registerNoBackpressureBlockItemHandler(handler2, false, null);
         messagingService.start();

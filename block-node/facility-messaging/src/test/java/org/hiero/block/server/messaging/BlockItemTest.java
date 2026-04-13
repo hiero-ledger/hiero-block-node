@@ -19,7 +19,6 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.hiero.block.node.messaging.BlockMessagingFacilityImpl;
 import org.hiero.block.node.messaging.MessagingConfig;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -31,7 +30,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 /**
  * Tests for the Block Item functionality of the MessagingService.
  */
-public class BlockItemTest implements ApplicationStateFacility {
+public class BlockItemTest {
     /**
      * The number of items to send to the messaging service. This is twice the size of the ring buffer, so that we can
      * test the back pressure and the slow handler.
@@ -63,7 +62,7 @@ public class BlockItemTest implements ApplicationStateFacility {
                 .toList();
         // Create MessagingService to test
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(TestConfig.getBlockNodeContext(), null, this);
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
         // Register the handlers, if registerBeforeStart is true
         if (registerBeforeStart) {
             testHandlers.forEach(handler -> messagingService.registerBlockItemHandler(handler, false, "testHandler"));
@@ -128,7 +127,7 @@ public class BlockItemTest implements ApplicationStateFacility {
                 .toList();
         // Create MessagingService to test and register the handlers
         BlockMessagingFacility messagingService = new BlockMessagingFacilityImpl();
-        messagingService.init(TestConfig.getBlockNodeContext(), null, this);
+        messagingService.init(TestConfig.getBlockNodeContext(), null);
         messagingService.registerBlockItemHandler(testHandlers.get(0), false, "testHandler0");
         messagingService.registerBlockItemHandler(testHandlers.get(1), false, "testHandler1");
         messagingService.registerNoBackpressureBlockItemHandler(testHandlers.get(2), false, "testHandler2");
@@ -165,7 +164,7 @@ public class BlockItemTest implements ApplicationStateFacility {
     public void testThreadNameAndVirtualVsNonVirtual() {
         // Create a MessagingService instance
         BlockMessagingFacility service = new BlockMessagingFacilityImpl();
-        service.init(TestConfig.getBlockNodeContext(), null, this);
+        service.init(TestConfig.getBlockNodeContext(), null);
         // collect thread names and virtual vs non-virtual flags
         final AtomicReference<String> threadName1 = new AtomicReference<>();
         final AtomicReference<String> threadName2 = new AtomicReference<>();
