@@ -58,10 +58,18 @@ public record ChainFile(
      * @return the chain file, or null if unrecognized
      */
     public static ChainFile createOrNull(int nodeAccountId, String path, int size, String md5) {
-        if (Kind.fromFilePath(path) == null) {
+        Kind kind = Kind.fromFilePath(path);
+        if (kind == null) {
             return null;
         }
-        return new ChainFile(nodeAccountId, path, size, md5);
+        return new ChainFile(
+                kind,
+                nodeAccountId,
+                path,
+                blockTimeInstantToLong(extractRecordFileTime(path.substring(path.lastIndexOf('/') + 1))),
+                size,
+                md5,
+                extractSidecarIndex(path));
     }
 
     /**
