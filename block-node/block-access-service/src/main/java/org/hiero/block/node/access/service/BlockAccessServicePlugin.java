@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.access.service;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.Pipelines;
@@ -96,7 +96,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
             // if retrieveLatest is set, or the request is for the largest possible block number, get the latest block.
             if (request.hasBlockNumber() && request.blockNumber() >= 0) {
                 blockNumberToRetrieve = request.blockNumber();
-                LOGGER.log(TRACE, "Received `block_number` BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
+                LOGGER.log(DEBUG, "Received `block_number` BlockRequest, retrieving block: {0}", blockNumberToRetrieve);
             } else if ((request.hasRetrieveLatest() && request.retrieveLatest())
                     || (request.hasBlockNumber() && request.blockNumber() == -1)) {
                 blockNumberToRetrieve = blockProvider.availableBlocks().max();

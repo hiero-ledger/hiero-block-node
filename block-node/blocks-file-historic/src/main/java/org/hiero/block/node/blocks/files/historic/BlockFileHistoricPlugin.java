@@ -4,7 +4,6 @@ package org.hiero.block.node.blocks.files.historic;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.nio.file.FileVisitResult.CONTINUE;
 import static org.hiero.block.node.base.BlockFile.nestedDirectoriesAllBlockNumbers;
@@ -401,7 +400,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
             BlockUnparsed.PROTOBUF.write(block, streamingData);
             streamingData.flush();
             streamingData.close();
-            LOGGER.log(TRACE, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
+            LOGGER.log(DEBUG, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
             // update the oldest and newest verified block numbers
             availableStagedBlocks.add(blockNumber);
         } catch (final IOException e) {
@@ -561,7 +560,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                 } else {
                     // move the batch of blocks to a zip file
                     final String startMessage = "Moving batch of blocks [{0} -> {1}] to zip file.";
-                    plugin.LOGGER.log(TRACE, startMessage, batchFirstBlockNumber, batchLastBlockNumber);
+                    plugin.LOGGER.log(DEBUG, startMessage, batchFirstBlockNumber, batchLastBlockNumber);
 
                     // compute the exact path where we need to move the created zip file
                     final BlockPath firstBlockPath =
@@ -619,7 +618,7 @@ public final class BlockFileHistoricPlugin implements BlockProviderPlugin, Block
                     plugin.availableBlocks.add(batchFirstBlockNumber, batchLastBlockNumber);
                     plugin.totalZipFiles.incrementAndGet();
                     final String successMessage = "Successfully moved batch of blocks[{0} -> {1}] to zip file.";
-                    plugin.LOGGER.log(TRACE, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
+                    plugin.LOGGER.log(DEBUG, successMessage, batchFirstBlockNumber, batchLastBlockNumber);
                     // now all the blocks are in the zip file and accessible, send notification
                     // @todo is this needed? Does anything actually care when a zip file is completed?
                     plugin.context

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.messaging;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.TRACE;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
@@ -249,7 +250,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
         // log successful initialization
         LOGGER.log(
-                TRACE,
+                DEBUG,
                 "BlockMessagingFacility initialized with block item queue size: {0} and block notification queue size: {1}",
                 messagingConfig.blockItemQueueSize(),
                 messagingConfig.blockNotificationQueueSize());
@@ -373,7 +374,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
         // log the registration of the handler
         LOGGER.log(
-                TRACE,
+                DEBUG,
                 "Registering block item handler: {0}, cpuIntensive: {1}, handlerName: {2}",
                 handler.getClass().getSimpleName(),
                 cpuIntensiveHandler,
@@ -416,7 +417,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
         // log the registration of the handler
         LOGGER.log(
-                TRACE,
+                DEBUG,
                 "Registering no backpressure block item handler: {0}, cpuIntensive: {1}, handlerName: {2}",
                 handler.getClass().getSimpleName(),
                 cpuIntensiveHandler,
@@ -446,7 +447,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
             blockVerificationNotificationsCounter.increment();
             // logs
             LOGGER.log(
-                    TRACE,
+                    DEBUG,
                     "Sending block verification notification for block={0} blockSource={1} and success={2} ",
                     notification.blockNumber(),
                     notification.source(),
@@ -461,7 +462,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public void sendBlockPersisted(PersistedNotification notification) {
         messageForwarder.submit(() -> {
             LOGGER.log(
-                    TRACE,
+                    DEBUG,
                     "Sending block persisted notification: block={0} succeeded={1} source={2}",
                     notification.blockNumber(),
                     notification.succeeded(),
@@ -486,7 +487,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
         messageForwarder.submit(() -> {
-            LOGGER.log(TRACE, "Sending NewestBlockKnownToNetwork notification: block={0}", notification.blockNumber());
+            LOGGER.log(DEBUG, "Sending NewestBlockKnownToNetwork notification: block={0}", notification.blockNumber());
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             newestBlockKnownToNetworkNotificationsCounter.increment();
         });
@@ -495,7 +496,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     @Override
     public void sendPublisherStatusUpdate(final PublisherStatusUpdateNotification notification) {
         messageForwarder.submit(() -> {
-            LOGGER.log(TRACE, "Sending publisher status update notification: {0}", notification);
+            LOGGER.log(DEBUG, "Sending publisher status update notification: {0}", notification);
             blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
             publisherStatusUpdateNotificationsCounter.increment();
         });
@@ -542,7 +543,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
 
         // log the registration of the handler
         LOGGER.log(
-                TRACE,
+                DEBUG,
                 "Registering block notification handler: {0}, cpuIntensive: {1}, handlerName: {2}",
                 handler.getClass().getSimpleName(),
                 cpuIntensiveHandler,
@@ -593,9 +594,9 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         }
 
         // log successful start
-        if (LOGGER.isLoggable(TRACE)) {
+        if (LOGGER.isLoggable(DEBUG)) {
             LOGGER.log(
-                    TRACE,
+                    DEBUG,
                     "BlockMessagingFacility successfully started with block item queue size: {0} and block notification queue size: {1}",
                     blockItemDisruptor.getRingBuffer().getBufferSize(),
                     blockNotificationDisruptor.getRingBuffer().getBufferSize());
@@ -616,7 +617,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         for (Thread thread : blockItemHandlerToThread.values()) {
             thread.interrupt();
             // log the stopping of the thread
-            LOGGER.log(TRACE, "Stopped block item handler thread: {0}", thread.getName());
+            LOGGER.log(DEBUG, "Stopped block item handler thread: {0}", thread.getName());
         }
         // Stop all the block notification event handlers
         for (var eventHandler : blockNotificationHandlerToEventProcessor.values()) {
@@ -630,7 +631,7 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         for (Thread thread : blockNotificationHandlerToThread.values()) {
             thread.interrupt();
             // log the stopping of the thread
-            LOGGER.log(TRACE, "Stopped block notification handler thread: {0}", thread.getName());
+            LOGGER.log(DEBUG, "Stopped block notification handler thread: {0}", thread.getName());
         }
         messageForwarder.shutdown();
     }

@@ -4,7 +4,6 @@ package org.hiero.block.node.archive.s3;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.base.BlockFile.blockNumberFormated;
 
@@ -232,7 +231,7 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
             return;
         }
 
-        LOGGER.log(TRACE, "Scheduling S3 archive upload for blocks: {0} - {1}", startBlock, endBlock);
+        LOGGER.log(DEBUG, "Scheduling S3 archive upload for blocks: {0} - {1}", startBlock, endBlock);
 
         activeUploads.submit(new UploadTask(
                 startBlock, endBlock, lastArchivedBlockNumber, archiveConfig, context, pendingBatchStarts));
