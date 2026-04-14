@@ -460,7 +460,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             Files.write(tssDataFilePath, serialized.toByteArray());
             LOGGER.log(INFO, "Persisted TssData to file: {0}", tssDataFilePath);
         } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to persist TssData to {0}: {1}".formatted(tssDataFilePath, e.getMessage()), e);
+            LOGGER.log(WARNING, "Failed to persist TssData to %s: %s".formatted(tssDataFilePath, e), e);
         }
     }
 
