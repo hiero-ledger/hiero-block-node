@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.app.config.node;
 
-// spotless:off
-
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Min;
@@ -21,6 +19,7 @@ import org.hiero.block.node.base.Loggable;
  * @param tssDataFilePath path where TSS data (ledger ID, address book, WRAPS VK)
  *     are persisted across restarts as a serialized {@code TssData}.
  */
+// spotless:off
 @ConfigData("block.node")
 public record NodeConfig(
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock,
