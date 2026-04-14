@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.IntStream;
@@ -341,7 +342,7 @@ public class MainNetBucket {
                     return chainFiles;
                 }
             }
-            // create a list of ChainFiles
+            // create a list of ChainFiles, skipping malformed GCS entries
             List<ChainFile> chainFiles = IntStream.range(minNodeAccountId, maxNodeAccountId + 1)
                     .parallel()
                     .mapToObj(nodeAccountId -> Stream.concat(
@@ -359,11 +360,18 @@ public class MainNetBucket {
                                                                     + filePrefix,
                                                             REQUIRED_FIELDS))
                                             .streamAll())
-                            .map(blob -> new ChainFile(
-                                    nodeAccountId,
-                                    blob.getName(),
-                                    blob.getSize().intValue(),
-                                    blob.getMd5())))
+                            .map(blob -> {
+                                ChainFile cf = ChainFile.createOrNull(
+                                        nodeAccountId,
+                                        blob.getName(),
+                                        blob.getSize().intValue(),
+                                        blob.getMd5());
+                                if (cf == null) {
+                                    System.err.println("[WARN] Skipping unrecognized GCS file: " + blob.getName());
+                                }
+                                return cf;
+                            })
+                            .filter(Objects::nonNull))
                     .flatMap(Function.identity())
                     .toList();
             // save the list to cache

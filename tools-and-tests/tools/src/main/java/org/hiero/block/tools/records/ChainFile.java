@@ -48,6 +48,31 @@ public record ChainFile(
     }
 
     /**
+     * Creates a new chain file, or returns {@code null} if the file path has an
+     * unrecognized extension (e.g. malformed GCS files with trailing hash suffixes).
+     *
+     * @param nodeAccountId the node account ID
+     * @param path the path to the file in bucket
+     * @param size the size of the file
+     * @param md5 the MD5 hash of the file
+     * @return the chain file, or null if unrecognized
+     */
+    public static ChainFile createOrNull(int nodeAccountId, String path, int size, String md5) {
+        Kind kind = Kind.fromFilePath(path);
+        if (kind == null) {
+            return null;
+        }
+        return new ChainFile(
+                kind,
+                nodeAccountId,
+                path,
+                blockTimeInstantToLong(extractRecordFileTime(path.substring(path.lastIndexOf('/') + 1))),
+                size,
+                md5,
+                extractSidecarIndex(path));
+    }
+
+    /**
      * Extracts the sidecar index from the file path. If the file is not a sidecar file, returns -1.
      * <p>
      *     Example: <code>https://storage.googleapis.com/hedera-mainnet-streams/recordstreams/record0.0.34/sidecar/2024-04-04T18_03_26.007683847Z_01.rcd.gz</code>
@@ -93,6 +118,11 @@ public record ChainFile(
         SIGNATURE,
         SIDECAR;
 
+        /**
+         * Determines the file kind from the given path, or {@code null} if unrecognized.
+         * Malformed files (e.g. with trailing hash suffixes from GCS blips) return null
+         * so callers can skip them gracefully.
+         */
         public static Kind fromFilePath(String filePath) {
             if (filePath.contains("sidecar")) {
                 return SIDECAR;
@@ -101,7 +131,7 @@ public record ChainFile(
             } else if (filePath.endsWith(".rcd_sig")) {
                 return SIGNATURE;
             } else {
-                throw new IllegalArgumentException("Unknown file type: " + filePath);
+                return null;
             }
         }
     }
