@@ -304,33 +304,18 @@ class LiveStreamPublisherManagerTest {
 
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
-            /// method returns [BlockAction#END_ERROR] when the provided
-            /// block number equal to the next expected block number and previous
-            /// action is [BlockAction#ACCEPT].
+            /// method returns [BlockAction#SKIP] when we want to continue streaming a block which the
+            /// manager no longer has a registered queue for, i.e., we had a previous action
+            /// [BlockAction#ACCEPT], but we do not have a registered queue for that block within the
+            // manager.
             @Test
             @DisplayName(
-                    "getActionForBlock() returns END_ERROR when the provided block number equal to the next expected block number and previous action is ACCEPT")
-            void testGetActionACCEPTPreviousActionERROR() {
-                // Initially, the next expected block number is 0L.
-                // Call
-                final BlockAction actual = toTest.getActionForBlock(0L, BlockAction.ACCEPT, publisherHandlerId);
-                // Assert
-                assertThat(actual).isEqualTo(BlockAction.END_ERROR);
-            }
-
-            /// This test aims to assert that the
-            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
-            /// method returns [BlockAction#END_ERROR] when we want to continue streaming a block,
-            /// i.e. we had a previous action [BlockAction#ACCEPT], but we do not have a registered
-            /// queue for that block.
-            @Test
-            @DisplayName(
-                    "getActionForBlock() returns END_ERROR when previous action was ACCEPT, but we do not have a registered queue for the block we want to continue")
+                    "getActionForBlock() returns SKIP when previous action was ACCEPT, but we do not have a registered queue for the block we want to continue")
             void testGetActionACCEPTNoQueueContinuingBlock() {
                 // Call
                 final BlockAction actual = toTest.getActionForBlock(0L, BlockAction.ACCEPT, publisherHandlerId);
                 // Assert
-                assertThat(actual).isEqualTo(BlockAction.END_ERROR);
+                assertThat(actual).isEqualTo(BlockAction.SKIP);
             }
 
             /// This test aims to assert that the
@@ -898,14 +883,24 @@ class LiveStreamPublisherManagerTest {
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that the response pipeline has received a BAD_BLOCK_PROOF response, because the
-                // publisher we used has sent a block with invalid proof and handler shutdown (onComplete called).
-                assertThat(responsePipeline.getOnNextCalls())
+                // publisher we used has sent a block with invalid proof.
+                final List<PublishStreamResponse> onNextCalls = responsePipeline.getOnNextCalls();
+                assertThat(onNextCalls)
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
+                onNextCalls.clear();
+                // We expect a shutdown to be scheduled
+                // We need to send any request or trigger any pipeline method
+                // to do the actual shutdown
+                // As a pre-check, we expect no onComplete calls
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
+                publisherHandler.onNext(request);
+                // Assert that no more responses are sent
+                assertThat(onNextCalls).isEmpty();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDOFSTREAM_SENT))
                         .isEqualTo(1);
@@ -1002,6 +997,12 @@ class LiveStreamPublisherManagerTest {
                         new VerificationNotification(false, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
+                // As a pre-check, we expect the pipeline to be empty
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // We expect a shutdown to be scheduled
+                // We need to send any request or trigger any pipeline method
+                // to do the actual shutdown
+                publisherHandler2.onNext(request);
                 // Assert that the response pipeline has received no responses and the shared metrics is not updated.
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
@@ -1063,6 +1064,12 @@ class LiveStreamPublisherManagerTest {
                         new VerificationNotification(false, testBlock.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
+                // As a pre-check, we expect the pipeline to be empty
+                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
+                // We expect a shutdown to be scheduled
+                // We need to send any request or trigger any pipeline method
+                // to do the actual shutdown
+                publisherHandler2.onNext(request);
                 // Assert that the response pipeline of the first publisher has received no responses.
                 // Also no metrics for resends is updated
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
@@ -1382,31 +1389,37 @@ class LiveStreamPublisherManagerTest {
                         .returns(Code.PERSISTENCE_FAILED, endStreamResponseCodeExtractor)
                         // below block number in the response is the latest known, -1L because none are stored
                         .returns(-1L, endStreamBlockNumberExtractor);
+                // As a pre-check, we expect no onComplete calls
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
+                // We expect a shutdown to be scheduled
+                // We need to send any request or trigger any pipeline method
+                // to do the actual shutdown
+                publisherHandler.onNext(
+                        TestBlockBuilder.generateBlockWithNumber(0L).asPublishStreamRequestUnparsed());
                 // Assert that the latest known block number is still -1L, it was not updated
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestPersistedFromManager);
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
-
                 // Assert no other responses sent
                 assertThat(responsePipeline.getOnErrorCalls()).isEmpty();
                 assertThat(responsePipeline.getOnSubscriptionCalls()).isEmpty();
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
-            }
-
-            /// Verifies that a failed [PersistedNotification] (succeeded = false)
-            /// clears the queue map and sends [PublisherHandler#handleFailedPersistence]
-            /// to all handlers rather than sending an acknowledgement.
-            @Test
-            @DisplayName("handlePersisted() clears queue and sends failedPersistence to handlers on failure")
-            void testHandlePersistedFailedNotification() {
-                // Pre-condition: no responses yet.
-                assertThat(responsePipeline.getOnNextCalls()).isEmpty();
-                // Send a failed persistence notification.
-                toTest.handlePersisted(new PersistedNotification(0L, false, 0, BlockSource.PUBLISHER));
-                // Failed persistence sends EndOfStream(PERSISTENCE_FAILED) to each handler, triggering onComplete.
-                assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
-                assertThat(responsePipeline.getOnNextCalls())
-                        .anySatisfy(response ->
-                                assertThat(response.response().kind()).isEqualTo(ResponseOneOfType.END_STREAM));
+                publisherHandler2.onNext(
+                        TestBlockBuilder.generateBlockWithNumber(0L).asPublishStreamRequestUnparsed());
+                // Assert that the response pipeline has received a PERSISTENCE_FAILED
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
+                        .returns(Code.PERSISTENCE_FAILED, endStreamResponseCodeExtractor)
+                        // below block number in the response is the latest known, -1L because none are stored
+                        .returns(-1L, endStreamBlockNumberExtractor);
+                // Assert that the latest known block number is still -1L, it was not updated
+                assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestPersistedFromManager);
+                assertThat(responsePipeline2.getOnCompleteCalls().get()).isEqualTo(1);
+                // Assert no other responses sent
+                assertThat(responsePipeline2.getOnErrorCalls()).isEmpty();
+                assertThat(responsePipeline2.getOnSubscriptionCalls()).isEmpty();
+                assertThat(responsePipeline2.getClientEndStreamCalls().get()).isEqualTo(0);
             }
 
             /// Verifies that a second [PersistedNotification] with the same
@@ -1689,13 +1702,9 @@ class LiveStreamPublisherManagerTest {
             /// The manager does not allow two or more publishers to stream the same block simultaneously.
             /// That being said, this test aims to assert when we are streaming block X and then start
             /// streaming block Y, we will end block X mid-block and ask for it to be resent.
-            /// This scenario can happen because when a publisher gets a RESEND, which is a bidi stream
-            /// message, this can happen at any time. The publisher could have started streaming the
-            /// next block before getting the RESEND, but once it gets the message, it is possible
-            /// to stop mid-block and start the requested resend.
             @Test
             @DisplayName(
-                    "Test blockIsEnding() when receiving premature header for same publisher, resend if not same block")
+                    "Test blockIsEnding() when receiving premature header for same publisher, schedule resend if not same block")
             void testBlockIsEndingWhenReceivingPrematureHeaderSamePublisherDifferentBlock() {
                 // First, we need to build and stream the next block in line
                 final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
@@ -1739,21 +1748,18 @@ class LiveStreamPublisherManagerTest {
                 // Now clear the block items sent to ease later asserts
                 sentBlockItems.clear();
                 assertThat(sentBlockItems).isEmpty();
-                // Now we have to start streaming a different block, for instance block 0, but do not end it so
-                // we can assert below.
-                // To be able to stream block 0, however, it must have been scheduled for a resend.
-                // Let's fail the verification of block 0 so that the manager will expect it.
-                // Here we simulate that the handler has received a RESEND after it has started streaming the
-                // next block.
-                toTest.handleVerification(new VerificationNotification(false, 0L, null, null, BlockSource.PUBLISHER));
-                // Now start streaming block 0 which is expected (by the manager) to be resent
+                // Now start streaming block 0 again. Block 0 is not yet acknowledged so we expect a SKIP for it,
+                // but the handler is mid-block 1, so we expect that it will be scheduled for resend
                 publisherHandler.onNext(requestBlock0);
-                // Give some time for the message forwarder to forward the items
-                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(500L));
-                // Now assert that we have started steaming block 0
-                assertThat(sentBlockItems).hasSize(1);
-                assertThat(sentBlockItems).first().isEqualTo(expectedBlock0FirstItemBatch);
-                // Now assert that if we end block 0, we will get a resend for block 1
+                // Assert SKIP correctly received
+                assertThat(responsePipeline.getOnNextCalls())
+                        .hasSize(1)
+                        .first()
+                        .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
+                        .returns(block0.number(), skipBlockNumberExtractor);
+                // Now end any block, by any publisher in order to assert that block 1, which the publisher was in the
+                // middle of streaming before receiving a premature header, is scheduled for resend.
+                // To assert in this test, we will simply end it directly, not through a publisher.
                 final ActionForBlock actionForBlock = toTest.endOfBlock(block0.number());
                 final ActionForBlock expected = new ActionForBlock(BlockAction.RESEND, block1.number());
                 assertThat(actionForBlock).isEqualTo(expected);
