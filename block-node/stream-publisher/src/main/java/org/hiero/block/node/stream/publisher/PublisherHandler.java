@@ -829,7 +829,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                                 .formatted(handlerId, correlationIdPrefix),
                         e);
             }
-            LOGGER.log(TRACE, "[{0}] Handler {1} issued onComplete/closeConnection", correlationIdPrefix, handlerId);
+            LOGGER.log(DEBUG, "[{0}] Handler {1} issued onComplete/closeConnection", correlationIdPrefix, handlerId);
         }
     }
 

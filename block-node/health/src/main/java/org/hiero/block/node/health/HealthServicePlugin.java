@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.health;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
@@ -33,7 +34,7 @@ public class HealthServicePlugin implements BlockNodePlugin {
         serviceBuilder.registerHttpService(
                 HEALTHZ_PATH,
                 httpRules -> httpRules.get(LIVEZ_PATH, this::handleLivez).get(READYZ_PATH, this::handleReadyz));
-        LOGGER.log(TRACE, "Completed health facility initialization");
+        LOGGER.log(DEBUG, "Completed health facility initialization");
     }
 
     /**

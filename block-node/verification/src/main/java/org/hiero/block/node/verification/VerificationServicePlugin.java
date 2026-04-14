@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.cryptography.tss.TSS;
@@ -173,7 +173,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         context.blockMessaging().registerBlockNotificationHandler(this, false, "VerificationServicePlugin");
         // initialize metrics
         initMetrics(context);
-        LOGGER.log(TRACE, "VerificationServicePlugin initialized successfully.");
+        LOGGER.log(DEBUG, "VerificationServicePlugin initialized successfully.");
         // initialize all previous blocks hasher if enabled and available
         initAllBlocksHasherIfEnabled();
     }
@@ -191,11 +191,11 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 && (earliestManagedBlock == 0 || hasherHasData)) {
             previousBlockHash = Bytes.wrap(allBlocksHasherHandler.lastBlockHash());
             final String message = "All previous blocks hasher initialized with {0} hashes, last block hash: {1}";
-            LOGGER.log(TRACE, message, allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash);
+            LOGGER.log(DEBUG, message, allBlocksHasherHandler.getNumberOfBlocks(), previousBlockHash);
         } else {
             final String message =
                     "All previous blocks hasher not available, falling back to BlockFooter-provided values.";
-            LOGGER.log(TRACE, message);
+            LOGGER.log(DEBUG, message);
         }
     }
 
@@ -208,7 +208,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // specify that we are cpu intensive and should be run on a separate non-virtual thread
         context.blockMessaging().registerBlockItemHandler(this, true, VerificationServicePlugin.class.getSimpleName());
         // we do not need to unregister the handler as it will be unregistered when the message service is stopped
-        LOGGER.log(TRACE, "VerificationServicePlugin started successfully.");
+        LOGGER.log(DEBUG, "VerificationServicePlugin started successfully.");
 
         allBlocksHasherHandler.start();
     }
@@ -258,7 +258,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         previousHash,
                         getRootOfAllPreviousBlocks(),
                         activeLedgerId);
-                LOGGER.log(TRACE, "Started new block verification session for block number {0}", currentBlockNumber);
+                LOGGER.log(DEBUG, "Started new block verification session for block number {0}", currentBlockNumber);
             } else {
                 headerValid = true; // header not present, assume it was valid
             }
@@ -270,7 +270,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 LOGGER.log(INFO, "Received block items before a block header, ignoring.");
             } else if (headerValid) {
                 final String traceMessage = "Appending {0} block items to the current session for block number: {1}";
-                LOGGER.log(TRACE, traceMessage, blockItems.blockItems().size(), currentBlockNumber);
+                LOGGER.log(DEBUG, traceMessage, blockItems.blockItems().size(), currentBlockNumber);
                 long startHashingTime = System.nanoTime();
                 // processBlockItems returns notification when isEndOfBlock(), null otherwise
                 VerificationNotification notification = currentSession.processBlockItems(blockItems);
@@ -278,14 +278,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 hashingBlockTimeNs.increment(hashingTime);
                 // if this is the end of the block, handle verification result
                 if (notification != null) {
-                    LOGGER.log(TRACE, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
+                    LOGGER.log(DEBUG, COMPLETED_MESSAGE, currentBlockNumber, notification.success());
                     if (notification.success()) {
                         if (currentBlockNumber == 0) {
                             persistTssParameters();
                         }
                         verificationBlocksVerified.increment();
                         // send the notification to the block messaging service
-                        LOGGER.log(TRACE, "Sending verification notification for block={0}", currentBlockNumber);
+                        LOGGER.log(DEBUG, "Sending verification notification for block={0}", currentBlockNumber);
                         context.blockMessaging().sendBlockVerification(notification);
                         // Update previousBlockHash and previousVerifiedBlockNumber for next block verification
                         this.previousBlockHash = notification.blockHash();
@@ -398,7 +398,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     public void handleBackfilled(BackfilledBlockNotification notification) {
         try {
             // log the backfilled block notification received
-            LOGGER.log(TRACE, "Received backfill notification for block={0}", notification.blockNumber());
+            LOGGER.log(DEBUG, "Received backfill notification for block={0}", notification.blockNumber());
             // create a new verification session for the backfilled block
             BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
                     notification.block().blockItems().getFirst().blockHeader());
@@ -421,7 +421,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 VerificationNotification backfillNotification = backfillSession.processBlockItems(backfillBlockItems);
                 if (backfillNotification != null) {
                     // Log the backfill verification result
-                    LOGGER.log(TRACE, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
+                    LOGGER.log(DEBUG, COMPLETED_MESSAGE, notification.blockNumber(), backfillNotification.success());
                     if (backfillNotification.success()) {
                         if (notification.blockNumber() == 0) {
                             persistTssParameters();

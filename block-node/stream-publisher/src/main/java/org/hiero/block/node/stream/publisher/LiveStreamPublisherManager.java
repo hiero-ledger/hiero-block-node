@@ -144,7 +144,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // for the new publisher.
         metrics.currentPublisherCount().set(handlers.size());
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_CONNECTED, handlers);
-        LOGGER.log(TRACE, "Added new handler {0}", handlerId);
+        LOGGER.log(DEBUG, "Added new handler {0}", handlerId);
         return newHandler;
     }
 
@@ -159,7 +159,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // Update metrics and publish the status update
         metrics.currentPublisherCount().set(handlers.size());
         sendPublisherStatusUpdate(UpdateType.PUBLISHER_DISCONNECTED, handlers);
-        LOGGER.log(TRACE, "Removed handler {0}", handlerId);
+        LOGGER.log(DEBUG, "Removed handler {0}", handlerId);
     }
 
     @Override

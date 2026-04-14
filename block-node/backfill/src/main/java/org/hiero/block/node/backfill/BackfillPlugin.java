@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.backfill;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -130,7 +132,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // Validate block node sources configuration
         final String sourcesPath = backfillConfiguration.blockNodeSourcesPath();
         if (sourcesPath == null || sourcesPath.isBlank()) {
-            LOGGER.log(TRACE, "No block node sources path configured, backfill will not run");
+            LOGGER.log(DEBUG, "No block node sources path configured, backfill will not run");
             return;
         }
 
@@ -138,7 +140,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         if (!Files.isRegularFile(blockNodeSourcesPath)) {
             final String blockNodeSourcesPathNotFoundMsg =
                     "Block node sources path does not exist or is not a regular file: [{0}], backfill will not run";
-            LOGGER.log(TRACE, blockNodeSourcesPathNotFoundMsg, backfillConfiguration.blockNodeSourcesPath());
+            LOGGER.log(WARNING, blockNodeSourcesPathNotFoundMsg, backfillConfiguration.blockNodeSourcesPath());
             return;
         }
 
@@ -148,7 +150,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             final String parseFailedMsg =
                     "Failed to parse block node sources from path: [%s], backfill will not run: %s"
                             .formatted(backfillConfiguration.blockNodeSourcesPath(), e.getMessage());
-            LOGGER.log(TRACE, parseFailedMsg, e);
+            LOGGER.log(WARNING, parseFailedMsg, e);
             return;
         }
 
@@ -169,7 +171,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         }
 
         final String schedulingMsg = "Scheduling backfill process to start in [{0}] milliseconds";
-        LOGGER.log(TRACE, schedulingMsg, backfillConfiguration.initialDelay());
+        LOGGER.log(DEBUG, schedulingMsg, backfillConfiguration.initialDelay());
 
         // Create platform thread executors via threadPoolManager.
         // Platform threads required because Helidon WebClient HTTP/2 has issues with virtual threads in containers.
@@ -205,7 +207,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         final String initializedSchedulersMsg =
                 "Initialized dual schedulers: historical(cap=[{0}]), liveTail(cap=[{1}])";
         LOGGER.log(
-                TRACE,
+                DEBUG,
                 initializedSchedulersMsg,
                 backfillConfiguration.historicalQueueCapacity(),
                 backfillConfiguration.liveTailQueueCapacity());
@@ -265,7 +267,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         shutdownExecutor(historicalExecutor, "historicalExecutor");
         shutdownExecutor(liveTailExecutor, "liveTailExecutor");
 
-        LOGGER.log(TRACE, "Stopped backfill plugin");
+        LOGGER.log(DEBUG, "Stopped backfill plugin");
     }
 
     private void shutdownExecutor(ExecutorService executor, String name) {
@@ -314,7 +316,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         // 4. Submit each gap to appropriate scheduler
         final String detectedGapMsg = "Detected gap type=[{0}] range=[{1}]";
         for (GapDetector.Gap gap : gaps) {
-            LOGGER.log(TRACE, detectedGapMsg, gap.type(), gap.range());
+            LOGGER.log(DEBUG, detectedGapMsg, gap.type(), gap.range());
             scheduleGap(gap);
             metricsHolder.backfillGapsDetected.increment();
         }
@@ -349,7 +351,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
             return peerRange != null && peerRange.size() > 0 ? peerRange.end() : -1;
         } catch (RuntimeException e) {
             final String peerAvailabilityFailedMsg = "Failed to get peer availability: %s".formatted(e.getMessage());
-            LOGGER.log(TRACE, peerAvailabilityFailedMsg, e);
+            LOGGER.log(WARNING, peerAvailabilityFailedMsg, e);
             return -1;
         }
     }
@@ -365,7 +367,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 && historicalScheduler != null
                 && historicalScheduler.isRunning()) {
             final String skippingHistoricalGapMsg = "Skipping historical gap [{0}], scheduler already running";
-            LOGGER.log(TRACE, skippingHistoricalGapMsg, gap.range());
+            LOGGER.log(DEBUG, skippingHistoricalGapMsg, gap.range());
             return;
         }
 
@@ -386,7 +388,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
                 effectiveGap =
                         new GapDetector.Gap(new LongRange(newStart, gap.range().end()), GapDetector.Type.LIVE_TAIL);
                 final String adjustedLiveTailGapMsg = "Adjusted live-tail gap from [{0}] to [{1}]";
-                LOGGER.log(TRACE, adjustedLiveTailGapMsg, gap.range(), effectiveGap.range());
+                LOGGER.log(DEBUG, adjustedLiveTailGapMsg, gap.range(), effectiveGap.range());
             }
             // Update high-water mark
             liveTailHighWaterMark.updateAndGet(
@@ -397,7 +399,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
 
         // Submit the (possibly adjusted) gap to the appropriate scheduler
         final String submittingGapMsg = "Submitting gap type=[{0}] range=[{1}] to scheduler";
-        LOGGER.log(TRACE, submittingGapMsg, effectiveGap.type(), effectiveGap.range());
+        LOGGER.log(DEBUG, submittingGapMsg, effectiveGap.type(), effectiveGap.range());
         submitGap(effectiveGap);
     }
 
@@ -460,7 +462,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void handleNewestBlockKnownToNetwork(NewestBlockKnownToNetworkNotification notification) {
         if (!hasBNSourcesPath) {
-            LOGGER.log(TRACE, "No block node sources path configured, skipping on-demand backfill");
+            LOGGER.log(DEBUG, "No block node sources path configured, skipping on-demand backfill");
             return;
         }
 
@@ -474,7 +476,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         if (cappedEnd < startBackfillFrom) {
             final String skippingOnDemandBackfillMsg =
                     "Newest block [{0}] is before startBackfillFrom [{1}], skipping on-demand backfill";
-            LOGGER.log(TRACE, skippingOnDemandBackfillMsg, cappedEnd, startBackfillFrom);
+            LOGGER.log(DEBUG, skippingOnDemandBackfillMsg, cappedEnd, startBackfillFrom);
             return;
         }
         scheduleGap(new GapDetector.Gap(new LongRange(startBackfillFrom, cappedEnd), GapDetector.Type.LIVE_TAIL));
@@ -496,7 +498,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
         public void accept(GapDetector.Gap gap) {
             try {
                 final String processingGapMsg = "Scheduler processing gap type=[{0}] range=[{1}] for [{2}]";
-                LOGGER.log(TRACE, processingGapMsg, gap.type(), gap.range(), schedulerName);
+                LOGGER.log(DEBUG, processingGapMsg, gap.type(), gap.range(), schedulerName);
                 long lastSuccessfulBlock = runner.run(gap);
                 // Reset highWaterMark if the gap didn't complete, allowing re-detection
                 if (gap.type() == GapDetector.Type.LIVE_TAIL
