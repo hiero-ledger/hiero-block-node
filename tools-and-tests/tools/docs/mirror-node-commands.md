@@ -11,8 +11,11 @@ Available subcommands include:
 - `fetchMissingTransactions` - Download and compile mainnet errata for missing transactions (**mainnet only**)
 - `update` - Update `block_times.bin` and `day_blocks.json` with newer blocks from mirror node REST API
 - `extractDayBlocks` - (utility) Extract per-day block info from CSV/other sources
+- `extractDayBlocksFromApi` - Generate or update `day_blocks.json` from the Mirror Node REST API
 - `generateAddressBook` - Generate address book history JSON from Mirror Node CSV export (**mainnet only**)
 - `compareAddressBooks` - Compare two address book history JSON files
+- `generateTestnetAddressBook` - Generate testnet genesis address book from mirror node CSV export
+- `generateTestnetAddressBookHistory` - Generate testnet address book history JSON from bundled genesis
 
 > Important: many mirror commands download from public GCP buckets that are configured as Requester Pays. To access these you must have Google Cloud authentication configured locally. Typical steps:
 >
@@ -323,3 +326,99 @@ Features:
 Notes:
 - This is primarily used for mainnet historical data correction.
 - The output is used by block validation and conversion tools to handle known gaps in the transaction record.
+
+---
+
+### `extractDayBlocksFromApi`
+
+Generate or update `day_blocks.json` from the Hedera Mirror Node REST API. Unlike `extractDayBlocks` (which works from CSV files), this command queries the Mirror Node API directly — no GCP credentials required.
+
+For each day in the requested range, it issues two API calls to find the first block (`order=asc`) and last block (`order=desc`) of the day.
+
+Usage:
+
+```
+mirror extractDayBlocksFromApi [--start-date=<YYYY-MM-DD>] [--end-date=<YYYY-MM-DD>]
+                                [--day-blocks=<file>] [--no-merge] [--mirror-node-url=<url>]
+```
+
+Options:
+- `--start-date <date>` — First day to fetch (inclusive), format `YYYY-MM-DD` (default: network genesis date).
+- `--end-date <date>` — Last day to fetch (inclusive), format `YYYY-MM-DD` (default: yesterday UTC).
+- `--day-blocks <file>` — Path to the output `day_blocks.json` file (default: `day_blocks.json`).
+- `--no-merge` — Replace the entire output file instead of merging with existing data (default: merge).
+- `--mirror-node-url <url>` — Base URL for the mirror node API. Must end with `/` (default: from network config).
+
+Example:
+
+```bash
+# Generate day_blocks.json from API for all available mainnet days
+mirror extractDayBlocksFromApi
+
+# Generate for a specific date range
+mirror extractDayBlocksFromApi --start-date 2024-01-01 --end-date 2024-06-30
+
+# Testnet usage
+mirror extractDayBlocksFromApi --network testnet
+
+# Replace file instead of merging
+mirror extractDayBlocksFromApi --no-merge --day-blocks /path/to/day_blocks.json
+```
+
+Notes:
+- By default, merges fetched data into existing `day_blocks.json`, overwriting only entries in the requested date range.
+- Does not require GCP credentials — uses the public Mirror Node REST API.
+
+---
+
+### `generateTestnetAddressBook`
+
+Generate the testnet genesis address book protobuf binary file from a Mirror Node database CSV export.
+
+Usage:
+
+```
+mirror generateTestnetAddressBook [--csv=<file>] [-o=<outputFile>]
+```
+
+Options:
+- `--csv <file>` — Path to mirror node address book CSV export. The CSV should have columns `start_consensus_timestamp` and `file_data` (required).
+- `-o`, `--output <file>` — Output file path for the proto binary (default: `testnet-genesis-address-book.proto.bin`).
+
+Example:
+
+```bash
+# Generate from exported CSV
+mirror generateTestnetAddressBook --csv address_book_export.csv -o testnet-genesis-address-book.proto.bin
+```
+
+Notes:
+- The CSV file is an export of the `address_book` table from the testnet mirror node database.
+- The genesis entry has `start_consensus_timestamp = 1` and `file_data` containing hex-encoded `NodeAddressBook` protobuf (prefixed with `\x`).
+- The generated file can be bundled as a classpath resource for testnet operations.
+
+---
+
+### `generateTestnetAddressBookHistory`
+
+Generate testnet address book history JSON from the bundled genesis address book. Since testnet has no public mirror node CSV export bucket (unlike mainnet), this command loads the bundled `testnet-genesis-address-book.proto.bin` resource directly.
+
+Usage:
+
+```
+mirror generateTestnetAddressBookHistory [-o=<outputFile>]
+```
+
+Options:
+- `-o`, `--output <file>` — Output file path for the address book history JSON (default: `testnet-addressBookHistory.json`).
+
+Example:
+
+```bash
+# Generate testnet address book history
+mirror generateTestnetAddressBookHistory -o testnet-addressBookHistory.json
+```
+
+Notes:
+- Testnet has had only one address book (7 nodes, unchanged since the February 2024 reset).
+- The output JSON is compatible with `AddressBookHistory` and can be used by `blocks wrap` and `blocks validate` when `--network testnet` is specified.
