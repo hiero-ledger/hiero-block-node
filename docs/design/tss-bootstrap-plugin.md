@@ -1,4 +1,4 @@
-# Design Document Template
+# TSS Bootstrap Plugin Design
 
 ## Table of Contents
 
