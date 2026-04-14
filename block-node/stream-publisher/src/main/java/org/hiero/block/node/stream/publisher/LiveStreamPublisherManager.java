@@ -4,7 +4,6 @@ package org.hiero.block.node.stream.publisher;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
-import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED;
@@ -69,7 +68,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentNavigableMap<Long, PublisherHandler> handlers;
     private final AtomicLong nextHandlerId;
     private final ConcurrentNavigableMap<Long, Deque<BlockItemSetUnparsed>> queueByBlockMap;
-    private final AtomicLong highestBlockNumber;
     private final AtomicLong blocksClosedComplete;
     private final Condition dataReadyLatch;
     private final ReentrantLock dataReadyLock;
@@ -104,7 +102,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         threadManager = serverContext.threadPoolManager();
         handlers = new ConcurrentSkipListMap<>();
         nextHandlerId = new AtomicLong(0);
-        highestBlockNumber = new AtomicLong(0);
         blocksClosedComplete = new AtomicLong(0);
         queueByBlockMap = new ConcurrentSkipListMap<>();
         lastForwardedBlockNumber = new AtomicLong(-1);
@@ -167,7 +164,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final long blockNumber, final BlockAction previousAction, final long handlerId) {
         return switch (previousAction) {
             case null -> getActionForHeader(blockNumber);
-            case ACCEPT -> getActionForCurrentlyStreaming(blockNumber, handlerId);
+            case ACCEPT -> getActionForCurrentlyStreaming(blockNumber);
             case END_ERROR, END_DUPLICATE ->
                 // This should not happen because the Handler should have shut down.
                 BlockAction.END_ERROR;
@@ -197,17 +194,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     public ActionForBlock endOfBlock(final long blockNumber) {
         if (queueByBlockMap.containsKey(blockNumber)) {
             endBlocksReceived.add(blockNumber);
-            final long blockToResend = nextBlockToResend();
-            if (blockToResend != UNKNOWN_BLOCK_NUMBER) {
-                return new ActionForBlock(BlockAction.RESEND, blockToResend);
-            } else {
-                return new ActionForBlock(BlockAction.ACCEPT, blockNumber);
-            }
         } else {
             // If the queue is not in the map, this means that the manager no longer
             // needs the block
             // Remove a proof in case it is collected
             blockProofs.remove(blockNumber);
+        }
+        final long blockToResend = nextBlockToResend();
+        if (blockToResend != UNKNOWN_BLOCK_NUMBER) {
+            return new ActionForBlock(BlockAction.RESEND, blockToResend);
+        } else {
             return new ActionForBlock(BlockAction.ACCEPT, blockNumber);
         }
     }
@@ -303,8 +299,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             blocksToResend.add(blockNumber);
             // Iterate over all handlers and attempt to send the
             // bad block proof message.
-            // @todo(2339) improve the loop below, find the handler that should send the bad block proof code
-            //    and then let it handle the failed verification.
             for (final PublisherHandler handler : handlers.values()) {
                 if (handler.handleFailedVerification(blockNumber)) {
                     // There will always be only one handler that will send the
@@ -602,17 +596,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     /// todo(1420) add documentation
-    private BlockAction getActionForCurrentlyStreaming(final long blockNumber, final long handlerId) {
+    private BlockAction getActionForCurrentlyStreaming(final long blockNumber) {
         if (queueByBlockMap.containsKey(blockNumber)) {
             updateHighestBlockMetric(blockNumber);
             // We're one of the handlers currently streaming, keep going.
             return BlockAction.ACCEPT;
         } else {
-            // This is not expected
-            final String message =
-                    "Handler {0} wants to continue streaming block {1}, but it has no registered queue for the block";
-            LOGGER.log(WARNING, message, handlerId, blockNumber);
-            return BlockAction.END_ERROR;
+            // The block is no longer needed by the manager, we can skip it
+            return BlockAction.SKIP;
         }
     }
 

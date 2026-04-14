@@ -2496,7 +2496,7 @@ class PublisherHandlerTest {
             /// [org.hiero.block.api.PublishStreamResponse.EndOfStream]
             /// response with code
             /// [org.hiero.block.api.PublishStreamResponse.EndOfStream.Code#BAD_BLOCK_PROOF]
-            /// when the publisher has sent the block that failed verification.
+            /// and then scheduling the handler to be shutdown.
             @Test
             @DisplayName(
                     "handleFailedVerification() - EndOfStream response with Code BAD_BLOCK_PROOF when handler sent the block that failed verification")
@@ -2522,13 +2522,18 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(latestBlockNumber);
                 // Call
                 toTest.handleFailedVerification(expectedBlockNumber);
-                // Assert single response is EndOfStream with Code BAD_BLOCK_PROOF and onComplete is called (shutdown)
+                // Assert single response is EndOfStream with Code BAD_BLOCK_PROOF
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
                         .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
                         .returns(Code.BAD_BLOCK_PROOF, endStreamResponseCodeExtractor)
                         .returns(latestBlockNumber, endStreamBlockNumberExtractor);
+                // We expect a shutdown to be scheduled
+                // We need to send any request or trigger any pipeline method
+                // to do the actual shutdown
+                toTest.onNext(request);
+                // Assert onComplete is called (shutdown that was scheduled)
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
