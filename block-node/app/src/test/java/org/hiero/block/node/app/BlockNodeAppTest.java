@@ -105,8 +105,8 @@ class BlockNodeAppTest {
     void cleanup() {
         try {
             Files.deleteIfExists(Path.of("build/tmp/data/block/node/tss-data.bin"));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            // ignore the exception
         }
     }
 
