@@ -196,7 +196,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
         // ==== LOAD APPLICATION STATE =================================================================================
-        // Must be done after the block node context is created and
+        // Must be done after the block node context is created
         loadApplicationState();
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
@@ -469,7 +469,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      *
      * Loads the ApplicationState from file path(s) specified in the NodeConfig class.
      *
-     * This must be called after the blockNode context is created and before init()
+     * This must be called after the blockNode context is created
      */
     private void loadApplicationState() {
         final var tssDataFilePath =
