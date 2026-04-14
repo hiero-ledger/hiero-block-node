@@ -2,7 +2,7 @@
 package org.hiero.block.node.backfill.client;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.api.BlockStreamSubscribeServiceInterface.FULL_NAME;
 
@@ -165,7 +165,7 @@ public class BlockStreamSubscribeUnparsedClient {
 
         @Override
         public void onSubscribe(Flow.Subscription subscription) {
-            LOGGER.log(TRACE, "received onSubscribe confirmation");
+            LOGGER.log(DEBUG, "received onSubscribe confirmation");
             // No backpressure negotiation needed for this pattern.
         }
 
@@ -213,13 +213,13 @@ public class BlockStreamSubscribeUnparsedClient {
 
         @Override
         public void onError(Throwable throwable) {
-            LOGGER.log(TRACE, "received onError", throwable);
+            LOGGER.log(WARNING, "received onError", throwable);
             ctx.fail(throwable);
         }
 
         @Override
         public void onComplete() {
-            LOGGER.log(TRACE, "received onComplete");
+            LOGGER.log(DEBUG, "received onComplete");
             ctx.complete();
         }
     }

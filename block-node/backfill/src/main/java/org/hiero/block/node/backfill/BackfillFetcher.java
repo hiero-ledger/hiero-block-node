@@ -3,7 +3,7 @@ package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
@@ -116,7 +116,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
         for (BackfillSourceConfig node : blockNodeSource.nodes()) {
             if (isInBackoff(node)) {
-                LOGGER.log(TRACE, "Node [{0}] is in backoff, skipping range discovery", node.address());
+                LOGGER.log(DEBUG, "Node [{0}] is in backoff, skipping range discovery", node.address());
                 continue;
             }
             BlockNodeClient currentNodeClient = getNodeClient(node);
@@ -152,7 +152,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
         final String determinedAvailableRangeMsg =
                 "Determined available range from peer blocks nodes start=[{0}] to end=[{1}]";
-        LOGGER.log(TRACE, determinedAvailableRangeMsg, startBlock, latestPeerBlock);
+        LOGGER.log(DEBUG, determinedAvailableRangeMsg, startBlock, latestPeerBlock);
         return new LongRange(startBlock, latestPeerBlock);
     }
 
@@ -288,7 +288,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                 if (attempt == maxRetries) {
                     markFailure(nodeConfig);
                     // Log exception details on final failure for debugging
-                    LOGGER.log(TRACE, "Final failure stack trace.\n", e);
+                    LOGGER.log(WARNING, "Final failure stack trace.\n", e);
                 } else {
                     long delay = Math.multiplyExact(initialRetryDelayMs, attempt);
                     try {
@@ -304,7 +304,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
         final String allAttemptsExhaustedMsg = "All {0} attempts exhausted for blocks [{1}->{2}] from node [{3}]";
         LOGGER.log(
-                TRACE, allAttemptsExhaustedMsg, maxRetries, blockRange.start(), blockRange.end(), nodeConfig.address());
+                DEBUG, allAttemptsExhaustedMsg, maxRetries, blockRange.start(), blockRange.end(), nodeConfig.address());
         return Collections.emptyList();
     }
 
