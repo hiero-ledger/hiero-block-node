@@ -19,22 +19,13 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 
 ## Goals
 
-- Delivers TSS booststrap information to a Block Node that does not have access to the network Block 0 transactions.
-  - A new Block Node needs to learn the current TSS state (roster, verification key, ledger ID)
-    - Plugin implements the existing `BlockNodePlugin` interfaces
-    - The plugin queries a peer BN's serverStatusDetail gRPC endpoint to retrieve TSS information
-      - gRPC peer communication follows the same WebClient pattern used elsewhere in the codebase
-    - The `ApplicationStateFacility` interface coordinates `BlockNodeContext` and `TssData` changes between plugins
-      - Handles requests to change `TssData`
-      - Persists the latest `TssData`
-      - Notifies plugins when the `BlockNodeContext` changes
-      - Implemented by the `BlockNodeApp`
-    - The plugin checks it's config at startup to see if `TSSData` is present.
-    - `TssBootstrapPluginConfig` can be used for both testing and temporary initialization for a Block Node
-    - The plugin will periodically query its peers for TSS data updates.
-  - TSS data is exposed to other plugins
-    - The BlockNode plugin interface contains an `onContextUpdate` method that is called by the `ApplicationStateFacility` when the context is updated.
-    - The `StatusDetailPlugin` implements `onContextUpdate()` and receives TSS data updates from the `ApplicationStateFacility`
+- BN allows TssData to be set via configuration
+- BN persists the latest TssData to a configured file path
+- BN loads persisted TssData at startup
+- BN periodically contacts peer BNs to get their TssData
+- BN makes TssData available via the ServerStatusDetail API
+- BlockNodeApp provides an interface for BN Plugins to update TssData
+- BN uses TssData.validFromBlock to determine which TssData to use
 
 ## Terms
 
@@ -61,7 +52,8 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 </dl>
 <dl>
   <dt>Schnorr public / private key</dt>
-  <dd>used by WRAPS for the purpose of signing the next day’s TSS Address Book and hinTS verification key</dd>
+  <dd>A key produced privately by each node and used during the address book update process to adopt a new TSS roster.
+      This key may also directly sign a block proof if the WRAPS process is not enabled.</dd>
 </dl>
 
 ## Entities
@@ -181,9 +173,23 @@ message RosterEntry {
 
 ## Design
 
-- Completed design decisions
-  - Should the TssData or TssRoster messages have the starting block number that the TssData is valid from.
-    - valid_from_block has been added to both TssData and TssRoster.
+- Delivers TSS booststrap information to a Block Node that does not have access to the network Block 0 transactions.
+  - A new Block Node needs to learn the current TSS state (roster, verification key, ledger ID)
+    - Plugin implements the existing `BlockNodePlugin` interfaces
+    - The plugin queries a peer BN's serverStatusDetail gRPC endpoint to retrieve TSS information
+      - gRPC peer communication follows the same WebClient pattern used elsewhere in the codebase
+    - The `ApplicationStateFacility` interface coordinates `BlockNodeContext` and `TssData` changes between plugins
+      - Handles requests to change `TssData`
+      - Uses the greatest `TssData.validFromBlock` to determine which `TssData` to use.
+      - Persists the latest `TssData`
+      - Notifies plugins when the `BlockNodeContext` changes
+      - Implemented by the `BlockNodeApp`
+    - The plugin checks it's config at startup to see if `TSSData` is present in the config
+    - `TssBootstrapPluginConfig` can be used for both testing and temporary initialization for a Block Node
+    - The plugin will periodically query its peers for TSS data updates.
+  - TSS data is exposed to other plugins
+    - The BlockNode plugin interface contains an `onContextUpdate` method that is called by the `ApplicationStateFacility` when the context is updated.
+    - The `StatusDetailPlugin` implements `onContextUpdate()` and receives TSS data updates from the `ApplicationStateFacility`
 
 ## Diagram
 
