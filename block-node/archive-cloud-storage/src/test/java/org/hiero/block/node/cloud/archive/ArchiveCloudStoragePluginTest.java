@@ -137,13 +137,13 @@ class ArchiveCloudStoragePluginTest {
     /// Returns the config map used to initialise the plugin under test.
     private Map<String, String> pluginConfig(int groupingLevel, int partSizeMb) {
         return Map.of(
-                "cloud-archive.groupingLevel", String.valueOf(groupingLevel),
-                "cloud-archive.partSizeMb", String.valueOf(partSizeMb),
-                "cloud-archive.endpointUrl", minioEndpoint,
-                "cloud-archive.regionName", "us-east-1",
-                "cloud-archive.bucketName", BUCKET_NAME,
-                "cloud-archive.accessKey", MINIO_USER,
-                "cloud-archive.secretKey", MINIO_PASSWORD);
+                "cloud.archive.groupingLevel", String.valueOf(groupingLevel),
+                "cloud.archive.partSizeMb", String.valueOf(partSizeMb),
+                "cloud.archive.endpointUrl", minioEndpoint,
+                "cloud.archive.regionName", "us-east-1",
+                "cloud.archive.bucketName", BUCKET_NAME,
+                "cloud.archive.accessKey", MINIO_USER,
+                "cloud.archive.secretKey", MINIO_PASSWORD);
     }
 
     /// Constructor and init tests that do not require a running plugin.
@@ -172,7 +172,7 @@ class ArchiveCloudStoragePluginTest {
         void testInitNullServiceBuilder() {
             final Configuration configuration = ConfigurationBuilder.create()
                     .withConfigDataType(ArchiveCloudStorageConfig.class)
-                    .withValue("cloud-archive.endpointUrl", minioEndpoint)
+                    .withValue("cloud.archive.endpointUrl", minioEndpoint)
                     .build();
             final MetricRegistry metricsMock = mock(MetricRegistry.class);
             final HistoricalBlockFacility historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
@@ -217,17 +217,17 @@ class ArchiveCloudStoragePluginTest {
 
         static Stream<Arguments> emptyFieldConfigs() {
             final Map<String, String> full = new HashMap<>(Map.of(
-                    "cloud-archive.endpointUrl", "http://localhost:9000",
-                    "cloud-archive.regionName", "us-east-1",
-                    "cloud-archive.accessKey", "minioadmin",
-                    "cloud-archive.secretKey", "minioadmin",
-                    "cloud-archive.bucketName", "test-bucket"));
+                    "cloud.archive.endpointUrl", "http://localhost:9000",
+                    "cloud.archive.regionName", "us-east-1",
+                    "cloud.archive.accessKey", "minioadmin",
+                    "cloud.archive.secretKey", "minioadmin",
+                    "cloud.archive.bucketName", "test-bucket"));
             return Stream.of(
-                    Arguments.of("endpointUrl", withoutKey(full, "cloud-archive.endpointUrl")),
-                    Arguments.of("regionName", withoutKey(full, "cloud-archive.regionName")),
-                    Arguments.of("accessKey", withoutKey(full, "cloud-archive.accessKey")),
-                    Arguments.of("secretKey", withoutKey(full, "cloud-archive.secretKey")),
-                    Arguments.of("bucketName", withoutKey(full, "cloud-archive.bucketName")));
+                    Arguments.of("endpointUrl", withoutKey(full, "cloud.archive.endpointUrl")),
+                    Arguments.of("regionName", withoutKey(full, "cloud.archive.regionName")),
+                    Arguments.of("accessKey", withoutKey(full, "cloud.archive.accessKey")),
+                    Arguments.of("secretKey", withoutKey(full, "cloud.archive.secretKey")),
+                    Arguments.of("bucketName", withoutKey(full, "cloud.archive.bucketName")));
         }
 
         private static Map<String, String> withoutKey(Map<String, String> source, String key) {
@@ -243,11 +243,11 @@ class ArchiveCloudStoragePluginTest {
         void testPluginRegisteredWhenAllConfigFieldsPresent() {
             final Configuration configuration = ConfigurationBuilder.create()
                     .withConfigDataType(ArchiveCloudStorageConfig.class)
-                    .withValue("cloud-archive.endpointUrl", "http://localhost:9000")
-                    .withValue("cloud-archive.regionName", "us-east-1")
-                    .withValue("cloud-archive.accessKey", "minioadmin")
-                    .withValue("cloud-archive.secretKey", "minioadmin")
-                    .withValue("cloud-archive.bucketName", "test-bucket")
+                    .withValue("cloud.archive.endpointUrl", "http://localhost:9000")
+                    .withValue("cloud.archive.regionName", "us-east-1")
+                    .withValue("cloud.archive.accessKey", "minioadmin")
+                    .withValue("cloud.archive.secretKey", "minioadmin")
+                    .withValue("cloud.archive.bucketName", "test-bucket")
                     .build();
             final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
             final BlockNodeContext testContext = new BlockNodeContext(
