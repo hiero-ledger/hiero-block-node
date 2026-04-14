@@ -101,7 +101,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                     || (request.hasBlockNumber() && request.blockNumber() == -1)) {
                 blockNumberToRetrieve = blockProvider.availableBlocks().max();
                 LOGGER.log(
-                        TRACE, "Received 'retrieveLatest' BlockRequest, retrieving block={0}", blockNumberToRetrieve);
+                        DEBUG, "Received 'retrieveLatest' BlockRequest, retrieving block={0}", blockNumberToRetrieve);
             } else {
                 LOGGER.log(INFO, "Invalid request, 'retrieve_latest' or a valid 'block number' is required.");
                 return new BlockResponseUnparsed(Code.INVALID_REQUEST, null);
@@ -111,7 +111,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
                 long lowestBlockNumber = blockProvider.availableBlocks().min();
                 long highestBlockNumber = blockProvider.availableBlocks().max();
                 LOGGER.log(
-                        TRACE,
+                        DEBUG,
                         "Requested block {0} is outside available range [{1}, {2}]",
                         blockNumberToRetrieve,
                         lowestBlockNumber,
