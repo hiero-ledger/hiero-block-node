@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.blocks.files.recent;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
@@ -315,7 +316,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
     public void handleVerification(VerificationNotification notification) {
         try {
             final long startTime = System.nanoTime();
-            LOGGER.log(TRACE, "Persistence Handle verification started for block {0}", notification.blockNumber());
+            LOGGER.log(DEBUG, "Persistence Handle verification started for block {0}", notification.blockNumber());
             if (notification != null && notification.success()) {
                 // write the block to the live path and send notification of block persisted
                 writeBlockToLivePath(notification.block(), notification.blockNumber(), notification.source());
@@ -409,7 +410,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             streamingData.close();
             // Add the size of the newly written file to our total bytes counter
             totalBytesStored.addAndGet(Files.size(verifiedBlockPath));
-            LOGGER.log(TRACE, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
+            LOGGER.log(DEBUG, "Wrote verified block {0} to file {1}", blockNumber, verifiedBlockPath.toAbsolutePath());
             // update the oldest and newest verified block numbers
             availableBlocks.add(blockNumber);
             // Send block persisted notification
@@ -478,7 +479,7 @@ public final class BlockFileRecentPlugin implements BlockProviderPlugin, BlockNo
             // delete the block file and update counters
             final boolean deleted = Files.deleteIfExists(blockFilePath);
             if (deleted) {
-                LOGGER.log(TRACE, DELETE_MESSAGE.formatted("Success", blockFilePath));
+                LOGGER.log(DEBUG, DELETE_MESSAGE.formatted("Success", blockFilePath));
             } else {
                 LOGGER.log(INFO, DELETE_MESSAGE.formatted("File missing", blockFilePath));
             }
