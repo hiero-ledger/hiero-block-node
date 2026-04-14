@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.node.cloud.expanded.ExpandedCloudStoragePlugin;
+import org.hiero.block.node.cloud.storage.expanded.ExpandedCloudStoragePlugin;
 
-module org.hiero.block.node.cloud.expanded {
+module org.hiero.block.node.cloud.storage.expanded {
     uses com.swirlds.config.api.spi.ConfigurationBuilderFactory;
 
     // export configuration classes to the config module and app
-    exports org.hiero.block.node.cloud.expanded to
+    exports org.hiero.block.node.cloud.storage.expanded to
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
             org.hiero.block.node.app;

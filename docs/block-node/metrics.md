@@ -241,7 +241,7 @@ Provides metrics related to the backfill process, including On-Demand and Histor
 
 #### Cloud Expanded
 
-**Plugin:** `cloud-expanded`
+**Plugin:** `cloud-storage-expanded`
 Tracks the count and byte data size regarding single block uploads
 
 | Type    | Metric                                   | Description                                                              |

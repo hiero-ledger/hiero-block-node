@@ -15,7 +15,7 @@
 
 ## Purpose
 
-The `cloud-expanded` plugin (CEP) uploads each individually-verified block as a compressed
+The `cloud-storage-expanded` plugin (CEP) uploads each individually-verified block as a compressed
 `.blk.zstd` object directly to any S3-compatible object store (AWS S3, GCS via S3-interop,
 etc.). Unlike the previous `s3-archive` plugin, which batched blocks into large tar
 archives, this plugin uploads **one block per S3 object** — making individual blocks
@@ -91,7 +91,7 @@ cloud.
 
 ### `S3UploadClient` (abstract class)
 
-Package-private abstract class in `org.hiero.block.node.cloud.expanded`. Defines the
+Package-private abstract class in `org.hiero.block.node.cloud.storage.expanded`. Defines the
 upload contract used by the rest of the package. Exposes:
 
 - `uploadFile(objectKey, storageClass, Iterator<byte[]> content, contentType)` — throws
@@ -146,7 +146,7 @@ The `UploadStatus` enum distinguishes failure types:
 
 ### `ExpandedCloudStorageConfig`
 
-`@ConfigData("cloud.expanded")` record carrying all plugin settings. The
+`@ConfigData("cloud.storage.expanded")` record carrying all plugin settings. The
 `storageClass` field is typed as `StorageClass` (an enum), which causes the config
 framework to reject unknown values at startup. The `uploadTimeoutSeconds` field carries
 `@Min(1)` for framework-level range validation.
@@ -239,7 +239,7 @@ long seg5 = blockNumber                      % 1_000L;
 
 ### Misconfiguration handling
 
-If `cloud.expanded.endpointUrl` is blank or the S3 client fails to initialise at
+If `cloud.storage.expanded.endpointUrl` is blank or the S3 client fails to initialise at
 startup (e.g. invalid credentials, unreachable endpoint), `BuckyS3UploadClient`'s
 constructor throws `UploadException`. The plugin catches this in `start()`, logs a WARNING,
 and remains inactive for the duration of the process — `completionService` stays `null` and
@@ -341,24 +341,24 @@ classDiagram
 
 ## Configuration
 
-All properties are under the `cloud.expanded` namespace.
+All properties are under the `cloud.storage.expanded` namespace.
 
 |                   Property                    |  Default  |                                   Description                                    |
 |-----------------------------------------------|-----------|----------------------------------------------------------------------------------|
-| `cloud.expanded.endpointUrl`                  | `""`      | S3-compatible endpoint URL. **Required. Blank value causes plugin to log a WARNING and be inactive.** |
-| `cloud.expanded.bucketName`                   | `""`      | Name of the S3 bucket. Required when plugin is active.                           |
-| `cloud.expanded.objectKeyPrefix`              | `""`      | Prefix prepended to every object key. Set to empty string for no prefix.         |
-| `cloud.expanded.storageClass`                 | `STANDARD`| S3 storage class (`STANDARD`). Validated as enum at startup.                     |
-| `cloud.expanded.regionName`                   | `""`      | AWS / S3-compatible region. Required when plugin is active.                      |
-| `cloud.expanded.accessKey`                    | `""`      | S3 access key (not logged). Leave blank to use env vars or IAM role.             |
-| `cloud.expanded.secretKey`                    | `""`      | S3 secret key (not logged). Leave blank to use env vars or IAM role.             |
-| `cloud.expanded.uploadTimeoutSeconds`         | `60`      | Max seconds to wait for in-flight uploads during `stop()`. Min value: 1.         |
+| `cloud.storage.expanded.endpointUrl`                  | `""`      | S3-compatible endpoint URL. **Required. Blank value causes plugin to log a WARNING and be inactive.** |
+| `cloud.storage.expanded.bucketName`                   | `""`      | Name of the S3 bucket. Required when plugin is active.                           |
+| `cloud.storage.expanded.objectKeyPrefix`              | `""`      | Prefix prepended to every object key. Set to empty string for no prefix.         |
+| `cloud.storage.expanded.storageClass`                 | `STANDARD`| S3 storage class (`STANDARD`). Validated as enum at startup.                     |
+| `cloud.storage.expanded.regionName`                   | `""`      | AWS / S3-compatible region. Required when plugin is active.                      |
+| `cloud.storage.expanded.accessKey`                    | `""`      | S3 access key (not logged). Leave blank to use env vars or IAM role.             |
+| `cloud.storage.expanded.secretKey`                    | `""`      | S3 secret key (not logged). Leave blank to use env vars or IAM role.             |
+| `cloud.storage.expanded.uploadTimeoutSeconds`         | `60`      | Max seconds to wait for in-flight uploads during `stop()`. Min value: 1.         |
 
 ### Credential options
 
 Three strategies are supported, in priority order:
 
-1. **Config properties** — set `cloud.expanded.accessKey` and `cloud.expanded.secretKey`
+1. **Config properties** — set `cloud.storage.expanded.accessKey` and `cloud.storage.expanded.secretKey`
    directly. Use `${CLOUD_EXPANDED_ACCESS_KEY}` in the value to avoid embedding credentials
    in config files on disk (Swirlds Config supports environment-variable substitution).
 2. **Environment variables** — if `accessKey` and `secretKey` are blank, the underlying
@@ -410,7 +410,7 @@ crash the node.
 5. **`UploadException` isolation**: `UploadException` thrown by `uploadFile` → plugin does
    not rethrow; sends `PersistedNotification` with `succeeded=false`.
 6. **`IOException` isolation**: `IOException` thrown by `uploadFile` → same handling as above.
-7. **Plugin inactive on blank endpoint**: `cloud.expanded.endpointUrl` is blank →
+7. **Plugin inactive on blank endpoint**: `cloud.storage.expanded.endpointUrl` is blank →
    `BuckyS3UploadClient` constructor throws `UploadException` → plugin logs WARNING and stays
    inactive; `handleVerification` is a no-op.
 8. **Integration (S3Mock)**: after `handleVerification` for blocks 100–104, all five objects

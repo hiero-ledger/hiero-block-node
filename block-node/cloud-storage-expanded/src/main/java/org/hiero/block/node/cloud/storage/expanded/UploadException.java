@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.cloud.expanded;
+package org.hiero.block.node.cloud.storage.expanded;
 
 /// Checked exception thrown by {@link S3UploadClient#uploadFile} when the S3 service
 /// returns an error response (e.g. 4xx / 5xx HTTP status, auth failure, or client
