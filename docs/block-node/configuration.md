@@ -18,7 +18,7 @@
   - [Publisher Plugin Configuration](#publisher-plugin-configuration)
   - [Subscriber Plugin Configuration](#subscriber-plugin-configuration)
   - [Verification Plugin Configuration](#verification-plugin-configuration)
-  - [Cloud Expanded Plugin Configuration](#cloud-expanded-plugin-configuration)
+  - [Cloud Expanded Plugin Configuration](#cloud-storage-expanded-plugin-configuration)
 
 ## Overview
 

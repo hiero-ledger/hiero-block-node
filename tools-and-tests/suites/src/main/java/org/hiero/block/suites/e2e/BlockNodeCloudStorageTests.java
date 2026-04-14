@@ -64,7 +64,7 @@ import org.junit.jupiter.api.Timeout;
  * and all assertions remain identical.
  *
  * <p>Config injection uses {@code System.setProperty} with the raw config property names
- * (e.g. {@code cloud.expanded.endpointUrl}) so that {@code SystemPropertiesConfigSource}
+ * (e.g. {@code cloud.storage.expanded.endpointUrl}) so that {@code SystemPropertiesConfigSource}
  * (ordinal 400) picks them up ahead of env-var and file sources.
  */
 @Tag("api")
@@ -252,7 +252,7 @@ class BlockNodeCloudStorageTests {
         app.shutdown("nodeRemainsHealthyWhenCloudPluginEndpointIsBlank", "restarting with blank endpoint");
 
         // Override only the endpoint to blank; other properties remain from setUp().
-        System.setProperty("cloud.expanded.endpointUrl", "");
+        System.setProperty("cloud.storage.expanded.endpointUrl", "");
 
         app = new BlockNodeApp(new ServiceLoaderFunction(), false);
         app.start();
@@ -392,7 +392,7 @@ class BlockNodeCloudStorageTests {
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /**
-     * Sets System properties for all cloud-expanded config values so that
+     * Sets System properties for all cloud-storage-expanded config values so that
      * {@code SystemPropertiesConfigSource} (ordinal 400) injects them into the
      * {@link BlockNodeApp} config at startup.
      *
@@ -402,22 +402,22 @@ class BlockNodeCloudStorageTests {
      * are globally readable and are not subject to this timing issue.
      */
     private void setCloudExpandedProperties(final String endpoint) {
-        System.setProperty("cloud.expanded.endpointUrl", endpoint);
-        System.setProperty("cloud.expanded.bucketName", BUCKET);
-        System.setProperty("cloud.expanded.objectKeyPrefix", PREFIX);
-        System.setProperty("cloud.expanded.regionName", REGION);
-        System.setProperty("cloud.expanded.accessKey", ACCESS_KEY);
-        System.setProperty("cloud.expanded.secretKey", SECRET_KEY);
+        System.setProperty("cloud.storage.expanded.endpointUrl", endpoint);
+        System.setProperty("cloud.storage.expanded.bucketName", BUCKET);
+        System.setProperty("cloud.storage.expanded.objectKeyPrefix", PREFIX);
+        System.setProperty("cloud.storage.expanded.regionName", REGION);
+        System.setProperty("cloud.storage.expanded.accessKey", ACCESS_KEY);
+        System.setProperty("cloud.storage.expanded.secretKey", SECRET_KEY);
     }
 
-    /** Clears all cloud-expanded System properties set by {@link #setCloudExpandedProperties}. */
+    /** Clears all cloud-storage-expanded System properties set by {@link #setCloudExpandedProperties}. */
     private void clearCloudExpandedProperties() {
-        System.clearProperty("cloud.expanded.endpointUrl");
-        System.clearProperty("cloud.expanded.bucketName");
-        System.clearProperty("cloud.expanded.objectKeyPrefix");
-        System.clearProperty("cloud.expanded.regionName");
-        System.clearProperty("cloud.expanded.accessKey");
-        System.clearProperty("cloud.expanded.secretKey");
+        System.clearProperty("cloud.storage.expanded.endpointUrl");
+        System.clearProperty("cloud.storage.expanded.bucketName");
+        System.clearProperty("cloud.storage.expanded.objectKeyPrefix");
+        System.clearProperty("cloud.storage.expanded.regionName");
+        System.clearProperty("cloud.storage.expanded.accessKey");
+        System.clearProperty("cloud.storage.expanded.secretKey");
     }
 
     private static String buildExpectedKey(final long blockNumber) {

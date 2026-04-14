@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.cloud.expanded;
+package org.hiero.block.node.cloud.storage.expanded;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
@@ -11,8 +11,8 @@ import org.hiero.block.node.base.Loggable;
 /// ## Credential options
 /// Three credential strategies are supported, in priority order:
 ///
-/// 1. **Config properties** — set `cloud.expanded.accessKey` and
-///    `cloud.expanded.secretKey` directly. Swirlds Config supports
+/// 1. **Config properties** — set `cloud.storage.expanded.accessKey` and
+///    `cloud.storage.expanded.secretKey` directly. Swirlds Config supports
 ///    environment-variable substitution: use `${CLOUD_EXPANDED_ACCESS_KEY}` in the value
 ///    to avoid embedding credentials in config files on disk.
 /// 2. **Environment variables** — if `accessKey` and `secretKey` are blank,
@@ -39,7 +39,7 @@ import org.hiero.block.node.base.Loggable;
 /// @param uploadTimeoutSeconds maximum seconds to wait for in-flight uploads during
 ///                             `stop()` before treating them as failed. Default: 60.
 // spotless:off
-@ConfigData("cloud.expanded")
+@ConfigData("cloud.storage.expanded")
 public record ExpandedCloudStorageConfig(
         @Loggable @ConfigProperty(defaultValue = "") String endpointUrl,
         @Loggable @ConfigProperty(defaultValue = "") String bucketName,
