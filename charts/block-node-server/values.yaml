@@ -255,8 +255,8 @@ blockNode:
     level: "INFO"
     configMountPath: "/opt/hiero/block-node/logs/config"
     loggingProperties:
-      # logs for Block Node components FINEST temporarily while testing is ongoing
-      org.hiero.block.level: "FINEST"
+      # logs for Block Node components FINE (DEBUG) temporarily while testing is ongoing
+      org.hiero.block.level: "FINE"
       io.helidon.level: "INFO"
       io.helidon.webserver.level: "INFO"
       io.helidon.webserver.access.level: "INFO"

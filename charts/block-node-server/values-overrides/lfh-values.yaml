@@ -5,7 +5,7 @@ blockNode:
         logs:
             level: "INFO"
             loggingProperties:
-                org.hiero.block.level: "FINEST"
+                org.hiero.block.level: "FINE"
                 java.util.logging.ConsoleHandler.level: "FINEST"
                 java.util.logging.FileHandler.level: "FINEST"
         initContainers:
