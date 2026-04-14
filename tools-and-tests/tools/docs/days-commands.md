@@ -328,7 +328,11 @@ The command writes its state to `validateCmdStatus.json` in the output directory
 
 ### `live-sequential`
 
-Live sequential block download with inline validation and wrapping. This is an all-in-one pipeline that combines `download-live2`, `blocks wrap`, and `blocks validate` into a single optimized command. It downloads blocks sequentially from GCS, validates them (hash-chain + signatures), wraps them into block stream format, runs all block validation checks, and writes to hierarchical zip archives.
+Live sequential block download with inline validation and wrapping.
+This is an all-in-one pipeline that combines `download-live2`, `blocks wrap`, and `blocks validate`
+into a single optimized command. It downloads blocks sequentially from GCS, validates them
+(hash-chain + signatures), wraps them into Block Stream format, runs all block validation checks,
+and writes to hierarchical zip archives.
 
 #### Usage
 
@@ -343,7 +347,7 @@ days live-sequential [-l <listingDir>] [-o <outputDir>] [--wrap-output-dir <dir>
 |------------------------------------|-----------------------------------------------------------------------------------|
 | `-l`, `--listing-dir <listingDir>` | Directory where listing files are stored (default: `listingsByDay`).              |
 | `-o`, `--output-dir <outputDir>`   | Directory where compressed day archives are written (default: `compressedDays`).  |
-| `--wrap-output-dir <dir>`          | Directory to write wrapped block stream output (default: `wrappedBlocks`).        |
+| `--wrap-output-dir <dir>`          | Directory to write wrapped Block Stream output (default: `wrappedBlocks`).        |
 | `--start-date <YYYY-MM-DD>`        | Start date (default: auto-detect from Mirror Node).                               |
 | `--state-json <path>`              | Path to state JSON file for resume (default: `outputDir/validateCmdStatus.json`). |
 | `--address-book <path>`            | Path to address book file for signature validation.                               |

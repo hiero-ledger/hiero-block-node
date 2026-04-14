@@ -14,7 +14,7 @@ Available subcommands include:
 - `extractDayBlocksFromApi` - Generate or update `day_blocks.json` from the Mirror Node REST API
 - `generateAddressBook` - Generate address book history JSON from Mirror Node CSV export (**mainnet only**)
 - `compareAddressBooks` - Compare two address book history JSON files
-- `generateTestnetAddressBook` - Generate testnet genesis address book from mirror node CSV export
+- `generateTestnetAddressBook` - Generate testnet genesis address book from Mirror Node CSV export
 - `generateTestnetAddressBookHistory` - Generate testnet address book history JSON from bundled genesis
 
 > Important: many mirror commands download from public GCP buckets that are configured as Requester Pays. To access these you must have Google Cloud authentication configured locally. Typical steps:
@@ -347,7 +347,7 @@ Options:
 - `--end-date <date>` — Last day to fetch (inclusive), format `YYYY-MM-DD` (default: yesterday UTC).
 - `--day-blocks <file>` — Path to the output `day_blocks.json` file (default: `day_blocks.json`).
 - `--no-merge` — Replace the entire output file instead of merging with existing data (default: merge).
-- `--mirror-node-url <url>` — Base URL for the mirror node API. Must end with `/` (default: from network config).
+- `--mirror-node-url <url>` — Base URL for the Mirror Node API. Must end with `/` (default: from network config).
 
 Example:
 
@@ -373,7 +373,7 @@ Notes:
 
 ### `generateTestnetAddressBook`
 
-Generate the testnet genesis address book protobuf binary file from a Mirror Node database CSV export.
+Generate the testnet genesis address book protobuf binary file from a Mirror Node CSV export.
 
 Usage:
 
@@ -382,7 +382,7 @@ mirror generateTestnetAddressBook [--csv=<file>] [-o=<outputFile>]
 ```
 
 Options:
-- `--csv <file>` — Path to mirror node address book CSV export. The CSV should have columns `start_consensus_timestamp` and `file_data` (required).
+- `--csv <file>` — Path to Mirror Node address book CSV export. The CSV should have columns `start_consensus_timestamp` and `file_data` (required).
 - `-o`, `--output <file>` — Output file path for the proto binary (default: `testnet-genesis-address-book.proto.bin`).
 
 Example:
@@ -393,7 +393,7 @@ mirror generateTestnetAddressBook --csv address_book_export.csv -o testnet-genes
 ```
 
 Notes:
-- The CSV file is an export of the `address_book` table from the testnet mirror node database.
+- The CSV file is an export of the `address_book` table from the testnet Mirror Node database.
 - The genesis entry has `start_consensus_timestamp = 1` and `file_data` containing hex-encoded `NodeAddressBook` protobuf (prefixed with `\x`).
 - The generated file can be bundled as a classpath resource for testnet operations.
 
@@ -401,7 +401,7 @@ Notes:
 
 ### `generateTestnetAddressBookHistory`
 
-Generate testnet address book history JSON from the bundled genesis address book. Since testnet has no public mirror node CSV export bucket (unlike mainnet), this command loads the bundled `testnet-genesis-address-book.proto.bin` resource directly.
+Generate testnet address book history JSON from the bundled genesis address book. Since testnet has no public Mirror Node CSV export bucket (unlike mainnet), this command loads the bundled `testnet-genesis-address-book.proto.bin` resource directly.
 
 Usage:
 
