@@ -249,7 +249,7 @@ TBD
    - The `ApplicationStateFacility` will update all plugins of BlockNodeContext changes via `BlockNodePlugin.onContextUpdate()`
 3. Is this plugin intended to run only once at BN first run.
    - The plugin will periodically query its peer BN servers to see if they have any `TssData` updates.
-4. Where and how it will get the BN source(s) for trusted peers to get the TSS data from? We already have the concept of backfill peers.
+4. Where and how will it get the BN source(s) for trusted peers to get the TSS data from? We already have the concept of backfill peers.
    - Plugins should not share configuration information.
    - The `TssBootstrapPlugin` will manage its own configuration.
    - Perhaps the `ApplicationStateFacility` should manage the BN Peer information
