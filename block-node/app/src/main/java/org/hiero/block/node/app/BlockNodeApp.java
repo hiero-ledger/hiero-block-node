@@ -388,10 +388,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             LOGGER.log(INFO, "ApplicationStateFacility start called");
             try {
                 while (!applicationStateFacility.isInterrupted()) {
-                    LOGGER.log(INFO, "In ApplicationStateFacility while loop");
                     boolean updated = false;
                     while (!tssDataUpdates.isEmpty()) {
-                        LOGGER.log(INFO, "tssDataUpdates = " + tssDataUpdates.size());
                         updated |= updateBlockNodeContext(tssDataUpdates.poll());
                     }
                     if (updated) {
