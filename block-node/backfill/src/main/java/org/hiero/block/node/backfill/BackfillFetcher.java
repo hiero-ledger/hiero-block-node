@@ -3,7 +3,6 @@ package org.hiero.block.node.backfill;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -305,7 +304,7 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
 
         final String allAttemptsExhaustedMsg = "All {0} attempts exhausted for blocks [{1}->{2}] from node [{3}]";
         LOGGER.log(
-                TRACE, allAttemptsExhaustedMsg, maxRetries, blockRange.start(), blockRange.end(), nodeConfig.address());
+                DEBUG, allAttemptsExhaustedMsg, maxRetries, blockRange.start(), blockRange.end(), nodeConfig.address());
         return Collections.emptyList();
     }
 

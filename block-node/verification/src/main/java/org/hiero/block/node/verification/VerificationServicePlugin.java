@@ -301,7 +301,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                     // end working time
                     long blockWorkEndTime = System.nanoTime() - startVerificationHandlingTime;
                     LOGGER.log(
-                            TRACE,
+                            DEBUG,
                             "Finished verification handling block items for block={0,number,#} nsVerificationDuration={1,number,#}",
                             currentBlockNumber,
                             blockWorkEndTime);
