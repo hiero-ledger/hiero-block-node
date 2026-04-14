@@ -93,6 +93,8 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     /// @param nodeId The node id
     /// @param weight The weight
     /// @param schnorrPublicKey64 The schnorrPublicKey base64 string
+    /// @param validFromBlock The block from which this TssData is valid
+    /// @param rosterValidFromBlock The block from which this TssRoster is valid
     /// @return a `TssData` object
     private TssData buildTssData(
             String ledgerId64,

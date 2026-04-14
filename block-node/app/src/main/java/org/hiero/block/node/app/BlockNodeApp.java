@@ -28,8 +28,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
@@ -56,9 +56,6 @@ import org.hiero.metrics.core.MetricRegistry;
 
 /** Main class for the block node server */
 public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
-    /** rentrant lock to allow plugins to update context data for this BlockNodeApp */
-    ReentrantLock lock = new ReentrantLock();
-
     /** Constant mapped to PbjProtocolProvider.CONFIG_NAME in the PBJ Helidon Plugin */
     public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
     /** Metric key for the oldest historical block available */
@@ -86,6 +83,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     BlockNodeContext blockNodeContext;
     /** list of all loaded plugins. Package so accessible for testing. */
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
+
+    /** Create a ConcurrentLinkedQueue to hold TssData updates */
+    private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
+    /** The thread used by the ApplicationStateFacility to check for TssData updates */
+    private Thread applicationStateFacility;
 
     /**
      * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
@@ -194,7 +196,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
         // ==== LOAD APPLICATION STATE =================================================================================
-        // Must be done after the block node context is created and before plugin initialization
+        // Must be done after the block node context is created and
         loadApplicationState();
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
@@ -203,6 +205,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             LOGGER.log(INFO, "    " + plugin.name());
             plugin.init(blockNodeContext, serviceBuilder);
         }
+        // ==== Start APPLICATION STATE FACILITY =======================================================================
+        // Must be done after all plugins have been initialized
+        startApplicationStateFacility();
+
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
@@ -309,6 +315,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     public void shutdown(String className, String reason) {
         state.set(State.SHUTTING_DOWN);
         LOGGER.log(INFO, "Shutting down, reason={0} class={1}", reason, className);
+        // stop the application state facility
+        stopApplicationStateFacility();
+
         // wait for the shutdown delay
         try {
             Thread.sleep(serverConfig.shutdownDelayMillis());
@@ -366,33 +375,74 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     @Override
     public void updateTssData(TssData tssData) {
-        lock.lock();
+        tssDataUpdates.add(tssData);
+    }
+
+    /**
+     * Starts the ApplicationStateFacility. The thread will be used to check if there are any TssData updates to
+     * process.
+     */
+    public void startApplicationStateFacility() {
+        LOGGER.log(INFO, "ApplicationStateFacility start called");
+        applicationStateFacility = Thread.ofVirtual().start(() -> {
+            LOGGER.log(INFO, "ApplicationStateFacility start called");
+            try {
+                while (!applicationStateFacility.isInterrupted()) {
+                    LOGGER.log(INFO, "In ApplicationStateFacility while loop");
+                    boolean updated = false;
+                    while (!tssDataUpdates.isEmpty()) {
+                        LOGGER.log(INFO, "tssDataUpdates = " + tssDataUpdates.size());
+                        updated |= updateBlockNodeContext(tssDataUpdates.poll());
+                    }
+                    if (updated) {
+                        loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
+                        LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
+                        persistTssData(blockNodeContext.tssData());
+                        LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
+                    }
+                    Thread.sleep(500);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.log(INFO, "ApplicationStateFacility interrupted");
+            }
+        });
+    }
+
+    public void stopApplicationStateFacility() {
+        applicationStateFacility.interrupt();
         try {
-            updateBlockNodeContext(tssData);
-            loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
-            persistTssData(tssData);
-        } finally {
-            lock.unlock();
+            applicationStateFacility.join(1_000);
+            LOGGER.log(INFO, "ApplicationStateFacility stopped");
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
         }
     }
 
     /**
-     * Update the BlockNodeContext with the new TssData
+     * Update the BlockNodeContext with the new TssData if the validFromBlock is greater than that of the context
      *
      * @param tssData The TssData to persist
+     * @return A boolean indicating if the BlockNodeContext was updated.
      */
-    private void updateBlockNodeContext(TssData tssData) {
-        blockNodeContext = new BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                tssData);
+    private boolean updateBlockNodeContext(TssData tssData) {
+        boolean updated = false;
+        if (blockNodeContext.tssData().validFromBlock() < tssData.validFromBlock()) {
+            blockNodeContext = new BlockNodeContext(
+                    blockNodeContext.configuration(),
+                    blockNodeContext.metricRegistry(),
+                    blockNodeContext.serverHealth(),
+                    blockNodeContext.blockMessaging(),
+                    blockNodeContext.historicalBlockProvider(),
+                    blockNodeContext.applicationStateFacility(),
+                    blockNodeContext.serviceLoader(),
+                    blockNodeContext.threadPoolManager(),
+                    blockNodeContext.blockNodeVersions(),
+                    tssData);
+            LOGGER.log(INFO, "BlockNodeContext updated");
+            updated = true;
+        }
+        return updated;
     }
 
     /**
@@ -428,7 +478,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             try {
                 Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssDataFilePath));
                 TssData tssData = TssData.PROTOBUF.parse(fileBytes);
-                updateBlockNodeContext(tssData);
+                updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded TSS Data from file: {0}", tssDataFilePath);
             } catch (IOException e) {
                 throw new UncheckedIOException("Failed to read TSS Data file: " + tssDataFilePath, e);

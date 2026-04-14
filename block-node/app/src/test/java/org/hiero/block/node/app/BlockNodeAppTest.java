@@ -15,6 +15,8 @@ import static org.mockito.Mockito.when;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -32,6 +34,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility.State;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -96,6 +99,15 @@ class BlockNodeAppTest {
         };
         // now we can create the BlockNodeApp instance
         blockNodeApp = spy(new BlockNodeApp(serviceLoaderFunction, false));
+    }
+
+    @AfterEach
+    void cleanup() {
+        try {
+            Files.deleteIfExists(Path.of("build/tmp/data/block/node/tss-data.bin"));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test
@@ -294,7 +306,7 @@ class BlockNodeAppTest {
      */
     @Test
     @DisplayName("Test ApplicationStateFacility")
-    void testApplicationStateFacility() throws IOException {
+    void testApplicationStateFacility() throws IOException, InterruptedException {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
         final TestPlugin testPlugin = new TestPlugin();
@@ -303,8 +315,13 @@ class BlockNodeAppTest {
 
         blockNodeApp.updateTssData(TssData.DEFAULT);
         blockNodeApp.updateTssData(TssData.DEFAULT);
+        TssData tssData =
+                buildTssData(Bytes.fromHex("040506"), Bytes.fromHex("010203"), 1, 2, Bytes.fromHex("070809"), 100, 50);
+        blockNodeApp.updateTssData(tssData);
+        // let the ApplicationStateFacility process the update
+        Thread.sleep(1_000);
 
-        assertEquals(2, testPlugin.contextUpdated);
+        assertEquals(1, testPlugin.contextUpdated);
     }
 
     /**
@@ -312,17 +329,20 @@ class BlockNodeAppTest {
      */
     @Test
     @DisplayName("should persist and load TssData")
-    void testApplicationStateFacilityPersistence() throws IOException {
+    void testApplicationStateFacilityPersistence() throws IOException, InterruptedException {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
 
         // update the tssData which should persist to disk
-        TssData tssData = buildTssData(Bytes.fromHex("010203"), Bytes.fromHex("040506"), 1, 2, Bytes.fromHex("070809"));
+        TssData tssData =
+                buildTssData(Bytes.fromHex("010203"), Bytes.fromHex("040506"), 1, 2, Bytes.fromHex("070809"), 50, 100);
         blockNodeApp.updateTssData(tssData);
+        // let the ApplicationStateFacility process the update
+        Thread.sleep(1_000);
 
         // create a new BlockNodeApp which will load the persisted TssData
-        final BlockNodeApp blocakNodeApp2 = new BlockNodeApp(serviceLoaderFunction, false);
-        TssData tssData1 = blocakNodeApp2.blockNodeContext.tssData();
+        final BlockNodeApp blockNodeApp2 = new BlockNodeApp(serviceLoaderFunction, false);
+        TssData tssData1 = blockNodeApp2.blockNodeContext.tssData();
         assertEquals(tssData.ledgerId(), tssData1.ledgerId());
         assertEquals(tssData.wrapsVerificationKey(), tssData1.wrapsVerificationKey());
 
@@ -344,19 +364,31 @@ class BlockNodeAppTest {
     /// @param nodeId The node id
     /// @param weight The weight
     /// @param schnorrPublicKey The schnorrPublicKey Bytes
+    /// @param validFromBlock The block from which this TssData is valid
+    /// @param rosterValidFromBlock The block from which this TssRoster is valid
     /// @return a `TssData` object
     private TssData buildTssData(
-            Bytes ledgerId, Bytes wrapsVerificationKey, long nodeId, long weight, Bytes schnorrPublicKey) {
+            Bytes ledgerId,
+            Bytes wrapsVerificationKey,
+            long nodeId,
+            long weight,
+            Bytes schnorrPublicKey,
+            long validFromBlock,
+            long rosterValidFromBlock) {
         RosterEntry rosterEntry = RosterEntry.newBuilder()
                 .nodeId(nodeId)
                 .weight(weight)
                 .schnorrPublicKey(schnorrPublicKey)
                 .build();
-        TssRoster tssRoster = TssRoster.newBuilder().rosterEntries(rosterEntry).build();
+        TssRoster tssRoster = TssRoster.newBuilder()
+                .rosterEntries(rosterEntry)
+                .validFromBlock(rosterValidFromBlock)
+                .build();
         return TssData.newBuilder()
                 .ledgerId(ledgerId)
                 .wrapsVerificationKey(wrapsVerificationKey)
                 .currentRoster(tssRoster)
+                .validFromBlock(validFromBlock)
                 .build();
     }
 }
