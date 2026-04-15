@@ -85,12 +85,20 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Autonomous Historical Backfill - Happy Test")
     void testBackfillAutonomous() throws InterruptedException {
 
-        // Block Node sources
-        String blockNodeSourcesPath =
-                getClass().getClassLoader().getResource("block-nodes.json").getFile();
         // BN 1
         final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 400);
-        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
+        final TestBlockNodeServer server1 = new TestBlockNodeServer(0, historicalBlockFacilityForServer);
+        testBlockNodeServers.add(server1);
+        final String blockNodeSourcesPath = testTempDir + "/block-nodes-autonomous.json";
+        createTestBlockNodeSourcesFile(
+                BackfillSource.newBuilder()
+                        .nodes(BackfillSourceConfig.newBuilder()
+                                .address("localhost")
+                                .port(server1.port())
+                                .priority(1)
+                                .build())
+                        .build(),
+                blockNodeSourcesPath);
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -134,12 +142,20 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Autonomous Historical Backfill - Empty Store")
     void testBackfillAutonomousEmptyStore() {
 
-        // Block Node sources
-        String blockNodeSourcesPath =
-                getClass().getClassLoader().getResource("block-nodes.json").getFile();
         // BN 1
         final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 110);
-        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
+        final TestBlockNodeServer server1 = new TestBlockNodeServer(0, historicalBlockFacilityForServer);
+        testBlockNodeServers.add(server1);
+        final String blockNodeSourcesPath = testTempDir + "/block-nodes-empty-store.json";
+        createTestBlockNodeSourcesFile(
+                BackfillSource.newBuilder()
+                        .nodes(BackfillSourceConfig.newBuilder()
+                                .address("localhost")
+                                .port(server1.port())
+                                .priority(1)
+                                .build())
+                        .build(),
+                blockNodeSourcesPath);
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -175,12 +191,20 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Autonomous Historical Backfill - No Gaps")
     void testBackfillAutonomousNoGaps() {
 
-        // Block Node sources
-        String blockNodeSourcesPath =
-                getClass().getClassLoader().getResource("block-nodes.json").getFile();
         // BN 1
         final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 110);
-        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
+        final TestBlockNodeServer server1 = new TestBlockNodeServer(0, historicalBlockFacilityForServer);
+        testBlockNodeServers.add(server1);
+        final String blockNodeSourcesPath = testTempDir + "/block-nodes-no-gaps.json";
+        createTestBlockNodeSourcesFile(
+                BackfillSource.newBuilder()
+                        .nodes(BackfillSourceConfig.newBuilder()
+                                .address("localhost")
+                                .port(server1.port())
+                                .priority(1)
+                                .build())
+                        .build(),
+                blockNodeSourcesPath);
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -216,13 +240,20 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Greedy Autonomous Recent Backfill - Happy Test")
     void testBackfillGreedyAutonomous() throws InterruptedException {
 
-        // Block Node sources
-        String blockNodeSourcesPath =
-                getClass().getClassLoader().getResource("block-nodes.json").getFile();
-
         // BN 1
         final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 400);
-        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
+        final TestBlockNodeServer server1 = new TestBlockNodeServer(0, historicalBlockFacilityForServer);
+        testBlockNodeServers.add(server1);
+        final String blockNodeSourcesPath = testTempDir + "/block-nodes-greedy.json";
+        createTestBlockNodeSourcesFile(
+                BackfillSource.newBuilder()
+                        .nodes(BackfillSourceConfig.newBuilder()
+                                .address("localhost")
+                                .port(server1.port())
+                                .priority(1)
+                                .build())
+                        .build(),
+                blockNodeSourcesPath);
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -267,15 +298,22 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Greedy Autonomous Recent Backfill - Empty Store")
     void testBackfillGreedyAutonomousEmptyStore() throws InterruptedException {
 
-        // Block Node sources
-        String blockNodeSourcesPath =
-                getClass().getClassLoader().getResource("block-nodes.json").getFile();
-
         // BN 1
         int blockToBackfillCount = 10;
         final HistoricalBlockFacility historicalBlockFacilityForServer =
                 getHistoricalBlockFacility(0, blockToBackfillCount - 1);
-        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacilityForServer));
+        final TestBlockNodeServer server1 = new TestBlockNodeServer(0, historicalBlockFacilityForServer);
+        testBlockNodeServers.add(server1);
+        final String blockNodeSourcesPath = testTempDir + "/block-nodes-greedy-empty.json";
+        createTestBlockNodeSourcesFile(
+                BackfillSource.newBuilder()
+                        .nodes(BackfillSourceConfig.newBuilder()
+                                .address("localhost")
+                                .port(server1.port())
+                                .priority(1)
+                                .build())
+                        .build(),
+                blockNodeSourcesPath);
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -315,16 +353,17 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     void greedyBackfillStartsFromConfiguredStartBlock() throws InterruptedException {
 
         // BN1 exposes only blocks 400..700
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, getHistoricalBlockFacility(400, 700));
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40891)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(sourceConfig).build();
         String backfillSourcePath = testTempDir + "/backfill-source-start-boundary.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(400, 700)));
 
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
@@ -361,16 +400,17 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     void greedyBackfillStartsAtPeerEarliestWhenUnset() throws InterruptedException {
 
         // BN1 exposes only blocks 400..700
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, getHistoricalBlockFacility(400, 700));
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40892)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(sourceConfig).build();
         String backfillSourcePath = testTempDir + "/backfill-source-earliest-peer.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(400, 700)));
 
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
@@ -410,14 +450,21 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Greedy Autonomous Recent Backfill - NoGap")
     void testBackfillGreedyAutonomousNoGap() {
 
-        // Block Node sources
-        String blockNodeSourcesPath =
-                getClass().getClassLoader().getResource("block-nodes.json").getFile();
-
         // BN 1
         int blockToBackfillCount = 10;
         final HistoricalBlockFacility historicalBlockFacility = getHistoricalBlockFacility(0, blockToBackfillCount);
-        testBlockNodeServers.add(new TestBlockNodeServer(40801, historicalBlockFacility));
+        final TestBlockNodeServer server1 = new TestBlockNodeServer(0, historicalBlockFacility);
+        testBlockNodeServers.add(server1);
+        final String blockNodeSourcesPath = testTempDir + "/block-nodes-greedy-no-gap.json";
+        createTestBlockNodeSourcesFile(
+                BackfillSource.newBuilder()
+                        .nodes(BackfillSourceConfig.newBuilder()
+                                .address("localhost")
+                                .port(server1.port())
+                                .priority(1)
+                                .build())
+                        .build(),
+                blockNodeSourcesPath);
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -449,9 +496,13 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Autonomous Historical Backfill - Priority 1 BN is unavailable, fallback to 2nd priority BN")
     void testAutonomousSecondarySource() throws InterruptedException {
 
-        // Block Node sources
-        // Set up a backfill source with two nodes, one primary and one secondary
-        // The primary node is at port 8082 and the secondary node is at port 40800
+        // BN 2 (secondary — the primary at a nonexistent port tests fallback behaviour)
+        final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 400);
+        final TestBlockNodeServer secondaryServer = new TestBlockNodeServer(0, historicalBlockFacilityForServer);
+        testBlockNodeServers.add(secondaryServer);
+
+        // Set up a backfill source with two nodes, one primary and one secondary.
+        // Primary port is intentionally unreachable to exercise the fallback path.
         BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
                 .port(8082)
@@ -459,7 +510,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .build();
         BackfillSourceConfig secondaryBackfillSourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40801)
+                .port(secondaryServer.port())
                 .priority(2)
                 .build();
         BackfillSource backfillSource = BackfillSource.newBuilder()
@@ -467,11 +518,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 .build();
         String backfillSourcePath = testTempDir + "/backfill-source-2.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-
-        // BN 2
-        final HistoricalBlockFacility historicalBlockFacilityForServer = getHistoricalBlockFacility(0, 400);
-        testBlockNodeServers.add(
-                new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), historicalBlockFacilityForServer));
 
         // Config Override
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -549,20 +595,18 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @Test
     @DisplayName("On-Demand Recent Backfill - Happy path")
     void testBackfillOnDemand() throws InterruptedException {
-        // Block Node sources
+        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 50);
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockNodeServerBlockFacility);
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40844)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(config).build();
-        // Create a temporary file for the backfill source configuration
         String backfillSourcePath = testTempDir + "/backfill-source-4.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        // using the same port, start a BN mock that has blocks from 0 to 50
-        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 50);
-        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -615,16 +659,17 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                 new BlockItems(tssBlockInfo.blockUnparsed().blockItems(), tssBlockInfo.blockNumber(), true, true),
                 false);
 
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, serverFacility);
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40866)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(config).build();
         String backfillSourcePath = testTempDir + "/backfill-source-tss.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), serverFacility));
 
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
@@ -654,20 +699,18 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @Test
     @DisplayName("On-Demand Recent Backfill - Empty Store")
     void testBackfillOnDemandEmptyStore() throws InterruptedException {
-        // Block Node sources
+        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 19);
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockNodeServerBlockFacility);
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40844)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(config).build();
-        // Create a temporary file for the backfill source configuration
         String backfillSourcePath = testTempDir + "/backfill-source-4.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        // using the same port, start a BN mock that has blocks from 0 to 50
-        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 19);
-        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -708,20 +751,18 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @Test
     @DisplayName("On-Demand Recent Backfill - No Gap")
     void testBackfillOnDemandNoGap() throws InterruptedException {
-        // Block Node sources
+        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 19);
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockNodeServerBlockFacility);
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40844)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(config).build();
-        // Create a temporary file for the backfill source configuration
         String backfillSourcePath = testTempDir + "/backfill-source-4.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        // using the same port, start a BN mock that has blocks from 0 to 50
-        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 19);
-        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -755,20 +796,18 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @Test
     @DisplayName("On-Demand Recent Backfill - Greedy Enabled")
     void testBackfillOnDemandGreedyEnabled() throws InterruptedException {
-        // Block Node sources
+        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 50);
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockNodeServerBlockFacility);
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40844)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(config).build();
-        // Create a temporary file for the backfill source configuration
         String backfillSourcePath = testTempDir + "/backfill-source-4.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        // using the same port, start a BN mock that has blocks from 0 to 50
-        final HistoricalBlockFacility blockNodeServerBlockFacility = getHistoricalBlockFacility(0, 50);
-        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockNodeServerBlockFacility));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -813,22 +852,19 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @Test
     @DisplayName("Autonomous & On-Demand Backfill - Parallel Execution")
     void testBackfillParallelOnDemandAutonomous() throws InterruptedException {
-        // Prepare a backfill source configuration
-        // Create a test configuration
+        // BN mock server
+        HistoricalBlockFacility blockFacilityServer = getHistoricalBlockFacility(0, 200);
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockFacilityServer);
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40845)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(config).build();
-        // Create a temporary file for the backfill source configuration
         String backfillSourcePath = testTempDir + "/backfill-source-5.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-
-        // BN mock server
-        HistoricalBlockFacility blockFacilityServer = getHistoricalBlockFacility(0, 200);
-        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockFacilityServer));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -903,22 +939,19 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @Test
     @DisplayName("Greedy Autonomous & On-Demand Backfill - Parallel Execution")
     void testBackfillParallelGreedyOnDemandAutonomous() throws InterruptedException {
-        // Prepare a backfill source configuration
-        // Create a test configuration
+        // BN mock server
+        HistoricalBlockFacility blockFacilityServer = getHistoricalBlockFacility(0, 200);
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, blockFacilityServer);
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig config = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40845)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(config).build();
-        // Create a temporary file for the backfill source configuration
         String backfillSourcePath = testTempDir + "/backfill-source-5.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-
-        // BN mock server
-        HistoricalBlockFacility blockFacilityServer = getHistoricalBlockFacility(0, 200);
-        testBlockNodeServers.add(new TestBlockNodeServer(config.port(), blockFacilityServer));
 
         // config override for test
         final Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -996,34 +1029,32 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Autonomous Backfill - GAP available from 2 different backfill sources")
     void testBackfillParallelOnDemandAutonomousMultipleSources() throws InterruptedException {
 
+        // Start mock servers first so we can read their OS-assigned ports
+        final SimpleInMemoryHistoricalBlockFacility storage1 = getHistoricalBlockFacility(0, 101);
+        final SimpleInMemoryHistoricalBlockFacility storage2 = getHistoricalBlockFacility(50, 150);
+        final TestBlockNodeServer mockServer1 = new TestBlockNodeServer(0, storage1);
+        final TestBlockNodeServer mockServer2 = new TestBlockNodeServer(0, storage2);
+        testBlockNodeServers.add(mockServer1);
+        testBlockNodeServers.add(mockServer2);
+
         // Set up 2 backfill sources with two nodes, one primary and one secondary
         // primary node will have blocks from 0 to 100
         // secondary node will have blocks from 50 to 150
         BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40841)
+                .port(mockServer1.port())
                 .priority(2)
                 .build();
         BackfillSourceConfig secondaryBackfillSourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40842)
+                .port(mockServer2.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource = BackfillSource.newBuilder()
                 .nodes(backfillSourceConfig, secondaryBackfillSourceConfig)
                 .build();
-        // Create a temporary file for the backfill source configuration
         String backfillSourcePath = testTempDir + "/backfill-source-7.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        // create storage for source 1
-        final SimpleInMemoryHistoricalBlockFacility storage1 = getHistoricalBlockFacility(0, 101);
-
-        // create storage for source 2
-        final SimpleInMemoryHistoricalBlockFacility storage2 = getHistoricalBlockFacility(50, 150);
-
-        // start block-node mocks
-        testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), storage1));
-        testBlockNodeServers.add(new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), storage2));
 
         // config override
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
@@ -1084,35 +1115,32 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Greedy Autonomous & On-Demand Backfill - GAP available within 2 different backfill sources")
     void testBackfillParallelGreedyOnDemandAutonomousMultipleSources() throws InterruptedException {
 
-        // Set up 2 backfill sources with two nodes, one primary and one secondary
+        // Start mock servers first so we can read their OS-assigned ports
         // primary node will have blocks from 0 to 100
         // secondary node will have blocks from 50 to 150
+        final SimpleInMemoryHistoricalBlockFacility storage1 = getHistoricalBlockFacility(0, 100);
+        final int extBN2LatestBlock = 150;
+        final SimpleInMemoryHistoricalBlockFacility storage2 = getHistoricalBlockFacility(50, extBN2LatestBlock);
+        final TestBlockNodeServer mockServer1 = new TestBlockNodeServer(0, storage1);
+        final TestBlockNodeServer mockServer2 = new TestBlockNodeServer(0, storage2);
+        testBlockNodeServers.add(mockServer1);
+        testBlockNodeServers.add(mockServer2);
+
         BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40841)
+                .port(mockServer1.port())
                 .priority(2)
                 .build();
         BackfillSourceConfig secondaryBackfillSourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40842)
+                .port(mockServer2.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource = BackfillSource.newBuilder()
                 .nodes(backfillSourceConfig, secondaryBackfillSourceConfig)
                 .build();
-        // Create a temporary file for the backfill source configuration
         String backfillSourcePath = testTempDir + "/backfill-source-7.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        // create storage for source 1
-        final SimpleInMemoryHistoricalBlockFacility storage1 = getHistoricalBlockFacility(0, 100);
-
-        // create storage for source 2
-        final int extBN2LatestBlock = 150;
-        final SimpleInMemoryHistoricalBlockFacility storage2 = getHistoricalBlockFacility(50, extBN2LatestBlock);
-
-        // start block-node mocks
-        testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), storage1));
-        testBlockNodeServers.add(new TestBlockNodeServer(secondaryBackfillSourceConfig.port(), storage2));
 
         // config override
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
@@ -1201,16 +1229,17 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Historical gaps should be skipped when scheduler is already running")
     void testHistoricalGapsSkippedWhenSchedulerRunning() throws InterruptedException {
         // Set up a peer with a large range of blocks
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, 200));
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40894)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(sourceConfig).build();
         String backfillSourcePath = testTempDir + "/backfill-source-skip-historical.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(0, 200)));
 
         // Config with short scan interval so detectGaps runs multiple times during processing
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()
@@ -1265,16 +1294,6 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @Test
     @DisplayName("Lying BN is marked unavailable when advertised range has gaps")
     void testLyingNodeMarkedUnavailable() throws Exception {
-        BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
-                .address("localhost")
-                .port(40845)
-                .priority(1)
-                .build();
-        BackfillSource backfillSource =
-                BackfillSource.newBuilder().nodes(backfillSourceConfig).build();
-        String backfillSourcePath = testTempDir + "/backfill-source-lying.json";
-        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-
         // Create storage with a gap (missing block 10) but still reporting 0..11
         SimpleInMemoryHistoricalBlockFacility gappyStorage = new SimpleInMemoryHistoricalBlockFacility();
         for (long i = 0; i <= 11; i++) {
@@ -1285,7 +1304,17 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
             gappyStorage.handleBlockItemsReceived(block.asBlockItems(), false);
         }
 
-        testBlockNodeServers.add(new TestBlockNodeServer(backfillSourceConfig.port(), gappyStorage));
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, gappyStorage);
+        testBlockNodeServers.add(mockServer);
+        BackfillSourceConfig backfillSourceConfig = BackfillSourceConfig.newBuilder()
+                .address("localhost")
+                .port(mockServer.port())
+                .priority(1)
+                .build();
+        BackfillSource backfillSource =
+                BackfillSource.newBuilder().nodes(backfillSourceConfig).build();
+        String backfillSourcePath = testTempDir + "/backfill-source-lying.json";
+        createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
 
         Map<String, String> config = BackfillConfigBuilder.NewBuilder()
                 .backfillSourcePath(backfillSourcePath)
@@ -1323,16 +1352,17 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
     @DisplayName("Greedy backfill should backfill blocks on both sides of earliestManagedBlock boundary")
     void greedyBackfillShouldSplitGapByEarliestManagedBlock() throws InterruptedException {
         // Set up peer server with blocks 0-99
+        final TestBlockNodeServer mockServer = new TestBlockNodeServer(0, getHistoricalBlockFacility(0, 99));
+        testBlockNodeServers.add(mockServer);
         BackfillSourceConfig sourceConfig = BackfillSourceConfig.newBuilder()
                 .address("localhost")
-                .port(40893)
+                .port(mockServer.port())
                 .priority(1)
                 .build();
         BackfillSource backfillSource =
                 BackfillSource.newBuilder().nodes(sourceConfig).build();
         String backfillSourcePath = testTempDir + "/backfill-source-split-gap.json";
         createTestBlockNodeSourcesFile(backfillSource, backfillSourcePath);
-        testBlockNodeServers.add(new TestBlockNodeServer(sourceConfig.port(), getHistoricalBlockFacility(0, 99)));
 
         // Config: earliestManagedBlock=50, greedy=true
         Map<String, String> configOverride = BackfillConfigBuilder.NewBuilder()

@@ -59,6 +59,14 @@ public class TestBlockNodeServer {
     }
 
     /**
+     * Returns the port the server is actually listening on.
+     * Useful when the server was started with port 0 (OS-assigned ephemeral port).
+     */
+    public int port() {
+        return webServer.port();
+    }
+
+    /**
      * Stop the web server.
      */
     public void stop() {
