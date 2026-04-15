@@ -32,14 +32,14 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import org.hiero.block.internal.BlockUnparsed;
-import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.BlockNodeApp;
+import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.base.s3.S3Client;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.health.HealthFacility.State;
@@ -260,7 +260,9 @@ class BlockNodeCloudStorageTests {
         while (app.blockNodeState() != State.RUNNING && System.currentTimeMillis() < startDeadline) {
             Thread.sleep(50);
         }
-        assertEquals(State.RUNNING, app.blockNodeState(),
+        assertEquals(
+                State.RUNNING,
+                app.blockNodeState(),
                 "BlockNodeApp must be RUNNING even when cloud plugin endpoint is blank");
 
         // Publish a block — node must process it normally
@@ -380,7 +382,11 @@ class BlockNodeCloudStorageTests {
         // Decompress ZSTD and parse as BlockUnparsed protobuf
         final byte[] decompressed = CompressionType.ZSTD.decompress(response.body());
         final BlockUnparsed parsed = BlockUnparsed.PROTOBUF.parseStrict(Bytes.wrap(decompressed));
-        assertEquals(blockNumber, BlockHeader.PROTOBUF.parse(parsed.blockItems().getFirst().blockHeaderOrThrow()).number(),
+        assertEquals(
+                blockNumber,
+                BlockHeader.PROTOBUF
+                        .parse(parsed.blockItems().getFirst().blockHeaderOrThrow())
+                        .number(),
                 "Decompressed block header number must match the published block number");
 
         // Close stream via duplicate

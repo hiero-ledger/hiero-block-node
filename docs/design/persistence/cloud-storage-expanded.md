@@ -1,4 +1,4 @@
-# Cloud Expanded Plugin
+# Cloud Storage Expanded Plugin
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@
 
 ## Purpose
 
-The `cloud-storage-expanded` plugin (CEP) uploads each individually-verified block as a compressed
+The `cloud-storage-expanded` plugin (CSEP) uploads each individually-verified block as a compressed
 `.blk.zstd` object directly to any S3-compatible object store (AWS S3, GCS via S3-interop,
 etc.). Unlike the previous `s3-archive` plugin, which batched blocks into large tar
 archives, this plugin uploads **one block per S3 object** — making individual blocks
@@ -24,15 +24,15 @@ cloud.
 
 ## Goals
 
-* The CEP must store every block, as received, after verification.
-* The CEP must store each verified block as a single ZStandard-compressed file using ZSTD-compressed
+* The CSEP must store every block, as received, after verification.
+* The CSEP must store each verified block as a single ZStandard-compressed file using ZSTD-compressed
   Protobuf encoding.
-* The CEP must adhere to a file pattern as defined below.
-* The CEP must store all blocks as files or objects in a cloud storage system.
-* The CEP must not report success until data is stored such that it can be
+* The CSEP must adhere to a file pattern as defined below.
+* The CSEP must store all blocks as files or objects in a cloud storage system.
+* The CSEP must not report success until data is stored such that it can be
   recovered if the local system fails unexpectedly, including a failure that
   results in complete and unrecoverable loss of all local storage.
-* The CEP must support any S3-compatible store (AWS S3, GCS S3-interop, etc)
+* The CSEP must support any S3-compatible store (AWS S3, GCS S3-interop, etc)
   backed by the `com.hedera.bucky:bucky-client` library.
 
 ## Terms
@@ -137,12 +137,12 @@ exceptions never propagate to the caller.
 
 The `UploadStatus` enum distinguishes failure types:
 
-| Status               | Cause                                               |
-|----------------------|-----------------------------------------------------|
-| `SUCCESS`            | Upload completed successfully                       |
-| `S3_ERROR`           | `UploadException` (S3 service or auth error)        |
-| `IO_ERROR`           | `IOException` (transport / socket error)            |
-| `COMPRESSION_ERROR`  | Compressed bytes were empty (should not occur)      |
+|       Status        |                     Cause                      |
+|---------------------|------------------------------------------------|
+| `SUCCESS`           | Upload completed successfully                  |
+| `S3_ERROR`          | `UploadException` (S3 service or auth error)   |
+| `IO_ERROR`          | `IOException` (transport / socket error)       |
+| `COMPRESSION_ERROR` | Compressed bytes were empty (should not occur) |
 
 ### `ExpandedCloudStorageConfig`
 
@@ -343,16 +343,16 @@ classDiagram
 
 All properties are under the `cloud.storage.expanded` namespace.
 
-|                   Property                    |  Default  |                                   Description                                    |
-|-----------------------------------------------|-----------|----------------------------------------------------------------------------------|
-| `cloud.storage.expanded.endpointUrl`                  | `""`      | S3-compatible endpoint URL. **Required. Blank value causes plugin to log a WARNING and be inactive.** |
-| `cloud.storage.expanded.bucketName`                   | `""`      | Name of the S3 bucket. Required when plugin is active.                           |
-| `cloud.storage.expanded.objectKeyPrefix`              | `""`      | Prefix prepended to every object key. Set to empty string for no prefix.         |
-| `cloud.storage.expanded.storageClass`                 | `STANDARD`| S3 storage class (`STANDARD`). Validated as enum at startup.                     |
-| `cloud.storage.expanded.regionName`                   | `""`      | AWS / S3-compatible region. Required when plugin is active.                      |
-| `cloud.storage.expanded.accessKey`                    | `""`      | S3 access key (not logged). Leave blank to use env vars or IAM role.             |
-| `cloud.storage.expanded.secretKey`                    | `""`      | S3 secret key (not logged). Leave blank to use env vars or IAM role.             |
-| `cloud.storage.expanded.uploadTimeoutSeconds`         | `60`      | Max seconds to wait for in-flight uploads during `stop()`. Min value: 1.         |
+|                   Property                    |  Default   |                                              Description                                              |
+|-----------------------------------------------|------------|-------------------------------------------------------------------------------------------------------|
+| `cloud.storage.expanded.endpointUrl`          | `""`       | S3-compatible endpoint URL. **Required. Blank value causes plugin to log a WARNING and be inactive.** |
+| `cloud.storage.expanded.bucketName`           | `""`       | Name of the S3 bucket. Required when plugin is active.                                                |
+| `cloud.storage.expanded.objectKeyPrefix`      | `""`       | Prefix prepended to every object key. Set to empty string for no prefix.                              |
+| `cloud.storage.expanded.storageClass`         | `STANDARD` | S3 storage class (`STANDARD`). Validated as enum at startup.                                          |
+| `cloud.storage.expanded.regionName`           | `""`       | AWS / S3-compatible region. Required when plugin is active.                                           |
+| `cloud.storage.expanded.accessKey`            | `""`       | S3 access key (not logged). Leave blank to use env vars or IAM role.                                  |
+| `cloud.storage.expanded.secretKey`            | `""`       | S3 secret key (not logged). Leave blank to use env vars or IAM role.                                  |
+| `cloud.storage.expanded.uploadTimeoutSeconds` | `60`       | Max seconds to wait for in-flight uploads during `stop()`. Min value: 1.                              |
 
 ### Credential options
 
@@ -373,24 +373,24 @@ All counters are registered under the `hiero_block_node` Prometheus category via
 `MetricsHolder.createMetrics(MetricRegistry)` in `start()`. Each counter uses the
 `org.hiero.metrics.LongCounter` / `MetricKey` API.
 
-|                  Metric name                         |                                 Description                                 |
-|------------------------------------------------------|-----------------------------------------------------------------------------|
-| `cloud_expanded_total_uploads`                       | Number of blocks successfully uploaded to S3-compatible storage.            |
-| `cloud_expanded_total_upload_failures`               | Number of block uploads that failed (S3 error, timeout, compression error). |
-| `cloud_expanded_total_upload_bytes`                  | Total compressed bytes successfully uploaded to S3-compatible storage.      |
-| `cloud_expanded_upload_latency_ns`                   | Total wall-clock time spent in upload calls, in nanoseconds (success + failure). |
+|              Metric name               |                                   Description                                    |
+|----------------------------------------|----------------------------------------------------------------------------------|
+| `cloud_expanded_total_uploads`         | Number of blocks successfully uploaded to S3-compatible storage.                 |
+| `cloud_expanded_total_upload_failures` | Number of block uploads that failed (S3 error, timeout, compression error).      |
+| `cloud_expanded_total_upload_bytes`    | Total compressed bytes successfully uploaded to S3-compatible storage.           |
+| `cloud_expanded_upload_latency_ns`     | Total wall-clock time spent in upload calls, in nanoseconds (success + failure). |
 
 Counters are registered in `start()`. If `start()` fails (e.g., S3 client creation error),
 `metricsHolder` remains `null` and no counters are registered.
 
 ## Exceptions
 
-|                     Exception         |           Source                         |                                                                          Handling                                                                   |
-|---------------------------------------|------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `UploadException`                     | `S3UploadClient.uploadFile`              | Logged at WARNING; upload marked `S3_ERROR`; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                 |
-| `IOException`                         | `S3UploadClient.uploadFile`              | Logged at WARNING; upload marked `IO_ERROR`; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                 |
-| `UploadException` (init)              | `BuckyS3UploadClient` constructor        | Caught in `start()`; logged at WARNING; `s3Client` remains `null`; plugin is effectively inactive (all subsequent `handleVerification` calls are no-ops). |
-| Block bytes empty after compression   | `SingleBlockStoreTask.call`              | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false` (`COMPRESSION_ERROR` status).                                |
+|              Exception              |              Source               |                                                                         Handling                                                                          |
+|-------------------------------------|-----------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `UploadException`                   | `S3UploadClient.uploadFile`       | Logged at WARNING; upload marked `S3_ERROR`; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                       |
+| `IOException`                       | `S3UploadClient.uploadFile`       | Logged at WARNING; upload marked `IO_ERROR`; `PersistedNotification` sent with `succeeded=false`; plugin continues.                                       |
+| `UploadException` (init)            | `BuckyS3UploadClient` constructor | Caught in `start()`; logged at WARNING; `s3Client` remains `null`; plugin is effectively inactive (all subsequent `handleVerification` calls are no-ops). |
+| Block bytes empty after compression | `SingleBlockStoreTask.call`       | Logged at WARNING; upload skipped; `PersistedNotification` sent with `succeeded=false` (`COMPRESSION_ERROR` status).                                      |
 
 `UploadException` is a package-private wrapper that isolates the rest of the package from
 bucky's exception hierarchy. `BuckyS3UploadClient` is the only class that imports

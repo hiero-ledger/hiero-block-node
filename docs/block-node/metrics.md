@@ -244,12 +244,12 @@ Provides metrics related to the backfill process, including On-Demand and Histor
 **Plugin:** `cloud-storage-expanded`
 Tracks the count and byte data size regarding single block uploads
 
-| Type    | Metric                                   | Description                                                              |
-|---------|:-----------------------------------------|:-------------------------------------------------------------------------|
-| Counter | `cloud_expanded_total_uploads`           | Number of blocks successfully uploaded.                                  |
-| Counter | `cloud_expanded_total_upload_failures`   | Number of uploads that failed (S3 error, timeout, or compression error). |
-| Counter | `cloud_expanded_total_upload_bytes`      | Total compressed bytes successfully uploaded.                            |
-| Counter | `cloud_expanded_upload_latency_ns`       | Total time in nanoseconds for upload.                                    |
+|  Type   | Metric                                 | Description                                                              |
+|---------|:---------------------------------------|:-------------------------------------------------------------------------|
+| Counter | `cloud_expanded_total_uploads`         | Number of blocks successfully uploaded.                                  |
+| Counter | `cloud_expanded_total_upload_failures` | Number of uploads that failed (S3 error, timeout, or compression error). |
+| Counter | `cloud_expanded_total_upload_bytes`    | Total compressed bytes successfully uploaded.                            |
+| Counter | `cloud_expanded_upload_latency_ns`     | Total time in nanoseconds for upload.                                    |
 
 ## Alerting Recommendations
 
@@ -299,8 +299,8 @@ As the product matures through beta and rc phases, high severity alerts will be 
 
 **Archive**: Alerts for metrics regarding file archival
 
-| Severity | Alert                         | Metric                                   |                      Condition                           |
-|:---------|:------------------------------|:-----------------------------------------|----------------------------------------------------------|
-| Warning  | Upload failure rate elevated  | `cloud_expanded_upload_failures_total`   | `rate(cloud_expanded_upload_failures_total[5m]) > 0`     |
-| Critical | No uploads in expected window | `cloud_expanded_uploads_total`           | `increase(cloud_expanded_uploads_total[10m]) == 0`       |
-| Warning  | Bytes stalled                 | `cloud_expanded_upload_bytes_total`      | `rate(cloud_expanded_upload_bytes_total[10m]) == 0`      |
+| Severity | Alert                         | Metric                                 |                      Condition                       |
+|:---------|:------------------------------|:---------------------------------------|------------------------------------------------------|
+| Warning  | Upload failure rate elevated  | `cloud_expanded_upload_failures_total` | `rate(cloud_expanded_upload_failures_total[5m]) > 0` |
+| Critical | No uploads in expected window | `cloud_expanded_uploads_total`         | `increase(cloud_expanded_uploads_total[10m]) == 0`   |
+| Warning  | Bytes stalled                 | `cloud_expanded_upload_bytes_total`    | `rate(cloud_expanded_upload_bytes_total[10m]) == 0`  |
