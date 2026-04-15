@@ -11,6 +11,7 @@
 #   3. Calling serverStatusDetail  → reports BN software version, stream proto
 #                                    version, available block ranges, registered
 #                                    plugins, and TSS data presence
+#                                    (only when --detailed-server-status is passed)
 #
 # Endpoints are supplied as positional arguments in <host:port> form.
 # A proto package is resolved in the following priority order:
@@ -29,6 +30,12 @@
 #                           Overrides the PROTO_DIR environment variable.
 #       --tls               Use TLS for gRPC connections.
 #                           Default: plaintext (-plaintext flag to grpcurl).
+#       --detailed-server-status
+#                           Also call serverStatusDetail per endpoint, which
+#                           returns BN software version, stream proto version,
+#                           available block ranges, registered plugins, and TSS
+#                           data presence. Omitted by default because this RPC
+#                           can be slow on nodes with many block ranges.
 #   -h, --help              Print this help text and exit.
 #
 # ENVIRONMENT
@@ -131,6 +138,7 @@ usage() {
 BN_VERSION=""
 PROTO_DIR_ARG=""
 USE_TLS=false
+DETAILED_STATUS=false
 ENDPOINTS=()
 
 while [[ $# -gt 0 ]]; do
@@ -143,6 +151,8 @@ while [[ $# -gt 0 ]]; do
       PROTO_DIR_ARG="$2"; shift 2 ;;
     --tls)
       USE_TLS=true; shift ;;
+    --detailed-server-status)
+      DETAILED_STATUS=true; shift ;;
     -h|--help)
       usage 0 ;;
     -*)
@@ -366,6 +376,33 @@ grpc_call() {
   grpcurl "${flags[@]}" "${target}" "${GRPC_SERVICE}/${method}"
 }
 
+# ── Timing helper ─────────────────────────────────────────────────────────────
+
+# Returns the current wall-clock time in milliseconds.
+# Uses GNU date (+%s%3N) on Linux; falls back to python3 on macOS where BSD
+# date does not support %3N and emits a literal "N" instead.
+now_ms() {
+  local t
+  t="$(date +%s%3N 2>/dev/null)"
+  if [[ "$t" =~ N$ ]]; then
+    # BSD date (macOS) — use python3 which is present on all modern macOS.
+    python3 -c "import time; print(int(time.time() * 1000))"
+  else
+    echo "$t"
+  fi
+}
+
+# Prints elapsed milliseconds in a human-friendly form, e.g. "42 ms" or "1.3 s".
+format_elapsed_ms() {
+  local ms="$1"
+  if (( ms < 1000 )); then
+    echo "${ms} ms"
+  else
+    # Use awk for portable floating-point division (bc not always available).
+    awk -v ms="$ms" 'BEGIN { printf "%.1f s\n", ms / 1000 }'
+  fi
+}
+
 # ── TCP reachability check ────────────────────────────────────────────────────
 
 tcp_check() {
@@ -495,43 +532,60 @@ check_endpoint() {
   host="${endpoint%:*}"
   port="${endpoint##*:}"
 
+  local ep_start_ms t0 elapsed
+  ep_start_ms="$(now_ms)"
+
   echo ""
   printf "%b\n" "${C_BOLD}──────────────────────────────────────────────────────────────${C_RESET}"
   printf "%b\n" "${C_BOLD}  ${endpoint}${C_RESET}"
   printf "%b\n" "${C_BOLD}──────────────────────────────────────────────────────────────${C_RESET}"
 
   # 1. TCP reachability ───────────────────────────────────────────────────────
+  t0="$(now_ms)"
   if tcp_check "$host" "$port"; then
-    log_success "  🟢 TCP reachable"
+    elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+    log_success "  🟢 TCP reachable  (${elapsed})"
   else
-    log_err "  🔴 TCP FAIL — cannot reach ${host}:${port}"
+    elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+    log_err "  🔴 TCP FAIL — cannot reach ${host}:${port}  (${elapsed})"
     return 1
   fi
 
   # 2. serverStatus ──────────────────────────────────────────────────────────
   # Reports: first_available_block, last_available_block, only_latest_state
   local status_json
+  t0="$(now_ms)"
   if status_json="$(grpc_call "$endpoint" "serverStatus" 2>&1)"; then
-    log_success "  🟢 serverStatus"
+    elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+    log_success "  🟢 serverStatus  (${elapsed})"
     print_server_status "$status_json"
   else
-    log_err "  🔴 serverStatus FAILED"
+    elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+    log_err "  🔴 serverStatus FAILED  (${elapsed})"
     echo "$status_json" | sed 's/^/     /'
     return 1
   fi
 
-  # 3. serverStatusDetail ────────────────────────────────────────────────────
+  # 3. serverStatusDetail (optional — pass --detailed-server-status) ────────
   # Reports: BN version, stream proto version, block ranges, plugins, TSS.
   # Failure here is treated as a warning — some nodes may serve serverStatus
   # only (e.g. behind an HTTP/1.1 proxy that does not support streaming RPCs).
-  local detail_json
-  if detail_json="$(grpc_call "$endpoint" "serverStatusDetail" 2>&1)"; then
-    log_success "  📦 serverStatusDetail"
-    print_server_status_detail "$detail_json"
-  else
-    log_warn "  🟠 serverStatusDetail WARN (method unavailable or proxy limitation)"
-    echo "$detail_json" | sed 's/^/     /'
+  if [[ "$DETAILED_STATUS" == "true" ]]; then
+    local detail_json
+    t0="$(now_ms)"
+    if detail_json="$(grpc_call "$endpoint" "serverStatusDetail" 2>&1)"; then
+      elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+      log_success "  📦 serverStatusDetail  (${elapsed})"
+      print_server_status_detail "$detail_json"
+    else
+      elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+      log_warn "  🟠 serverStatusDetail WARN (method unavailable or proxy limitation)  (${elapsed})"
+      echo "$detail_json" | sed 's/^/     /'
+    fi
   fi
+
+  elapsed="$(format_elapsed_ms "$(( $(now_ms) - ep_start_ms ))")"
+  printf "     %b\n" "${C_BLUE}endpoint total: ${elapsed}${C_RESET}"
 
   return 0
 }
@@ -539,6 +593,9 @@ check_endpoint() {
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 main() {
+  local SCRIPT_START_MS
+  SCRIPT_START_MS="$(now_ms)"
+
   # Check hard dependencies (nc, jq) before doing any network work.
   check_nc
   check_jq
@@ -550,19 +607,24 @@ main() {
   ensure_proto_dir
 
   local overall_fail=0
-  local tls_label
-  tls_label="$( [[ "$USE_TLS" == "true" ]] && echo "TLS" || echo "plaintext" )"
+  local tls_label detail_label
+  tls_label="$(    [[ "$USE_TLS"         == "true" ]] && echo "TLS"      || echo "plaintext" )"
+  detail_label="$( [[ "$DETAILED_STATUS" == "true" ]] && echo "enabled"  || echo "disabled (pass --detailed-server-status to enable)" )"
 
   echo ""
   log_info "Checking ${#ENDPOINTS[@]} endpoint(s)"
-  log_info "  Proto dir : ${RESOLVED_PROTO_DIR}"
-  log_info "  Transport : ${tls_label}"
+  log_info "  Proto dir       : ${RESOLVED_PROTO_DIR}"
+  log_info "  Transport       : ${tls_label}"
+  log_info "  Detailed status : ${detail_label}"
 
   for ep in "${ENDPOINTS[@]}"; do
     if ! check_endpoint "$ep"; then
       overall_fail=1
     fi
   done
+
+  local total_elapsed
+  total_elapsed="$(format_elapsed_ms "$(( $(now_ms) - SCRIPT_START_MS ))")"
 
   echo ""
   printf "%b\n" "${C_BOLD}══════════════════════════════════════════════════════════════${C_RESET}"
@@ -571,6 +633,7 @@ main() {
   else
     log_err     "  ❌  One or more endpoints failed — see output above"
   fi
+  log_info      "  ⏱  Total time: ${total_elapsed}"
   printf "%b\n" "${C_BOLD}══════════════════════════════════════════════════════════════${C_RESET}"
   echo ""
 
