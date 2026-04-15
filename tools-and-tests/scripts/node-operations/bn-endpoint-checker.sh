@@ -88,26 +88,36 @@
 #   2   Usage / configuration error (bad arguments, missing dependencies).
 # =============================================================================
 
+# Exit immediately on unhandled error, treat unset variables as errors, and
+# propagate failures through pipes (e.g. cmd1 | cmd2 fails if cmd1 fails).
 set -euo pipefail
 
 # ── Script-level constants ────────────────────────────────────────────────────
 
+# Resolve the directory that contains this script at runtime so that relative
+# paths (proto dirs, local bin/) are stable regardless of the caller's cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# grpcurl version to install when auto-installing.
+# grpcurl version to pin when auto-installing. Bump this when a newer release
+# fixes a bug or adds a feature the script depends on.
 GRPCURL_VERSION="1.9.1"
 
-# GitHub release URLs (no trailing slash).
+# Base URLs for release artifacts (no trailing slash).
 PROTO_ARCHIVE_BASE_URL="https://github.com/hiero-ledger/hiero-block-node/releases/download"
 GRPCURL_RELEASE_BASE_URL="https://github.com/fullstorydev/grpcurl/releases/download"
 
-# Proto file path relative to the extracted proto directory root.
+# Path to the node service proto file, relative to the proto directory root.
+# grpcurl uses this as the entry point and resolves all transitive imports from
+# the same root via -import-path.
 NODE_SERVICE_PROTO="block-node/api/node_service.proto"
 
-# Fully-qualified gRPC service name (matches the proto package + service).
+# Fully-qualified gRPC service name as declared in the proto package.
+# Used to construct the grpcurl target: <service>/<method>.
 GRPC_SERVICE="org.hiero.block.api.BlockNodeService"
 
 # ── ANSI colours (disabled automatically when stdout is not a terminal) ───────
+# Check file descriptor 1 (stdout) with -t; when the script is piped or
+# redirected the colour codes are suppressed to avoid polluting log files.
 
 if [[ -t 1 ]]; then
   C_GREEN='\033[0;32m'
@@ -117,29 +127,35 @@ if [[ -t 1 ]]; then
   C_BOLD='\033[1m'
   C_RESET='\033[0m'
 else
+  # Non-interactive: set all colour variables to empty strings.
   C_GREEN='' C_RED='' C_YELLOW='' C_BLUE='' C_BOLD='' C_RESET=''
 fi
 
-log_info()    { printf "%b\n"    "${C_BLUE}${*}${C_RESET}"; }
-log_success() { printf "%b\n"    "${C_GREEN}${*}${C_RESET}"; }
-log_warn()    { printf "%b\n"    "${C_YELLOW}${*}${C_RESET}" >&2; }
-log_err()     { printf "%b\n"    "${C_RED}${*}${C_RESET}" >&2; }
+# Logging helpers — each wraps printf with the appropriate colour and a newline.
+# log_warn and log_err write to stderr so they don't pollute stdout captures.
+log_info()    { printf "%b\n" "${C_BLUE}${*}${C_RESET}"; }
+log_success() { printf "%b\n" "${C_GREEN}${*}${C_RESET}"; }
+log_warn()    { printf "%b\n" "${C_YELLOW}${*}${C_RESET}" >&2; }
+log_err()     { printf "%b\n" "${C_RED}${*}${C_RESET}" >&2; }
 
 # ── Usage / help ──────────────────────────────────────────────────────────────
 
 usage() {
-  # Print every line that starts with '#' (excluding the shebang) from this file.
+  # Extract the inline help text from the comment block at the top of this
+  # file. Every line starting with '#' (except the shebang) is printed with
+  # the leading '# ' stripped, so the source file is the single source of truth
+  # for help text — no separate man page or heredoc needed.
   grep '^#' "$0" | grep -v '^#!/' | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
-BN_VERSION=""
-PROTO_DIR_ARG=""
-USE_TLS=false
-DETAILED_STATUS=false
-ENDPOINTS=()
+BN_VERSION=""       # Requested BN protobuf version for auto-download.
+PROTO_DIR_ARG=""    # --proto-dir flag value (overrides PROTO_DIR env var).
+USE_TLS=false       # When true, grpcurl uses TLS; default is plaintext.
+DETAILED_STATUS=false  # When true, also call serverStatusDetail per endpoint.
+ENDPOINTS=()        # Positional <host:port> arguments collected here.
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -158,6 +174,7 @@ while [[ $# -gt 0 ]]; do
     -*)
       log_err "Unknown option: $1"; usage 2 ;;
     *)
+      # Everything that is not a recognised flag is treated as an endpoint.
       ENDPOINTS+=("$1"); shift ;;
   esac
 done
@@ -169,7 +186,9 @@ if [[ ${#ENDPOINTS[@]} -eq 0 ]]; then
   usage 2
 fi
 
-# Resolve proto directory: flag > env var > derived from --version.
+# Proto directory resolution order: CLI flag > env var > derived from --version.
+# The env var fallback allows operators to export PROTO_DIR once in their shell
+# profile without needing to pass --proto-dir on every invocation.
 RESOLVED_PROTO_DIR="${PROTO_DIR_ARG:-${PROTO_DIR:-}}"
 
 if [[ -z "$RESOLVED_PROTO_DIR" && -z "$BN_VERSION" ]]; then
@@ -177,12 +196,14 @@ if [[ -z "$RESOLVED_PROTO_DIR" && -z "$BN_VERSION" ]]; then
   usage 2
 fi
 
-# When only --version is given, derive the local directory name.
+# When only --version is given (no explicit directory path), derive the
+# expected extraction path from the script's own directory so repeated runs
+# re-use the already-downloaded package without re-downloading.
 if [[ -z "$RESOLVED_PROTO_DIR" && -n "$BN_VERSION" ]]; then
   RESOLVED_PROTO_DIR="${SCRIPT_DIR}/block-node-protobuf-${BN_VERSION}"
 fi
 
-# Basic <host:port> format validation.
+# Validate that every endpoint looks like host:port before hitting the network.
 for ep in "${ENDPOINTS[@]}"; do
   if [[ "$ep" != *:* ]]; then
     log_err "Error: endpoint '${ep}' must be in <host:port> form."
@@ -192,6 +213,9 @@ done
 
 # ── Dependency checks ─────────────────────────────────────────────────────────
 
+# Verify nc (netcat) is present. nc is used for the fast TCP reachability probe
+# before we attempt a full gRPC call. On most Linux distros it ships with
+# netcat-openbsd; on macOS it is part of the base system.
 check_nc() {
   if ! command -v nc &>/dev/null; then
     log_err "Error: 'nc' (netcat) is required for TCP reachability checks but was not found."
@@ -202,6 +226,8 @@ check_nc() {
   fi
 }
 
+# Verify jq is present. jq is used to extract and format fields from the JSON
+# responses returned by grpcurl.
 check_jq() {
   if ! command -v jq &>/dev/null; then
     log_err "Error: 'jq' is required for JSON parsing but was not found."
@@ -214,7 +240,8 @@ check_jq() {
 
 # ── grpcurl: platform detection ───────────────────────────────────────────────
 
-# Returns the grpcurl release archive platform string, e.g. "linux_x86_64" or "osx_arm64".
+# Maps the current OS and CPU architecture to the platform string used in
+# grpcurl GitHub release archive names, e.g. "linux_x86_64" or "osx_arm64".
 detect_grpcurl_platform() {
   local os_raw arch_raw os_tag arch_tag
   os_raw="$(uname -s)"
@@ -243,6 +270,9 @@ detect_grpcurl_platform() {
 
 # ── grpcurl: auto-install ─────────────────────────────────────────────────────
 
+# Interactively downloads and installs grpcurl when it is not already on PATH.
+# Offers a local install (no sudo, scoped to this script's bin/ directory) or
+# a system-wide install (/usr/local/bin, requires sudo).
 install_grpcurl() {
   local platform archive url
 
@@ -263,6 +293,9 @@ install_grpcurl() {
 
   case "$install_choice" in
     1)
+      # Install into a bin/ directory alongside this script. This directory is
+      # automatically prepended to PATH by check_grpcurl on future runs, so the
+      # user will not be prompted again after the first install.
       local install_dir="${SCRIPT_DIR}/bin"
       mkdir -p "$install_dir"
       log_info "Downloading grpcurl ${GRPCURL_VERSION} for ${platform} → ${install_dir}/grpcurl …"
@@ -273,6 +306,8 @@ install_grpcurl() {
       log_info "Tip: add '${install_dir}' to your PATH to avoid this prompt in future sessions."
       ;;
     2)
+      # Download to a temp directory first, then move into /usr/local/bin with
+      # sudo so the curl pipe never runs as root.
       local tmp_dir
       tmp_dir="$(mktemp -d)"
       log_info "Downloading grpcurl ${GRPCURL_VERSION} for ${platform} …"
@@ -295,8 +330,10 @@ install_grpcurl() {
   esac
 }
 
+# Verifies grpcurl is available, prepending the script-local bin/ directory to
+# PATH first so a previously auto-installed binary is found without the user
+# needing to update their shell profile.
 check_grpcurl() {
-  # Check the local script-adjacent bin first (installed by a previous run).
   local local_bin="${SCRIPT_DIR}/bin"
   if [[ -x "${local_bin}/grpcurl" ]]; then
     export PATH="${local_bin}:${PATH}"
@@ -309,10 +346,14 @@ check_grpcurl() {
 
 # ── Proto package: download and extract ───────────────────────────────────────
 
+# Ensures RESOLVED_PROTO_DIR exists and contains the expected node_service.proto
+# file. If the directory is absent and --version was supplied, downloads the
+# release archive from GitHub and extracts it in place.
 ensure_proto_dir() {
   if [[ -d "$RESOLVED_PROTO_DIR" ]]; then
     log_info "Proto directory : ${RESOLVED_PROTO_DIR}"
-    # Sanity-check that the expected proto file exists.
+    # Verify the key entry-point file is present so we fail fast with a clear
+    # message rather than a cryptic grpcurl error later.
     if [[ ! -f "${RESOLVED_PROTO_DIR}/${NODE_SERVICE_PROTO}" ]]; then
       log_err "Error: proto directory exists but is missing the expected file:"
       log_err "  ${RESOLVED_PROTO_DIR}/${NODE_SERVICE_PROTO}"
@@ -322,7 +363,8 @@ ensure_proto_dir() {
     return 0
   fi
 
-  # Directory does not exist — download required.
+  # Directory does not exist — download is required, but only if a version was
+  # specified. Without --version we have no URL to derive.
   if [[ -z "$BN_VERSION" ]]; then
     log_err "Error: proto directory not found: ${RESOLVED_PROTO_DIR}"
     log_err "Provide --version to download it automatically."
@@ -348,6 +390,7 @@ ensure_proto_dir() {
   tar -xzf "$tmp_archive" -C "$RESOLVED_PROTO_DIR"
   rm -f "$tmp_archive"
 
+  # Final integrity check: confirm the archive contained the expected file.
   if [[ ! -f "${RESOLVED_PROTO_DIR}/${NODE_SERVICE_PROTO}" ]]; then
     log_err "Error: archive extracted but expected proto file is missing:"
     log_err "  ${RESOLVED_PROTO_DIR}/${NODE_SERVICE_PROTO}"
@@ -359,9 +402,20 @@ ensure_proto_dir() {
 
 # ── gRPC call helper ──────────────────────────────────────────────────────────
 
-# Invokes grpcurl for the given target and method name.
-# Passes -plaintext when TLS is disabled (the default).
-# All output (stdout + stderr) is returned to the caller.
+# Invokes grpcurl for the given target endpoint and RPC method name.
+#
+# Key grpcurl flags used:
+#   -emit-defaults   Include proto3 fields that hold their default (zero) value
+#                    in the JSON output. Without this, fields like block=0 are
+#                    silently omitted, making the output ambiguous.
+#   -import-path     Root directory from which proto imports are resolved.
+#   -proto           Entry-point proto file (relative to -import-path).
+#   -d '{}'          Send an empty request body (all fields at default).
+#   -plaintext       Disable TLS. grpcurl uses TLS by default; this flag opts
+#                    out for nodes that do not terminate TLS themselves.
+#
+# stdout and stderr are both captured by the caller via $() so that error
+# messages from grpcurl are available for display on failure.
 grpc_call() {
   local target="$1" method="$2"
   local -a flags=(
@@ -370,56 +424,106 @@ grpc_call() {
     -proto        "${NODE_SERVICE_PROTO}"
     -d            '{}'
   )
-  # grpcurl uses TLS by default; -plaintext opts out.
+  # Prepend -plaintext when TLS is disabled (the common case for internal nodes).
   [[ "$USE_TLS" == "false" ]] && flags=("-plaintext" "${flags[@]}")
 
   grpcurl "${flags[@]}" "${target}" "${GRPC_SERVICE}/${method}"
 }
 
-# ── Timing helper ─────────────────────────────────────────────────────────────
+# ── Timing helpers ────────────────────────────────────────────────────────────
 
-# Returns the current wall-clock time in milliseconds.
-# Uses GNU date (+%s%3N) on Linux; falls back to python3 on macOS where BSD
-# date does not support %3N and emits a literal "N" instead.
+# Returns the current wall-clock time in milliseconds since the Unix epoch.
+#
+# Why not just use `date +%s%3N` everywhere?
+# GNU date (Linux) supports the %3N nanoseconds-truncated-to-milliseconds
+# format specifier. BSD date (macOS) does not — it treats %3N as a literal
+# "3N" and outputs a string ending in "N". We detect that case and fall back to
+# python3, which ships on all modern macOS versions and provides sub-second
+# precision via time.time().
 now_ms() {
   local t
   t="$(date +%s%3N 2>/dev/null)"
   if [[ "$t" =~ N$ ]]; then
-    # BSD date (macOS) — use python3 which is present on all modern macOS.
+    # BSD date detected (macOS). Use python3 for millisecond precision.
     python3 -c "import time; print(int(time.time() * 1000))"
   else
     echo "$t"
   fi
 }
 
-# Prints elapsed milliseconds in a human-friendly form, e.g. "42 ms" or "1.3 s".
+# Converts a raw millisecond count into a human-readable string.
+# Values under one second are shown as "NNN ms"; values of one second or more
+# are shown as "N.N s" with one decimal place.
+# awk is used instead of bc for the floating-point division because bc is not
+# available on all systems (e.g. minimal Docker images), while awk is POSIX.
 format_elapsed_ms() {
   local ms="$1"
   if (( ms < 1000 )); then
     echo "${ms} ms"
   else
-    # Use awk for portable floating-point division (bc not always available).
     awk -v ms="$ms" 'BEGIN { printf "%.1f s\n", ms / 1000 }'
   fi
 }
 
 # ── TCP reachability check ────────────────────────────────────────────────────
 
+# Probes whether host:port is accepting TCP connections.
+#
+# What nc -z does:
+#   -z   "Zero I/O mode" — opens a TCP socket and immediately closes it without
+#        sending any data. It simply confirms the port is open and listening.
+#        This is much faster than a full gRPC handshake and gives an early
+#        signal when a node is completely unreachable (wrong IP, firewall, etc.).
+#
+# The -w 3 timeout problem:
+#   nc's -w flag is documented as a timeout in seconds, but its behaviour
+#   differs across implementations (BSD nc on macOS vs netcat-openbsd on Linux
+#   vs netcat-traditional). Crucially, when a firewall silently DROPs packets
+#   (no TCP RST is sent back), -w may not cut off the connection attempt —
+#   instead the OS-level TCP SYN retransmission backoff runs to completion,
+#   which can take 75–127 seconds depending on the kernel's tcp_syn_retries
+#   setting. This has been observed causing 75-second hangs on unreachable nodes.
+#
+# The fix — wrapping with `timeout`:
+#   The shell's `timeout` command sends SIGALRM to the child process after the
+#   specified interval regardless of what the process is doing, providing a
+#   reliable hard deadline. We prefer `timeout` (GNU coreutils, present on
+#   Linux by default) and fall back to `gtimeout` (the same tool installed by
+#   `brew install coreutils` on macOS). If neither is available we fall back to
+#   plain nc with -w 3, accepting the risk of the longer hang.
+#
+# The -w 3 is kept even when timeout is available as belt-and-suspenders: if
+# the connection is actively refused (RST received), nc exits immediately and
+# the timeout wrapper adds no overhead.
 tcp_check() {
   local host="$1" port="$2"
-  nc -z -w 3 "$host" "$port" &>/dev/null
+
+  # Resolve whichever timeout command is available on this system.
+  local timeout_cmd=""
+  if   command -v timeout  &>/dev/null; then timeout_cmd="timeout 3"
+  elif command -v gtimeout &>/dev/null; then timeout_cmd="gtimeout 3"
+  fi
+  # Note: if neither is found, timeout_cmd remains empty and we rely on -w 3
+  # alone. This is safe for reachable nodes; unreachable DROP-firewalled nodes
+  # may still hang up to the OS TCP timeout in that case.
+
+  ${timeout_cmd} nc -z -w 3 "$host" "$port" &>/dev/null
 }
 
 # ── Output formatting ─────────────────────────────────────────────────────────
 
-# Prints a two-column key/value line indented by 5 spaces.
+# Prints a key/value pair indented by 5 spaces with the key left-padded to a
+# fixed width, producing a consistent column-aligned table.
 print_field() {
   local key="$1" value="$2"
   printf "     %-30s %s\n" "${key}:" "$value"
 }
 
-# Formats a SemanticVersion protobuf JSON object as "major.minor.patch[-pre][+build]".
-# Accepts the JSON object as a string argument.
+# Parses a SemanticVersion protobuf JSON object (major/minor/patch/pre/build)
+# and formats it as the standard "major.minor.patch[-pre][+build]" string.
+# Returns "unknown" when the input is null or an empty object — this happens
+# when the server is running a version of BN that does not yet populate the
+# field.
 format_semver() {
   local json="$1"
   echo "$json" | jq -r '
@@ -434,7 +538,12 @@ format_semver() {
   '
 }
 
-# Pretty-prints a ServerStatusResponse JSON object.
+# Extracts and prints the key fields from a ServerStatusResponse JSON object.
+# Fields:
+#   firstAvailableBlock  — lowest block number the node can serve.
+#   lastAvailableBlock   — highest block number currently stored.
+#   onlyLatestState      — true when the node retains only the most recent block
+#                          and does not serve historical blocks.
 print_server_status() {
   local json="$1"
   local first last only_latest
@@ -447,25 +556,36 @@ print_server_status() {
   print_field "only_latest_state"     "$only_latest"
 }
 
-# Pretty-prints a ServerStatusDetailResponse JSON object.
+# Extracts and prints the extended fields from a ServerStatusDetailResponse.
+# Fields:
+#   BN version             — semantic version of the Block Node software.
+#   stream_proto_version   — version of the block stream protobuf schema the
+#                            node is currently using.
+#   available_ranges       — number of contiguous block ranges the node holds,
+#                            with each range's start and end block printed below.
+#   installed_plugins      — plugins registered in the node, with their versions.
+#   tss_data               — whether TSS (Threshold Signature Scheme) ledger
+#                            configuration data is present on this node.
 print_server_status_detail() {
   local json="$1"
 
-  # Software version
+  # ── Software version ──────────────────────────────────────────────────────
   local bn_ver_json bn_ver
   bn_ver_json="$(echo "$json" | jq '.versionInformation.blockNodeVersion // {}')"
   bn_ver="$(format_semver "$bn_ver_json")"
 
-  # Stream proto version
+  # ── Stream proto version ──────────────────────────────────────────────────
   local stream_ver_json stream_ver
   stream_ver_json="$(echo "$json" | jq '.versionInformation.streamProtoVersion // {}')"
   stream_ver="$(format_semver "$stream_ver_json")"
 
-  # Available ranges
+  # ── Available block ranges ────────────────────────────────────────────────
+  # A node may hold multiple non-contiguous ranges if it was offline during
+  # parts of the chain history (gaps). Each range has rangeStart and rangeEnd.
   local range_count
   range_count="$(echo "$json" | jq '.availableRanges | length')"
 
-  local range_summary
+  local range_summary=""
   if [[ "$range_count" -gt 0 ]]; then
     range_summary="$(echo "$json" | jq -r '
       .availableRanges |
@@ -473,12 +593,12 @@ print_server_status_detail() {
       map("       range \(.key + 1): blocks \(.value.rangeStart) – \(.value.rangeEnd)") |
       join("\n")
     ')"
-  else
-    range_summary=""
   fi
 
-  # Installed plugins
-  local plugin_count plugin_list
+  # ── Installed plugins ─────────────────────────────────────────────────────
+  # Plugins extend the node with capabilities such as cloud storage, metrics
+  # exporters, etc. Each entry has a pluginId and an optional pluginSoftwareVersion.
+  local plugin_count plugin_list=""
   plugin_count="$(echo "$json" | jq '.versionInformation.installedPluginVersions | length')"
   if [[ "$plugin_count" -gt 0 ]]; then
     plugin_list="$(echo "$json" | jq -r '
@@ -492,43 +612,48 @@ print_server_status_detail() {
         end
       )"
     ')"
-  else
-    plugin_list=""
   fi
 
-  # TSS data presence — check ledger_id field (non-empty bytes)
-  local tss_status
-  local ledger_id
+  # ── TSS data presence ─────────────────────────────────────────────────────
+  # ledgerId is a bytes field; grpcurl encodes it as a base64 string when
+  # non-empty. An empty or absent ledgerId means TSS is not configured.
+  local tss_status ledger_id
   ledger_id="$(echo "$json" | jq -r '.tssData.ledgerId // ""')"
-  if [[ -n "$ledger_id" && "$ledger_id" != "null" && "$ledger_id" != "" ]]; then
+  if [[ -n "$ledger_id" && "$ledger_id" != "null" ]]; then
     tss_status="present"
   else
     tss_status="not configured"
   fi
 
+  # ── Print all collected fields ────────────────────────────────────────────
   print_field "BN version"            "$bn_ver"
   print_field "stream_proto_version"  "$stream_ver"
   print_field "available_ranges"      "${range_count} range(s)"
-
-  if [[ -n "$range_summary" ]]; then
-    echo "$range_summary"
-  fi
+  [[ -n "$range_summary" ]] && echo "$range_summary"
 
   print_field "installed_plugins"     "${plugin_count} registered"
-  if [[ -n "$plugin_list" ]]; then
-    echo "$plugin_list"
-  fi
+  [[ -n "$plugin_list" ]] && echo "$plugin_list"
 
   print_field "tss_data"             "$tss_status"
 }
 
 # ── Per-endpoint check ────────────────────────────────────────────────────────
 
-# Returns 0 if TCP + serverStatus both pass; 1 otherwise.
-# serverStatusDetail failure is reported as a warning (non-fatal).
+# Runs the full check sequence for a single endpoint: TCP probe → serverStatus
+# gRPC call → (optional) serverStatusDetail gRPC call.
+#
+# Returns 0 if TCP and serverStatus both succeed; 1 if either fails.
+# serverStatusDetail failure is non-fatal (reported as a warning) because some
+# nodes sit behind HTTP/1.1 proxies that do not support streaming RPCs.
+#
+# Each step is individually timed and the per-endpoint total is printed at the
+# end. Elapsed times help operators identify slow or high-latency nodes at a
+# glance without needing a separate profiling tool.
 check_endpoint() {
   local endpoint="$1"
   local host port
+  # Split "host:port" — %:* strips from the last colon rightward (host),
+  # ##*: strips everything up to and including the last colon (port).
   host="${endpoint%:*}"
   port="${endpoint##*:}"
 
@@ -541,6 +666,9 @@ check_endpoint() {
   printf "%b\n" "${C_BOLD}──────────────────────────────────────────────────────────────${C_RESET}"
 
   # 1. TCP reachability ───────────────────────────────────────────────────────
+  # A fast port-open check before attempting a full gRPC handshake. If TCP
+  # fails we skip the gRPC calls entirely — there is no point waiting for them
+  # when the node is not even network-reachable.
   t0="$(now_ms)"
   if tcp_check "$host" "$port"; then
     elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
@@ -552,7 +680,9 @@ check_endpoint() {
   fi
 
   # 2. serverStatus ──────────────────────────────────────────────────────────
-  # Reports: first_available_block, last_available_block, only_latest_state
+  # The primary health signal. A successful response confirms the node's gRPC
+  # stack is up and it is actively serving blocks. The response includes the
+  # first and last available block numbers and the only_latest_state flag.
   local status_json
   t0="$(now_ms)"
   if status_json="$(grpc_call "$endpoint" "serverStatus" 2>&1)"; then
@@ -566,10 +696,13 @@ check_endpoint() {
     return 1
   fi
 
-  # 3. serverStatusDetail (optional — pass --detailed-server-status) ────────
-  # Reports: BN version, stream proto version, block ranges, plugins, TSS.
-  # Failure here is treated as a warning — some nodes may serve serverStatus
-  # only (e.g. behind an HTTP/1.1 proxy that does not support streaming RPCs).
+  # 3. serverStatusDetail (opt-in via --detailed-server-status) ──────────────
+  # Returns richer metadata: software version, stream proto version, available
+  # block ranges, installed plugins, and TSS configuration presence. Omitted by
+  # default because this RPC can be noticeably slower on nodes that hold many
+  # block ranges (the response payload is larger and server-side assembly takes
+  # more time). Pass --detailed-server-status when version or plugin information
+  # is needed.
   if [[ "$DETAILED_STATUS" == "true" ]]; then
     local detail_json
     t0="$(now_ms)"
@@ -584,6 +717,8 @@ check_endpoint() {
     fi
   fi
 
+  # Print the wall-clock time spent on this endpoint in total (TCP + all gRPC
+  # calls). Useful for spotting outliers when checking many nodes at once.
   elapsed="$(format_elapsed_ms "$(( $(now_ms) - ep_start_ms ))")"
   printf "     %b\n" "${C_BLUE}endpoint total: ${elapsed}${C_RESET}"
 
@@ -593,20 +728,23 @@ check_endpoint() {
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 main() {
+  # Record the script start time before any setup work so the grand total
+  # includes dependency checks and proto downloads, not just the network probes.
   local SCRIPT_START_MS
   SCRIPT_START_MS="$(now_ms)"
 
-  # Check hard dependencies (nc, jq) before doing any network work.
+  # Verify hard dependencies before touching the network. Fail fast with clear
+  # install instructions rather than cryptic errors mid-run.
   check_nc
   check_jq
-
-  # Check / install grpcurl.
   check_grpcurl
 
-  # Ensure the proto directory is present (download if needed).
+  # Ensure the proto directory is present, downloading it if needed.
   ensure_proto_dir
 
   local overall_fail=0
+
+  # Build human-readable labels for the run summary header.
   local tls_label detail_label
   tls_label="$(    [[ "$USE_TLS"         == "true" ]] && echo "TLS"      || echo "plaintext" )"
   detail_label="$( [[ "$DETAILED_STATUS" == "true" ]] && echo "enabled"  || echo "disabled (pass --detailed-server-status to enable)" )"
@@ -617,12 +755,16 @@ main() {
   log_info "  Transport       : ${tls_label}"
   log_info "  Detailed status : ${detail_label}"
 
+  # Iterate over every supplied endpoint. Failures are accumulated rather than
+  # stopping immediately so the operator gets a complete picture of all nodes in
+  # a single run.
   for ep in "${ENDPOINTS[@]}"; do
     if ! check_endpoint "$ep"; then
       overall_fail=1
     fi
   done
 
+  # Compute the total elapsed time for the entire script run.
   local total_elapsed
   total_elapsed="$(format_elapsed_ms "$(( $(now_ms) - SCRIPT_START_MS ))")"
 
