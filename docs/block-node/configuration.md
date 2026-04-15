@@ -195,16 +195,16 @@ Uploads each verified block as a single ZSTD-compressed `.blk.zstd` object to an
 S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is **disabled by
 default** — setting `CLOUD_EXPANDED_ENDPOINT_URL` to a non-empty value activates it.
 
-| ENV Variable                            | Description                                                                                     |           Default |
-|:----------------------------------------|:------------------------------------------------------------------------------------------------|------------------:|
-| CLOUD_EXPANDED_ENDPOINT_URL             | S3-compatible endpoint URL. **Blank disables the plugin.**                                      |                "" |
-| CLOUD_EXPANDED_BUCKET_NAME              | Name of the S3 bucket where blocks are stored.                                                  | block-node-blocks |
-| CLOUD_EXPANDED_OBJECT_KEY_PREFIX        | Prefix prepended to every object key (e.g. `blocks`).                                           |            blocks |
-| CLOUD_EXPANDED_STORAGE_CLASS           | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version. |          STANDARD |
-| CLOUD_EXPANDED_REGION_NAME              | AWS / S3-compatible region name.                                                                |         us-east-1 |
-| CLOUD_EXPANDED_ACCESS_KEY               | S3 access key (not logged).                                                                     |                "" |
-| CLOUD_EXPANDED_SECRET_KEY               | S3 secret key (not logged).                                                                     |                "" |
-| CLOUD_EXPANDED_UPLOAD_TIMEOUT_SECONDS   | Max seconds per block upload before treating the upload as failed.                              |                60 |
+| ENV Variable                          | Description                                                                                     |           Default |
+|:--------------------------------------|:------------------------------------------------------------------------------------------------|------------------:|
+| CLOUD_EXPANDED_ENDPOINT_URL           | S3-compatible endpoint URL. **Blank disables the plugin.**                                      |                "" |
+| CLOUD_EXPANDED_BUCKET_NAME            | Name of the S3 bucket where blocks are stored.                                                  | block-node-blocks |
+| CLOUD_EXPANDED_OBJECT_KEY_PREFIX      | Prefix prepended to every object key (e.g. `blocks`).                                           |            blocks |
+| CLOUD_EXPANDED_STORAGE_CLASS          | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version. |          STANDARD |
+| CLOUD_EXPANDED_REGION_NAME            | AWS / S3-compatible region name.                                                                |         us-east-1 |
+| CLOUD_EXPANDED_ACCESS_KEY             | S3 access key (not logged).                                                                     |                "" |
+| CLOUD_EXPANDED_SECRET_KEY             | S3 secret key (not logged).                                                                     |                "" |
+| CLOUD_EXPANDED_UPLOAD_TIMEOUT_SECONDS | Max seconds per block upload before treating the upload as failed.                              |                60 |
 
 Object keys follow the format `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`, where the
 19-digit zero-padded block number is split into a 4/4/4/4/3 folder hierarchy:
