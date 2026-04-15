@@ -220,8 +220,9 @@ Consider using mermaid to generate one or more of the following:
 
 ### ApplicationStateFacility (NodeConfig)
 
-- `tssDataFilePath` in `NodeConfig`
-  - The file path to use to persist and load `TssData`
+- `tssDataFilePath`. The file path to use to persist and load `TssData`
+- `tssUpdatePollIntervalMillis`. The poll interval in milliseconds that the ApplicationStateFacility uses to check for
+  `TssData` updates
 
 ### TssBootstrapPlugin (TssBootstrapConfig)
 
