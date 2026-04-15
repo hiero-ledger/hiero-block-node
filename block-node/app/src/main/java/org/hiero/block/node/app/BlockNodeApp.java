@@ -381,6 +381,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * process.
      */
     void startApplicationStateFacility() {
+        final long tssUpdatePollIntervalMillis =
+                blockNodeContext.configuration().getConfigData(NodeConfig.class).tssUpdatePollIntervalMillis();
+
         LOGGER.log(INFO, "ApplicationStateFacility start called");
         applicationStateFacility = Thread.ofVirtual().start(() -> {
             LOGGER.log(INFO, "ApplicationStateFacility start called");
@@ -396,7 +399,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         persistTssData(blockNodeContext.tssData());
                         LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
                     }
-                    Thread.sleep(500);
+                    Thread.sleep(tssUpdatePollIntervalMillis);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -448,7 +451,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * @param tssData The TssData to persist
      */
     private void persistTssData(TssData tssData) {
-        final var tssDataFilePath =
+        final Path tssDataFilePath =
                 blockNodeContext.configuration().getConfigData(NodeConfig.class).tssDataFilePath();
         try {
             Files.createDirectories(tssDataFilePath.getParent());
@@ -468,7 +471,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * This must be called after the blockNode context is created
      */
     private void loadApplicationState() {
-        final var tssDataFilePath =
+        final Path tssDataFilePath =
                 blockNodeContext.configuration().getConfigData(NodeConfig.class).tssDataFilePath();
         if (Files.exists(tssDataFilePath)) {
             try {
