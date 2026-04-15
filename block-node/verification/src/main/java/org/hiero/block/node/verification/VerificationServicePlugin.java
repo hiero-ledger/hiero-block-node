@@ -320,12 +320,11 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
 
     private Bytes getRootOfAllPreviousBlocks() {
         if (allBlocksHasherHandler != null && allBlocksHasherHandler.isAvailable()) {
-            // Only use the hasher's computed root when its leaf count matches currentBlockNumber
-            // exactly (i.e. it holds hashes for blocks 0 through currentBlockNumber-1). Any other
-            // count means the hasher is out of sync (e.g. backfill advanced it past the live-stream
-            // position, or the node doesn't have a continuous chain from genesis), so defer to the
-            // block footer's authoritative value.
-            if (allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber) {
+            if (allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber
+                    && (currentBlockNumber <= previousVerifiedBlockNumber || previousVerifiedBlockNumber == -1)) {
+                // Backfill, re-send, or startup: defer to the block footer's values.
+                // Forward gaps fall through to computeRootHash() instead — returning the wrong
+                // root so verification fails and forces the publisher to resend the missing block.
                 return null;
             }
             return Bytes.wrap(allBlocksHasherHandler.computeRootHash());

@@ -2,6 +2,7 @@
 package org.hiero.block.node.verification;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.ParseException;
@@ -143,6 +144,41 @@ class VerificationRegressionTest
                 "Must not emit PUBLISHER failure for block after backfill gap. "
                         + "Actual: success=" + liveStreamBlock3.success()
                         + ", source=" + liveStreamBlock3.source());
+    }
+
+    /**
+     * When a block arrives out of sequence (forward gap), the allBlocksHasher has fewer leaves
+     * than the arriving block number requires. The verification service must detect this mismatch
+     * and fail verification with PUBLISHER source, forcing the publisher to resend the missing block.
+     *
+     * <p>Blocks 0–2 are verified (hasher has 3 leaves). Block 4 arrives skipping block 3.
+     * computeRootHash() returns the root of [hash0, hash1, hash2], but block 4's footer
+     * expects the root of [hash0, hash1, hash2, hash3] — mismatch causes failure.
+     */
+    @Test
+    @DisplayName("block after gap fails verification — allBlocksHasher detects missing preceding block")
+    void blockAfterGapFailsVerificationWhenPrecedingBlockMissing() throws IOException, ParseException {
+        final BlockUtils.SampleBlockInfo block0 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
+        final BlockUtils.SampleBlockInfo block1 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_1);
+        final BlockUtils.SampleBlockInfo block2 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_2);
+        final BlockUtils.SampleBlockInfo block4 = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_4);
+
+        blockMessaging.sendBlockItems(
+                new BlockItems(block0.blockUnparsed().blockItems(), block0.blockNumber(), true, true));
+        blockMessaging.sendBlockItems(
+                new BlockItems(block1.blockUnparsed().blockItems(), block1.blockNumber(), true, true));
+        blockMessaging.sendBlockItems(
+                new BlockItems(block2.blockUnparsed().blockItems(), block2.blockNumber(), true, true));
+        blockMessaging.sendBlockItems(
+                new BlockItems(block4.blockUnparsed().blockItems(), block4.blockNumber(), true, true));
+
+        final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications();
+        assertEquals(4, notifications.size());
+        assertTrue(notifications.get(0).success(), "block 0 must pass");
+        assertTrue(notifications.get(1).success(), "block 1 must pass");
+        assertTrue(notifications.get(2).success(), "block 2 must pass");
+        assertFalse(notifications.get(3).success(), "block 4 must fail — gap at block 3 detected");
+        assertEquals(BlockSource.PUBLISHER, notifications.get(3).source());
     }
 
     private static class VerificationConfigBuilder {
