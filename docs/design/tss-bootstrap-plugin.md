@@ -25,7 +25,8 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 - BN periodically contacts peer BNs to get their TssData
 - BN makes TssData available via the ServerStatusDetail API
 - BlockNodeApp provides an interface for BN Plugins to update TssData
-- BN uses TssData.validFromBlock to determine which TssData to use
+- BN uses TssData.validFromBlock to determine which TssData is the latest
+- BN updates plugins, on a separate thread, via onContextUpdate when the BlockNodeContext is updated
 
 ## Terms
 
@@ -61,7 +62,7 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 ### ApplicationStataFacility
 
 - Responsible for updating the plugins when context changes.
-- Calls the `BlockNodePlugin.onContextUpdate()` on all plugins when the `BlockNodeContext` changes.
+- Calls the `BlockNodePlugin.onContextUpdate()`, on a separate thread, for all plugins when the `BlockNodeContext` changes.
 - Passed directly to the plugins as a member of the `BlockNodeContext`.
 - Plugins can use the `updateTssData` method to update the `TssData` in the `BlockNodeContext`
 - Processes requests to change `TssData`
@@ -71,8 +72,9 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 
 ### BlockNodeContext
 
-- Carries `TssData` information and is passed to plugins in a `BlockNodePlugin.init()` call.
-- The `BlockNodeContext` will also be sent to plugins via a `BlockNodePlugin.onContextUpdate()` call to each plugin.
+- Contains `TssData` information and is passed to plugins in a `BlockNodePlugin.init()` call.
+- Contains the ApplicationStateFacility used by plugins to update `TssData`.
+- The `BlockNodeContext` will also be sent to plugins via a `BlockNodePlugin.onContextUpdate()` call when the context changes.
 
 ### ServiceStatusServicePlugin
 
@@ -84,13 +86,15 @@ We intend to create a new Block Node plugin (TSSBootstrapPlugin) that queries an
 
 - Used to configure the BN Peers that will be used to query `serverStatusDetail`
 - Used to bootstrap TSS data via the Config
-- Overrides initial data provided by the `ApplicationStateFacility`
+- Overrides initial data provided by the `ApplicationStateFacility`, if it has a newer validFromBlock than
+  other sources.
 
 ### TssBootstrapPlugin
 
 - Queries peer BNs for `TssData` via the `serverStatusDetail` gRPC call.
 - `TssData` can be configured using the `TssBootstrapConfig`
-- `TssBootstrapConfig` data will override the `TssData` received during `init()`.
+- `TssBootstrapConfig` data will override the `TssData` received during `init()`, if it has a newer validFromBlock than
+  other sources.
 - Notifies the `ApplicationStateFacility` when it has a `TssData` update.
 
 ### VerificationPlugin
@@ -116,14 +120,17 @@ message TssData {
      * The ledger id
      */
     bytes ledger_id = 1;
+
     /**
      * The wraps verification key
      */
     bytes wraps_verification_key = 2;
+
     /**
      * The current TSS roster
      */
     TssRoster current_roster = 3;
+
     /**
      * The starting block number this TssData is valid from
      */
@@ -140,6 +147,7 @@ message TssRoster {
      * The list of `RosterEntry`
      */
     repeated RosterEntry roster_entries = 1;
+
     /**
      * The starting block number this TssData is valid from
      */
@@ -160,10 +168,12 @@ message RosterEntry {
      * The node id
      */
     uint64 node_id = 1;
+
     /**
      * The node weight
      */
     uint64 weight = 2;
+
     /**
      * The schnorr public key
      */
@@ -182,13 +192,13 @@ message RosterEntry {
       - Handles requests to change `TssData`
       - Uses the greatest `TssData.validFromBlock` to determine which `TssData` to use.
       - Persists the latest `TssData`
-      - Notifies plugins when the `BlockNodeContext` changes
+      - Notifies plugins when the `BlockNodeContext` changes on a separate thread.
       - Implemented by the `BlockNodeApp`
     - The plugin checks it's config at startup to see if `TSSData` is present in the config
     - `TssBootstrapPluginConfig` can be used for both testing and temporary initialization for a Block Node
     - The plugin will periodically query its peers for TSS data updates.
   - TSS data is exposed to other plugins
-    - The BlockNode plugin interface contains an `onContextUpdate` method that is called by the `ApplicationStateFacility` when the context is updated.
+    - The BlockNode plugin interface contains an `onContextUpdate` method that is called by the `ApplicationStateFacility`, on a separate thread, when the context is updated.
     - The `StatusDetailPlugin` implements `onContextUpdate()` and receives TSS data updates from the `ApplicationStateFacility`
 
 ## Diagram
@@ -234,18 +244,23 @@ TBD
 ## Acceptance Tests
 
 - TssData is loaded from disk at startup.
-- TssData can be overwritten with config data.
+- TssData can be overwritten with config data, if the validFromBlock is greater than other sources.
 - Plugins can notify the application that TssData has changed.
 - The application will persist the latest TssData to disk.
-- The application will notify plugins when BlockNodeContext has changed
+- The application will notify plugins from a separate thread when BlockNodeContext has changed.
 
 ## FAQ
 
 1. Plugin ordering — how does bootstrap init before verification? ServiceLoader doesn't guarantee order.
-   - Initial `TssData` will be provided in the BlockNodeContext by the ApplicationStateFacility.
-   - The `ApplicationStateFacility` will load persisted `TssData` and add it to the `BlockNodeContext` prior to calling
+   - The `ApplicationStateFacility` will load persisted `TssData` and add it to the `ConcurrentLinkedQueue<TssData>` prior to calling
      `init()` on the `BlockNodePlugin`.
-   - Plugins will be updated during it's lifetime using the `BlockNodePlugin.onContextUpdate()`.
+   - `init()` will be called on all plugins.
+   - Plugins may or may not submit `TssData` updates.
+   - The `ApplcationStateFacility` will be started. It will process the `ConcurrentLinkedQueue<TssData>` and will notify
+     the plugins of the newest `TssData` based on the `validFromBlock` field of `TssData`
+   - Plugins will be updated during their lifetime using the `BlockNodePlugin.onContextUpdate()`.
+   - `BlockNodePlugin.onContextUpdate()` will be called from a separate thread. Plugins should take care to update
+     their internal state correctly.
 2. Will the `TssBootstrapPlugin` persist the .bin file into the Verification PVC?
    - No plugin will write to storage managed by another plugin.
    - Plugins should not share configuration information.
