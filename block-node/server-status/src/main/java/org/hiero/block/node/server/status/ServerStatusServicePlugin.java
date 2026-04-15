@@ -37,7 +37,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     /** The block provider */
     private HistoricalBlockFacility blockProvider;
     /** The block node context, used to provide access to facilities */
-    private BlockNodeContext context;
+    private volatile BlockNodeContext context;
     /** Counter for the number of status requests */
     private LongCounter.Measurement requestStatusCounter;
     /** Counter for the number of detail requests */
@@ -147,9 +147,8 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     }
 
     /**
-     * Handle an update to the {@link BlockNodeContext}
-     *
-     * @param context the updated {@link BlockNodeContext}
+     * {@inheritDoc}
+     * This method is called on a separate thread. Make sure this.context is marked as `volatile`
      */
     @Override
     public void onContextUpdate(BlockNodeContext context) {

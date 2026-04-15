@@ -205,10 +205,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             LOGGER.log(INFO, "    " + plugin.name());
             plugin.init(blockNodeContext, serviceBuilder);
         }
-        // ==== Start APPLICATION STATE FACILITY =======================================================================
-        // Must be done after all plugins have been initialized
-        startApplicationStateFacility();
-
         // ==== LOAD & CONFIGURE WEB SERVER ============================================================================
         // Override the default message size in PBJ
         final PbjConfig pbjConfig = PbjConfig.builder()
@@ -281,6 +277,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * and starts the metrics.
      */
     public void start() {
+        // start the ApplicationStateFacility
+        startApplicationStateFacility();
         LOGGER.log(INFO, "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
         // Start the web server
         webServer.start();
@@ -382,7 +380,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * Starts the ApplicationStateFacility. The thread will be used to check if there are any TssData updates to
      * process.
      */
-    public void startApplicationStateFacility() {
+    void startApplicationStateFacility() {
         LOGGER.log(INFO, "ApplicationStateFacility start called");
         applicationStateFacility = Thread.ofVirtual().start(() -> {
             LOGGER.log(INFO, "ApplicationStateFacility start called");
@@ -407,7 +405,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         });
     }
 
-    public void stopApplicationStateFacility() {
+    void stopApplicationStateFacility() {
         applicationStateFacility.interrupt();
         try {
             applicationStateFacility.join(1_000);

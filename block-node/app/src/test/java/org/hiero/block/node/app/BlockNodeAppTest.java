@@ -311,6 +311,9 @@ class BlockNodeAppTest {
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
         final TestPlugin testPlugin = new TestPlugin();
 
+        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
+        blockNodeApp.startApplicationStateFacility();
+
         blockNodeApp.loadedPlugins.add(testPlugin);
 
         blockNodeApp.updateTssData(TssData.DEFAULT);
@@ -322,6 +325,9 @@ class BlockNodeAppTest {
         Thread.sleep(1_000);
 
         assertEquals(1, testPlugin.contextUpdated);
+
+        // stop the ApplicationStateFacility manually as blockNodeApp.shutdown() is not being called
+        blockNodeApp.stopApplicationStateFacility();
     }
 
     /**
@@ -332,7 +338,8 @@ class BlockNodeAppTest {
     void testApplicationStateFacilityPersistence() throws IOException, InterruptedException {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
-
+        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
+        blockNodeApp.startApplicationStateFacility();
         // update the tssData which should persist to disk
         TssData tssData =
                 buildTssData(Bytes.fromHex("010203"), Bytes.fromHex("040506"), 1, 2, Bytes.fromHex("070809"), 50, 100);
@@ -342,6 +349,11 @@ class BlockNodeAppTest {
 
         // create a new BlockNodeApp which will load the persisted TssData
         final BlockNodeApp blockNodeApp2 = new BlockNodeApp(serviceLoaderFunction, false);
+        // start the ApplicationStateFacility manually as start() is not being called
+        blockNodeApp2.startApplicationStateFacility();
+        // let the ApplicationStateFacility process the update
+        Thread.sleep(1_000);
+
         TssData tssData1 = blockNodeApp2.blockNodeContext.tssData();
         assertEquals(tssData.ledgerId(), tssData1.ledgerId());
         assertEquals(tssData.wrapsVerificationKey(), tssData1.wrapsVerificationKey());
@@ -355,6 +367,11 @@ class BlockNodeAppTest {
 
         // overwrite the persisted file with default information
         blockNodeApp.updateTssData(TssData.DEFAULT);
+
+        // stop the ApplicationStateFacility manually as shutdown() is not being called
+        blockNodeApp2.stopApplicationStateFacility();
+        // stop the ApplicationStateFacility manually as shutdown() is not being called
+        blockNodeApp.stopApplicationStateFacility();
     }
 
     /// build a `TssData` object from individual fields from the `TssBootstrapConfig`

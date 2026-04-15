@@ -22,7 +22,7 @@ import org.hiero.block.node.spi.ServiceBuilder;
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
 public class TssBootstrapPlugin implements BlockNodePlugin {
     /// The block node context, for access to core facilities.
-    private BlockNodeContext context;
+    private volatile BlockNodeContext context;
     /// The application state facility, for updating application state.
     private ApplicationStateFacility applicationStateFacility;
 
@@ -47,6 +47,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     }
 
     /// {@inheritDoc}
+    /// This method is called on a separate thread. Make sure this.context is marked as `volatile`
     @Override
     public void onContextUpdate(BlockNodeContext context) {
         // save the context update
