@@ -204,9 +204,14 @@ if [[ -z "$RESOLVED_PROTO_DIR" && -n "$BN_VERSION" ]]; then
 fi
 
 # Validate that every endpoint looks like host:port before hitting the network.
+# Also verifies the port portion is a valid integer in the range 1–65535 so that
+# nc and grpcurl receive well-formed arguments and produce useful error messages.
 for ep in "${ENDPOINTS[@]}"; do
-  if [[ "$ep" != *:* ]]; then
-    log_err "Error: endpoint '${ep}' must be in <host:port> form."
+  local_port="${ep##*:}"
+  if [[ "$ep" != *:* ]] \
+      || ! [[ "$local_port" =~ ^[0-9]+$ ]] \
+      || (( local_port < 1 || local_port > 65535 )); then
+    log_err "Error: endpoint '${ep}' must be in <host:port> form with a valid port (1–65535)."
     exit 2
   fi
 done
@@ -373,7 +378,11 @@ ensure_proto_dir() {
 
   local archive="block-node-protobuf-${BN_VERSION}.tgz"
   local url="${PROTO_ARCHIVE_BASE_URL}/v${BN_VERSION}/${archive}"
-  local tmp_archive="${SCRIPT_DIR}/${archive}"
+  # Use mktemp so the archive lands in the system temp directory rather than
+  # next to this script, and so a partial download is never mistaken for a
+  # complete file on the next run. The file is cleaned up in every exit path.
+  local tmp_archive
+  tmp_archive="$(mktemp "${TMPDIR:-/tmp}/bn-proto-XXXXXX.tgz")"
 
   log_info "Downloading proto package v${BN_VERSION} …"
   log_info "  URL : ${url}"
@@ -387,7 +396,11 @@ ensure_proto_dir() {
 
   log_info "Extracting → ${RESOLVED_PROTO_DIR} …"
   mkdir -p "$RESOLVED_PROTO_DIR"
-  tar -xzf "$tmp_archive" -C "$RESOLVED_PROTO_DIR"
+  if ! tar -xzf "$tmp_archive" -C "$RESOLVED_PROTO_DIR"; then
+    log_err "Error: failed to extract proto archive."
+    rm -f "$tmp_archive"
+    exit 2
+  fi
   rm -f "$tmp_archive"
 
   # Final integrity check: confirm the archive contained the expected file.
@@ -437,15 +450,25 @@ grpc_call() {
 # Why not just use `date +%s%3N` everywhere?
 # GNU date (Linux) supports the %3N nanoseconds-truncated-to-milliseconds
 # format specifier. BSD date (macOS) does not — it treats %3N as a literal
-# "3N" and outputs a string ending in "N". We detect that case and fall back to
-# python3, which ships on all modern macOS versions and provides sub-second
-# precision via time.time().
+# "3N" and outputs a string ending in "N". We detect that case and use the
+# first available alternative in priority order:
+#   1. gdate (GNU coreutils, installed via `brew install coreutils` on macOS —
+#      the same package that provides gtimeout used in tcp_check).
+#   2. perl  (ships on all macOS versions without additional tooling; starts
+#      faster than python3 and Time::HiRes is always present).
+#   3. python3 (last resort; available on modern macOS but slower to start).
 now_ms() {
   local t
   t="$(date +%s%3N 2>/dev/null)"
   if [[ "$t" =~ N$ ]]; then
-    # BSD date detected (macOS). Use python3 for millisecond precision.
-    python3 -c "import time; print(int(time.time() * 1000))"
+    # BSD date detected (macOS). Use the fastest available alternative.
+    if command -v gdate &>/dev/null; then
+      gdate +%s%3N
+    elif command -v perl &>/dev/null; then
+      perl -MTime::HiRes -e 'printf "%d\n", Time::HiRes::time() * 1000'
+    else
+      python3 -c "import time; print(int(time.time() * 1000))"
+    fi
   else
     echo "$t"
   fi
@@ -499,15 +522,20 @@ tcp_check() {
   local host="$1" port="$2"
 
   # Resolve whichever timeout command is available on this system.
-  local timeout_cmd=""
-  if   command -v timeout  &>/dev/null; then timeout_cmd="timeout 3"
-  elif command -v gtimeout &>/dev/null; then timeout_cmd="gtimeout 3"
+  # An array is used rather than a string so word-splitting is never needed and
+  # the empty-array case ("${timeout_cmd[@]}") expands to nothing cleanly.
+  local -a timeout_cmd=()
+  if   command -v timeout  &>/dev/null; then timeout_cmd=(timeout  3)
+  elif command -v gtimeout &>/dev/null; then timeout_cmd=(gtimeout 3)
   fi
   # Note: if neither is found, timeout_cmd remains empty and we rely on -w 3
   # alone. This is safe for reachable nodes; unreachable DROP-firewalled nodes
   # may still hang up to the OS TCP timeout in that case.
 
-  ${timeout_cmd} nc -z -w 3 "$host" "$port" &>/dev/null
+  # "${timeout_cmd[@]+...}" expands to the array elements when the array is
+  # non-empty and to nothing when it is empty, safely handling the set -u case
+  # where a bare "${timeout_cmd[@]}" on an empty array is treated as unbound.
+  "${timeout_cmd[@]+"${timeout_cmd[@]}"}" nc -z -w 3 "$host" "$port" &>/dev/null
 }
 
 # ── Output formatting ─────────────────────────────────────────────────────────
@@ -547,9 +575,15 @@ format_semver() {
 print_server_status() {
   local json="$1"
   local first last only_latest
-  first="$(       echo "$json" | jq -r '.firstAvailableBlock // "0"')"
-  last="$(        echo "$json" | jq -r '.lastAvailableBlock  // "0"')"
-  only_latest="$( echo "$json" | jq -r '.onlyLatestState     // false')"
+  # Single jq invocation extracts all three fields as tab-separated values,
+  # avoiding two extra subshells compared to calling jq once per field.
+  IFS=$'\t' read -r first last only_latest < <(echo "$json" | jq -r '
+    [
+      (.firstAvailableBlock // "0" | tostring),
+      (.lastAvailableBlock  // "0" | tostring),
+      (.onlyLatestState     // false | tostring)
+    ] | join("\t")
+  ')
 
   print_field "first_available_block" "$first"
   print_field "last_available_block"  "$last"
@@ -569,22 +603,36 @@ print_server_status() {
 print_server_status_detail() {
   local json="$1"
 
-  # ── Software version ──────────────────────────────────────────────────────
-  local bn_ver_json bn_ver
-  bn_ver_json="$(echo "$json" | jq '.versionInformation.blockNodeVersion // {}')"
-  bn_ver="$(format_semver "$bn_ver_json")"
-
-  # ── Stream proto version ──────────────────────────────────────────────────
-  local stream_ver_json stream_ver
-  stream_ver_json="$(echo "$json" | jq '.versionInformation.streamProtoVersion // {}')"
-  stream_ver="$(format_semver "$stream_ver_json")"
+  # ── Extract all scalar fields in a single jq pass ─────────────────────────
+  # Inlines the semver formatter as a jq function (identical logic to
+  # format_semver) to avoid spawning separate subshells for each version string.
+  # Outputs five tab-separated fields so one read assigns all variables at once,
+  # reducing five separate jq invocations to one.
+  local bn_ver stream_ver range_count plugin_count ledger_id
+  IFS=$'\t' read -r bn_ver stream_ver range_count plugin_count ledger_id < <(
+    echo "$json" | jq -r '
+      def semver:
+        if . == null or . == {} then "unknown"
+        else
+          ((.major // 0 | tostring) + "." +
+           (.minor // 0 | tostring) + "." +
+           (.patch // 0 | tostring)) +
+          (if (.pre   // "") != "" then "-" + .pre   else "" end) +
+          (if (.build // "") != "" then "+" + .build else "" end)
+        end;
+      [
+        (.versionInformation.blockNodeVersion   // {} | semver),
+        (.versionInformation.streamProtoVersion // {} | semver),
+        (.availableRanges | length | tostring),
+        (.versionInformation.installedPluginVersions | length | tostring),
+        (.tssData.ledgerId // "")
+      ] | join("\t")
+    '
+  )
 
   # ── Available block ranges ────────────────────────────────────────────────
   # A node may hold multiple non-contiguous ranges if it was offline during
   # parts of the chain history (gaps). Each range has rangeStart and rangeEnd.
-  local range_count
-  range_count="$(echo "$json" | jq '.availableRanges | length')"
-
   local range_summary=""
   if [[ "$range_count" -gt 0 ]]; then
     range_summary="$(echo "$json" | jq -r '
@@ -598,8 +646,7 @@ print_server_status_detail() {
   # ── Installed plugins ─────────────────────────────────────────────────────
   # Plugins extend the node with capabilities such as cloud storage, metrics
   # exporters, etc. Each entry has a pluginId and an optional pluginSoftwareVersion.
-  local plugin_count plugin_list=""
-  plugin_count="$(echo "$json" | jq '.versionInformation.installedPluginVersions | length')"
+  local plugin_list=""
   if [[ "$plugin_count" -gt 0 ]]; then
     plugin_list="$(echo "$json" | jq -r '
       .versionInformation.installedPluginVersions[] |
@@ -616,10 +663,10 @@ print_server_status_detail() {
 
   # ── TSS data presence ─────────────────────────────────────────────────────
   # ledgerId is a bytes field; grpcurl encodes it as a base64 string when
-  # non-empty. An empty or absent ledgerId means TSS is not configured.
-  local tss_status ledger_id
-  ledger_id="$(echo "$json" | jq -r '.tssData.ledgerId // ""')"
-  if [[ -n "$ledger_id" && "$ledger_id" != "null" ]]; then
+  # non-empty. jq -r with // "" never returns the string "null" for an absent
+  # field, so a plain non-empty test is sufficient.
+  local tss_status
+  if [[ -n "$ledger_id" ]]; then
     tss_status="present"
   else
     tss_status="not configured"
@@ -745,9 +792,11 @@ main() {
   local overall_fail=0
 
   # Build human-readable labels for the run summary header.
+  # Explicit if/else avoids the &&/|| ternary idiom, which is fragile: if the
+  # true-branch command ever fails, the false-branch fires incorrectly.
   local tls_label detail_label
-  tls_label="$(    [[ "$USE_TLS"         == "true" ]] && echo "TLS"      || echo "plaintext" )"
-  detail_label="$( [[ "$DETAILED_STATUS" == "true" ]] && echo "enabled"  || echo "disabled (pass --detailed-server-status to enable)" )"
+  if [[ "$USE_TLS"         == "true" ]]; then tls_label="TLS";     else tls_label="plaintext"; fi
+  if [[ "$DETAILED_STATUS" == "true" ]]; then detail_label="enabled"; else detail_label="disabled (pass --detailed-server-status to enable)"; fi
 
   echo ""
   log_info "Checking ${#ENDPOINTS[@]} endpoint(s)"
