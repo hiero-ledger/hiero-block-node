@@ -315,7 +315,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -350,7 +350,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 20 blocks are zipped yet
             for (int i = 0; i < 20; i++) {
@@ -385,7 +385,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 20 blocks are zipped yet
             for (int i = 0; i < 14; i++) {
@@ -417,7 +417,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 20 blocks are zipped yet
             for (int i = 0; i < 20; i++) {
@@ -458,7 +458,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
                 expectedBlocks.add(new BlockUnparsed(block.blockItems()));
             }
             // assert that none of the first 10 blocks are zipped yet
@@ -510,7 +510,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 5 blocks are zipped yet
             for (int i = 0; i < 5; i++) {
@@ -530,7 +530,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -565,7 +565,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // generate next blocks with a gap and make sure we reach the
             // threshold and add them to the test historical block facility
@@ -574,7 +574,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // we now have blocks 0-2 and 5-9, so we have a gap
             // assert that none of the first 10 blocks are zipped yet
@@ -609,7 +609,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
 
             // This should pass, as we have a whole batch in the queue
@@ -634,7 +634,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
 
             pluginExecutor.executeSerially();
@@ -658,7 +658,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
 
             pluginExecutor.executeSerially();
@@ -686,7 +686,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
 
             pluginExecutor.executeSerially();
@@ -715,7 +715,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
 
             // assert that no zipping task was submited since last check,
@@ -742,7 +742,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // generate next blocks with a gap and make sure we reach the
             // threshold and add them to the test historical block facility
@@ -751,7 +751,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // we now have blocks 0-2 and 5-9, so we have a gap
             // assert that none of the first 10 blocks are zipped yet
@@ -784,7 +784,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -820,7 +820,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks have accessors yet
             for (int i = 0; i < 10; i++) {
@@ -849,7 +849,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
                 expectedBlocks.add(new BlockUnparsed(block.blockItems()));
             }
             // assert that none of the first 10 blocks have accessors yet
@@ -881,7 +881,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -915,7 +915,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks appear in the available range
             for (int i = 0; i < 10; i++) {
@@ -945,7 +945,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -976,7 +976,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -1010,7 +1010,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -1043,7 +1043,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -1076,7 +1076,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 10 blocks are zipped yet
             for (int i = 0; i < 10; i++) {
@@ -1107,7 +1107,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 150 blocks are zipped yet and are
             // not present in the available blocks
@@ -1133,7 +1133,7 @@ class BlockFileHistoricPluginTest {
             final BlockUnparsed block =
                     TestBlockBuilder.generateBlockWithNumber(150).blockUnparsed();
             blockMessaging.sendBlockVerification(new VerificationNotification(
-                    true, 150, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                    true, null, 150, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             // assert that the size of the available blocks is now 100 (post retention policy cleanup)
             assertThat(plugin.availableBlocks().size()).isEqualTo(100);
             // assert that the first 50 blocks were cleaned up and that the
@@ -1168,7 +1168,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
             // assert that none of the first 150 blocks are zipped yet and are
             // not present in the available blocks
@@ -1191,7 +1191,7 @@ class BlockFileHistoricPluginTest {
             final BlockUnparsed block =
                     TestBlockBuilder.generateBlockWithNumber(150).blockUnparsed();
             blockMessaging.sendBlockVerification(new VerificationNotification(
-                    true, 150, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                    true, null, 150, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             // assert that the size of the available blocks is still 150 (post retention policy cleanup)
             assertThat(plugin.availableBlocks().size()).isEqualTo(150);
             // assert that all the blocks are still zipped and that
@@ -1219,7 +1219,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 100; i < 200; i++) {
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute all pending archival tasks to zip the first batch
@@ -1238,7 +1238,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 200; i < 210; i++) {
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute all pending archival tasks. The retention policy should kick in
@@ -1320,7 +1320,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 0; i < 10; i++) {
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute all pending archival tasks. This should zip blocks 0-9 into a single archive.
@@ -1345,7 +1345,7 @@ class BlockFileHistoricPluginTest {
             for (int i = 0; i < 10; i++) {
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
 
             // Execute pending tasks. With allowZippingMultipleTimes = true, this should
@@ -1372,7 +1372,7 @@ class BlockFileHistoricPluginTest {
             for (int i = startInclusive; i < endExclusive; i++) {
                 final TestBlock block = TestBlockBuilder.generateBlockWithNumber(i);
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             }
         }
 
@@ -1513,7 +1513,7 @@ class BlockFileHistoricPluginTest {
                 final BlockUnparsed block =
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
             }
 
             // Execute archival tasks to create the zip files

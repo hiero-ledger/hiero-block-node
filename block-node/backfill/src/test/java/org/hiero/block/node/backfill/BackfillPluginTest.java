@@ -1430,6 +1430,7 @@ class BackfillPluginTest extends PluginTestBase<BackfillPlugin, ExecutorService,
                                 .blockMessaging()
                                 .sendBlockVerification(new VerificationNotification(
                                         true,
+                                        null,
                                         notification.blockNumber(),
                                         Bytes.wrap("123"),
                                         notification.block(),
