@@ -4,14 +4,14 @@ The `blocks` command contains utilities for working with Block Stream files (.bl
 
 ### Available Subcommands
 
-|          Command          |                                     Description                                     |
-|---------------------------|-------------------------------------------------------------------------------------|
-| `json`                    | Converts a binary Block Stream to JSON                                              |
-| `ls`                      | Prints info for block files (supports .blk, .blk.gz, .blk.zstd, and zip archives)   |
-| `validate`                | Validates a wrapped Block Stream (hash chain and signatures)                        |
-| `validate-wrapped`        | Validates wrapped blocks produced by `wrap` (chain, merkle tree, structure, supply) |
-| `wrap`                    | Convert record file blocks in day files to wrapped Block Stream blocks              |
-| `fetchBalanceCheckpoints` | Fetch balance checkpoint files from GCP and compile into a resource file            |
+|          Command          |                                    Description                                    |
+|---------------------------|-----------------------------------------------------------------------------------|
+| `json`                    | Converts a binary Block Stream to JSON                                            |
+| `ls`                      | Prints info for block files (supports .blk, .blk.gz, .blk.zstd, and zip archives) |
+| `validate`                | Validates a wrapped Block Stream (hash chain and signatures)                      |
+| `wrap`                    | Convert record file blocks in day files to wrapped Block Stream blocks            |
+| `fetchBalanceCheckpoints` | Fetch balance checkpoint files from GCP and compile into a resource file          |
+| `repair-zips`             | Repair corrupt zip CENs in wrapped-block directories                              |
 
 ---
 
@@ -133,7 +133,62 @@ blocks validate --no-validate-balances /path/to/testnetWrappedBlocks --network t
 
 ---
 
+### The `repair-zips` Subcommand
+
+Repair corrupt zip central directories (CEN) in wrapped-block directories, then optionally fill any blocks still missing from source day archives. This is a two-phase tool:
+
+- **Phase 1** (always runs): Scans all zip files, detects corrupt or missing central directories, and rebuilds them from intact local file entries.
+- **Phase 2** (optional, when `-i` is provided): Re-wraps missing blocks from source day archives and appends them to repaired zips.
+
+#### Usage
+
+```
+blocks repair-zips [--scan-threads=<N>] [--repair-threads=<N>] [--buffer-size=<MiB>]
+                   [--backup=<dir>] [--dry-run] [-i=<inputDir>] [-b=<blockTimesFile>]
+                   [-d=<dayBlocksFile>] <wrappedBlockDir>
+```
+
+#### Options
+
+|              Option              |                                             Description                                             |
+|----------------------------------|-----------------------------------------------------------------------------------------------------|
+| `<wrappedBlockDir>`              | Directory containing wrapped block zip files to scan and repair (required).                         |
+| `--scan-threads <N>`             | Number of threads for parallel CEN scan phase (default: 4).                                         |
+| `--repair-threads <N>`           | Number of threads for parallel CEN repair phase (default: 4).                                       |
+| `--buffer-size <MiB>`            | Per-thread buffer size in MiB for in-memory repair (default: auto-computed from heap size).         |
+| `--backup <dir>`                 | Directory to copy corrupt zip files before repairing. If not specified, repairs in-place.           |
+| `--dry-run`                      | Scan and report missing blocks without modifying files (Phase 2 only).                              |
+| `-i`, `--input-dir <dir>`        | Directory containing source record-file `.tar.zstd` day archives for Phase 2 missing-block filling. |
+| `-b`, `--blocktimes-file <file>` | Block-times binary file for mapping block numbers to timestamps (default: `block_times.bin`).       |
+| `-d`, `--day-blocks <file>`      | Day-blocks JSON file mapping calendar dates to block numbers (default: `day_blocks.json`).          |
+
+#### Example
+
+```bash
+# Phase 1 only: scan and repair corrupt zip CENs
+blocks repair-zips /path/to/wrappedBlocks
+
+# Phase 1 + Phase 2: repair CENs and fill missing blocks from day archives
+blocks repair-zips -i /path/to/compressedDays /path/to/wrappedBlocks
+
+# Dry run to see what's missing without modifying anything
+blocks repair-zips --dry-run -i /path/to/compressedDays /path/to/wrappedBlocks
+
+# Backup corrupt zips before repairing
+blocks repair-zips --backup /path/to/backup /path/to/wrappedBlocks
+```
+
+#### Notes
+
+- Phase 1 rebuilds the central directory from intact local file entries within each zip.
+- Phase 2 requires `-i` (source day archives), `-b` (block times), and `-d` (day blocks) to re-wrap and append missing blocks.
+- The `--buffer-size` defaults to approximately 75% of max heap divided by `2 × repairThreads`.
+
+---
+
 ### The `validate-wrapped` Subcommand
+
+> **Note:** The `validate-wrapped` command has been merged into the `validate` command. The `validate` command now includes all validation checks previously in `validate-wrapped` (chain, merkle tree, structure, supply, balance checkpoints). Use `blocks validate` instead.
 
 Validates wrapped block stream files produced by the `wrap` command. Walks all blocks in the input directory in order and performs the following checks:
 

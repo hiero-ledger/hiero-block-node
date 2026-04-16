@@ -17,6 +17,7 @@ The `days` top-level command works with compressed daily record file archives. D
 | `download-days-v3`       | Download many days (v3 with Guava preload fix)                        |
 | `download-live`          | Continuously follow Mirror Node for new block files                   |
 | `download-live2`         | Live block download with inline validation and automatic day rollover |
+| `live-sequential`        | Live sequential download with inline validation and wrapping          |
 | `print-listing`          | Print the listing for a given day                                     |
 | `ls-day-listing`         | Print all files in the listing for a day                              |
 | `split-files-listing`    | Split a giant JSON listing into per-day binary listing files          |
@@ -322,6 +323,65 @@ The command writes its state to `validateCmdStatus.json` in the output directory
 |---------------------------------------------|------------------------------------------------------------------------------------------|
 | `download-live2` writes -> `validate` reads | Works (validate ignores extra `blockNumber` field)                                       |
 | `validate` writes -> `download-live2` reads | `blockNumber` will be 0, so `download-live2` falls back to `--start-date` or auto-detect |
+
+---
+
+### `live-sequential`
+
+Live sequential block download with inline validation and wrapping.
+This is an all-in-one pipeline that combines `download-live2`, `blocks wrap`, and `blocks validate`
+into a single optimized command. It downloads blocks sequentially from GCS, validates them
+(hash-chain + signatures), wraps them into Block Stream format, runs all block validation checks,
+and writes to hierarchical zip archives.
+
+#### Usage
+
+```
+days live-sequential [-l <listingDir>] [-o <outputDir>] [--wrap-output-dir <dir>]
+                     [--start-date <YYYY-MM-DD>] [--state-json <path>] [--address-book <path>]
+```
+
+#### Options
+
+|               Option               |                                    Description                                    |
+|------------------------------------|-----------------------------------------------------------------------------------|
+| `-l`, `--listing-dir <listingDir>` | Directory where listing files are stored (default: `listingsByDay`).              |
+| `-o`, `--output-dir <outputDir>`   | Directory where compressed day archives are written (default: `compressedDays`).  |
+| `--wrap-output-dir <dir>`          | Directory to write wrapped Block Stream output (default: `wrappedBlocks`).        |
+| `--start-date <YYYY-MM-DD>`        | Start date (default: auto-detect from Mirror Node).                               |
+| `--state-json <path>`              | Path to state JSON file for resume (default: `outputDir/validateCmdStatus.json`). |
+| `--address-book <path>`            | Path to address book file for signature validation.                               |
+
+#### Features
+
+- **Combined pipeline**: Download → validate → wrap → validate-wrapped in a single pass, avoiding multiple disk reads.
+- **Inline validation**: Validates each block's running hash and signatures as it's downloaded.
+- **Block wrapping**: Converts record file blocks into wrapped Block Stream `Block` protobufs.
+- **Block validation**: Runs all 11 `BlockValidation` checks on wrapped blocks.
+- **Resume support**: Saves state periodically via checkpoints to allow resuming after interruption.
+- **Auto-detect start date**: Queries the Mirror Node to determine the current day if `--start-date` is not specified.
+
+#### Example
+
+```bash
+# Run the full pipeline from a specific date
+java -jar tools-all.jar days live-sequential \
+  -l /path/to/listingsByDay \
+  -o /path/to/compressedDays \
+  --wrap-output-dir /path/to/wrappedBlocks \
+  --start-date 2026-01-09
+
+# Auto-detect today and run continuously
+java -jar tools-all.jar days live-sequential \
+  -l /path/to/listingsByDay \
+  -o /path/to/compressedDays \
+  --wrap-output-dir /path/to/wrappedBlocks
+```
+
+#### Notes
+
+- This command supersedes the multi-step workflow of running `download-live2` → `blocks wrap` → `blocks validate` separately.
+- The state file (`validateCmdStatus.json`) is compatible with `download-live2` and `validate`.
 
 ---
 

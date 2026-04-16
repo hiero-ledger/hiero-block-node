@@ -62,9 +62,9 @@ subcommands
 │   ├── json                  # Convert binary Block Stream to JSON
 │   ├── ls                    # List/inspect block files
 │   ├── validate              # Validate block hash chain and signatures
-│   ├── validate-wrapped      # Validate wrapped blocks with balance checks
 │   ├── wrap                  # Convert record files to wrapped blocks
-│   └── fetchBalanceCheckpoints # Fetch balance checkpoints from GCP
+│   ├── fetchBalanceCheckpoints # Fetch balance checkpoints from GCP
+│   └── repair-zips           # Repair corrupt zip CENs in wrapped-block dirs
 │
 ├── records                   # Tools for Record Stream files
 │   └── ls                    # List record file info
@@ -81,6 +81,7 @@ subcommands
 │   ├── download-days-v3      # Download days (v3 with Guava preload fix)
 │   ├── download-live         # Live download following Mirror Node
 │   ├── download-live2        # Live download with inline validation
+│   ├── live-sequential       # Download + validate + wrap in one pipeline
 │   ├── print-listing         # Print listing for one day
 │   ├── ls-day-listing        # Print all files in day listing
 │   ├── split-files-listing   # Split files.json into day listing files
@@ -98,9 +99,12 @@ subcommands
 │   ├── fetchRecordsCsv       # Download Mirror Node CSV dump
 │   ├── fetchMissingTransactions # Download mainnet errata for missing txns
 │   ├── extractDayBlock       # Extract per-day block info to JSON
+│   ├── extractDayBlocksFromApi # Generate day_blocks.json from REST API
 │   ├── update                # Update block data from Mirror Node
 │   ├── generateAddressBook   # Generate address book from CSV
-│   └── compareAddressBooks   # Compare two address book files
+│   ├── compareAddressBooks   # Compare two address book files
+│   ├── generateTestnetAddressBook # Generate testnet genesis address book
+│   └── generateTestnetAddressBookHistory # Generate testnet address book history
 │
 ├── metadata                  # Works with metadata files
 │   ├── ls                    # Display metadata file summary
