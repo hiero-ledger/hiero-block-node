@@ -249,6 +249,7 @@ public class LiveSequential implements Runnable {
         long blocksSinceWatermarkFlush;
         long blocksValidated;
         long lastCheckpointSaveMs = System.currentTimeMillis();
+        byte[] lastRecordFileHash;
     }
 
     /** A block whose file downloads have been fired but not yet joined. */
@@ -772,8 +773,13 @@ public class LiveSequential implements Runnable {
                 saveWatermark(watermarkFile, ls.durableWatermark);
                 saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
                 byte[] lastBlockHash = blockRegistry.getBlockHash(ls.durableWatermark);
-                if (lastBlockHash != null) {
-                    saveJumpstart(vc.jumpstartPath(), ls.durableWatermark, lastBlockHash, streamingHasher);
+                if (lastBlockHash != null && ls.lastRecordFileHash != null) {
+                    saveJumpstart(
+                            vc.jumpstartPath(),
+                            ls.durableWatermark,
+                            lastBlockHash,
+                            ls.lastRecordFileHash,
+                            streamingHasher);
                 }
                 addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
 
@@ -1060,6 +1066,7 @@ public class LiveSequential implements Runnable {
         ParsedRecordBlock parsedBlock = unparsedBlock.parse();
         NodeAddressBook ab = addressBookRegistry.getAddressBookForBlock(parsedBlock.blockTime());
         byte[] signedHash = parsedBlock.recordFile().signedHash();
+        ls.lastRecordFileHash = signedHash;
         List<RecordFileSignature> verifiedSigs = parsedBlock.signatureFiles().stream()
                 .filter(psf -> psf.isValid(signedHash, ab))
                 .map(psf -> psf.toRecordFileSignature(ab))
@@ -1101,7 +1108,7 @@ public class LiveSequential implements Runnable {
         }
 
         // Save jumpstart.bin every block
-        saveJumpstart(vc.jumpstartPath(), blockNum, blockStreamBlockHash, streamingHasher);
+        saveJumpstart(vc.jumpstartPath(), blockNum, blockStreamBlockHash, ls.lastRecordFileHash, streamingHasher);
 
         // Periodic checkpoint save
         long nowMs = System.currentTimeMillis();
@@ -1655,16 +1662,21 @@ public class LiveSequential implements Runnable {
 
     /**
      * Save jumpstart.bin atomically. Format matches what {@link JumpstartValidation} reads:
-     * block number (long), block hash (48 bytes), leaf count (long), hash count (int),
-     * followed by hash count × 48-byte hashes (streaming hasher intermediate state).
+     * block number (long), block hash (48 bytes), record file hash (48 bytes), leaf count (long),
+     * hash count (int), followed by hash count × 48-byte hashes (streaming hasher intermediate state).
      */
     private static void saveJumpstart(
-            Path jumpstartPath, long blockNumber, byte[] blockHash, StreamingHasher streamingHasher) {
+            Path jumpstartPath,
+            long blockNumber,
+            byte[] blockHash,
+            byte[] recordFileHash,
+            StreamingHasher streamingHasher) {
         try {
             HasherStateFiles.saveAtomically(jumpstartPath, path -> {
                 try (var out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(path), 8192))) {
                     out.writeLong(blockNumber);
                     out.write(blockHash);
+                    out.write(recordFileHash);
                     out.writeLong(streamingHasher.leafCount());
                     List<byte[]> hashes = streamingHasher.intermediateHashingState();
                     out.writeInt(hashes.size());

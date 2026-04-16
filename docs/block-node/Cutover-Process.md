@@ -29,9 +29,12 @@ node signature to Block Streams, Block Nodes, and HinTS/TSS signatures.
     adding Header and Footer details, and generating a Block Proof based
     on the individual node signatures produced for that Record File.</dd>
 <dt>Jumpstart Data</dt><dd>
-    A file containing the Block Hash for a specific WRB, the state of the
+    A file containing the Block Hash for a specific WRB, the Record File Hash
+    (SHA-384 of the raw record file bytes) for that block, the state of the
     historical block hash tree after hashing that block, and the block number
-    of that block. The historical block hash tree state is the minimal set of
+    of that block. The Record File Hash enables the Consensus Node to
+    cross-validate that its locally produced record file matches the one that
+    was wrapped. The historical block hash tree state is the minimal set of
     hashes needed to continue the streaming hash algorithm with the next
     block.</dd>
 <dt>WRB Catch Up</dt><dd>
@@ -130,97 +133,97 @@ timeline
 ## Process and Sequence
 
 * Release K (<= N)
-   * Include the "Powers of Tau" ceremony program with the Consensus Node
-     release package.
-   * Ensure the "Powers of Tau" ceremony executes during the duration of the
-     release to produce the WRAPS keys and Groth parameters.
-   * Block Nodes run in Preview mode
-   * Preview Block Streams produced with incomplete hash data
+  * Include the "Powers of Tau" ceremony program with the Consensus Node
+    release package.
+  * Ensure the "Powers of Tau" ceremony executes during the duration of the
+    release to produce the WRAPS keys and Groth parameters.
+  * Block Nodes run in Preview mode
+  * Preview Block Streams produced with incomplete hash data
 * Release N
-   * Consensus Node generates WRB subtree hashes
-   * Consensus Node stores WRB subtree hash data on disk
-   * "Offline" process downloading record files from S3
-      * Generate WRB blocks from record files
-      * WRB files added to "RBH" block node
-      * Produce Jumpstart Data occasionally (configurable, perhaps 1/hour).
-   * Block Nodes may _test_ backfill from RBH, but do not store backfilled WRBs
-      * Preview blocks are accepted and stored.
-   * Preview block streams continue with incomplete hashes
+  * Consensus Node generates WRB subtree hashes
+  * Consensus Node stores WRB subtree hash data on disk
+  * "Offline" process downloading record files from S3
+    * Generate WRB blocks from record files
+    * WRB files added to "RBH" Block Node
+    * Produce Jumpstart Data occasionally (configurable, perhaps 1/hour).
+  * Block Nodes may _test_ backfill from RBH, but do not store backfilled WRBs
+    * Preview blocks are accepted and stored.
+  * Preview block streams continue with incomplete hashes
 * Release N+1
-   * Jumpstart Data is included in the Consensus Node release package, and is
-     from approximately 8-10 days before the release date.
-   * Consensus Node reads Jumpstart Data
-      * WRB data is combined with the Jumpstart Data to complete "WRB Catch Up"
-      * Consensus Node begins creating WRB block root hash with all
-        necessary correct inputs.
-      * Consensus Node stores the correct WRB hash in BlockInfo in state at the
-        end of each block.
-      * Consensus Node stores the correct WRB streaming hash tree data in state
-        in BlockInfo at the end of each block.
-   * WRAPS proving key and parameters downloaded by Consensus Node
-   * WRAPS proving key hash read from configuration
-      * This data is stored in state as part of post-upgrade migration.
-      * The hash is used to validate the downloaded WRAPS data.
-   * TSS is enabled in Consensus Node but does not sign blocks
-      * TSS creates the Ledger ID and publishes LedgerID, Initial Roster, and
-        WRAPS verification key in record stream via TSS adoption transaction.
-      * Consensus Node creates WRAPS proofs for each new Roster.
-   * Offline process continues to generate WRB files for backfill via RBH.
-   * Block Nodes are prepared for cutover
-      * All "production" Tier 1 block nodes are reset to clear preview blocks.
-      * All "production" Tier 1 block nodes begin rapid backfill from RBH to
-        preload all history prior to cutover.
-   * Preview block streams continue to "testing" block nodes and are written
-     to "preview" buckets for testing and qualification.
-      * Preview block hashes continue to be entirely incomplete (to reduce
-        complexity).
+  * Jumpstart Data is included in the Consensus Node release package, and is
+    from approximately 8-10 days before the release date.
+  * Consensus Node reads Jumpstart Data
+    * WRB data is combined with the Jumpstart Data to complete "WRB Catch Up"
+    * Consensus Node begins creating WRB block root hash with all
+      necessary correct inputs.
+    * Consensus Node stores the correct WRB hash in BlockInfo in state at the
+      end of each block.
+    * Consensus Node stores the correct WRB streaming hash tree data in state
+      in BlockInfo at the end of each block.
+  * WRAPS proving key and parameters downloaded by Consensus Node
+  * WRAPS proving key hash read from configuration
+    * This data is stored in state as part of post-upgrade migration.
+    * The hash is used to validate the downloaded WRAPS data.
+  * TSS is enabled in Consensus Node but does not sign blocks
+    * TSS creates the Ledger ID and publishes LedgerID, Initial Roster, and
+      WRAPS verification key in Record Stream via TSS adoption transaction.
+    * Consensus Node creates WRAPS proofs for each new Roster.
+  * Offline process continues to generate WRB files for backfill via RBH.
+  * Block Nodes are prepared for cutover
+    * All "production" Tier 1 block nodes are reset to clear preview blocks.
+    * All "production" Tier 1 block nodes begin rapid backfill from RBH to
+      preload all history prior to cutover.
+  * Preview block streams continue to "testing" block nodes and are written
+    to "preview" buckets for testing and qualification.
+    * Preview block hashes continue to be entirely incomplete (to reduce
+      complexity).
 * Release N+2 (Cutover Release)
-   * Consensus Node performs cutover tasks during post upgrade processing.
-      * Consensus Node signs each block with TSS and WRAPS
-      * Consensus Node ceases producing Record Streams
-      * Consensus Node removes `BlockInfo` from state<br/>
-        `BlockStreamInfo` is used after cutover and is optimized for
-        block streams rather than record streams.
-      * Consensus Node begins producing Block Streams
-        and publishing to Block Nodes.
-   * Block Nodes complete final backfill and begin receiving Block Streams.
-      * Block Nodes verify TSS signature for each block.
-   * RBH node is shut down once all block nodes finish backfill.
-   * Block Streams become authoritative.
+  * Consensus Node performs cutover tasks during post upgrade processing.
+    * Consensus Node signs each block with TSS and WRAPS
+    * Consensus Node ceases producing Record Streams
+    * Consensus Node removes `BlockInfo` from state<br/>
+      `BlockStreamInfo` is used after cutover and is optimized for
+      block streams rather than record streams.
+    * Consensus Node begins producing Block Streams
+      and publishing to Block Nodes.
+  * Block Nodes complete final backfill and begin receiving Block Streams.
+    * Block Nodes verify TSS signature for each block.
+  * RBH node is shut down once all block nodes finish backfill.
+  * Block Streams become authoritative.
 
 ### How does the consensus node "catch up" with the last Wrapped Record Block hash?
 
 This is a roughly three part process.
 * The first part requires offline processing to do the following.
-   1. Download every record file from the beginning
-   1. Process each file to extract the record data, wrap that data in a block.
-   1. Record the block hash, block number, and state of the historical block
-      subtree
-       * Update the current Jumpstart Data with this data after each 1000
-         blocks.
+1. Download every record file from the beginning
+1. Process each file to extract the record data, wrap that data in a block.
+1. Record the block hash, block number, and state of the historical block
+subtree
+* Update the current Jumpstart Data with this data after each 1000
+blocks.
 * The second part requires that the Consensus Node Software record the following
-  values for each record file produced for the Record Stream.
-   1. Calculate the subtree hashes for the current record file data according
-      to the structure documented below.
-   1. For each new record, store the Consensus Time, block number, and subtree
-      hash for subtrees 3,4,5,6,7, and 8 in a hash-data file. Only the "output"
-      subtree is expected to have a non-zero value.
+values for each record file produced for the Record Stream.
+1. Calculate the subtree hashes for the current record file data according
+to the structure documented below.
+1. For each new record, store the Consensus Time, block number, and subtree
+hash for subtrees 3,4,5,6,7, and 8 in a hash-data file. Only the "output"
+subtree is expected to have a non-zero value.
 * The Consensus Node Software will store the hash data for each record for a
-  single release.
+single release.
 * The third part requires the following tasks
-   1. The Jumpstart Data from part one must be included in the upgrade package
-      for the consensus node.
-   1. The Consensus Node Software will read the Jumpstart Data, and find the
-      matching block in the hash-data file.
-   1. The Consensus Node Software will use the values in the Jumpstart Data to
-      calculate the Block Root for the matching wrapped record file block.
-      * The Consensus Node Software will use the calculated Block Root and
-        the data from the hash-data file to continue calculating the
-        Block Root for each record file block in order
-      * The Consensus Node Software will complete all Block Root calculations
-        forward until reaching the current wrapped record block.
-  1. The Consensus Node Software will, thereafter, maintain the previous Block
-     Root hash and the state of the historical block subtree in state.
+1. The Jumpstart Data from part one must be included in the upgrade package
+for the Consensus Node.
+1. The Consensus Node Software will read the Jumpstart Data, and find the
+matching block in the hash-data file.
+1. The Consensus Node Software will use the values in the Jumpstart Data to
+calculate the Block Root for the matching wrapped record file block.
+* The Consensus Node Software will use the calculated Block Root and
+the data from the hash-data file to continue calculating the
+Block Root for each record file block in order
+* The Consensus Node Software will complete all Block Root calculations
+forward until reaching the current wrapped record block.
+1. The Consensus Node Software will, thereafter, maintain the previous Block
+Root hash and the state of the historical block subtree in state.
 
 #### Block Root Tree Structure (16 fixed leaves)
 
@@ -246,15 +249,15 @@ PrevBlock  AllBlocks  State  ConsensusHeaders  Input Output  StateChanges  Trace
 
 #### Fixed Leaf Positions (from design doc)
 
-`1` Previous Block Root Hash - Links to previous block, forming the blockchain  
-`2` All Block Hashes Tree Root - Streaming merkle tree of all previous block hashes  
-`3` State Root Hash - State merkle tree root at block start  
-`4` Consensus Headers - EventHeader, RoundHeader items  
-`5` Input Items - SignedTransaction  
-`6` Output Items - BlockHeader, RecordFile items, TransactionResult, TransactionOutput items  
-`7` State Changes - StateChanges items  
-`8` Trace Data - TraceData items  
-`9-16` Reserved - For future expansion  
+`1` Previous Block Root Hash - Links to previous block, forming the blockchain
+`2` All Block Hashes Tree Root - Streaming merkle tree of all previous block hashes
+`3` State Root Hash - State merkle tree root at block start
+`4` Consensus Headers - EventHeader, RoundHeader items
+`5` Input Items - SignedTransaction
+`6` Output Items - BlockHeader, RecordFile items, TransactionResult, TransactionOutput items
+`7` State Changes - StateChanges items
+`8` Trace Data - TraceData items
+`9-16` Reserved - For future expansion
 
 #### Subtree Item Types
 

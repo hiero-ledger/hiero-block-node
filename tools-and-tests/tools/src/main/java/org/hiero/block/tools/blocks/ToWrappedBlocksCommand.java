@@ -466,6 +466,7 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
             // Track the last block number and hash in memory, write once at the end
             final AtomicLong jumpstartBlockNumber = new AtomicLong(-1);
             final AtomicReference<byte[]> jumpstartBlockHash = new AtomicReference<>(null);
+            final AtomicReference<byte[]> jumpstartRecordFileHash = new AtomicReference<>(null);
 
             // Register a shutdown hook to request orderly drain on JVM exit (Ctrl+C, etc.)
             final Thread shutdownHook = new Thread(
@@ -528,6 +529,7 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                                         jumpstartFile,
                                         jumpstartBlockNumber.get(),
                                         jumpstartBlockHash.get(),
+                                        jumpstartRecordFileHash.get(),
                                         streamingHasher);
                             }
                         }
@@ -707,6 +709,8 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                             blockRegistry.addBlock(blockNum, blockStreamBlockHash);
                             jumpstartBlockNumber.set(blockNum);
                             jumpstartBlockHash.set(blockStreamBlockHash);
+                            jumpstartRecordFileHash.set(
+                                    effectiveBlock.recordBlock().recordFile().signedHash());
                         }
 
                         // Pre-compute block path on the convert thread (pure arithmetic, fast).
@@ -854,7 +858,12 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
 
             // Save jumpstart data once at the end
             if (jumpstartBlockHash.get() != null) {
-                saveJumpstartData(jumpstartFile, jumpstartBlockNumber.get(), jumpstartBlockHash.get(), streamingHasher);
+                saveJumpstartData(
+                        jumpstartFile,
+                        jumpstartBlockNumber.get(),
+                        jumpstartBlockHash.get(),
+                        jumpstartRecordFileHash.get(),
+                        streamingHasher);
             }
 
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
@@ -1024,6 +1033,7 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
      * <ul>
      *   <li>Block number (8 bytes, long)</li>
      *   <li>Previous block root hash (48 bytes, SHA-384)</li>
+     *   <li>Record file hash (48 bytes, SHA-384)</li>
      *   <li>Streaming hasher leaf count (8 bytes, long)</li>
      *   <li>Streaming hasher hash count (4 bytes, int)</li>
      *   <li>Streaming hasher pending subtree hashes (48 bytes x hash count)</li>
@@ -1032,14 +1042,18 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
      * @param file the file to write to
      * @param blockNumber the block number
      * @param blockHash the block hash (SHA-384, 48 bytes) - this is the previous block root hash
+     * @param recordFileHash the record file hash (SHA-384, 48 bytes) - hash of the raw record file bytes
      * @param streamingHasher the streaming hasher containing the merkle tree state
      */
-    static void saveJumpstartData(Path file, long blockNumber, byte[] blockHash, StreamingHasher streamingHasher) {
+    static void saveJumpstartData(
+            Path file, long blockNumber, byte[] blockHash, byte[] recordFileHash, StreamingHasher streamingHasher) {
         try (DataOutputStream out = new DataOutputStream(
                 Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))) {
             // Block number and hash (previous block root hash for the next block)
             out.writeLong(blockNumber);
             out.write(blockHash);
+            // Record file hash (SHA-384 of the raw record file bytes)
+            out.write(recordFileHash);
 
             // Streaming hasher state for subtree 2 continuation
             out.writeLong(streamingHasher.leafCount());

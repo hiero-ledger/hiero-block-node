@@ -21,6 +21,7 @@ import org.jspecify.annotations.Nullable;
  * <ol>
  *   <li>Block number (long)</li>
  *   <li>Block hash (48 bytes)</li>
+ *   <li>Record file hash (48 bytes, SHA-384 of the raw record file bytes)</li>
  *   <li>Leaf count (long)</li>
  *   <li>Hash count (int) followed by that many 48-byte hashes (streaming hasher state)</li>
  * </ol>
@@ -85,6 +86,8 @@ public final class JumpstartValidation implements BlockValidation {
             long jBlockNum = din.readLong();
             byte[] jHash = new byte[48];
             din.readFully(jHash);
+            byte[] jRecordFileHash = new byte[48];
+            din.readFully(jRecordFileHash);
             long jLeafCount = din.readLong();
             int jHashCount = din.readInt();
             List<byte[]> jHashes = new ArrayList<>();
