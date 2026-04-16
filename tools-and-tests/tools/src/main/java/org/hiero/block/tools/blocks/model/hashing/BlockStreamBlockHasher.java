@@ -150,6 +150,14 @@ public class BlockStreamBlockHasher {
     /** Reusable varint encoding buffer (max 5 bytes for a 32-bit varint). */
     private static final ThreadLocal<byte[]> VARINT_BUF = ThreadLocal.withInitial(() -> new byte[5]);
 
+    /** Holds the five streaming hashers used during block item classification. */
+    private record ItemHashers(
+            StreamingHasher consensusHeaders,
+            StreamingHasher inputItems,
+            StreamingHasher outputItems,
+            StreamingHasher stateChangeItems,
+            StreamingHasher traceItems) {}
+
     private static BlockHashResult hashBlockInternal(BlockUnparsed block) throws Exception {
         // create SHA-384 digest instance for all hashing
         final MessageDigest digest = Sha384.sha384Digest();
@@ -179,6 +187,54 @@ public class BlockStreamBlockHasher {
                 ? EMPTY_TREE_HASH
                 : blockFooter.startOfBlockStateRootHash().toByteArray();
         // build streaming merkle trees of items in the block
+        final ItemHashers hashers = classifyBlockItems(digest, block);
+        // combine all the merkle tree roots and other block data into final block hash
+        // spotless:off
+        // Code here won't be formatted by Spotless, Spotless makes it less readable
+        // Capture intermediate hashes before folding them into the tree
+        final byte[] ctHash = hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
+        final byte[] oitHash = hashers.outputItems.computeRootHash();
+        final byte[] rootHash = hashInternalNode(digest,
+            ctHash,
+            hashInternalNode(digest,
+                hashInternalNode(digest,
+                    hashInternalNode(digest,
+                        hashInternalNode(digest,
+                            previousBlockHash,
+                            blockFooter.rootHashOfAllBlockHashesTree().toByteArray()
+                        ),
+                        hashInternalNode(digest,
+                            stateRootHash,
+                            hashers.consensusHeaders.computeRootHash()
+                        )
+                    ),
+                    hashInternalNode(digest,
+                        hashInternalNode(digest,
+                            hashers.inputItems.computeRootHash(),
+                            oitHash
+                        ),
+                        hashInternalNode(digest,
+                            hashers.stateChangeItems.computeRootHash(),
+                            hashers.traceItems.computeRootHash()
+                        )
+                    )
+                ),
+                null // reserved for future use
+            )
+        );
+        return new BlockHashResult(rootHash, ctHash, oitHash);
+        // spotless:on
+    }
+
+    /**
+     * Classifies each block item into its corresponding streaming hasher subtree.
+     *
+     * @param digest the SHA-384 digest to use for leaf hashing
+     * @param block the unparsed block whose items are classified
+     * @return the five populated streaming hashers
+     */
+    private static ItemHashers classifyBlockItems(final MessageDigest digest, final BlockUnparsed block)
+            throws Exception {
         final StreamingHasher consensusHeadersHasher = new StreamingHasher();
         final StreamingHasher inputItemsHasher = new StreamingHasher();
         final StreamingHasher outputItemsHasher = new StreamingHasher();
@@ -230,42 +286,8 @@ public class BlockStreamBlockHasher {
                 case BLOCK_PROOF -> {} // ignore, not hashed as it proves the hash so can't be part of it
             }
         }
-        // combine all the merkle tree roots and other block data into final block hash
-        // spotless:off
-        // Code here won't be formatted by Spotless, Spotless makes it less readable
-        // Capture intermediate hashes before folding them into the tree
-        final byte[] ctHash = hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
-        final byte[] oitHash = outputItemsHasher.computeRootHash();
-        final byte[] rootHash = hashInternalNode(digest,
-            ctHash,
-            hashInternalNode(digest,
-                hashInternalNode(digest,
-                    hashInternalNode(digest,
-                        hashInternalNode(digest,
-                            previousBlockHash,
-                            blockFooter.rootHashOfAllBlockHashesTree().toByteArray()
-                        ),
-                        hashInternalNode(digest,
-                            stateRootHash,
-                            consensusHeadersHasher.computeRootHash()
-                        )
-                    ),
-                    hashInternalNode(digest,
-                        hashInternalNode(digest,
-                            inputItemsHasher.computeRootHash(),
-                            oitHash
-                        ),
-                        hashInternalNode(digest,
-                            stateChangeItemsHasher.computeRootHash(),
-                            traceItemsHasher.computeRootHash()
-                        )
-                    )
-                ),
-                null // reserved for future use
-            )
-        );
-        return new BlockHashResult(rootHash, ctHash, oitHash);
-        // spotless:on
+        return new ItemHashers(
+                consensusHeadersHasher, inputItemsHasher, outputItemsHasher, stateChangeItemsHasher, traceItemsHasher);
     }
 
     /**
