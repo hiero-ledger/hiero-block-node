@@ -49,6 +49,7 @@ import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification.UpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
@@ -667,7 +668,7 @@ class LiveStreamPublisherManagerTest {
                 // Build a verification notification with passed verification.
                 // Source must be publisher.
                 final VerificationNotification notification =
-                        new VerificationNotification(true, block.number(), null, null, BlockSource.PUBLISHER);
+                        new VerificationNotification(true, null, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that no responses have been sent.
@@ -727,8 +728,8 @@ class LiveStreamPublisherManagerTest {
                 responsePipeline.clear();
                 // Build a verification notification with block number equal to the latest known.
                 // Source must be publisher.
-                final VerificationNotification notification =
-                        new VerificationNotification(false, block.number(), null, null, BlockSource.PUBLISHER);
+                final VerificationNotification notification = new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that only an Acknowledgement response has been sent,
@@ -785,8 +786,8 @@ class LiveStreamPublisherManagerTest {
                 responsePipeline.clear();
                 // Build a verification notification with block number lower than the latest known.
                 // Source must be publisher.
-                final VerificationNotification notification =
-                        new VerificationNotification(false, block.number() - 1L, null, null, BlockSource.PUBLISHER);
+                final VerificationNotification notification = new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, block.number() - 1L, null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that only an Acknowledgement response has been sent,
@@ -811,8 +812,8 @@ class LiveStreamPublisherManagerTest {
             void testHandleVerificationEqualToNext() {
                 // Initially, the next unstreamed block number is 0L.
                 final long streamedBlockNumber = 0L;
-                final VerificationNotification notification =
-                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                final VerificationNotification notification = new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that no responses have been sent.
@@ -835,8 +836,8 @@ class LiveStreamPublisherManagerTest {
             void testHandleVerificationHigherThanNext() {
                 // Initially, the next unstreamed block number is 0L.
                 final long streamedBlockNumber = 1L;
-                final VerificationNotification notification =
-                        new VerificationNotification(false, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
+                final VerificationNotification notification = new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, streamedBlockNumber, null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that no responses have been sent.
@@ -878,8 +879,8 @@ class LiveStreamPublisherManagerTest {
                 endThisBlock(publisherHandler, block.number());
                 // Now, the publisher has sent the targeted block with broken proof.
                 // We can now build a verification notification with failed verification.
-                final VerificationNotification notification =
-                        new VerificationNotification(false, block.number(), null, null, BlockSource.PUBLISHER);
+                final VerificationNotification notification = new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that the response pipeline has received a BAD_BLOCK_PROOF response, because the
@@ -944,8 +945,8 @@ class LiveStreamPublisherManagerTest {
                 endThisBlock(publisherHandler, block.number());
                 // Now, the publisher has sent the targeted block with broken proof.
                 // We can now build a verification notification with failed verification.
-                final VerificationNotification notification =
-                        new VerificationNotification(false, block.number(), null, null, blockSource);
+                final VerificationNotification notification = new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, block.number(), null, null, blockSource);
                 // Call
                 toTest.handleVerification(notification);
                 // Assert that no shared metrics are updated
@@ -993,8 +994,8 @@ class LiveStreamPublisherManagerTest {
                 publisherHandler2.onNext(request);
                 endThisBlock(publisherHandler2, block.number());
                 // Build a verification notification with failed verification.
-                final VerificationNotification notification =
-                        new VerificationNotification(false, block.number(), null, null, BlockSource.PUBLISHER);
+                final VerificationNotification notification = new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, block.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // As a pre-check, we expect the pipeline to be empty
@@ -1060,8 +1061,8 @@ class LiveStreamPublisherManagerTest {
                 // Then, we need to simulate that the publisher has sent a block with invalid proof, i.e. call
                 // handleVerification with failed verification.
                 // Build a verification notification with failed verification.
-                final VerificationNotification notification =
-                        new VerificationNotification(false, testBlock.number(), null, null, BlockSource.PUBLISHER);
+                final VerificationNotification notification = new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, testBlock.number(), null, null, BlockSource.PUBLISHER);
                 // Call
                 toTest.handleVerification(notification);
                 // As a pre-check, we expect the pipeline to be empty
@@ -2295,7 +2296,12 @@ class LiveStreamPublisherManagerTest {
                 publisherHandler2.onNext(block1.asPublishStreamRequestUnparsed());
                 // Handling a failed verification notification will schedule the block that failed to be resent
                 toTest.handleVerification(new VerificationNotification(
-                        false, blockThatFailsVerification.number(), null, null, BlockSource.PUBLISHER));
+                        false,
+                        FailureType.BAD_BLOCK_PROOF,
+                        blockThatFailsVerification.number(),
+                        null,
+                        null,
+                        BlockSource.PUBLISHER));
                 // Call, end block 1
                 final ActionForBlock actionForBlock = toTest.endOfBlock(block1.number());
                 // Assert resend received

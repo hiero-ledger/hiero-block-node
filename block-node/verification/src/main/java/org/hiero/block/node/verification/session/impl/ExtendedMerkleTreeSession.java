@@ -29,6 +29,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.hiero.block.node.verification.session.VerificationSession;
@@ -153,7 +154,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // since we always need block footer to finalize, we check for its presence
         if (this.blockFooter == null) {
             // return failed verification notification
-            return new VerificationNotification(false, blockNumber, null, null, blockSource);
+            return new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
 
         // if provided, use the provided root hash of all previous block hashes tree, otherwise use the one from the
@@ -207,7 +209,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 verifySignature(blockRootHash, blockProof.signedBlockProof().blockSignature());
 
         return new VerificationNotification(
-                verified, blockNumber, blockRootHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);
+                verified,
+                verified ? null : FailureType.BAD_BLOCK_PROOF,
+                blockNumber,
+                blockRootHash,
+                verified ? new BlockUnparsed(blockItems) : null,
+                blockSource);
     }
 
     protected Boolean verifySignature(@NonNull Bytes hash, @NonNull Bytes signature) {

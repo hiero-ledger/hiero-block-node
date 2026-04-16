@@ -28,6 +28,7 @@ import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -197,7 +198,7 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification
             blockMessaging.sendBlockVerification(new VerificationNotification(
-                    true, blockNumber, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+                    true, null, blockNumber, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
             // now try and read it back
             final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed();
             // check we got the correct block
@@ -229,7 +230,12 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification with failure
             blockMessaging.sendBlockVerification(new VerificationNotification(
-                    false, blockNumber, Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+                    false,
+                    FailureType.BAD_BLOCK_PROOF,
+                    blockNumber,
+                    Bytes.EMPTY,
+                    block.blockUnparsed(),
+                    BlockSource.PUBLISHER));
             assertNull(plugin.block(blockNumber));
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
@@ -256,8 +262,8 @@ class BlockFileRecentPluginTest {
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().max());
             assertEquals(UNKNOWN_BLOCK_NUMBER, plugin.availableBlocks().min());
             // send verified block notification
-            blockMessaging.sendBlockVerification(
-                    new VerificationNotification(true, blockNumber, Bytes.EMPTY, blockOrig, BlockSource.PUBLISHER));
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, blockNumber, Bytes.EMPTY, blockOrig, BlockSource.PUBLISHER));
             // now try and read it back
             final BlockUnparsed blockFromPlugin = plugin.block(blockNumber).blockUnparsed();
             // check we got the correct block
@@ -284,7 +290,7 @@ class BlockFileRecentPluginTest {
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 // send the block items to the plugin
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
                         blocksRootPath, i, filesRecentConfig.compression(), filesRecentConfig.maxFilesPerDir());
@@ -341,7 +347,7 @@ class BlockFileRecentPluginTest {
                         TestBlockBuilder.generateBlockWithNumber(i).blockUnparsed();
                 // send the block items to the plugin
                 blockMessaging.sendBlockVerification(new VerificationNotification(
-                        true, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
+                        true, null, i, Bytes.EMPTY, new BlockUnparsed(block.blockItems()), BlockSource.PUBLISHER));
                 // assert that the block is persisted
                 final Path persistedBlock = BlockFile.nestedDirectoriesBlockFilePath(
                         blocksRootPath,

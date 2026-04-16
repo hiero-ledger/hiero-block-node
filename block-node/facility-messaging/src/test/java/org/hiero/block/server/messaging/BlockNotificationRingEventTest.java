@@ -42,7 +42,7 @@ class BlockNotificationRingEventTest {
     void shouldSetAndGetVerificationNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final VerificationNotification notification =
-                new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER);
+                new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
         event.set(notification);
         assertEquals(notification, event.getVerificationNotification());
         assertNull(event.getPersistedNotification(), "Persisted notification should be null");
@@ -135,7 +135,7 @@ class BlockNotificationRingEventTest {
         final PersistedNotification persistedNotification =
                 new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
         final VerificationNotification verificationNotification =
-                new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER);
+                new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
 
         // First set persisted notification
         event.set(persistedNotification);
@@ -156,7 +156,7 @@ class BlockNotificationRingEventTest {
     void settingPersistedNotificationShouldClearVerificationNotification() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final VerificationNotification verificationNotification =
-                new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER);
+                new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
         final PersistedNotification persistedNotification =
                 new PersistedNotification(2, true, 10, BlockSource.PUBLISHER);
 
@@ -179,9 +179,9 @@ class BlockNotificationRingEventTest {
     void shouldAllowReuseWithDifferentVerificationNotifications() {
         final BlockNotificationRingEvent event = new BlockNotificationRingEvent();
         final VerificationNotification notification1 =
-                new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER);
+                new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
         final VerificationNotification notification2 =
-                new VerificationNotification(true, 1, null, null, BlockSource.PUBLISHER);
+                new VerificationNotification(true, null, 1, null, null, BlockSource.PUBLISHER);
 
         event.set(notification1);
         assertEquals(notification1, event.getVerificationNotification());
