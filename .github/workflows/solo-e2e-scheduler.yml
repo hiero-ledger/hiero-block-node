@@ -85,7 +85,7 @@ jobs:
   # CONFIGURE: Determine run type and build test matrix
   # ============================================================================
   configure:
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
     outputs:
       run-type: ${{ steps.config.outputs.run_type }}
       matrix: ${{ steps.config.outputs.matrix }}
@@ -348,7 +348,7 @@ jobs:
   report-success:
     needs: [configure, run-tests]
     if: success() && needs.configure.outputs.notify-slack == 'true'
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
@@ -423,7 +423,7 @@ jobs:
   report-failure:
     needs: [configure, run-tests]
     if: failure() && needs.configure.outputs.notify-slack == 'true'
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0

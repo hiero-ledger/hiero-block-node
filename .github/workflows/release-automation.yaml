@@ -20,7 +20,7 @@ jobs:
   release:
     timeout-minutes: 15
     name: Release
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
     env:
       RELEASE_NOTES_FILENAME: release_notes
     outputs:
@@ -138,7 +138,7 @@ jobs:
   create_pr:
     timeout-minutes: 10
     name: Create PR
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
     needs: release
     if: ${{ needs.release.outputs.create_pr == 'true' }}
     env:
