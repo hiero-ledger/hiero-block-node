@@ -282,7 +282,7 @@ The command writes:
 - `blockStreamBlockHashes.bin` - registry of computed block hashes
 - `streamingMerkleTree.bin` and `completeMerkleTree.bin` - Merkle tree state for resume capability
 - `wrap-commit.bin` - durable commit watermark tracking the highest block number fully written to zip
-- `jumpstart.bin` - jumpstart data (block number, block hash, record file hash, streaming hasher state) for Consensus Node continuation
+- `jumpstart.bin` - jumpstart data (block number, block hash, consensus timestamp hash, output items tree root hash, streaming hasher state) for Consensus Node WRB catch-up integrity checks
 
 #### Notes
 

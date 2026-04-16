@@ -698,9 +698,13 @@ class ToWrappedBlocksCommandTest {
                 }
                 assertFalse(allZero, "Jumpstart block hash should not be all zeros");
 
-                // Record file hash is 48 bytes (SHA-384)
-                final byte[] recordFileHash = new byte[48];
-                in.readFully(recordFileHash);
+                // Consensus timestamp hash is 48 bytes (SHA-384)
+                final byte[] consensusTimestampHash = new byte[48];
+                in.readFully(consensusTimestampHash);
+
+                // Output items tree root hash is 48 bytes (SHA-384)
+                final byte[] outputItemsTreeRootHash = new byte[48];
+                in.readFully(outputItemsTreeRootHash);
 
                 // Streaming hasher state
                 final long leafCount = in.readLong();
@@ -1161,8 +1165,10 @@ class ToWrappedBlocksCommandTest {
             }
 
             final Path file = jumpstartDir.resolve("jumpstart.bin");
-            final byte[] recordFileHash = new byte[48];
-            ToWrappedBlocksCommand.saveJumpstartData(file, 9, lastHash, recordFileHash, streamingHasher);
+            final byte[] consensusTimestampHash = new byte[48];
+            final byte[] outputItemsTreeRootHash = new byte[48];
+            ToWrappedBlocksCommand.saveJumpstartData(
+                    file, 9, lastHash, consensusTimestampHash, outputItemsTreeRootHash, streamingHasher);
 
             // Read back and verify format
             try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
@@ -1172,9 +1178,13 @@ class ToWrappedBlocksCommandTest {
                 in.readFully(readHash);
                 assertArrayEquals(lastHash, readHash, "Block hash should match");
 
-                final byte[] readRecordFileHash = new byte[48];
-                in.readFully(readRecordFileHash);
-                assertArrayEquals(recordFileHash, readRecordFileHash, "Record file hash should match");
+                final byte[] readCtHash = new byte[48];
+                in.readFully(readCtHash);
+                assertArrayEquals(consensusTimestampHash, readCtHash, "Consensus timestamp hash should match");
+
+                final byte[] readOitHash = new byte[48];
+                in.readFully(readOitHash);
+                assertArrayEquals(outputItemsTreeRootHash, readOitHash, "Output items tree root hash should match");
 
                 assertEquals(10, in.readLong(), "Leaf count should be 10");
 
@@ -1199,16 +1209,19 @@ class ToWrappedBlocksCommandTest {
             streamingHasher.addNodeByHash(blockHash);
 
             final Path file = jumpstartDir.resolve("jumpstart.bin");
-            ToWrappedBlocksCommand.saveJumpstartData(file, 0, blockHash, new byte[48], streamingHasher);
+            ToWrappedBlocksCommand.saveJumpstartData(file, 0, blockHash, new byte[48], new byte[48], streamingHasher);
 
             try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
                 assertEquals(0, in.readLong(), "Block number should be 0");
                 final byte[] readHash = new byte[48];
                 in.readFully(readHash);
                 assertArrayEquals(blockHash, readHash);
-                final byte[] readRecordFileHash = new byte[48];
-                in.readFully(readRecordFileHash);
-                assertArrayEquals(new byte[48], readRecordFileHash, "Record file hash should match");
+                final byte[] readCtHash = new byte[48];
+                in.readFully(readCtHash);
+                assertArrayEquals(new byte[48], readCtHash, "Consensus timestamp hash should match");
+                final byte[] readOitHash = new byte[48];
+                in.readFully(readOitHash);
+                assertArrayEquals(new byte[48], readOitHash, "Output items tree root hash should match");
                 assertEquals(1, in.readLong(), "Leaf count should be 1");
             }
         }
@@ -1225,7 +1238,7 @@ class ToWrappedBlocksCommandTest {
             }
 
             final Path file = jumpstartDir.resolve("jumpstart.bin");
-            ToWrappedBlocksCommand.saveJumpstartData(file, 5, hash5, new byte[48], hasher5);
+            ToWrappedBlocksCommand.saveJumpstartData(file, 5, hash5, new byte[48], new byte[48], hasher5);
 
             // Overwrite with block 10
             final StreamingHasher hasher10 = new StreamingHasher();
@@ -1234,7 +1247,7 @@ class ToWrappedBlocksCommandTest {
                 hash10 = BlockStreamBlockHasher.hashBlock(chain.get(i));
                 hasher10.addNodeByHash(hash10);
             }
-            ToWrappedBlocksCommand.saveJumpstartData(file, 10, hash10, new byte[48], hasher10);
+            ToWrappedBlocksCommand.saveJumpstartData(file, 10, hash10, new byte[48], new byte[48], hasher10);
 
             try (DataInputStream in = new DataInputStream(Files.newInputStream(file))) {
                 assertEquals(10, in.readLong(), "Block number should be 10 after overwrite");

@@ -72,6 +72,17 @@ import org.hiero.block.tools.utils.Sha384;
 public class BlockStreamBlockHasher {
 
     /**
+     * Result of a detailed block hash computation, containing the block root hash plus
+     * intermediate hashes needed by the Consensus Node for WRB catch-up integrity checks.
+     *
+     * @param blockHash the 48-byte SHA-384 block root hash
+     * @param consensusTimestampHash the SHA-384 leaf hash of the block's first consensus timestamp
+     * @param outputItemsTreeRootHash the streaming merkle root of all output items
+     *        (BlockHeader, RecordFile, TransactionResult, TransactionOutput)
+     */
+    public record BlockHashResult(byte[] blockHash, byte[] consensusTimestampHash, byte[] outputItemsTreeRootHash) {}
+
+    /**
      * Computes the root hash of a fully-parsed {@link Block} by re-serializing to bytes
      * and delegating to {@link #hashBlock(BlockUnparsed)}.
      *
@@ -82,14 +93,7 @@ public class BlockStreamBlockHasher {
      * @return the 48-byte SHA-384 block root hash
      */
     public static byte[] hashBlock(Block block) {
-        try {
-            Bytes bytes = Block.PROTOBUF.toBytes(block);
-            BlockUnparsed unparsed = BlockUnparsed.PROTOBUF.parse(
-                    bytes.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_PARSE_SIZE);
-            return hashBlock(unparsed);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to hash block", e);
-        }
+        return hashBlockDetailed(block).blockHash();
     }
 
     /**
@@ -106,6 +110,36 @@ public class BlockStreamBlockHasher {
      * @throws IllegalArgumentException if the block is missing the required header or footer
      */
     public static byte[] hashBlock(BlockUnparsed block) {
+        return hashBlockDetailed(block).blockHash();
+    }
+
+    /**
+     * Computes the root hash of a fully-parsed {@link Block} and returns the full
+     * {@link BlockHashResult} including intermediate hashes needed by the Consensus Node.
+     *
+     * @param block the fully-parsed block to hash
+     * @return the detailed hash result containing block hash plus intermediate hashes
+     */
+    public static BlockHashResult hashBlockDetailed(Block block) {
+        try {
+            Bytes bytes = Block.PROTOBUF.toBytes(block);
+            BlockUnparsed unparsed = BlockUnparsed.PROTOBUF.parse(
+                    bytes.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_PARSE_SIZE);
+            return hashBlockInternal(unparsed);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to hash block", e);
+        }
+    }
+
+    /**
+     * Computes the root hash of a block using {@link BlockUnparsed} and returns the full
+     * {@link BlockHashResult} including intermediate hashes needed by the Consensus Node.
+     *
+     * @param block the unparsed block to hash (must contain BlockHeader and BlockFooter)
+     * @return the detailed hash result containing block hash plus intermediate hashes
+     * @throws IllegalArgumentException if the block is missing the required header or footer
+     */
+    public static BlockHashResult hashBlockDetailed(BlockUnparsed block) {
         try {
             return hashBlockInternal(block);
         } catch (Exception e) {
@@ -116,7 +150,7 @@ public class BlockStreamBlockHasher {
     /** Reusable varint encoding buffer (max 5 bytes for a 32-bit varint). */
     private static final ThreadLocal<byte[]> VARINT_BUF = ThreadLocal.withInitial(() -> new byte[5]);
 
-    private static byte[] hashBlockInternal(BlockUnparsed block) throws Exception {
+    private static BlockHashResult hashBlockInternal(BlockUnparsed block) throws Exception {
         // create SHA-384 digest instance for all hashing
         final MessageDigest digest = Sha384.sha384Digest();
         // selectively parse block header from the first item's raw bytes
@@ -199,8 +233,11 @@ public class BlockStreamBlockHasher {
         // combine all the merkle tree roots and other block data into final block hash
         // spotless:off
         // Code here won't be formatted by Spotless, Spotless makes it less readable
-        return hashInternalNode(digest,
-            hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray()),
+        // Capture intermediate hashes before folding them into the tree
+        final byte[] ctHash = hashLeaf(digest, Timestamp.PROTOBUF.toBytes(consensusTimestamp).toByteArray());
+        final byte[] oitHash = outputItemsHasher.computeRootHash();
+        final byte[] rootHash = hashInternalNode(digest,
+            ctHash,
             hashInternalNode(digest,
                 hashInternalNode(digest,
                     hashInternalNode(digest,
@@ -216,7 +253,7 @@ public class BlockStreamBlockHasher {
                     hashInternalNode(digest,
                         hashInternalNode(digest,
                             inputItemsHasher.computeRootHash(),
-                            outputItemsHasher.computeRootHash()
+                            oitHash
                         ),
                         hashInternalNode(digest,
                             stateChangeItemsHasher.computeRootHash(),
@@ -227,6 +264,7 @@ public class BlockStreamBlockHasher {
                 null // reserved for future use
             )
         );
+        return new BlockHashResult(rootHash, ctHash, oitHash);
         // spotless:on
     }
 
