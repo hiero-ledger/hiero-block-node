@@ -406,7 +406,12 @@ class ArchiveCloudStoragePluginTest {
             final TestBlock block = TestBlockBuilder.generateBlocksInRange(0, 0).getFirst();
             assertThatNoException()
                     .isThrownBy(() -> plugin.handleVerification(new VerificationNotification(
-                            false, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER)));
+                            false,
+                            VerificationNotification.FailureType.BAD_BLOCK_PROOF,
+                            block.number(),
+                            Bytes.EMPTY,
+                            block.blockUnparsed(),
+                            BlockSource.PUBLISHER)));
             assertThat(plugin.currentUploadFuture).isNull();
         }
 
@@ -520,7 +525,7 @@ class ArchiveCloudStoragePluginTest {
         /// Sends a single [VerificationNotification] via the messaging facility.
         private void sendVerification(TestBlock block) {
             blockMessaging.sendBlockVerification(new VerificationNotification(
-                    true, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
     }
 
@@ -574,7 +579,7 @@ class ArchiveCloudStoragePluginTest {
                         .blockItems(new BlockItemUnparsed[] {item})
                         .build();
                 blockMessaging.sendBlockVerification(
-                        new VerificationNotification(true, i, Bytes.EMPTY, block, BlockSource.PUBLISHER));
+                        new VerificationNotification(true, null, i, Bytes.EMPTY, block, BlockSource.PUBLISHER));
             }
 
             pluginExecutor.executeSerially();
@@ -646,7 +651,7 @@ class ArchiveCloudStoragePluginTest {
 
         private void sendVerification(TestBlock block) {
             blockMessaging.sendBlockVerification(new VerificationNotification(
-                    true, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
     }
 
