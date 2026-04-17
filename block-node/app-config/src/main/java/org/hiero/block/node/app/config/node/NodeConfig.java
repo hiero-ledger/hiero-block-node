@@ -18,7 +18,7 @@ import org.hiero.block.node.base.Loggable;
  *     should not make any particular effort to obtain or store them.
  * @param tssDataFilePath path where TSS data (ledger ID, address book, WRAPS VK)
  *     are persisted across restarts as a serialized {@code TssData}.
- * @param tssUpdatePollIntervalMillis The amount of milliseconds that the {@code ApplicationStateFacility} waits between
+ * @param tssUpdateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
  *     checking to see if there are any {@code TssData} updates to process.
  */
 // spotless:off
@@ -26,5 +26,6 @@ import org.hiero.block.node.base.Loggable;
 public record NodeConfig(
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/tss-data.bin") Path tssDataFilePath,
-        @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long tssUpdatePollIntervalMillis) {}
+        @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long tssUpdateScanInterval,
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int tssUpdateInitialRetryDelay) {}
 // spotless:on

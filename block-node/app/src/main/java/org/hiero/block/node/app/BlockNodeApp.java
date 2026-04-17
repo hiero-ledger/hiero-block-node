@@ -29,6 +29,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
@@ -88,6 +90,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
     /** The thread used by the ApplicationStateFacility to check for TssData updates */
     private Thread applicationStateFacility;
+
+    private ScheduledExecutorService applicationStateExecutor;
 
     /**
      * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
@@ -277,11 +281,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * and starts the metrics.
      */
     public void start() {
-        // start the ApplicationStateFacility
-        startApplicationStateFacility();
         LOGGER.log(INFO, "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
         // Start the web server
         webServer.start();
+        // start the ApplicationStateFacility
+        startApplicationStateFacility();
         // start the plugins
         startPlugins(loadedPlugins);
         // mark the server as started
@@ -381,39 +385,49 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * process.
      */
     void startApplicationStateFacility() {
-        final long tssUpdatePollIntervalMillis =
-                blockNodeContext.configuration().getConfigData(NodeConfig.class).tssUpdatePollIntervalMillis();
-
         LOGGER.log(INFO, "ApplicationStateFacility start called");
-        applicationStateFacility = Thread.ofVirtual().start(() -> {
-            LOGGER.log(INFO, "ApplicationStateFacility start called");
-            try {
-                while (!applicationStateFacility.isInterrupted()) {
-                    boolean updated = false;
-                    while (!tssDataUpdates.isEmpty()) {
-                        updated |= updateBlockNodeContext(tssDataUpdates.poll());
-                    }
-                    if (updated) {
-                        loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
-                        LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
-                        persistTssData(blockNodeContext.tssData());
-                        LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
-                    }
-                    Thread.sleep(tssUpdatePollIntervalMillis);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                LOGGER.log(INFO, "ApplicationStateFacility interrupted");
-            }
-        });
+        Thread.UncaughtExceptionHandler handler =
+                (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
+
+        // Create thread executors via threadPoolManager.
+        applicationStateExecutor = blockNodeContext
+                .threadPoolManager()
+                .createVirtualThreadScheduledExecutor(1, "ApplicationStateScanner", handler);
+
+        NodeConfig nodeConfig = blockNodeContext.configuration().getConfigData(NodeConfig.class);
+
+        // Schedule periodic gap detection task using autonomous executor
+        applicationStateExecutor.scheduleAtFixedRate(
+                this::checkForTssUpdates,
+                nodeConfig.tssUpdateInitialRetryDelay(),
+                nodeConfig.tssUpdateScanInterval(),
+                TimeUnit.MILLISECONDS);
+    }
+
+    private void checkForTssUpdates() {
+        boolean updated = false;
+        while (!tssDataUpdates.isEmpty()) {
+            updated |= updateBlockNodeContext(tssDataUpdates.poll());
+        }
+        if (updated) {
+            loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
+            LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
+            persistTssData(blockNodeContext.tssData());
+            LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
+        }
     }
 
     void stopApplicationStateFacility() {
-        applicationStateFacility.interrupt();
+        if (applicationStateExecutor == null) {
+            return;
+        }
+        applicationStateExecutor.shutdownNow();
         try {
-            applicationStateFacility.join(1_000);
-            LOGGER.log(INFO, "ApplicationStateFacility stopped");
-        } catch (InterruptedException ignored) {
+            if (!applicationStateExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                final String executorTerminationMsg = "applicationStateExecutor did not terminate in time";
+                LOGGER.log(INFO, executorTerminationMsg);
+            }
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
