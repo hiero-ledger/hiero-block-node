@@ -88,9 +88,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /** Create a ConcurrentLinkedQueue to hold TssData updates */
     private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
-    /** The thread used by the ApplicationStateFacility to check for TssData updates */
-    private Thread applicationStateFacility;
 
+    /** The ScheduledExecutorService used by the ApplicationStateFacility to check for TssData updates */
     private ScheduledExecutorService applicationStateExecutor;
 
     /**
