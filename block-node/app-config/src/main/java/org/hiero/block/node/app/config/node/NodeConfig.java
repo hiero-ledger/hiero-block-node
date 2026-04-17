@@ -27,5 +27,5 @@ public record NodeConfig(
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/tss-data.bin") Path tssDataFilePath,
         @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long tssUpdateScanInterval,
-        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int tssUpdateInitialRetryDelay) {}
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int tssUpdateInitialDelay) {}
 // spotless:on
