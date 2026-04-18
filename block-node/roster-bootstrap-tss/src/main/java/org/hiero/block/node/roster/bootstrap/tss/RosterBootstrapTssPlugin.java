@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.tss;
 
-import com.hedera.pbj.runtime.ParseException;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
@@ -128,7 +127,6 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
 
     /// queries peer BlockNodes for their TssData
     private void queryPeerTssData() {
-        // todo: add in the code to query the peers
+        boolean updated = false;
     }
-
 }
