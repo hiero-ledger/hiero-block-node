@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.tss;
 
+import com.hedera.pbj.runtime.ParseException;
+import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.pbj.runtime.ParseException;
@@ -11,6 +14,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -24,11 +30,25 @@ import org.hiero.block.node.spi.ServiceBuilder;
 ///  - `RosterBootstrapTssConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
 public class RosterBootstrapTssPlugin implements BlockNodePlugin {
-    /// The application state facility, for updating application state.
-    private ApplicationStateFacility applicationStateFacility;
-
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
+
+    /// The block node context, for access to core facilities.
+    private volatile BlockNodeContext blockNodeContext;
+    /// The application state facility, for updating application state.
+    private ApplicationStateFacility applicationStateFacility;
+    private BlockNodeSource blockNodeSources;
+    private boolean hasBNSourcesPath = false;
+    /** The ScheduledExecutorService used by the TssBootstrapPlugin to query peer BNs for TssData */
+    private ScheduledExecutorService queryPeerExecutor;
+    /** The config information for the RosterBootstrapTssConfig*/
+    private RosterBootstrapTssConfig rosterBootstrapTssConfig;
+    /**
+     * Map of BlockNodeSourceConfig to BlockNodeClient instances.
+     * This allows us to reuse clients for the same node configuration.
+     * Package-private for testing.
+     */
+    final ConcurrentHashMap<BlockNodeSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
 
     /// {@inheritDoc}
     @NonNull
@@ -41,13 +61,74 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.applicationStateFacility = Objects.requireNonNull(context.applicationStateFacility());
-        RosterBootstrapTssConfig rosterBootstrapTssConfig =
-                context.configuration().getConfigData(RosterBootstrapTssConfig.class);
+        rosterBootstrapTssConfig = context.configuration().getConfigData(RosterBootstrapTssConfig.class);
+        this.blockNodeContext = context;
+        this.applicationStateFacility = Objects.requireNonNull(this.blockNodeContext.applicationStateFacility());
 
         // process the config data
         processTssDataConfiguration(rosterBootstrapTssConfig);
 
-        // todo: query peer BNs for their TssData, if there is no config data, or nothing in the context
+        // Validate block node sources configuration
+        final String sourcesPath = rosterBootstrapTssConfig.blockNodeSourcesPath();
+        if (sourcesPath == null || sourcesPath.isBlank()) {
+            LOGGER.log(DEBUG, "No block node sources path configured, TssBootstrapPlugin will not query any peers");
+            return;
+        }
+
+        Path blockNodeSourcesPath = Path.of(rosterBootstrapTssConfig.blockNodeSourcesPath());
+        if (!Files.isRegularFile(blockNodeSourcesPath)) {
+            final String blockNodeSourcesPathNotFoundMsg =
+                    "Block node sources path does not exist or is not a regular file: [{0}], TssBootstrapPlugin will not query any peers";
+            LOGGER.log(WARNING, blockNodeSourcesPathNotFoundMsg, rosterBootstrapTssConfig.blockNodeSourcesPath());
+            return;
+        }
+
+        try {
+            blockNodeSources = BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
+        } catch (ParseException | IOException e) {
+            final String parseFailedMsg =
+                    "Failed to parse block node sources from path: [%s], TssBootstrapPlugin will not query any peers: %s"
+                            .formatted(rosterBootstrapTssConfig.blockNodeSourcesPath(), e.getMessage());
+            LOGGER.log(WARNING, parseFailedMsg, e);
+        }
+        // Let the logs know what we loaded.
+        for (BlockNodeSourceConfig node : blockNodeSources.nodes()) {
+            LOGGER.log(INFO, "Loaded backfill source node: {0}", node);
+        }
+        hasBNSourcesPath = true;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void start() {
+        if (!hasBNSourcesPath) {
+            return;
+        }
+        LOGGER.log(INFO, "ApplicationStateFacility start called");
+        Thread.UncaughtExceptionHandler handler =
+                (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
+
+        // Create thread executors via threadPoolManager.
+        queryPeerExecutor = blockNodeContext
+                .threadPoolManager()
+                .createVirtualThreadScheduledExecutor(1, "ApplicationStateScanner", handler);
+
+        // Schedule periodic gap detection task using autonomous executor
+        queryPeerExecutor.scheduleAtFixedRate(
+                this::queryPeerTssData,
+                rosterBootstrapTssConfig.queryPeerInitialDelay(),
+                rosterBootstrapTssConfig.queryPeerInterval(),
+                TimeUnit.MILLISECONDS);
+    }
+
+    /// {@inheritDoc}
+    /// This method is called on a separate thread. Make sure this.context is marked as `volatile`
+    @Override
+    public void onContextUpdate(BlockNodeContext context) {
+        // save the context update
+        this.blockNodeContext = context;
     }
 
     /// process the `RosterBootstrapTssConfig`
