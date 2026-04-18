@@ -37,7 +37,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     /** The block provider */
     private HistoricalBlockFacility blockProvider;
     /** The block node context, used to provide access to facilities */
-    private volatile BlockNodeContext context;
+    private volatile BlockNodeContext blockNodeContext;
     /** Counter for the number of status requests */
     private LongCounter.Measurement requestStatusCounter;
     /** Counter for the number of detail requests */
@@ -91,6 +91,9 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     public ServerStatusDetailResponse serverStatusDetail(@NonNull final ServerStatusRequest request) {
         requestDetailCounter.increment();
 
+        // blockNodeContext is volatile, assign to local variable so reference stays consistent
+        BlockNodeContext context = blockNodeContext;
+
         ServerStatusDetailResponse.Builder detailsBuilder = ServerStatusDetailResponse.newBuilder();
 
         // add in version information
@@ -125,7 +128,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     @Override
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         requireNonNull(serviceBuilder);
-        this.context = requireNonNull(context);
+        this.blockNodeContext = requireNonNull(context);
         this.blockProvider = requireNonNull(context.historicalBlockProvider());
 
         final MetricRegistry metricRegistry = context.metricRegistry();
@@ -152,6 +155,6 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
      */
     @Override
     public void onContextUpdate(BlockNodeContext context) {
-        this.context = context;
+        this.blockNodeContext = context;
     }
 }
