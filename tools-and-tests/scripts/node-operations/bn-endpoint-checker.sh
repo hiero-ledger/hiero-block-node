@@ -12,6 +12,11 @@
 #                                    version, available block ranges, registered
 #                                    plugins, and TSS data presence
 #                                    (only when --detailed-server-status is passed)
+#   4. Fetching the latest block   → reports the block proof type observed in the
+#                                    most recent block: WRB/RSA (Phase 2a),
+#                                    TSS hinTS + WRAPS proof, or TSS hinTS +
+#                                    Aggregate Schnorr signature (Phase 2b)
+#                                    (only when --latest-block-proof is passed)
 #
 # Endpoints are supplied as positional arguments in <host:port> form.
 # A proto package is resolved in the following priority order:
@@ -36,6 +41,17 @@
 #                           available block ranges, registered plugins, and TSS
 #                           data presence. Omitted by default because this RPC
 #                           can be slow on nodes with many block ranges.
+#       --latest-block-proof
+#                           Fetch the latest block from the node and report the
+#                           proof type observed in it. Useful for confirming that
+#                           a node can serve blocks and for tracking the network's
+#                           current proof phase:
+#                             WRB/RSA            — Phase 2a (SignedRecordFileProof)
+#                             TSS WRAPS proof    — Phase 2b, WRAPS-based hinTS
+#                             TSS Agg. Schnorr   — Phase 2b, Aggregate Schnorr
+#                           Requires the proto package to contain the
+#                           block_access_service.proto file (same archive as the
+#                           node_service.proto already required).
 #   -h, --help              Print this help text and exit.
 #
 # ENVIRONMENT
@@ -59,6 +75,11 @@
 #   bn-endpoint-checker.sh --version 0.32.0 \
 #     lfh01.previewnet.blocknode.hashgraph-devops.com:40840 \
 #     lfh02.previewnet.blocknode.hashgraph-devops.com:40840
+#
+#   # Check latest block proof type (e.g. TSS vs WRB/RSA) on mainnet nodes
+#   bn-endpoint-checker.sh --version 0.32.0 --latest-block-proof \
+#     node1.mainnet.blocknode.hashgraph-devops.com:40840 \
+#     node2.mainnet.blocknode.hashgraph-devops.com:40840
 #
 # REQUIREMENTS
 #   grpcurl   Auto-installed if missing (you will be prompted for the
@@ -115,6 +136,34 @@ NODE_SERVICE_PROTO="block-node/api/node_service.proto"
 # Used to construct the grpcurl target: <service>/<method>.
 GRPC_SERVICE="org.hiero.block.api.BlockNodeService"
 
+# Proto file and service name for the block access service, used by
+# --latest-block-proof to call getBlock with retrieve_latest=true.
+BLOCK_ACCESS_PROTO="block-node/api/block_access_service.proto"
+BLOCK_ACCESS_SERVICE="org.hiero.block.api.BlockAccessService"
+
+# ── TSS block_signature sub-type byte-length constants ───────────────────────
+#
+# TssSignedBlockProof.block_signature is a flat byte concatenation:
+#   hints_verification_key  (1096 B)
+#   hints_signature         (1632 B)
+#   [wraps_proof | aggregate_schnorr_signature]
+#
+# The sub-type is identified by the total byte length alone — there is no
+# delimiter or header byte between the three components.
+#
+# These constants come from the hinTS protocol specification. If the network
+# upgrades and changes roster size or cryptographic parameters, the totals
+# will shift and the "unknown sub-type" branch in jq will surface the new
+# length for investigation.
+readonly _TSS_HINTS_VK_LEN=1096     # HINTS_VERIFICATION_KEY_LENGTH
+readonly _TSS_HINTS_SIG_LEN=1632    # HINTS_SIGNATURE_LENGTH
+readonly _TSS_WRAPS_LEN=704         # COMPRESSED_WRAPS_PROOF_LENGTH
+readonly _TSS_SCHNORR_LEN=192       # AGGREGATE_SCHNORR_SIGNATURE_LENGTH
+# Totals passed as --argjson to jq so the values live in bash, not in the
+# jq string, keeping the filter readable and avoiding magic numbers.
+readonly TSS_WRAPS_TOTAL=$(( _TSS_HINTS_VK_LEN + _TSS_HINTS_SIG_LEN + _TSS_WRAPS_LEN ))     # 3432
+readonly TSS_SCHNORR_TOTAL=$(( _TSS_HINTS_VK_LEN + _TSS_HINTS_SIG_LEN + _TSS_SCHNORR_LEN )) # 2920
+
 # ── ANSI colours (disabled automatically when stdout is not a terminal) ───────
 # Check file descriptor 1 (stdout) with -t; when the script is piped or
 # redirected the colour codes are suppressed to avoid polluting log files.
@@ -151,11 +200,12 @@ usage() {
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
-BN_VERSION=""       # Requested BN protobuf version for auto-download.
-PROTO_DIR_ARG=""    # --proto-dir flag value (overrides PROTO_DIR env var).
-USE_TLS=false       # When true, grpcurl uses TLS; default is plaintext.
-DETAILED_STATUS=false  # When true, also call serverStatusDetail per endpoint.
-ENDPOINTS=()        # Positional <host:port> arguments collected here.
+BN_VERSION=""            # Requested BN protobuf version for auto-download.
+PROTO_DIR_ARG=""         # --proto-dir flag value (overrides PROTO_DIR env var).
+USE_TLS=false            # When true, grpcurl uses TLS; default is plaintext.
+DETAILED_STATUS=false    # When true, also call serverStatusDetail per endpoint.
+LATEST_BLOCK_PROOF=false # When true, fetch the latest block and report proof type.
+ENDPOINTS=()             # Positional <host:port> arguments collected here.
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -169,6 +219,8 @@ while [[ $# -gt 0 ]]; do
       USE_TLS=true; shift ;;
     --detailed-server-status)
       DETAILED_STATUS=true; shift ;;
+    --latest-block-proof)
+      LATEST_BLOCK_PROOF=true; shift ;;
     -h|--help)
       usage 0 ;;
     -*)
@@ -441,6 +493,91 @@ grpc_call() {
   [[ "$USE_TLS" == "false" ]] && flags=("-plaintext" "${flags[@]}")
 
   grpcurl "${flags[@]}" "${target}" "${GRPC_SERVICE}/${method}"
+}
+
+# ── Block proof gRPC call ─────────────────────────────────────────────────────
+
+# Calls BlockAccessService/getBlock with retrieve_latest=true and returns the
+# raw JSON response on stdout.
+#
+# Important: -emit-defaults is deliberately NOT used here. For proto3 oneof
+# fields, emitting defaults causes grpcurl to output all three proof variants
+# with empty/zero values, which breaks the has("fieldName") discriminator used
+# in print_block_proof. Without -emit-defaults, only the field that is actually
+# set in the oneof appears in the JSON output.
+grpc_call_block_proof() {
+  local target="$1"
+  local -a flags=(
+    -import-path "${RESOLVED_PROTO_DIR}"
+    -proto        "${BLOCK_ACCESS_PROTO}"
+    -d            '{"retrieve_latest": true}'
+  )
+  [[ "$USE_TLS" == "false" ]] && flags=("-plaintext" "${flags[@]}")
+
+  grpcurl "${flags[@]}" "${target}" "${BLOCK_ACCESS_SERVICE}/getBlock"
+}
+
+# Parses a getBlock JSON response and prints the block number and proof type.
+#
+# Proof type detection logic:
+#   BlockProof carries a oneof proof field with three possible variants:
+#     signedRecordFileProof  → WRB / RSA (Phase 2a)
+#     signedBlockProof       → TSS (Phase 2b) — sub-type determined by byte length
+#     blockStateProof        → State proof
+#
+#   For TSS blocks, TssSignedBlockProof.blockSignature is a flat byte sequence:
+#     hints_verification_key (1096 B) || hints_signature (1632 B) || sub-type payload
+#   The sub-type payload is either:
+#     wraps_proof (704 B)         → total 3432 B  (TSS_WRAPS_TOTAL)
+#     aggregate_schnorr (192 B)   → total 2920 B  (TSS_SCHNORR_TOTAL)
+#
+#   grpcurl encodes bytes fields as standard base64 strings. The byte count is
+#   recovered without decoding:
+#     byte_length = floor( len(base64_without_padding) × 3 / 4 )
+print_block_proof() {
+  local json="$1"
+
+  echo "$json" | jq -r \
+    --argjson wraps   "${TSS_WRAPS_TOTAL}" \
+    --argjson schnorr "${TSS_SCHNORR_TOTAL}" \
+    '
+      # Extract block number from the blockHeader item (if present).
+      (.block.items[]? | select(has("blockHeader")) | .blockHeader.number // "?") as $num |
+
+      # Find the blockProof item. Use an array + [0] so we get null rather than
+      # an error when no proof item exists (e.g. a partial/streaming response).
+      ([ .block.items[]? | select(has("blockProof")) | .blockProof ][0]) as $p |
+
+      if $p == null then
+        "block \($num): NO PROOF ITEM — block may be incomplete"
+
+      elif ($p | has("signedRecordFileProof")) then
+        # WRB / RSA Phase 2a: SignedRecordFileProof carries per-node RSA signatures.
+        ( $p.signedRecordFileProof |
+          "block \($num): WRB/RSA  — \(.recordFileSignatures | length) node signature(s)"
+        )
+
+      elif ($p | has("signedBlockProof")) then
+        # TSS Phase 2b: Determine sub-type from blockSignature byte length.
+        # Strip base64 padding ("=" chars) before computing length so that
+        # padded and unpadded encodings give the same result.
+        ( $p.signedBlockProof.blockSignature // ""
+          | gsub("=+$"; "") | length * 3 / 4 | floor ) as $n |
+        if   $n == $wraps   then
+          "block \($num): TSS — hinTS + WRAPS proof  (\($n) B)"
+        elif $n == $schnorr then
+          "block \($num): TSS — hinTS + Aggregate Schnorr  (\($n) B)"
+        else
+          "block \($num): TSS — unknown sub-type  (\($n) B — check hinTS constants)"
+        end
+
+      elif ($p | has("blockStateProof")) then
+        "block \($num): STATE PROOF"
+
+      else
+        "block \($num): UNKNOWN proof type — keys: \($p | keys)"
+      end
+    '
 }
 
 # ── Timing helpers ────────────────────────────────────────────────────────────
@@ -764,6 +901,30 @@ check_endpoint() {
     fi
   fi
 
+  # 4. Latest block proof (opt-in via --latest-block-proof) ────────────────────
+  # Fetches the most recent block from the node and reports the proof type.
+  # This confirms two things at once:
+  #   a) The node can serve block data via BlockAccessService/getBlock.
+  #   b) The current network proof phase (WRB/RSA vs TSS WRAPS vs TSS Schnorr).
+  #
+  # Failure is non-fatal: a node may have serverStatus working before it has
+  # stored any blocks (e.g. freshly started or syncing). The warning is still
+  # printed so the operator knows the block fetch was attempted.
+  if [[ "$LATEST_BLOCK_PROOF" == "true" ]]; then
+    local proof_json proof_line
+    t0="$(now_ms)"
+    if proof_json="$(grpc_call_block_proof "$endpoint" 2>&1)"; then
+      elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+      proof_line="$(print_block_proof "$proof_json")"
+      log_success "  🔏 latest block proof  (${elapsed})"
+      print_field "proof_type" "$proof_line"
+    else
+      elapsed="$(format_elapsed_ms "$(( $(now_ms) - t0 ))")"
+      log_warn "  🟠 latest block proof WARN (getBlock unavailable or no blocks stored)  (${elapsed})"
+      echo "$proof_json" | sed 's/^/     /'
+    fi
+  fi
+
   # Print the wall-clock time spent on this endpoint in total (TCP + all gRPC
   # calls). Useful for spotting outliers when checking many nodes at once.
   elapsed="$(format_elapsed_ms "$(( $(now_ms) - ep_start_ms ))")"
@@ -794,15 +955,17 @@ main() {
   # Build human-readable labels for the run summary header.
   # Explicit if/else avoids the &&/|| ternary idiom, which is fragile: if the
   # true-branch command ever fails, the false-branch fires incorrectly.
-  local tls_label detail_label
-  if [[ "$USE_TLS"         == "true" ]]; then tls_label="TLS";     else tls_label="plaintext"; fi
-  if [[ "$DETAILED_STATUS" == "true" ]]; then detail_label="enabled"; else detail_label="disabled (pass --detailed-server-status to enable)"; fi
+  local tls_label detail_label proof_label
+  if [[ "$USE_TLS"             == "true" ]]; then tls_label="TLS";     else tls_label="plaintext"; fi
+  if [[ "$DETAILED_STATUS"     == "true" ]]; then detail_label="enabled"; else detail_label="disabled (pass --detailed-server-status to enable)"; fi
+  if [[ "$LATEST_BLOCK_PROOF"  == "true" ]]; then proof_label="enabled"; else proof_label="disabled (pass --latest-block-proof to enable)"; fi
 
   echo ""
   log_info "Checking ${#ENDPOINTS[@]} endpoint(s)"
   log_info "  Proto dir       : ${RESOLVED_PROTO_DIR}"
   log_info "  Transport       : ${tls_label}"
   log_info "  Detailed status : ${detail_label}"
+  log_info "  Block proof     : ${proof_label}"
 
   # Iterate over every supplied endpoint. Failures are accumulated rather than
   # stopping immediately so the operator gets a complete picture of all nodes in
