@@ -14,6 +14,12 @@ mainModuleInfo {
 
 testModuleInfo {
     requires("org.junit.jupiter.api")
+    requires("org.junit.jupiter.params")
     requires("org.assertj.core")
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("org.hiero.metrics")
+    requires("org.testcontainers")
+    requires("io.minio")
+    requires("org.mockito")
+    runtimeOnly("org.mockito.junit.jupiter")
 }
