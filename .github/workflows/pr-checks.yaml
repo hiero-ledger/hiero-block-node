@@ -65,7 +65,7 @@ jobs:
           egress-policy: audit
 
       - name: Setup Node, Java, checkout code and harden runner
-        uses: PandasWhoCode/initialize-github-job@738aadebe00e2708b4d5727852865620c6098648 # v1.0.6
+        uses: PandasWhoCode/initialize-github-job@47186ab8b59085a7406a53c0b7a98031bcf4c4cc # v1.0.7
         with:
           checkout: "true"
           checkout-token: "${{ secrets.GITHUB_TOKEN }}"
