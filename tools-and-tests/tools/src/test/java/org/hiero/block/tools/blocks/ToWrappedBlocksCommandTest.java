@@ -504,7 +504,7 @@ class ToWrappedBlocksCommandTest {
             return outputDir;
         }
 
-        /** Runs validate-wrapped and asserts exit code 0 with no error output. */
+        /** Runs validate and asserts exit code 0 with no error output. */
         private void runValidate(Path outputDir) {
             final PrintStream originalErr = System.err;
             final ByteArrayOutputStream errCapture = new ByteArrayOutputStream();

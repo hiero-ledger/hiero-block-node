@@ -354,7 +354,7 @@ days live-sequential [-l <listingDir>] [-o <outputDir>] [--wrap-output-dir <dir>
 
 #### Features
 
-- **Combined pipeline**: Download → validate → wrap → validate-wrapped in a single pass, avoiding multiple disk reads.
+- **Combined pipeline**: Download → validate → wrap → validate in a single pass, avoiding multiple disk reads.
 - **Inline validation**: Validates each block's running hash and signatures as it's downloaded.
 - **Block wrapping**: Converts record file blocks into wrapped Block Stream `Block` protobufs.
 - **Block validation**: Runs all 11 `BlockValidation` checks on wrapped blocks.
