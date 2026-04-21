@@ -21,6 +21,7 @@ import io.minio.RemoveObjectArgs;
 import io.minio.Result;
 import io.minio.errors.MinioException;
 import io.minio.messages.Item;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
@@ -31,7 +32,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
@@ -47,7 +47,6 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
-import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -192,7 +191,7 @@ class ArchiveCloudStoragePluginTest {
 
         /// Verifies that the plugin does NOT register as a block notification handler when a
         /// required configuration field is empty.  Each case omits exactly one field so that
-        /// `ArchiveCloudStoragePlugin#validateConfig()` returns a non-empty violation list.
+        /// [ArchiveCloudStorageConfig#validate] returns a non-empty violation list.
         @ParameterizedTest(name = "plugin not registered when {0} is empty")
         @MethodSource("emptyFieldConfigs")
         @DisplayName("Plugin not registered when a required config field is missing")
@@ -282,8 +281,15 @@ class ArchiveCloudStoragePluginTest {
                     new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             start(new ArchiveCloudStoragePlugin(), new SimpleInMemoryHistoricalBlockFacility(), pluginConfig());
             pluginExecutor = testThreadPoolManager.executor();
-            // the plugin implements BlockNotificationHandler but does not self-register, so wire it up here
-            blockMessaging.registerBlockNotificationHandler(plugin, false, "ArchiveCloudStoragePlugin");
+        }
+
+        /// Drains the startup recovery task after [clearBucket] has cleaned S3.
+        ///
+        /// The constructor runs before `@BeforeEach`, so recovery must be deferred here to avoid
+        /// seeing stale S3 objects left by a previous test.
+        @BeforeEach
+        void drainRecovery() {
+            pluginExecutor.executeSerially();
         }
 
         @Test
@@ -556,15 +562,18 @@ class ArchiveCloudStoragePluginTest {
                     new SimpleInMemoryHistoricalBlockFacility(),
                     pluginConfig(GROUPING_LEVEL, PART_SIZE_MB));
             pluginExecutor = testThreadPoolManager.executor();
-            blockMessaging.registerBlockNotificationHandler(plugin, false, "ArchiveCloudStoragePlugin");
+        }
+
+        /// Drains the startup recovery task after [clearBucket] has cleaned S3.
+        @BeforeEach
+        void drainRecovery() {
+            pluginExecutor.executeSerially();
         }
 
         /// Verifies that when blocks are large enough to exceed [ArchiveCloudStorageConfig#partSizeMb()],
         /// the upload is split into multiple parts and the final tar is still committed correctly.
-        ///
         /// With [PART_SIZE_MB] = 5 MB and [BLOCK_DATA_BYTES] = 600 KB per block, the buffer
-        /// exceeds the threshold after ~9 blocks out of 100, so [LiveBlockArchiveTask] calls
-        /// `uploadBlockChunk` multiple times before `completeUpload` flushes the remainder.
+        /// overflows after ~9 blocks, so [BlockUploadTask] flushes several parts before the final one.
         @Test
         @DisplayName("Multipart upload splits data into multiple parts for large blocks")
         void testMultipartUploadWithLargeBlocks() throws Exception {
@@ -608,6 +617,12 @@ class ArchiveCloudStoragePluginTest {
                     new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
             start(new ArchiveCloudStoragePlugin(), new SimpleInMemoryHistoricalBlockFacility(), pluginConfig());
             pluginExecutor = testThreadPoolManager.executor();
+        }
+
+        /// Drains the startup recovery task after [clearBucket] has cleaned S3.
+        @BeforeEach
+        void drainRecovery() {
+            pluginExecutor.executeSerially();
         }
 
         /// Verifies that [ArchiveCloudStoragePlugin#stop] does not throw and unregisters the plugin
@@ -657,234 +672,264 @@ class ArchiveCloudStoragePluginTest {
         }
     }
 
-    /// Direct unit tests for [BlockUploadTask] that exercise failure paths without going through
-    /// the plugin.  [BlockUploadTask#doUploadPart] is overridden in an anonymous subclass to throw
-    /// deterministically, while [createMultipartUpload] still uses the real MinIO container
-    /// (consistent with the rest of the test suite).
+    /// End-to-end recovery integration tests that drive a real [ArchiveCloudStoragePlugin] against
+    /// the shared MinIO container.
+    ///
+    /// Unlike [PluginTests], these tests intentionally omit a `@BeforeEach` that drains the startup
+    /// recovery task.  Instead, each test arranges its desired S3 state after [clearBucket] has run
+    /// and before calling [BlockingExecutor#executeSerially] for the first time, so that
+    /// [StartupRecoveryTask] observes the intended initial condition when it is finally executed.
     @Nested
-    @DisplayName("BlockUploadTask Tests")
-    final class BlockUploadTaskTests {
+    @DisplayName("Recovery Integration Tests")
+    final class RecoveryIntegrationTests
+            extends PluginTestBase<ArchiveCloudStoragePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
-        /// 100 blocks per group (groupingLevel = 2).
-        private static final int GROUPING_LEVEL = 2;
-        /// 5 MB — the minimum non-final part size accepted by S3/MinIO.
-        private static final int PART_SIZE_MB = 5;
-        /// ~600 KB per block so the buffer overflows the 5 MB threshold after ~9 blocks.
-        private static final int BLOCK_DATA_BYTES = 600 * 1024;
+        private static final int GROUPING_LEVEL = 1;
+        private static final String CONTENT_TYPE = "application/x-tar";
 
-        /// Verifies that when [BlockUploadTask#doUploadPart] throws during a mid-loop flush, all
-        /// blocks whose tar bytes were in the buffer at the time of failure receive a failed
-        /// [PersistedNotification], and [BlockUploadTask.UploadResult#FAILED] is returned.
-        @Test
-        @DisplayName("Failed part upload sends false persisted notifications for all buffered blocks")
-        void testFailedfulUploadReturnsFailure() throws Exception {
-            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
-            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        private final BlockingExecutor pluginExecutor;
 
-            final ConfigurationBuilder builder =
-                    ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
-            pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
-            final BlockUploadTask task = new FailingBlockUploadTask(
-                    builder.build().getConfigData(ArchiveCloudStorageConfig.class), messaging, 0, groupSize, queue);
-
-            // Pre-fill the queue with enough large blocks to trigger at least one part flush
-            final Random rng = new Random(0xDEADBEEFL);
-            for (int i = 0; i < groupSize; i++) {
-                final byte[] data = new byte[BLOCK_DATA_BYTES];
-                rng.nextBytes(data);
-                final BlockItemUnparsed item = new BlockItemUnparsed(
-                        new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
-                final BlockUnparsed block = BlockUnparsed.newBuilder()
-                        .blockItems(new BlockItemUnparsed[] {item})
-                        .build();
-                queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
-            }
-
-            final BlockUploadTask.UploadResult result = task.call();
-            assertThat(result).isEqualTo(BlockUploadTask.UploadResult.FAILED);
-
-            final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).isNotEmpty().allSatisfy(n -> {
-                assertThat(n.succeeded()).isFalse();
-                assertThat(n.blockNumber()).isZero();
-                assertThat(n.blockSource()).isEqualTo(BlockSource.PUBLISHER);
-            });
+        RecoveryIntegrationTests() {
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(
+                    new ArchiveCloudStoragePlugin(),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    pluginConfig(GROUPING_LEVEL, 10));
+            pluginExecutor = testThreadPoolManager.executor();
         }
 
-        /// Verifies that when the final partial buffer upload (after the main loop) fails, all blocks
-        /// whose tar bytes were accumulated in that buffer receive a failed [PersistedNotification].
+        /// Verifies the full resume-from-completed-group path end-to-end: a completed tar is planted
+        /// in S3 before recovery runs, and the plugin picks up exactly at the next group start.
+        @Test
+        @DisplayName("Plugin resumes from a completed tar and starts uploading the next group")
+        void resumeAfterCompletedTarStartsNextGroup() throws Exception {
+            final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+            final ArchiveCloudStorageConfig config = makeConfig();
+            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL);
+
+            // Plant a completed tar for the first group (blocks 0–9) before recovery runs.
+            final List<TestBlock> firstGroupBlocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(firstKey, config.storageClass().name(), CONTENT_TYPE);
+                final String etag = s3.multipartUploadPart(firstKey, uploadId, 1, buildTarBytes(firstGroupBlocks, 0));
+                s3.completeMultipartUpload(firstKey, uploadId, List.of(etag));
+            }
+
+            pluginExecutor.executeSerially();
+
+            final List<TestBlock> secondGroupBlocks =
+                    TestBlockBuilder.generateBlocksInRange((int) groupSize, (int) (groupSize * 2) - 1);
+            sendVerifications(secondGroupBlocks);
+
+            pluginExecutor.executeSerially();
+
+            final String secondKey = ArchiveKey.format(groupSize, GROUPING_LEVEL);
+            assertThat(getAllObjects()).contains(secondKey);
+            final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+            assertThat(notifications).isNotEmpty();
+            assertThat(notifications.getLast().blockNumber()).isEqualTo(groupSize * 2 - 1);
+            assertThat(notifications.getLast().succeeded()).isTrue();
+        }
+
+        /// Verifies the full resume-from-hanging-upload path end-to-end: a hanging multipart upload
+        /// containing tar entries for blocks 0–4 is planted in S3, the plugin recovers it, and then
+        /// completes the group with fresh blocks 4–9, resulting in a committed tar at the expected key.
+        @Test
+        @DisplayName("Plugin resumes from a hanging multipart upload and completes the group correctly")
+        void resumeFromHangingUploadCompletesGroup() throws Exception {
+            final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+            final String key = ArchiveKey.format(0, GROUPING_LEVEL);
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
+
+            final ArchiveCloudStorageConfig config = makeConfig();
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(key, uploadId, 1, buildTarBytes(blocks.subList(0, 5), 0));
+                // deliberately NOT completing — simulate a crash mid-upload
+            }
+
+            pluginExecutor.executeSerially();
+
+            sendVerifications(blocks.subList(4, (int) groupSize));
+            pluginExecutor.executeSerially();
+
+            assertThat(getAllObjects()).contains(key);
+            final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+            assertThat(notifications).isNotEmpty();
+            assertThat(notifications.getLast().blockNumber()).isEqualTo(groupSize - 1);
+            assertThat(notifications.getLast().succeeded()).isTrue();
+        }
+
+        /// Verifies that when a hanging multipart upload has no parts (crash before any part was
+        /// written), recovery aborts it, falls back to completed-objects discovery, and the plugin
+        /// correctly starts a fresh upload for the next group.
         ///
-        /// Uses small blocks so the buffer never reaches [ArchiveCloudStorageConfig#partSizeMb()] during
-        /// the loop: [BlockUploadTask#doUploadPart] is therefore called exactly once — for the trailing
-        /// bytes after the loop — making the failure deterministic and isolated to the final flush.
+        /// A completed tar for group 0 is planted before recovery runs, so the fall-back returns
+        /// `currentGroupStart = groupSize`.  Blocks for group 1 are then sent and must produce a
+        /// committed tar at the expected key.
         @Test
-        @DisplayName("Failed final part upload sends false persisted notification for the first remaining block")
-        void testFinalPartFailureSendsFalseNotifications() throws Exception {
-            final int groupingLevel = 1;
-            final int groupSize = (int) Math.pow(10, groupingLevel);
-            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        @DisplayName("Hanging upload with no parts: aborted, plugin resumes from last completed tar")
+        void hangingUploadWithNoPartsAbortsAndResumesFromLastCompletedTar() throws Exception {
+            final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+            final ArchiveCloudStorageConfig config = makeConfig();
+            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL);
+            final String secondKey = ArchiveKey.format(groupSize, GROUPING_LEVEL);
 
-            final ConfigurationBuilder builder =
-                    ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
-            pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
-            final BlockUploadTask task = new FailingBlockUploadTask(
-                    builder.build().getConfigData(ArchiveCloudStorageConfig.class), messaging, 0, groupSize, queue);
-
-            // Small blocks (100 bytes each) so the total buffer stays well below PART_SIZE_MB,
-            // meaning no mid-loop flush occurs and all blocks end up in the final partial buffer.
-            final Random rng = new Random(0xDEADBEEFL);
-            for (int i = 0; i < groupSize; i++) {
-                final byte[] data = new byte[100];
-                rng.nextBytes(data);
-                final BlockItemUnparsed item = new BlockItemUnparsed(
-                        new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
-                final BlockUnparsed block = BlockUnparsed.newBuilder()
-                        .blockItems(new BlockItemUnparsed[] {item})
-                        .build();
-                queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
+            try (S3Client s3 = openS3Client(config)) {
+                // Complete group 0 (blocks 0–9).
+                final String uploadId0 =
+                        s3.createMultipartUpload(firstKey, config.storageClass().name(), CONTENT_TYPE);
+                final String etag0 = s3.multipartUploadPart(
+                        firstKey,
+                        uploadId0,
+                        1,
+                        buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1), 0));
+                s3.completeMultipartUpload(firstKey, uploadId0, List.of(etag0));
+                // Hanging upload for group 1 key with no parts — simulates a crash before any data was written.
+                s3.createMultipartUpload(secondKey, config.storageClass().name(), CONTENT_TYPE);
             }
 
-            assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.FAILED);
+            // Recovery: parts list is empty → abort the upload → fall back to completed-objects
+            // → currentGroupStart = groupSize.
+            pluginExecutor.executeSerially();
 
-            final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).hasSize(1);
-            final PersistedNotification notification = notifications.getFirst();
-            assertThat(notification.succeeded()).isFalse();
-            assertThat(notification.blockNumber()).isZero();
-            assertThat(notification.blockSource()).isEqualTo(BlockSource.PUBLISHER);
+            // Sending block groupSize triggers completeRecovery(), which submits a fresh
+            // BlockUploadTask for group 1.  Remaining blocks follow into the queue.
+            sendVerifications(TestBlockBuilder.generateBlocksInRange((int) groupSize, (int) (groupSize * 2) - 1));
+            pluginExecutor.executeSerially();
+
+            assertThat(getAllObjects()).contains(secondKey);
+            final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+            assertThat(notifications).isNotEmpty();
+            assertThat(notifications.getLast().blockNumber()).isEqualTo(groupSize * 2 - 1);
+            assertThat(notifications.getLast().succeeded()).isTrue();
         }
 
-        /// Verifies that [BlockUploadTask#call] returns [BlockUploadTask.UploadResult#SUCCESS] when
-        /// all blocks are uploaded successfully, and that every block receives a successful
-        /// [PersistedNotification].
+        /// Verifies that when the hanging upload belongs to a non-first group (group 1, blocks
+        /// 10–19), recovery correctly parses the group start from the S3 key, resumes the upload
+        /// at the right block boundary, and the completed tar is committed at the expected key.
+        ///
+        /// The hanging upload contains complete tar entries for blocks 10–14.
+        /// [TarEntries#findLastBlockStart] identifies block 14 as the last clean boundary, so
+        /// recovery returns `nextBlockNumber = 14` and `trailingBytes = [entries for blocks 10–13]`.
+        /// The plugin then receives blocks 14–19 and uses them to finish the group.
         @Test
-        @DisplayName("Successful upload returns SUCCESS and sends true persisted notifications for all blocks")
-        void testSuccessfulUploadReturnsSuccess() throws Exception {
-            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
-            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        @DisplayName("Hanging upload for a non-first group: plugin resumes and completes the group")
+        void resumeFromHangingUploadOnNonFirstGroupCompletesGroup() throws Exception {
+            final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+            final ArchiveCloudStorageConfig config = makeConfig();
+            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL);
+            final String secondKey = ArchiveKey.format(groupSize, GROUPING_LEVEL);
+            final List<TestBlock> secondGroupBlocks =
+                    TestBlockBuilder.generateBlocksInRange((int) groupSize, (int) (groupSize * 2) - 1);
 
-            final ConfigurationBuilder builder =
-                    ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
-            pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
-            final BlockUploadTask task = new BlockUploadTask(
-                    builder.build().getConfigData(ArchiveCloudStorageConfig.class), messaging, 0, groupSize, queue);
-
-            final Random rng = new Random(0xDEADBEEFL);
-            for (int i = 0; i < groupSize; i++) {
-                final byte[] data = new byte[BLOCK_DATA_BYTES];
-                rng.nextBytes(data);
-                final BlockItemUnparsed item = new BlockItemUnparsed(
-                        new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
-                final BlockUnparsed block = BlockUnparsed.newBuilder()
-                        .blockItems(new BlockItemUnparsed[] {item})
-                        .build();
-                queue.put(new BlockWithSource(block, BlockSource.PUBLISHER));
+            try (S3Client s3 = openS3Client(config)) {
+                // Complete group 0 (blocks 0–9).
+                final String uploadId0 =
+                        s3.createMultipartUpload(firstKey, config.storageClass().name(), CONTENT_TYPE);
+                final String etag0 = s3.multipartUploadPart(
+                        firstKey,
+                        uploadId0,
+                        1,
+                        buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1), 0));
+                s3.completeMultipartUpload(firstKey, uploadId0, List.of(etag0));
+                // Hanging upload for group 1 (blocks 10–14) — simulates a crash mid-upload.
+                final String uploadId1 = s3.createMultipartUpload(
+                        secondKey, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(
+                        secondKey, uploadId1, 1, buildTarBytes(secondGroupBlocks.subList(0, 5), (int) groupSize));
+                // deliberately NOT completing
             }
 
-            final BlockUploadTask.UploadResult result = task.call();
-            assertThat(result).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+            // Recovery finds the group 1 hanging upload, locates block 14 as the last clean
+            // boundary, and returns nextBlockNumber=14 with blocks 10–13 as trailingBytes.
+            pluginExecutor.executeSerially();
 
-            assertThat(getAllObjects()).contains("0000/0000/0000/0000/0.tar");
-            final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).isNotEmpty().allSatisfy(n -> {
-                assertThat(n.succeeded()).isTrue();
-                assertThat(n.blockSource()).isEqualTo(BlockSource.PUBLISHER);
-            });
+            sendVerifications(secondGroupBlocks.subList(4, (int) groupSize));
+            pluginExecutor.executeSerially();
+
+            assertThat(getAllObjects()).contains(secondKey);
+            final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+            assertThat(notifications).isNotEmpty();
+            assertThat(notifications.getLast().blockNumber()).isEqualTo(groupSize * 2 - 1);
+            assertThat(notifications.getLast().succeeded()).isTrue();
         }
 
-        /// Verifies that the last block's [BlockSource] is preserved in its [PersistedNotification].
-        /// The last block (index 9) is odd, so its source is [BlockSource#BACKFILL].
+        /// Verifies that blocks arriving before the resume point during a resumed upload are
+        /// silently skipped and do not corrupt or stall the upload.
+        ///
+        /// Setup mirrors [resumeFromHangingUploadCompletesGroup]: a hanging upload with entries for
+        /// blocks 0–4 produces `nextBlockNumber = 4` and `trailingBytes = [entries for blocks 0–3]`.
+        /// Unlike that test, ALL blocks 0–9 are sent here.  Blocks 0–3 fall before
+        /// `nextBlockToQueue = 4`, so [drainPendingToQueue] never reaches them; they accumulate in
+        /// `currentGroupPending` and are silently dropped.  Blocks 4–9 drain normally, the
+        /// [BlockUploadTask] combines them with `trailingBytes`, and the complete tar is committed.
         @Test
-        @DisplayName("Last block source is preserved in persisted notification for mixed-source groups")
-        void testMixedSourcesPreservedInPersistedNotifications() throws Exception {
-            final int groupingLevel = 1;
-            final int groupSize = (int) Math.pow(10, groupingLevel);
-            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        @DisplayName("Blocks before the resume point are silently skipped and upload still completes")
+        void blocksBeforeResumePointAreSkippedAndUploadCompletes() throws Exception {
+            final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+            final String key = ArchiveKey.format(0, GROUPING_LEVEL);
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
 
-            final ConfigurationBuilder builder =
-                    ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
-            pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
-            final BlockUploadTask task = new BlockUploadTask(
-                    builder.build().getConfigData(ArchiveCloudStorageConfig.class), messaging, 0, groupSize, queue);
-
-            // Even blocks → PUBLISHER, odd blocks → BACKFILL
-            final Random rng = new Random(0xDEADBEEFL);
-            for (int i = 0; i < groupSize; i++) {
-                final byte[] data = new byte[100];
-                rng.nextBytes(data);
-                final BlockItemUnparsed item = new BlockItemUnparsed(
-                        new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
-                final BlockUnparsed block = BlockUnparsed.newBuilder()
-                        .blockItems(new BlockItemUnparsed[] {item})
-                        .build();
-                final BlockSource source = (i % 2 == 0) ? BlockSource.PUBLISHER : BlockSource.BACKFILL;
-                queue.put(new BlockWithSource(block, source));
+            final ArchiveCloudStorageConfig config = makeConfig();
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(key, uploadId, 1, buildTarBytes(blocks.subList(0, 5), 0));
+                // deliberately NOT completing — simulate a crash mid-upload
             }
 
-            assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+            pluginExecutor.executeSerially();
 
-            final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).hasSize(1);
-            assertThat(notifications.getFirst().blockNumber()).isEqualTo(groupSize - 1L);
-            assertThat(notifications.getFirst().blockSource()).isEqualTo(BlockSource.BACKFILL);
+            sendVerifications(blocks);
+            pluginExecutor.executeSerially();
+
+            assertThat(getAllObjects()).contains(key);
+            final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+            assertThat(notifications).isNotEmpty();
+            assertThat(notifications.getLast().blockNumber()).isEqualTo(groupSize - 1);
+            assertThat(notifications.getLast().succeeded()).isTrue();
+            // Blocks 0–3 were silently dropped: still in pending, never queued.
+            assertThat(plugin.currentGroupPending).containsOnlyKeys(0L, 1L, 2L, 3L);
         }
 
-        /// Verifies that a [VerificationNotification] with a `null` source results in
-        /// [BlockSource#UNKNOWN] in the [PersistedNotification].
-        @Test
-        @DisplayName("Null source in verification notification defaults to UNKNOWN in persisted notification")
-        void testNullSourceDefaultsToUnknown() throws Exception {
-            final int groupingLevel = 1;
-            final int groupSize = (int) Math.pow(10, groupingLevel);
-            final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
-            final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
-
+        private ArchiveCloudStorageConfig makeConfig() {
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(ArchiveCloudStorageConfig.class);
-            pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
-            final BlockUploadTask task = new BlockUploadTask(
-                    builder.build().getConfigData(ArchiveCloudStorageConfig.class), messaging, 0, groupSize, queue);
-
-            final Random rng = new Random(0xDEADBEEFL);
-            for (int i = 0; i < groupSize; i++) {
-                final byte[] data = new byte[100];
-                rng.nextBytes(data);
-                final BlockItemUnparsed item = new BlockItemUnparsed(
-                        new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
-                final BlockUnparsed block = BlockUnparsed.newBuilder()
-                        .blockItems(new BlockItemUnparsed[] {item})
-                        .build();
-                queue.put(new BlockWithSource(block, null));
-            }
-
-            assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
-
-            final List<PersistedNotification> notifications = messaging.getSentPersistedNotifications();
-            assertThat(notifications).hasSize(1);
-            final PersistedNotification notification = notifications.getFirst();
-            assertThat(notification.blockNumber()).isEqualTo(groupSize - 1L);
-            assertThat(notification.blockSource()).isEqualTo(BlockSource.UNKNOWN);
+            pluginConfig(GROUPING_LEVEL, 10).forEach(builder::withValue);
+            return builder.build().getConfigData(ArchiveCloudStorageConfig.class);
         }
 
-        private static final class FailingBlockUploadTask extends BlockUploadTask {
+        private static S3Client openS3Client(ArchiveCloudStorageConfig config) throws Exception {
+            return new S3Client(
+                    config.regionName(),
+                    config.endpointUrl(),
+                    config.bucketName(),
+                    config.accessKey(),
+                    config.secretKey());
+        }
 
-            FailingBlockUploadTask(
-                    ArchiveCloudStorageConfig config,
-                    BlockMessagingFacility blockMessaging,
-                    long firstBlock,
-                    int groupSize,
-                    BlockingQueue<BlockWithSource> queue) {
-                super(config, blockMessaging, firstBlock, groupSize, queue);
+        private static byte[] buildTarBytes(List<TestBlock> blocks, int startBlockNum) throws IOException {
+            final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            for (int i = 0; i < blocks.size(); i++) {
+                baos.write(TarEntries.toTarEntry(blocks.get(i).blockUnparsed(), startBlockNum + i));
             }
+            return baos.toByteArray();
+        }
 
-            @Override
-            void doUploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags) throws IOException {
-                throw new IOException("Simulated S3 final part upload failure");
+        private void sendVerifications(List<TestBlock> blocks) {
+            for (final TestBlock block : blocks) {
+                sendVerification(block);
             }
+        }
+
+        private void sendVerification(TestBlock block) {
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
         }
     }
 }

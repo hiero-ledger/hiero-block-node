@@ -5,6 +5,8 @@ import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
+import java.util.ArrayList;
+import java.util.List;
 import org.hiero.block.node.base.Loggable;
 
 // spotless:off
@@ -32,5 +34,27 @@ public record ArchiveCloudStorageConfig(
         GLACIER_IR,
         DEEP_ARCHIVE,
         REDUCED_REDUNDANCY
+    }
+
+    /// Validates the plugin configuration and returns a list of human-readable violation messages
+    /// for any required fields that are empty.  An empty list means the configuration is valid.
+    List<String> validate() {
+        List<String> violations = new ArrayList<>();
+        if (endpointUrl.isEmpty()) {
+            violations.add("endpoint URL");
+        }
+        if (regionName.isEmpty()) {
+            violations.add("region name");
+        }
+        if (accessKey.isEmpty()) {
+            violations.add("access key");
+        }
+        if (secretKey.isEmpty()) {
+            violations.add("secret key");
+        }
+        if (bucketName.isEmpty()) {
+            violations.add("bucket name");
+        }
+        return violations;
     }
 }

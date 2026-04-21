@@ -49,9 +49,9 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
     private ArchiveCloudStorageConfig config;
     /// Executor used to run each [BlockUploadTask] on a virtual thread.
     private ExecutorService virtualThreadExecutor;
-    /// Whether this plugin successfully registered itself as a block notification handler.
-    /// Used in [stop] to avoid unregistering when registration never happened.
-    private boolean handlerRegistered = false;
+    /// Whether the plugin configuration is valid.  Set during [init]; gates handler registration,
+    /// startup recovery, and handler unregistration in [stop].
+    private boolean configValid = false;
 
     /// The [Future] for the currently active [BlockUploadTask], or `null` when no upload is
     /// in progress.  Checked on every [handleVerification] call via [Future#isDone()] to detect
@@ -63,6 +63,11 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
     /// task's virtual thread consumes them one by one via [BlockingQueue#take].  Replaced each
     /// time a new task starts.
     BlockingQueue<BlockWithSource> currentBlockQueue = new LinkedBlockingQueue<>();
+
+    /// The [Future] for the [StartupRecoveryTask] submitted in [start()], or `null` once the
+    /// result has been consumed by [completeRecovery()].  While non-null, all incoming verified
+    /// blocks are routed to [blocksStash] and processing of the active upload task is deferred.
+    private Future<RecoveryResult> recoveryFuture = null;
 
     /// The first block number of the range owned by the active [BlockUploadTask], or `-1` before
     /// the first task is started.
@@ -93,7 +98,7 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
         this.config = context.configuration().getConfigData(ArchiveCloudStorageConfig.class);
-        final List<String> violations = validateConfig();
+        final List<String> violations = config.validate();
         if (!violations.isEmpty()) {
             // Should be reported to a health facility once we have it
             LOGGER.log(
@@ -103,82 +108,110 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
         } else {
             // register to listen to block notifications if config is valid
             context.blockMessaging().registerBlockNotificationHandler(this, false, "Archive Cloud Storage");
-            handlerRegistered = true;
+            configValid = true;
         }
-    }
-
-    /// Validates the plugin configuration and returns a list of human-readable violation messages
-    /// for any required fields that are empty.  An empty list means the configuration is valid.
-    private List<String> validateConfig() {
-        List<String> violations = new ArrayList<>();
-        if (config.endpointUrl().isEmpty()) {
-            violations.add("endpoint URL");
-        }
-        if (config.regionName().isEmpty()) {
-            violations.add("region name");
-        }
-        if (config.accessKey().isEmpty()) {
-            violations.add("access key");
-        }
-        if (config.secretKey().isEmpty()) {
-            violations.add("secret key");
-        }
-        if (config.bucketName().isEmpty()) {
-            violations.add("bucket name");
-        }
-        return violations;
     }
 
     /// {@inheritDoc}
     @Override
     public void start() {
         virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
+        // Skip recovery when config is invalid: the handler is not registered, so the result
+        // would never be consumed and the task would fail immediately with a bad-config S3 error.
+        if (configValid) {
+            recoveryFuture = virtualThreadExecutor.submit(new StartupRecoveryTask(config));
+        }
         LOGGER.log(TRACE, "Archive cloud storage plugin started");
     }
 
     /// {@inheritDoc}
     @Override
     public void handleVerification(VerificationNotification notification) {
-        if (notification != null && notification.success() && notification.block() != null) {
-            // If the active task has completed, surface any exception and clean up.
-            boolean cancelled = false;
-            if (currentUploadFuture != null && currentUploadFuture.isDone()) {
-                try {
-                    if (currentUploadFuture.isCancelled()) {
-                        LOGGER.log(TRACE, "Block upload task was cancelled");
-                        cancelled = true;
-                    } else {
-                        final UploadResult uploadResult = currentUploadFuture.get();
-                        if (uploadResult == UploadResult.FAILED) {
-                            LOGGER.log(WARNING, "Block upload task failed");
-                            // TODO(1166) Handle properly block upload task failure
-                        } else {
-                            // The task completed successfully, so clear the state and start a new one
-                            currentUploadFuture = null;
-                            currentGroupPending = new ConcurrentSkipListMap<>();
-                        }
+        try {
+            if (notification != null && notification.success() && notification.block() != null) {
+                // If the task was cancelled (i.e. stop() was called), do not start a new task or process
+                // the current block since the plugin is shutting down.
+                if (!checkCompletedUpload()) {
+                    // While recovery is running, stash every block.  currentGroupStart is still -1, so
+                    // routeNotification sends it directly to blocksStash without any extra logic.
+                    if (recoveryFuture != null && recoveryFuture.isDone()) {
+                        completeRecovery();
                     }
-                } catch (InterruptedException ignore) {
-                    Thread.currentThread().interrupt();
-                } catch (ExecutionException e) {
-                    LOGGER.log(WARNING, "Block upload task failed", e);
+                    final long blockNumber = notification.blockNumber();
+                    // Start a new upload task when there is none active
+                    if (currentUploadFuture == null) {
+                        startNewUploadTask(blockNumber);
+                    }
+                    // Route the verified block; if it belongs to the active task's range, attempt to drain
+                    // consecutive blocks into the queue. Out-of-range blocks go to the cross-group stash.
+                    routeVerifiedBlock(blockNumber, notification);
+                }
+            } else {
+                logInvalidOrFailedNotification(notification);
+            }
+        } catch (InterruptedException ignore) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            LOGGER.log(WARNING, "Could not complete uploading blocks to cloud archive storage", e);
+            // TODO(1166) Handle properly block upload task failure
+        }
+    }
+
+    /// Checks whether the active [BlockUploadTask] has finished and cleans up its state.
+    /// Returns `true` if the task was cancelled, signalling the caller to skip further processing.
+    private boolean checkCompletedUpload() throws ExecutionException, InterruptedException {
+        boolean cancelled = false;
+        if (currentUploadFuture != null && currentUploadFuture.isDone()) {
+            if (currentUploadFuture.isCancelled()) {
+                LOGGER.log(TRACE, "Block upload task was cancelled");
+                cancelled = true;
+            } else {
+                final UploadResult uploadResult = currentUploadFuture.get();
+                if (uploadResult == UploadResult.FAILED) {
+                    LOGGER.log(WARNING, "Block upload task failed");
                     // TODO(1166) Handle properly block upload task failure
                 }
+                // Clear the future regardless of outcome so the next block starts a fresh task.
+                currentUploadFuture = null;
+                currentGroupPending = new ConcurrentSkipListMap<>();
             }
-            // If the task was cancelled (i.e. stop() was called), do not start a new task or process
-            // the current block since the plugin is shutting down.
-            if (!cancelled) {
-                final long blockNumber = notification.blockNumber();
-                // Start a new upload task when there is none active
-                if (currentUploadFuture == null) {
-                    startNewUploadTask(blockNumber);
-                }
-                // Route the verified block; if it belongs to the active task's range, attempt to drain
-                // consecutive blocks into the queue. Out-of-range blocks go to the cross-group stash.
-                routeVerifiedBlock(blockNumber, notification);
+        }
+        return cancelled;
+    }
+
+    /// Consumes the result of the [StartupRecoveryTask] and, when the prior S3 state is discovered,
+    /// sets [currentGroupStart], creates a fresh [BlockingQueue], and submits a [BlockUploadTask]
+    /// for the recovered group before replaying any blocks that arrived during recovery.
+    ///
+    /// When the result is a fresh start (`currentGroupStart == -1`), [currentGroupStart] remains
+    /// `-1` and the next call to [handleVerification] will fall through to [startNewUploadTask]
+    /// as normal.
+    ///
+    /// When the result carries an upload ID, [BlockUploadTask] is created with the result so
+    /// that it resumes the existing upload and starts its block loop from
+    /// [RecoveryResult#nextBlockNumber()] rather than the group start.
+    private void completeRecovery() throws ExecutionException, InterruptedException {
+        try {
+            final RecoveryResult result = recoveryFuture.get();
+            if (result.currentGroupStart() != -1) {
+                currentGroupSize = Math.powExact(10, config.groupingLevel());
+                currentGroupStart = result.currentGroupStart();
+                nextBlockToQueue = result.uploadId() != null ? result.nextBlockNumber() : currentGroupStart;
+                currentBlockQueue = new LinkedBlockingQueue<>();
+                currentUploadFuture = virtualThreadExecutor.submit(new BlockUploadTask(
+                        config,
+                        context.blockMessaging(),
+                        currentGroupStart,
+                        currentGroupSize,
+                        currentBlockQueue,
+                        result.uploadId() != null ? result : null));
+                tryReplayStash();
             }
-        } else {
-            logInvalidOrFailedNotification(notification);
+        } catch (ExecutionException e) {
+            LOGGER.log(TRACE, "Startup recovery task failed", e);
+            throw e;
+        } finally {
+            recoveryFuture = null;
         }
     }
 
@@ -230,8 +263,16 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
     /// arrived yet).
     private void drainPendingToQueue() {
         while (currentGroupPending.containsKey(nextBlockToQueue)) {
-            currentBlockQueue.offer(currentGroupPending.remove(nextBlockToQueue));
-            nextBlockToQueue++;
+            final BlockWithSource nextBlock = currentGroupPending.remove(nextBlockToQueue);
+            if (nextBlock != null) {
+                currentBlockQueue.offer(nextBlock);
+                nextBlockToQueue++;
+            } else {
+                LOGGER.log(
+                        WARNING,
+                        "Block number {0} is missing from queue with pending blocks, while it should have been there",
+                        nextBlockToQueue);
+            }
         }
     }
 
@@ -257,10 +298,13 @@ public class ArchiveCloudStoragePlugin implements BlockNodePlugin, BlockNotifica
         if (currentUploadFuture != null) {
             currentUploadFuture.cancel(true);
         }
+        if (recoveryFuture != null) {
+            recoveryFuture.cancel(true);
+        }
         // TODO(1166) Should we get the future here or at next verified block reception? Or both
         currentGroupPending.clear();
         currentBlockQueue.clear();
-        if (handlerRegistered) {
+        if (configValid) {
             context.blockMessaging().unregisterBlockNotificationHandler(this);
         }
         LOGGER.log(TRACE, "Archive cloud storage plugin stopped");
