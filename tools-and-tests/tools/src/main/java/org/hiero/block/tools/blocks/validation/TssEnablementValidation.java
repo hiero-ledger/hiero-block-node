@@ -112,7 +112,12 @@ public final class TssEnablementValidation implements BlockValidation {
                 System.out.println(
                         Ansi.AUTO.string("@|yellow TSS publication at block " + blockNumber + ":|@ " + description));
                 // Write tss-enablement.bin immediately on each detection
-                tssRegistry.writeTssParametersBin(tssParametersBinPath);
+                try {
+                    tssRegistry.writeTssParametersBin(tssParametersBinPath);
+                } catch (IOException e) {
+                    System.err.println(
+                            "[TssEnablement] WARNING: Failed to write " + tssParametersBinPath + ": " + e.getMessage());
+                }
             }
         }
     }

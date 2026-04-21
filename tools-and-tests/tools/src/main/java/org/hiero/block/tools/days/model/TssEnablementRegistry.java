@@ -126,18 +126,15 @@ public class TssEnablementRegistry {
      * Write the latest {@link TssData} as raw protobuf binary for the block node to consume.
      *
      * @param file the output file path
+     * @throws IOException if the file cannot be written
      */
-    public void writeTssParametersBin(final Path file) {
+    public void writeTssParametersBin(final Path file) throws IOException {
         final TssData tssData = getLatestTssData();
         if (tssData == null) {
             return;
         }
-        try {
-            final Bytes bytes = TssData.PROTOBUF.toBytes(tssData);
-            Files.write(file, bytes.toByteArray());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        final Bytes bytes = TssData.PROTOBUF.toBytes(tssData);
+        Files.write(file, bytes.toByteArray());
     }
 
     /**
@@ -191,10 +188,27 @@ public class TssEnablementRegistry {
     /**
      * Convert a HAPI {@link LedgerIdPublicationTransactionBody} to the Block Node's
      * canonical {@link TssData} format.
+     *
+     * @param body the LedgerIdPublication transaction body
+     * @param blockNumber the block number containing the publication
+     * @return the converted TssData
+     * @throws IllegalArgumentException if the body is missing required fields
      */
     private static TssData toTssData(final LedgerIdPublicationTransactionBody body, final long blockNumber) {
+        if (body.ledgerId() == null || body.ledgerId().length() == 0) {
+            throw new IllegalArgumentException("LedgerIdPublication at block " + blockNumber + " is missing ledgerId");
+        }
+        if (body.historyProofVerificationKey() == null
+                || body.historyProofVerificationKey().length() == 0) {
+            throw new IllegalArgumentException(
+                    "LedgerIdPublication at block " + blockNumber + " is missing historyProofVerificationKey");
+        }
+        if (body.nodeContributions() == null || body.nodeContributions().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "LedgerIdPublication at block " + blockNumber + " has no nodeContributions");
+        }
         final List<RosterEntry> rosterEntries = new ArrayList<>();
-        for (LedgerIdNodeContribution c : body.nodeContributions()) {
+        for (final LedgerIdNodeContribution c : body.nodeContributions()) {
             rosterEntries.add(RosterEntry.newBuilder()
                     .nodeId(c.nodeId())
                     .weight(c.weight())
