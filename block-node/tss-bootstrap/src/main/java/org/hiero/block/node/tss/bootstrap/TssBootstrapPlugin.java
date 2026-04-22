@@ -21,8 +21,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
 ///  - `TssBootstrapConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
 public class TssBootstrapPlugin implements BlockNodePlugin {
-    /// The block node context, for access to core facilities.
-    private volatile BlockNodeContext blockNodeContext;
     /// The application state facility, for updating application state.
     private ApplicationStateFacility applicationStateFacility;
 
@@ -36,7 +34,6 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     /// {@inheritDoc}
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
-        this.blockNodeContext = context;
         this.applicationStateFacility = Objects.requireNonNull(context.applicationStateFacility());
         TssBootstrapConfig tssBootstrapConfig = context.configuration().getConfigData(TssBootstrapConfig.class);
 
@@ -44,14 +41,6 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
         processTssDataConfiguration(tssBootstrapConfig);
 
         // todo: query peer BNs for their TssData, if there is no config data, or nothing in the context
-    }
-
-    /// {@inheritDoc}
-    /// This method is called on a separate thread. Make sure this.context is marked as `volatile`
-    @Override
-    public void onContextUpdate(BlockNodeContext context) {
-        // save the context update
-        this.blockNodeContext = context;
     }
 
     /// process the `TssBootstrapConfig`
