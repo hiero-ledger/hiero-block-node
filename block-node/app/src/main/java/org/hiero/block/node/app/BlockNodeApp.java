@@ -194,7 +194,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 serviceLoader,
                 threadPoolManager,
                 versionInfo(loadedPlugins),
-                TssData.DEFAULT);
+                null);
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
@@ -376,7 +376,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     @Override
     public void updateTssData(TssData tssData) {
-        tssDataUpdates.add(tssData);
+        if (tssData != null) tssDataUpdates.add(tssData);
     }
 
     /**
@@ -439,7 +439,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     private boolean updateBlockNodeContext(TssData tssData) {
         boolean updated = false;
-        if (blockNodeContext.tssData().validFromBlock() < tssData.validFromBlock()) {
+        if (blockNodeContext.tssData() == null
+                || blockNodeContext.tssData().validFromBlock() < tssData.validFromBlock()) {
             blockNodeContext = new BlockNodeContext(
                     blockNodeContext.configuration(),
                     blockNodeContext.metricRegistry(),

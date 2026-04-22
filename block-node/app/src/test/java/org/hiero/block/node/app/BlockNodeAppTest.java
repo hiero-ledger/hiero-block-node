@@ -316,8 +316,9 @@ class BlockNodeAppTest {
 
         blockNodeApp.loadedPlugins.add(testPlugin);
 
-        blockNodeApp.updateTssData(TssData.DEFAULT);
-        blockNodeApp.updateTssData(TssData.DEFAULT);
+        blockNodeApp.updateTssData(null);
+        blockNodeApp.updateTssData(
+                buildTssData(Bytes.fromHex("040506"), Bytes.fromHex("010203"), 1, 2, Bytes.fromHex("070809"), 200, 50));
         TssData tssData =
                 buildTssData(Bytes.fromHex("040506"), Bytes.fromHex("010203"), 1, 2, Bytes.fromHex("070809"), 100, 50);
         blockNodeApp.updateTssData(tssData);
@@ -364,9 +365,6 @@ class BlockNodeAppTest {
         assertEquals(roster.nodeId(), roster1.nodeId());
         assertEquals(roster.weight(), roster1.weight());
         assertEquals(roster.schnorrPublicKey(), roster1.schnorrPublicKey());
-
-        // overwrite the persisted file with default information
-        blockNodeApp.updateTssData(TssData.DEFAULT);
 
         // stop the ApplicationStateFacility manually as shutdown() is not being called
         blockNodeApp2.stopApplicationStateFacility();

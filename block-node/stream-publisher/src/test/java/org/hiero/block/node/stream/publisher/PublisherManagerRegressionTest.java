@@ -11,7 +11,6 @@ import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
-import org.hiero.block.api.TssData;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -319,6 +318,6 @@ class PublisherManagerRegressionTest {
                 serviceLoader,
                 threadPoolManager,
                 BlockNodeVersions.DEFAULT,
-                TssData.DEFAULT);
+                null);
     }
 }

@@ -58,7 +58,7 @@ public class BlockNodePluginTest {
         TestApplicationStateFacilityDefault testApplicationStateFacilityDefault =
                 new TestApplicationStateFacilityDefault();
         try {
-            testApplicationStateFacilityDefault.updateTssData(TssData.DEFAULT);
+            testApplicationStateFacilityDefault.updateTssData(null);
         } catch (Exception e) {
             fail(e);
         }
@@ -77,8 +77,8 @@ public class BlockNodePluginTest {
     @DisplayName("Test ApplicationStateFacility.updateTssData()")
     void testUpdateTssData() {
         TestApplicationStateFacility testApplicationStateFacility = new TestApplicationStateFacility();
-        testApplicationStateFacility.updateTssData(TssData.DEFAULT);
-        assertEquals(TssData.DEFAULT, testApplicationStateFacility.tssData);
+        testApplicationStateFacility.updateTssData(null);
+        assertEquals(null, testApplicationStateFacility.tssData);
     }
 
     private static class TestBlockNodePlugin implements BlockNodePlugin {
@@ -163,8 +163,7 @@ public class BlockNodePluginTest {
             }
         });
 
-        BlockNodeContext context =
-                new BlockNodeContext(null, null, null, null, null, null, null, null, null, TssData.DEFAULT);
+        BlockNodeContext context = new BlockNodeContext(null, null, null, null, null, null, null, null, null, null);
 
         plugin.onContextUpdate(context);
 

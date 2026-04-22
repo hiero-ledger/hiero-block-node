@@ -163,7 +163,7 @@ public abstract class PluginTestBase<
                 new ServiceLoaderFunction(),
                 testThreadPoolManager,
                 buildBlockNodeVersions(),
-                TssData.DEFAULT);
+                null);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this

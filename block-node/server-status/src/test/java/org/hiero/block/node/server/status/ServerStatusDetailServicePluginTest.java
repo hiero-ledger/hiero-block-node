@@ -114,8 +114,8 @@ public class ServerStatusDetailServicePluginTest
         assertEquals(0, pluginVersion.pluginFeatureNames().size());
 
         // Validate TssData
-        // defaults to TssData.DEFAULT
-        assertEquals(TssData.DEFAULT, response.tssData());
+        // defaults to null
+        assertEquals(null, response.tssData());
     }
 
     /**

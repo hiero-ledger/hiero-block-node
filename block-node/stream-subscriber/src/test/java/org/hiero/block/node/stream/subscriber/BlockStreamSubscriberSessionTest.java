@@ -17,7 +17,6 @@ import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
-import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed;
 import org.hiero.block.internal.SubscribeStreamResponseUnparsed.ResponseOneOfType;
@@ -1438,7 +1437,7 @@ class BlockStreamSubscriberSessionTest {
                 null,
                 null,
                 BlockNodeVersions.DEFAULT,
-                TssData.DEFAULT);
+                null);
     }
 
     /**
