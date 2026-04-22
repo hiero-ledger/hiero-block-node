@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks.model.hashing;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashInternalNode;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.hashLeaf;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_PARSE_SIZE;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.output.BlockFooter;
@@ -69,9 +70,6 @@ import org.hiero.block.tools.utils.Sha384;
  * @see HashingUtils
  */
 public class BlockStreamBlockHasher {
-
-    /** Maximum parse size for protobuf messages (100 MB) to handle large blocks. */
-    private static final int MAX_PARSE_SIZE = 100 * 1024 * 1024;
 
     /**
      * Computes the root hash of a fully-parsed {@link Block} by re-serializing to bytes

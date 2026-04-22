@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
+import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractBlockInstant;
+import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractRecordFileBytes;
+import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractTransactionBody;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_DEPTH;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_RECORD_FILE_SIZE;
+
 import com.hedera.hapi.block.stream.RecordFileItem;
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
-import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.streams.RecordStreamFile;
 import com.hedera.hapi.streams.RecordStreamItem;
@@ -14,7 +17,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.days.model.NodeStakeRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
@@ -31,8 +33,6 @@ import picocli.CommandLine.Help.Ansi;
 public final class NodeStakeUpdateValidation implements BlockValidation {
 
     private static final String SAVE_FILE_NAME = "nodeStakeHistory.json";
-    private static final int MAX_DEPTH = 512;
-    private static final int MAX_RECORD_FILE_SIZE = 128 * 1024 * 1024;
 
     private final NodeStakeRegistry nodeStakeRegistry;
     private boolean firstStakeUpdateSeen = false;
@@ -113,38 +113,6 @@ public final class NodeStakeUpdateValidation implements BlockValidation {
                 }
             }
         }
-    }
-
-    private static TransactionBody extractTransactionBody(final Transaction t) throws Exception {
-        if (t.hasBody()) {
-            return t.body();
-        } else if (t.bodyBytes().length() > 0) {
-            return TransactionBody.PROTOBUF.parse(t.bodyBytes());
-        } else if (t.signedTransactionBytes().length() > 0) {
-            final SignedTransaction st = SignedTransaction.PROTOBUF.parse(t.signedTransactionBytes());
-            return TransactionBody.PROTOBUF.parse(st.bodyBytes());
-        }
-        return null;
-    }
-
-    private static Instant extractBlockInstant(final BlockUnparsed block) throws Exception {
-        for (final BlockItemUnparsed item : block.blockItems()) {
-            if (item.hasBlockHeader()) {
-                final BlockHeader header = BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow());
-                final Timestamp ts = header.blockTimestampOrThrow();
-                return Instant.ofEpochSecond(ts.seconds(), ts.nanos());
-            }
-        }
-        return null;
-    }
-
-    private static Bytes extractRecordFileBytes(final BlockUnparsed block) {
-        for (final BlockItemUnparsed item : block.blockItems()) {
-            if (item.hasRecordFile()) {
-                return item.recordFileOrThrow();
-            }
-        }
-        return null;
     }
 
     @Override
