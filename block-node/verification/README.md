@@ -26,15 +26,15 @@ This is the single most important routing decision in the verification pipeline.
 
 ### `ExtendedMerkleTreeSession.getSingle()` — throws on ambiguity
 
-`getSingle(list, predicate)` throws `IllegalStateException` if zero or more than one element matches. The caller checks `if (tssBasedProof != null)` but this null check is unreachable — any block without exactly one TSS proof throws before the null check. Blocks that legitimately have no TSS proof (e.g., pre-TSS era blocks) will cause a crash. Fix tracked as P0.
+`getSingle(list, predicate)` throws `IllegalStateException` if zero or more than one element matches. The caller checks `if (tssBasedProof != null)` but this null check is unreachable — any block without exactly one TSS proof throws before the null check. Blocks that legitimately have no TSS proof (e.g., pre-TSS era blocks) will cause a crash.
 
 ### `AllBlocksHasherHandler.calculateBlockHashFromBlockNumber()` — returns `new byte[0]` for gaps
 
-When a block is missing from the historical store, the method returns an empty byte array instead of `ZERO_BLOCK_HASH` (SHA-384 of `0x00`). Empty bytes used as a Merkle leaf corrupt the root hash computation. Fix tracked as P0.
+When a block is missing from the historical store, the method returns an empty byte array instead of `ZERO_BLOCK_HASH` (SHA-384 of `0x00`). Empty bytes used as a Merkle leaf corrupt the root hash computation.
 
 ### `VerificationServicePlugin.initializeTssParameters()` — no synchronization
 
-The static fields `tssParametersPersisted`, `activeLedgerId`, and `activeTssPublication` are written without synchronization. Concurrent calls from the live stream handler and backfill handler at block 0 can cause a data race. Fix tracked as P1.
+The static fields `tssParametersPersisted`, `activeLedgerId`, and `activeTssPublication` are written without synchronization. Concurrent calls from the live stream handler and backfill handler at block 0 can cause a data race.
 
 ### `persistTssParameters()` — direct file write (no temp-then-rename)
 

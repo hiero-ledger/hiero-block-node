@@ -27,7 +27,7 @@ Blocks arrive from the verification pipeline and land in the staging directory a
 
 ### `ZipBlockArchive.minStoredBlockNumber()` / `maxStoredBlockNumber()` — NPE risk in scan loops
 
-Both methods walk the archive directory tree iteratively. If a filesystem error sets `lowestPath` or `highestPath` to `null` inside the loop, the next iteration dereferences null when calling `Files.list(path)` (P1 concern). Always validate paths before dereferencing in the scan loop.
+Both methods walk the archive directory tree iteratively. If a filesystem error sets `lowestPath` or `highestPath` to `null` inside the loop, the next iteration dereferences null when calling `Files.list(path)`. Always validate paths before dereferencing in the scan loop.
 
 ### `ZipBlockArchive.calculateTotalStoredBytes()` — expensive on every call
 

@@ -29,7 +29,7 @@ The ring buffer is sized at startup and never grows. Slots are objects allocated
 
 ### `stop()` — interrupts without joining
 
-`stop()` calls `thread.interrupt()` on each handler thread but does not call `thread.join()`. There is no confirmation that handler threads have fully terminated before `stop()` returns (P1 concern). Downstream resources (file handles, network connections) held by handlers may not be released cleanly if the JVM shuts down immediately after `stop()`.
+`stop()` calls `thread.interrupt()` on each handler thread but does not call `thread.join()`. There is no confirmation that handler threads have fully terminated before `stop()` returns. Downstream resources (file handles, network connections) held by handlers may not be released cleanly if the JVM shuts down immediately after `stop()`.
 
 ### Exception handling in `onEvent()`
 
@@ -37,4 +37,4 @@ The ring buffer is sized at startup and never grows. Slots are objects allocated
 
 ### `percentageBehindRingHead` metric — uses `barrier.getCursor()`
 
-The backpressure metric passed to handlers uses `barrier.getCursor()` for the ring head position. `barrier.getCursor()` tracks the sequence the consumer can safely read up to (gating sequence), while `ringBuffer.getCursor()` tracks the latest published sequence. These differ under back-pressure conditions. The metric may underreport actual lag (P1 concern).
+The backpressure metric passed to handlers uses `barrier.getCursor()` for the ring head position. `barrier.getCursor()` tracks the sequence the consumer can safely read up to (gating sequence), while `ringBuffer.getCursor()` tracks the latest published sequence. These differ under back-pressure conditions. The metric may underreport actual lag.

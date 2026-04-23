@@ -23,7 +23,7 @@ On startup the plugin reads the last successfully uploaded block number from a w
 
 ### Parallel upload ordering — TOCTOU gap
 
-`UploadTask` instances run concurrently. Each task calls `lastArchivedBlockNumber.set(nextBatchEndBlockNumber)` after a successful upload. If batch [51–150] completes before batch [1–100], `lastArchivedBlockNumber` jumps to 150 and the [1–100] batch is permanently skipped — its blocks will never appear in S3 (P0 concern). Batches should be serialised through a single-writer queue or a compare-and-set ordered by batch start block number.
+`UploadTask` instances run concurrently. Each task calls `lastArchivedBlockNumber.set(nextBatchEndBlockNumber)` after a successful upload. If batch [51–150] completes before batch [1–100], `lastArchivedBlockNumber` jumps to 150 and the [1–100] batch is permanently skipped — its blocks will never appear in S3. Batches should be serialised through a single-writer queue or a compare-and-set ordered by batch start block number.
 
 ### `S3ArchiveConfig` — credentials in config
 

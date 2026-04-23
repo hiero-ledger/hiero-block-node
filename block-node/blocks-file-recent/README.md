@@ -25,8 +25,8 @@ On every `VerificationNotification` with `success=true`, the plugin serialises t
 
 ### Retention loop — background thread
 
-A dedicated thread periodically checks whether `availableBlocks.size()` exceeds `blockRetentionThreshold`. When it does, it computes the oldest block numbers to evict, deletes each file via `deleteBlockCleanly()`, and calls `availableBlocks.remove(blockNumber)`. The retention loop and the write path both mutate `availableBlocks`; individual operations on `ConcurrentLongRangeSet` are thread-safe, but check-then-act sequences (e.g., checking range then deleting) are not atomic (P1 concern).
+A dedicated thread periodically checks whether `availableBlocks.size()` exceeds `blockRetentionThreshold`. When it does, it computes the oldest block numbers to evict, deletes each file via `deleteBlockCleanly()`, and calls `availableBlocks.remove(blockNumber)`. The retention loop and the write path both mutate `availableBlocks`; individual operations on `ConcurrentLongRangeSet` are thread-safe, but check-then-act sequences (e.g., checking range then deleting) are not atomic.
 
 ### `BlockFileBlockAccessor.readAllBytes()` — no size cap before read
 
-`readAllBytes()` is called on the raw file without a pre-read size check. `MAX_BLOCK_SIZE_BYTES` is only enforced at the PBJ parser layer. A corrupted or adversarially crafted oversized file can exhaust heap before the size check triggers (P1 concern).
+`readAllBytes()` is called on the raw file without a pre-read size check. `MAX_BLOCK_SIZE_BYTES` is only enforced at the PBJ parser layer. A corrupted or adversarially crafted oversized file can exhaust heap before the size check triggers.
