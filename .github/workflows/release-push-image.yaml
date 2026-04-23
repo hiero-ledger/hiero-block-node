@@ -21,6 +21,11 @@ on:
         type: boolean
         required: false
         default: true
+      chart_only:
+        description: "Publish only the block-node-server helm chart (skip images, jars, simulator)"
+        type: boolean
+        required: false
+        default: false
 
 defaults:
   run:
@@ -43,6 +48,7 @@ env:
 
 jobs:
   package-protobuf-source:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 5
     runs-on: hiero-block-node-linux-medium
 
@@ -93,6 +99,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-app:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
     strategy:
@@ -175,6 +182,7 @@ jobs:
             distributions=./block-node/app/build/distributions
 
   publish-jars:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
 
@@ -236,6 +244,7 @@ jobs:
         run: ./gradlew publishAggregationToCentralPortal -PpublishSigningEnabled=true
 
   publish-simulator:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
 
@@ -307,6 +316,10 @@ jobs:
     needs:
       - publish-app
       - publish-jars
+    if: |
+      always() &&
+      (needs.publish-app.result == 'success' || needs.publish-app.result == 'skipped') &&
+      (needs.publish-jars.result == 'success' || needs.publish-jars.result == 'skipped')
     runs-on: hiero-block-node-linux-medium
 
     steps:
@@ -345,6 +358,7 @@ jobs:
           helm push block-node-server-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
 
   helm-chart-release-simulator:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 15
     needs: publish-simulator
     runs-on: hiero-block-node-linux-medium
