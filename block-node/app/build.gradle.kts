@@ -125,6 +125,7 @@ dependencies {
     blockNodePlugins(project(":stream-publisher"))
     blockNodePlugins(project(":stream-subscriber"))
     blockNodePlugins(project(":roster-bootstrap-tss"))
+    blockNodePlugins(project(":roster-bootstrap-rsa"))
     blockNodePlugins(project(":verification"))
 
     // Storage
@@ -203,6 +204,7 @@ testModuleInfo {
     runtimeOnly("org.hiero.block.node.stream.publisher")
     runtimeOnly("org.hiero.block.node.stream.subscriber")
     runtimeOnly("org.hiero.block.node.roster.bootstrap.tss")
+    runtimeOnly("org.hiero.block.node.roster.bootstrap.rsa")
     runtimeOnly("org.hiero.block.node.verification")
     runtimeOnly("org.hiero.block.node.blocks.files.recent")
     runtimeOnly("org.hiero.block.node.blocks.files.historic")
