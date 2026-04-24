@@ -486,7 +486,8 @@ tracked in #2562.
 | Zeroed signature bytes (all 0x00)                   | Skip signature; log at DEBUG level                       |
 | Malformed DER public key in `RSA_PubKey`            | Skip signature; log at WARN level                        |
 
-Rejected blocks are **not** written to storage. The publisher receives the appropriate `PublishStreamResponse` error code.
+Rejected blocks are **not** written to storage. The publisher receives the appropriate `PublishStreamResponse` error
+code.
 
 ---
 
@@ -499,9 +500,8 @@ When the network transitions from Phase 2a to Phase 2b:
    required. The `RsaRosterBootstrapPlugin` remains loaded and the `NodeAddressBook` remains in context but the
    verification layer stops using it for new blocks.
 3. WRBs stored during Phase 2a remain fully queryable via `getBlock` and `subscribeBlockStream` — they are stored as
-   regular `.blk` files and no migration is required.
-4. The `RsaRosterBootstrapPlugin` may be removed from the deployment in a future release once all Phase 2a blocks are
-   within the finality window for retroactive TSS proofs (epic #1846).
+   regular `.blk` files and no migration is required. Notably these will not contribute to future state contributions to
+   state services.
 
 ---
 
@@ -588,11 +588,10 @@ sequenceDiagram
 
 All properties are under the `roster.bootstrap` namespace.
 
-|                      Property                       |  Type   |                    Default                     |                                                                                 Description                                                                                  |
+|                      Property                       |  Type   | Default                                        |                                                                                 Description                                                                                  |
 |-----------------------------------------------------|---------|------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `roster.bootstrap.enabled`                          | boolean | `true`                                         | Whether the plugin is active. Set to `false` to disable roster loading (unsafe; for testing only).                                                                           |
 | `roster.bootstrap.filePath`                         | string  | `data/config/rsa-bootstrap-roster.pb`          | Path to the local bootstrap file (binary protobuf). Relative to BN working directory.                                                                                        |
-| `roster.bootstrap.mirrorNode.baseUrl`               | string  | `https://mainnet-public.mirrornode.hedera.com` | Base URL for Mirror Node REST API calls. Used when no local bootstrap file is present.                                                                                       |
+| `roster.bootstrap.mirrorNode.baseUrl`               | string  | `https://testnet-public.mirrornode.hedera.com` | Base URL for Mirror Node REST API calls. Used when no local bootstrap file is present.                                                                                       |
 | `roster.bootstrap.mirrorNode.connectTimeoutSeconds` | integer | `5`                                            | TCP connect timeout for Mirror Node HTTP calls.                                                                                                                              |
 | `roster.bootstrap.mirrorNode.readTimeoutSeconds`    | integer | `10`                                           | Read timeout for Mirror Node HTTP calls.                                                                                                                                     |
 | `roster.bootstrap.mirrorNode.pageSize`              | integer | `100`                                          | Items per page for paginated Mirror Node calls. Max 100.                                                                                                                     |
@@ -637,14 +636,8 @@ compared to a JSON file. Intentional modification still requires a protobuf tool
 
 ### 8.2 Replay attack handling
 
-The `SignedRecordFileProof` payload includes the record file content and the running hash chain. The block number
-sequencing enforced by the publisher handshake (`publishBlockStream` protocol) prevents replay of an old WRB at a
-different block number. No additional anti-replay logic is needed in the verification layer.
-
-### 8.3 Credential handling
-
-The Mirror Node public API requires no authentication. If a private Mirror Node is configured, any API key should be
-supplied via environment variable (`ROSTER_BOOTSTRAP_MIRROR_NODE_API_KEY`), never embedded in a config file on disk.
+The WRB has a `BlockHeader` with a block number that the Publisher and Verification logic utilize to ensure that blocks
+that have  already been processed are not replayed.
 
 ---
 
@@ -661,8 +654,7 @@ A script `tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh` 
 **Expected usage before a Phase 2a cutover:**
 
 ```bash
-generate-roster-bootstrap.sh --network mainnet \
-  --output /opt/blocknode/data/config/rsa-bootstrap-roster.pb
+generate-roster-bootstrap.sh --network mainnet --output /opt/blocknode/data/config/rsa-bootstrap-roster.pb
 ```
 
 Operators must regenerate and restart the BN if the address book changes (new nodes added, nodes removed).
@@ -716,12 +708,12 @@ protoc --decode=NodeAddressBook basic_types.proto < rsa-bootstrap-roster.pb
 
 ## 12. Open Questions and Deferred Items
 
-| # |                                                                                                   Question                                                                                                   |                                                                                 Status                                                                                  |
-|---|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1 | **Mirror Node down at startup — fail fast or degrade gracefully?** When the MN API is unreachable and no local file exists the current recommendation is to fail fast and shut the BN down. An alternative is to allow the BN to start but leave RSA verification failing until the address book is available. Operators who cannot reach MN can use a publicly available `NodeAddressBook` snapshot (on-chain file `0.0.102`) as a fallback to pre-populate the bootstrap file. | **Open.** Recommendation: fail fast. Final decision pending review. |
-| 2 | Should the bootstrap file include a separate SHA-256 checksum sidecar for integrity verification?                                                                                                            | Deferred — document the risk, implement in Phase 2a operational hardening if time allows.                                                                               |
-| 3 | What is the exact protobuf field path within `SignedRecordFileProof` for the signature list and node IDs?                                                                                                    | To be confirmed against `block_proof.proto` before implementing #2562. Reference: `tools-and-tests/tools/.../SignatureValidation.java`.                                 |
-| 4 | Does the block stream simulator need to generate valid `SignedRecordFileProof` blocks for integration testing?                                                                                               | Yes — flagged as a testing gap. If not available for Phase 2a, integration tests will use pre-recorded WRB blocks.                                                      |
-| 5 | Should stake-weighted threshold be used instead of equal-weight once the `NodeAddress.stake` field is confirmed populated in the on-chain address book?                                                      | Deferred to #2562 — the equal-weight threshold is correct for Phase 2a. Stake-weighting can be added as an enhancement without changing the bootstrap file format.      |
-| 6 | Should the roster structure used map to the `AddressBook` or the `TSSRoster`? If `AddressBook` then BN will support 2 types, if `TSSRoster` we may have to default certain values and couple the plugin.    | Open.                                                                                                                                                                   |
-| 7 | Should the BN at startup check if there have been AddressBook changes that it can quickly retrieve from MN? This would ensure that upgrades are light on the node operator and a simple restart is needed.   | Open.                                                                                                                                                                   |
+| # | Question                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Status                                                                                                                                                                |
+|---|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1 | **Mirror Node down at startup — fail fast or degrade gracefully?** When the MN API is unreachable and no local file exists the current recommendation is to fail fast and shut the BN down. An alternative is to allow the BN to start but leave RSA verification failing until the address book is available. Operators who cannot reach MN can use a publicly available `NodeAddressBook` snapshot (on-chain file `0.0.102`) as a fallback to pre-populate the bootstrap file. | **Open.** Recommendation: fail fast. Final decision pending review.                                                                                                   |
+| 2 | Should the bootstrap file include a separate SHA-256 checksum sidecar for integrity verification?                                                                                                                                                                                                                                                                                                                                                                                | Deferred — document the risk, implement in Phase 2a operational hardening if time allows.                                                                             |
+| 3 | Does the block stream simulator need to generate valid `SignedRecordFileProof` blocks for integration testing?                                                                                                                                                                                                                                                                                                                                                                   | Yes — flagged as a testing gap. If not available for Phase 2a, integration tests will use pre-recorded WRB blocks.                                                    |
+| 4 | Should stake-weighted threshold be used instead of equal-weight once the `NodeAddress.stake` field is confirmed populated in the on-chain address book?                                                                                                                                                                                                                                                                                                                          | Deferred to #2562 — the equal-weight threshold is correct for Phase 2a. Stake-weighting can be added as an enhancement without changing the bootstrap file format.    |
+| 5 | Should the roster structure used map to the `AddressBook` or the `TSSRoster`? If `AddressBook` then BN will support 2 types, if `TSSRoster` we may have to default certain values and couple the plugin.                                                                                                                                                                                                                                                                         | `AddressBook` was chosen to utilize the same pathway explored by MN and WRB CLI as well as support record files from genesis ousde of the Phase 2a timeline.          |
+| 6 | Should the BN at startup check if there have been AddressBook changes that it can quickly retrieve from MN? This would ensure that upgrades are light on the node operator and a simple restart is needed.                                                                                                                                                                                                                                                                       | No, not initially. In future maybe the MAPI query logic can be optimized to update the address book at upgrade boundaries or upon request.                            |
+| 7 | Should `RsaRosterBootstrapPlugin` have a defined lifetime? Should we note a timeline after which it can be removed? Currently, it makes sense to leave it around so that a BN can be the recipient of all WRBs at any point in the future. Note, it will require the MAPI calls to consider time ranges of address books.                                                                                                                                                        | BN should be able to support processing WRBs from genesis going forward by any operator on their own schedule. As such the plugin should remain and be run as needed. |

@@ -24,7 +24,7 @@ the roster cannot be loaded.
 ## How it works
 
 1. **File-first:** On startup the plugin checks for a local bootstrap file at the configured path
-   (default `data/config/rsa-roster-bootstrap.pb`). If found, the roster is loaded from that file.
+   (default `data/config/rsa-bootstrap-roster.pb`). If found, the roster is loaded from that file.
 2. **Mirror Node fallback:** If no local file is present, the roster is fetched from the Hedera
    Mirror Node REST API (`GET /api/v1/network/nodes`, paginated). The result is written to the
    bootstrap file for future restarts.
@@ -53,14 +53,14 @@ No metadata fields (network name, generation timestamp, schema version) are embe
 a direct binary protobuf of `NodeAddressBook`. Operators wishing to annotate the file should
 maintain a separate sidecar.
 
-**Default file path:** `data/config/rsa-roster-bootstrap.pb`
+**Default file path:** `data/config/rsa-bootstrap-roster.pb`
 
 Generate this file before Phase 2a cutover using the operator script:
 
 ```bash
 tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh \
   --network mainnet \
-  --output data/config/rsa-roster-bootstrap.pb
+  --output data/config/rsa-bootstrap-roster.pb
 ```
 
 ---
@@ -70,7 +70,7 @@ tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh \
 |                      Property                       |                    Default                     |                 Description                  |
 |-----------------------------------------------------|------------------------------------------------|----------------------------------------------|
 | `roster.bootstrap.enabled`                          | `true`                                         | Enable/disable the plugin.                        |
-| `roster.bootstrap.filePath`                         | `data/config/rsa-roster-bootstrap.pb`              | Path to the local bootstrap file (binary protobuf). |
+| `roster.bootstrap.filePath`                         | `data/config/rsa-bootstrap-rosterp.pb`              | Path to the local bootstrap file (binary protobuf). |
 | `roster.bootstrap.proofMode`                        | `RSA`                                          | Accepted proof type: `RSA`, `TSS`, or `ANY`.      |
 | `roster.bootstrap.rosterSource`                     | `MIRROR_NODE`                                  | Source when no local file exists.                 |
 | `roster.bootstrap.failOnFetchError`                 | `true`                                         | Fail startup if roster cannot be loaded.          |
