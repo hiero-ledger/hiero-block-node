@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.tss.bootstrap.client;
+package org.hiero.block.node.roster.bootstrap.tss.client;
 
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
 import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
@@ -19,9 +19,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.ToIntFunction;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.node.roster.boostrap.tss.BlockNodeSourceConfig;
+import org.hiero.block.node.roster.boostrap.tss.GrpcWebClientTuning;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.block.node.tss.bootstrap.BlockNodeSourceConfig;
-import org.hiero.block.node.tss.bootstrap.GrpcWebClientTuning;
 
 public class BlockNodeClient {
     private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());

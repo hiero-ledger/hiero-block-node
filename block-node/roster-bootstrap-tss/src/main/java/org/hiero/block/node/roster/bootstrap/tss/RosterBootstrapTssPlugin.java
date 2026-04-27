@@ -60,7 +60,6 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         this.applicationStateFacility = Objects.requireNonNull(context.applicationStateFacility());
         rosterBootstrapTssConfig = context.configuration().getConfigData(RosterBootstrapTssConfig.class);
         this.blockNodeContext = context;
-        this.applicationStateFacility = Objects.requireNonNull(this.blockNodeContext.applicationStateFacility());
 
         // Validate block node sources configuration
         final String sourcesPath = rosterBootstrapTssConfig.blockNodeSourcesPath();
@@ -100,14 +99,15 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         if (!hasBNSourcesPath) {
             return;
         }
+        // save the reference of this volatile object.
+        BlockNodeContext context = blockNodeContext;
         LOGGER.log(INFO, "ApplicationStateFacility start called");
         Thread.UncaughtExceptionHandler handler =
                 (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
 
         // Create thread executors via threadPoolManager.
-        queryPeerExecutor = blockNodeContext
-                .threadPoolManager()
-                .createVirtualThreadScheduledExecutor(1, "ApplicationStateScanner", handler);
+        queryPeerExecutor =
+                context.threadPoolManager().createVirtualThreadScheduledExecutor(1, "ApplicationStateScanner", handler);
 
         // Schedule periodic gap detection task using autonomous executor
         queryPeerExecutor.scheduleAtFixedRate(
