@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-import org.hiero.block.node.tss.bootstrap.TssBootstrapPlugin;
+import org.hiero.block.node.roster.bootstrap.tss.RosterBootstrapTssPlugin;
 
-module org.hiero.block.node.tss.bootstrap {
+module org.hiero.block.node.roster.bootstrap.tss {
     // export configuration classes to the config module and app
-    exports org.hiero.block.node.tss.bootstrap to
+    exports org.hiero.block.node.roster.bootstrap.tss to
             com.swirlds.config.impl,
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
@@ -16,5 +16,5 @@ module org.hiero.block.node.tss.bootstrap {
     requires org.hiero.block.protobuf.pbj;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
-            TssBootstrapPlugin;
+            RosterBootstrapTssPlugin;
 }

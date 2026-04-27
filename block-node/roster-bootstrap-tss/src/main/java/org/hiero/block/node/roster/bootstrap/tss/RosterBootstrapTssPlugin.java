@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.tss.bootstrap;
+package org.hiero.block.node.roster.bootstrap.tss;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -18,9 +18,9 @@ import org.hiero.block.node.spi.ServiceBuilder;
 /// to the `ServerStatusServicePlugin`
 ///
 /// The TssData is retrieved from TssData sources in the following order:
-///  - `TssBootstrapConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
+///  - `RosterBootstrapTssConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
-public class TssBootstrapPlugin implements BlockNodePlugin {
+public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     /// The application state facility, for updating application state.
     private ApplicationStateFacility applicationStateFacility;
 
@@ -28,36 +28,37 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
-        return List.of(TssBootstrapConfig.class);
+        return List.of(RosterBootstrapTssConfig.class);
     }
 
     /// {@inheritDoc}
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.applicationStateFacility = Objects.requireNonNull(context.applicationStateFacility());
-        TssBootstrapConfig tssBootstrapConfig = context.configuration().getConfigData(TssBootstrapConfig.class);
+        RosterBootstrapTssConfig rosterBootstrapTssConfig =
+                context.configuration().getConfigData(RosterBootstrapTssConfig.class);
 
         // process the config data
-        processTssDataConfiguration(tssBootstrapConfig);
+        processTssDataConfiguration(rosterBootstrapTssConfig);
 
         // todo: query peer BNs for their TssData, if there is no config data, or nothing in the context
     }
 
-    /// process the `TssBootstrapConfig`
+    /// process the `RosterBootstrapTssConfig`
     ///
     /// if the config data is valid, create the TssData from the config data and send it to the
     /// ApplicationStateFacility
     ///
-    /// @param tssBootstrapConfig The `TssBootstrapConfig` containing the TssData information
-    private void processTssDataConfiguration(TssBootstrapConfig tssBootstrapConfig) {
+    /// @param rosterBootstrapTssConfig The `RosterBootstrapTssConfig` containing the TssData information
+    private void processTssDataConfiguration(RosterBootstrapTssConfig rosterBootstrapTssConfig) {
         // get the TssData from the config
-        String ledgerId64 = tssBootstrapConfig.ledgerId();
-        String wrapsVerificationKey64 = tssBootstrapConfig.wrapsVerificationKey();
-        String schnorrPublicKey64 = tssBootstrapConfig.schnorrPublicKey();
-        long nodeId = tssBootstrapConfig.nodeId();
-        long weight = tssBootstrapConfig.weight();
-        long validFromBlock = tssBootstrapConfig.validFromBlock();
-        long rosterValidFromBlock = tssBootstrapConfig.rosterValidFromBlock();
+        String ledgerId64 = rosterBootstrapTssConfig.ledgerId();
+        String wrapsVerificationKey64 = rosterBootstrapTssConfig.wrapsVerificationKey();
+        String schnorrPublicKey64 = rosterBootstrapTssConfig.schnorrPublicKey();
+        long nodeId = rosterBootstrapTssConfig.nodeId();
+        long weight = rosterBootstrapTssConfig.weight();
+        long validFromBlock = rosterBootstrapTssConfig.validFromBlock();
+        long rosterValidFromBlock = rosterBootstrapTssConfig.rosterValidFromBlock();
 
         if (StringUtilities.isBlank(ledgerId64)
                 || StringUtilities.isBlank(wrapsVerificationKey64)
@@ -76,7 +77,7 @@ public class TssBootstrapPlugin implements BlockNodePlugin {
         applicationStateFacility.updateTssData(tssData);
     }
 
-    /// build a `TssData` object from individual fields from the `TssBootstrapConfig`
+    /// build a `TssData` object from individual fields from the `RosterBootstrapTssConfig`
     ///
     /// @param ledgerId64 The ledgerId base64 String
     /// @param wrapsVerificationKey64 The wrapsVerificationKey base64 string

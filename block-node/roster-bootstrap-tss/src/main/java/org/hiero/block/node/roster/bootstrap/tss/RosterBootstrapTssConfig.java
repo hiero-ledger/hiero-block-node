@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.tss.bootstrap;
+package org.hiero.block.node.roster.bootstrap.tss;
 
 // spotless:off
 
-import static com.swirlds.config.api.ConfigProperty.UNDEFINED_DEFAULT_VALUE;
-
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
-import java.nio.file.Path;
 import org.hiero.block.node.base.Loggable;
 
-/// Configuration for the tss-bootstrap module.
+/// Configuration for the roster-bootstrap-tss module.
 ///
-@ConfigData("tss.bootstrap")
-public record TssBootstrapConfig(
+@ConfigData("roster.bootstrap.tss")
+public record RosterBootstrapTssConfig(
         @Loggable @ConfigProperty(defaultValue = "") String ledgerId,
         @Loggable @ConfigProperty(defaultValue = "") String wrapsVerificationKey,
         @Loggable @ConfigProperty(defaultValue = "0") long nodeId,
