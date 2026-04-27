@@ -398,12 +398,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // Schedule periodic gap detection task using autonomous executor
         applicationStateExecutor.scheduleAtFixedRate(
                 this::checkForApplicationStateUpdates,
-                nodeConfig.tssUpdateInitialDelay(),
-                nodeConfig.tssUpdateScanInterval(),
+                nodeConfig.appStateUpdateInitialDelay(),
+                nodeConfig.appStateUpdateScanInterval(),
                 TimeUnit.MILLISECONDS);
     }
 
-    private void checkForTssUpdates() {
+    private void checkForApplicationStateUpdates() {
         boolean updated = false;
         while (!tssDataUpdates.isEmpty()) {
             updated |= updateBlockNodeContext(tssDataUpdates.poll());
@@ -434,7 +434,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /**
      * Update the BlockNodeContext with the new TssData if the validFromBlock is greater than that of the context
      *
-     * @param tssData The TssData to persist
+     * @param tssData The TssData to update
      * @return A boolean indicating if the BlockNodeContext was updated.
      */
     private boolean updateBlockNodeContext(TssData tssData) {
@@ -465,15 +465,18 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * @param tssData The TssData to persist
      */
     private void persistTssData(TssData tssData) {
-        final Path tssDataFilePath =
-                blockNodeContext.configuration().getConfigData(NodeConfig.class).tssDataFilePath();
+        final Path appStateDataFilePath =
+                blockNodeContext.configuration().getConfigData(NodeConfig.class).appStateDataFilePath();
         try {
-            Files.createDirectories(tssDataFilePath.getParent());
+            Files.createDirectories(appStateDataFilePath.getParent());
             Bytes serialized = TssData.PROTOBUF.toBytes(tssData);
-            Files.write(tssDataFilePath, serialized.toByteArray());
-            LOGGER.log(INFO, "Persisted TssData to file: {0}", tssDataFilePath);
+            Files.write(appStateDataFilePath, serialized.toByteArray());
+            LOGGER.log(INFO, "Persisted Application State Data to file: {0}", appStateDataFilePath);
         } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to persist TssData to %s: %s".formatted(tssDataFilePath, e), e);
+            LOGGER.log(
+                    WARNING,
+                    "Failed to persist Application State Data to %s: %s".formatted(appStateDataFilePath, e),
+                    e);
         }
     }
 
@@ -486,17 +489,17 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     private void loadApplicationState() {
         final Path tssDataFilePath =
-                blockNodeContext.configuration().getConfigData(NodeConfig.class).tssDataFilePath();
+                blockNodeContext.configuration().getConfigData(NodeConfig.class).appStateDataFilePath();
         if (Files.exists(tssDataFilePath)) {
             try {
                 Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssDataFilePath));
                 TssData tssData = TssData.PROTOBUF.parse(fileBytes);
                 updateTssData(tssData);
-                LOGGER.log(INFO, "Loaded TSS Data from file: {0}", tssDataFilePath);
+                LOGGER.log(INFO, "Loaded Application State Data from file: {0}", tssDataFilePath);
             } catch (IOException e) {
-                throw new UncheckedIOException("Failed to read TSS Data file: " + tssDataFilePath, e);
+                throw new UncheckedIOException("Failed to read Application State Data file: " + tssDataFilePath, e);
             } catch (ParseException e) {
-                throw new IllegalStateException("Failed to parse TSS Data file: " + tssDataFilePath, e);
+                throw new IllegalStateException("Failed to parse Application State Data file: " + tssDataFilePath, e);
             }
         }
     }

@@ -5,7 +5,7 @@ import org.hiero.block.api.TssData;
 
 /**
  * Interface for the Application and block node plugins to exchange state information. The `ApplicationStateFacility`
- * is passed to all block node plugins in the `init()` call.
+ * is passed to all block node plugins in the BlockNodeCOntext.
  * */
 public interface ApplicationStateFacility {
     /**
@@ -14,7 +14,5 @@ public interface ApplicationStateFacility {
      *
      * @param tssData - The TssData to be updated on the `BlockNodeContext`
      * */
-    default void updateTssData(TssData tssData) {
-        // do nothing by default
-    }
+    void updateTssData(TssData tssData);
 }

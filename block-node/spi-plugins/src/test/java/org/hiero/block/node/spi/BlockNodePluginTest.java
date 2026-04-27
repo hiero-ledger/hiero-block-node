@@ -50,7 +50,12 @@ public class BlockNodePluginTest {
     };
     private static final HttpService testHttpService = rules -> {};
 
-    private static class TestApplicationStateFacilityDefault implements ApplicationStateFacility {}
+    private static class TestApplicationStateFacilityDefault implements ApplicationStateFacility {
+        @Override
+        public void updateTssData(TssData tssData) {
+            // do nothing
+        }
+    }
 
     @Test
     @DisplayName("Test default ApplicationStateFacility.updateTssData()")

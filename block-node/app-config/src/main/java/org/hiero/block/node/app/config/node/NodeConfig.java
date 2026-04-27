@@ -16,16 +16,16 @@ import org.hiero.block.node.base.Loggable;
  * @param earliestManagedBlock the block number for the earliest block managed
  *     by this node. Blocks earlier than this might be present, but the node
  *     should not make any particular effort to obtain or store them.
- * @param tssDataFilePath path where TSS data (ledger ID, address book, WRAPS VK)
+ * @param appStateDataFilePath path where application state, like TSS data (ledger ID, address book, WRAPS VK),
  *     are persisted across restarts as a serialized {@code TssData}.
- * @param tssUpdateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
+ * @param appStateUpdateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
  *     checking to see if there are any {@code TssData} updates to process.
  */
 // spotless:off
 @ConfigData("block.node")
 public record NodeConfig(
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock,
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/tss-data.bin") Path tssDataFilePath,
-        @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long tssUpdateScanInterval,
-        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int tssUpdateInitialDelay) {}
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/app-state-data.bin") Path appStateDataFilePath,
+        @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long appStateUpdateScanInterval,
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int appStateUpdateInitialDelay) {}
 // spotless:on

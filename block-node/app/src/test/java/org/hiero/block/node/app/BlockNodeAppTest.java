@@ -104,7 +104,7 @@ class BlockNodeAppTest {
     @AfterEach
     void cleanup() {
         try {
-            Files.deleteIfExists(Path.of("build/tmp/data/block/node/tss-data.bin"));
+            Files.deleteIfExists(Path.of("build/tmp/data/block/node/app-state-data.bin"));
         } catch (Exception e) {
             // ignore the exception
         }
@@ -356,6 +356,7 @@ class BlockNodeAppTest {
         Thread.sleep(1_000);
 
         TssData tssData1 = blockNodeApp2.blockNodeContext.tssData();
+        assertNotNull(tssData1);
         assertEquals(tssData.ledgerId(), tssData1.ledgerId());
         assertEquals(tssData.wrapsVerificationKey(), tssData1.wrapsVerificationKey());
 
