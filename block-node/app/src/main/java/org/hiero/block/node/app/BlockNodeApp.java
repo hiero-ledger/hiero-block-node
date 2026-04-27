@@ -397,7 +397,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
         // Schedule periodic gap detection task using autonomous executor
         applicationStateExecutor.scheduleAtFixedRate(
-                this::checkForTssUpdates,
+                this::checkForApplicationStateUpdates,
                 nodeConfig.tssUpdateInitialDelay(),
                 nodeConfig.tssUpdateScanInterval(),
                 TimeUnit.MILLISECONDS);
