@@ -26,6 +26,8 @@ import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 /**
  * Verifies that indirect (state) proof verification works end-to-end, including both the
@@ -42,6 +44,7 @@ import org.junit.jupiter.api.Test;
  *
  * @see ExtendedMerkleTreeSession#verifyStateProof
  */
+@Execution(ExecutionMode.SAME_THREAD)
 class StateProofVerificationTest {
 
     private static SampleBlockInfo block0;

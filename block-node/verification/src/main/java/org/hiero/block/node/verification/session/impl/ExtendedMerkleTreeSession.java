@@ -2,6 +2,7 @@
 package org.hiero.block.node.verification.session.impl;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNode;
 import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNodeSingleChild;
@@ -176,14 +177,14 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
 
         // Try direct TSS proof first (most common case)
-        BlockProof tssBasedProof = findFirst(blockProofs, BlockProof::hasSignedBlockProof);
+        BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
         if (tssBasedProof != null) {
             return getVerificationResult(
                     tssBasedProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
         }
 
         // Try indirect (state) proof — used when TSS signing was delayed
-        BlockProof stateBasedProof = findFirst(blockProofs, BlockProof::hasBlockStateProof);
+        BlockProof stateBasedProof = getSingle(blockProofs, BlockProof::hasBlockStateProof);
         if (stateBasedProof != null) {
             return getStateProofVerificationResult(
                     stateBasedProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
@@ -310,6 +311,11 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         MerklePath timestampPath = paths.get(0);
         MerklePath siblingPath = paths.get(1);
+        MerklePath terminalPath = paths.get(2);
+
+        if (!terminalPath.siblings().isEmpty() || terminalPath.hasTimestampLeaf()) {
+            LOGGER.log(WARNING, "Block {0} state proof path 2 (terminal) is unexpectedly non-empty", blockNumber);
+        }
 
         if (!timestampPath.hasTimestampLeaf()) {
             return false;
@@ -323,6 +329,15 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // Must have at least 3 (signed block siblings) and remainder must be groups of 4 (gap blocks)
         if (totalSiblings < 3 || (totalSiblings - 3) % 4 != 0) {
             return false;
+        }
+        // Starting hash and all sibling hashes must be non-empty to avoid propagating incorrect hashes
+        if (siblingPath.hash().length() == 0) {
+            return false;
+        }
+        for (SiblingNode sibling : siblings) {
+            if (sibling.hash().length() == 0) {
+                return false;
+            }
         }
 
         // Start from path1.hash = previousBlockHash of the target block (= rootHash of block T-1).
@@ -409,14 +424,16 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     }
 
     /**
-     * Returns the first element matching the predicate, or null if none matches.
+     * Returns the single element matching the predicate, or null if none match.
+     * Logs a WARNING and returns null if multiple elements match.
      */
-    private static <T> T findFirst(List<T> list, Predicate<T> predicate) {
-        for (T element : list) {
-            if (predicate.test(element)) {
-                return element;
-            }
+    private <T> T getSingle(List<T> list, Predicate<T> predicate) {
+        List<T> filtered = list.stream().filter(predicate).toList();
+        if (filtered.size() > 1) {
+            LOGGER.log(WARNING, "Expected exactly 1 element matching predicate [{0}], but found {1}.",
+                    predicate, filtered.size());
+            return null;
         }
-        return null;
+        return filtered.isEmpty() ? null : filtered.get(0);
     }
 }
