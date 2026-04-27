@@ -59,7 +59,7 @@ jobs:
   generate-baseline:
     timeout-minutes: 15
     name: Generate Baseline
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
       path: ${{ steps.baseline.outputs.path }}
@@ -147,7 +147,7 @@ jobs:
         os:
           - ubuntu-24.04
           - ubuntu-22.04
-          - hiero-block-node-linux-medium
+          - hl-bn-lin-md
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@6c3c2f2c1c457b00c10c4848d6f5491db3b629df # v2.18.0
