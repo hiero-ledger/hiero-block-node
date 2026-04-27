@@ -22,6 +22,7 @@ import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.internal.DatedTssPublication;
 import org.hiero.block.internal.TssPublicationHistory;
+import org.hiero.block.tools.blocks.HasherStateFiles;
 import picocli.CommandLine.Help.Ansi;
 
 /**
@@ -128,13 +129,15 @@ public class TssEnablementRegistry {
      * @param file the output file path
      * @throws IOException if the file cannot be written
      */
-    public void writeTssParametersBin(final Path file) throws IOException {
+    public void writeTssParametersBin(final Path file) throws Exception {
         final TssData tssData = getLatestTssData();
         if (tssData == null) {
             return;
         }
-        final Bytes bytes = TssData.PROTOBUF.toBytes(tssData);
-        Files.write(file, bytes.toByteArray());
+        HasherStateFiles.saveAtomically(file, tmpPath -> {
+            final Bytes bytes = TssData.PROTOBUF.toBytes(tssData);
+            Files.write(tmpPath, bytes.toByteArray());
+        });
     }
 
     /**

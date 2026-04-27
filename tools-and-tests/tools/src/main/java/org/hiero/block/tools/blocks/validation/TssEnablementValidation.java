@@ -114,7 +114,7 @@ public final class TssEnablementValidation implements BlockValidation {
                 // Write tss-enablement.bin immediately on each detection
                 try {
                     tssRegistry.writeTssParametersBin(tssParametersBinPath);
-                } catch (IOException e) {
+                } catch (Exception e) {
                     System.err.println(
                             "[TssEnablement] WARNING: Failed to write " + tssParametersBinPath + ": " + e.getMessage());
                 }
@@ -166,7 +166,11 @@ public final class TssEnablementValidation implements BlockValidation {
             tssRegistry.reloadFromFile(saved);
             // Regenerate the bin file from loaded state
             if (tssRegistry.hasTssData()) {
-                tssRegistry.writeTssParametersBin(tssParametersBinPath);
+                try {
+                    tssRegistry.writeTssParametersBin(tssParametersBinPath);
+                } catch (Exception e) {
+                    throw new IOException("Failed to write " + tssParametersBinPath, e);
+                }
                 firstPublicationSeen = true;
             }
         }

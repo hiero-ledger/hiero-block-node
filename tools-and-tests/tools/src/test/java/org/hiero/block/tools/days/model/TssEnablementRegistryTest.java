@@ -10,7 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.hapi.node.tss.LedgerIdNodeContribution;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -205,7 +204,7 @@ class TssEnablementRegistryTest {
 
         @Test
         @DisplayName("does nothing when registry is empty")
-        void doesNothingWhenEmpty(@TempDir Path tempDir) throws IOException {
+        void doesNothingWhenEmpty(@TempDir Path tempDir) throws Exception {
             TssEnablementRegistry registry = new TssEnablementRegistry();
             Path binFile = tempDir.resolve("tss-enablement.bin");
             registry.writeTssParametersBin(binFile);
