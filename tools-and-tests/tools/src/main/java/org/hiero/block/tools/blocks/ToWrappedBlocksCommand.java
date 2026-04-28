@@ -6,6 +6,7 @@ import static org.hiero.block.tools.blocks.HasherStateFiles.saveStateCheckpoint;
 import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_COMPRESSION;
 import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_POWERS_OF_TEN_PER_ZIP;
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
+import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractTransactionBody;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
 
@@ -13,7 +14,6 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.Transaction;
-import com.hedera.hapi.node.transaction.SignedTransaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.streams.RecordStreamItem;
 import java.io.DataOutputStream;
@@ -1161,25 +1161,5 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                 }
             }
         }
-    }
-
-    /**
-     * Extracts the {@link TransactionBody} from a transaction, handling all three encoding formats:
-     * direct body, bodyBytes, and signedTransactionBytes.
-     *
-     * @param t the transaction
-     * @return the parsed transaction body, or null if none could be extracted
-     * @throws Exception if parsing fails
-     */
-    private static TransactionBody extractTransactionBody(final Transaction t) throws Exception {
-        if (t.hasBody()) {
-            return t.body();
-        } else if (t.bodyBytes().length() > 0) {
-            return TransactionBody.PROTOBUF.parse(t.bodyBytes());
-        } else if (t.signedTransactionBytes().length() > 0) {
-            final SignedTransaction st = SignedTransaction.PROTOBUF.parse(t.signedTransactionBytes());
-            return TransactionBody.PROTOBUF.parse(st.bodyBytes());
-        }
-        return null;
     }
 }
