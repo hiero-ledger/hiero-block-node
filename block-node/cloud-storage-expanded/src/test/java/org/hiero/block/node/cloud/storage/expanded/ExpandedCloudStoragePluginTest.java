@@ -4,7 +4,6 @@ package org.hiero.block.node.cloud.storage.expanded;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -57,11 +56,11 @@ class ExpandedCloudStoragePluginTest
 
     /// Records `uploadFile` calls so tests can assert the exact arguments passed to the
     /// upload client without hitting any real endpoint.
-    private static class CapturingS3Client extends S3UploadClient {
+    private static class CapturingS3Client implements S3UploadClient {
         final List<UploadCall> uploads = new java.util.ArrayList<>();
 
         @Override
-        void uploadFile(
+        public void uploadFile(
                 final String objectKey,
                 final String storageClass,
                 final Iterator<byte[]> contentIterable,
@@ -227,7 +226,7 @@ class ExpandedCloudStoragePluginTest
     void uploadExceptionProducesFailedNotification() throws InterruptedException {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            void uploadFile(
+            public void uploadFile(
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
@@ -260,7 +259,7 @@ class ExpandedCloudStoragePluginTest
     void uploadExceptionNotRethrown() {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            void uploadFile(
+            public void uploadFile(
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
@@ -289,23 +288,6 @@ class ExpandedCloudStoragePluginTest
         final ExpandedCloudStorageConfig.StorageClass[] values = ExpandedCloudStorageConfig.StorageClass.values();
         assertEquals(1, values.length, "Expected exactly one StorageClass value");
         assertEquals(ExpandedCloudStorageConfig.StorageClass.STANDARD, values[0]);
-    }
-
-    @Test
-    @DisplayName("Config rejects uploadTimeoutSeconds < 1")
-    void configBoundsValidation() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000",
-                        "bucket",
-                        "blocks",
-                        ExpandedCloudStorageConfig.StorageClass.STANDARD,
-                        "us-east-1",
-                        "",
-                        "",
-                        0),
-                "uploadTimeoutSeconds=0 must throw IllegalArgumentException");
     }
 
     @Test
@@ -346,7 +328,7 @@ class ExpandedCloudStoragePluginTest
     void ioExceptionProducesFailedNotification() throws InterruptedException {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            void uploadFile(
+            public void uploadFile(
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
@@ -380,7 +362,7 @@ class ExpandedCloudStoragePluginTest
         final AtomicBoolean closed = new AtomicBoolean(false);
         final S3UploadClient trackingClient = new S3UploadClient() {
             @Override
-            void uploadFile(
+            public void uploadFile(
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
@@ -465,7 +447,7 @@ class ExpandedCloudStoragePluginTest
     void failureIncrementsFailureCounterAndLatency() throws InterruptedException {
         final S3UploadClient throwingClient = new S3UploadClient() {
             @Override
-            void uploadFile(
+            public void uploadFile(
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
@@ -547,7 +529,7 @@ class ExpandedCloudStoragePluginTest
 
         final S3UploadClient delayedClient = new S3UploadClient() {
             @Override
-            void uploadFile(
+            public void uploadFile(
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,

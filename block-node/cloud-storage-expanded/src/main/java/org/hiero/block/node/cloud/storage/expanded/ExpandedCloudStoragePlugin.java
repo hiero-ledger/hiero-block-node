@@ -11,9 +11,9 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -42,8 +42,8 @@ import org.hiero.metrics.core.MetricRegistry;
 ///
 /// ## Async upload via CompletionService
 /// Each verified block is submitted as a {@link SingleBlockStoreTask} to a
-/// {@link CompletionService} backed by a virtual-thread executor. The plugin drains
-/// completed tasks immediately before each new notification, publishing a
+/// {@link CompletionService} backed by a dedicated virtual-thread executor. The plugin
+/// drains completed tasks immediately before each new notification, publishing a
 /// {@link PersistedNotification} for every completed upload (success or failure). This
 /// ensures callers waiting on `PersistedNotification` are notified even when uploads
 /// overlap block boundaries.
@@ -62,7 +62,7 @@ import org.hiero.metrics.core.MetricRegistry;
 /// ## S3 client implementation
 /// Uploads are performed via {@link BuckyS3UploadClient}, a package-private concrete
 /// class that wraps `com.hedera.bucky.S3Client` directly. Unit tests inject a
-/// custom {@link S3UploadClient} subclass via the package-private constructor.
+/// custom {@link S3UploadClient} implementation via the package-private constructor.
 public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotificationHandler {
 
     // ---- Metric keys --------------------------------------------------------
@@ -96,12 +96,11 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// `CompletionService` for async block upload tasks.
     private CompletionService<SingleBlockStoreTask.UploadResult> completionService;
 
-    /// Virtual-thread executor sourced from the thread-pool manager.
+    /// Dedicated virtual-thread executor created in {@link #start} and shut down in {@link #stop}.
+    /// Using a dedicated executor (rather than the shared platform executor) allows {@link #stop}
+    /// to call {@link ExecutorService#shutdown()} + {@link ExecutorService#awaitTermination} without
+    /// affecting other plugins.
     private ExecutorService virtualThreadExecutor;
-
-    /// Count of tasks submitted but not yet drained; used to bound the drain in
-    /// {@link #stop()}.
-    private final AtomicInteger inFlightCount = new AtomicInteger(0);
 
     /// Metrics instance, saved in {@link #init} for use in {@link #start}.
     private MetricRegistry metricRegistry;
@@ -136,10 +135,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.config = context.configuration().getConfigData(ExpandedCloudStorageConfig.class);
         this.blockMessaging = context.blockMessaging();
-
         metricRegistry = context.metricRegistry();
         blockMessaging.registerBlockNotificationHandler(this, false, name());
-        virtualThreadExecutor = context.threadPoolManager().getVirtualThreadExecutor();
     }
 
     /// {@inheritDoc}
@@ -149,6 +146,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             if (s3Client == null) {
                 s3Client = new BuckyS3UploadClient(config);
             }
+            virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
             completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
             metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metricRegistry));
         } catch (final UploadException e) {
@@ -157,21 +155,39 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     }
 
     /// {@inheritDoc}
+    ///
+    /// Unregisters from block notifications first to stop new uploads from being submitted,
+    /// then shuts down the dedicated executor and waits up to `uploadTimeoutSeconds` for
+    /// in-flight tasks to complete before closing the S3 client.
     @Override
     public void stop() {
-        if (completionService != null) {
-            // Drain in-flight uploads before closing the S3 client. Each task has its own
-            // uploadTimeoutSeconds deadline, so waiting that long guarantees all in-flight
-            // tasks have either completed or timed out.
-            drainInFlightTasks();
-
-            // Final non-blocking sweep for any tasks that just landed.
+        // Unregister first so no new upload tasks are submitted during drain.
+        blockMessaging.unregisterBlockNotificationHandler(this);
+        if (virtualThreadExecutor != null) {
+            // Stop accepting new tasks (none expected since we just unregistered), then wait
+            // for all running uploads to finish. The executor tracks running tasks authoritatively,
+            // removing the need for manual in-flight counting.
+            virtualThreadExecutor.shutdown();
+            try {
+                final boolean terminated =
+                        virtualThreadExecutor.awaitTermination(config.uploadTimeoutSeconds(), TimeUnit.SECONDS);
+                if (!terminated) {
+                    LOGGER.log(
+                            WARNING,
+                            "Some upload tasks did not complete within the {0}s timeout.",
+                            config.uploadTimeoutSeconds());
+                }
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            // Final non-blocking sweep to publish results from tasks that completed during await.
             drainCompletedTasks();
+            virtualThreadExecutor = null;
         }
         if (s3Client != null) {
             try {
                 s3Client.close();
-            } catch (Exception e) {
+            } catch (final Exception e) {
                 LOGGER.log(WARNING, "Encountered error closing s3Client.", e);
             }
             s3Client = null;
@@ -201,7 +217,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             drainCompletedTasks();
 
             final String objectKey = buildBlockObjectKey(notification.blockNumber());
-            inFlightCount.incrementAndGet();
             completionService.submit(new SingleBlockStoreTask(
                     notification.blockNumber(),
                     notification.block(),
@@ -219,7 +234,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     ///
     /// This is a non-blocking drain — it only collects tasks that have already finished.
     /// Package-private visibility allows test helpers in this package to drive the drain
-    /// loop without holding production threads or needing a pending-task counter.
+    /// loop without holding production threads.
     void drainCompletedTasks() {
         if (completionService == null) {
             return;
@@ -230,35 +245,13 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         }
     }
 
-    /// Drain in-flight uploads before closing the S3 client.
-    ///
-    /// Each task has its own `uploadTimeoutSeconds` deadline, so waiting that long
-    /// guarantees all in-flight tasks have either completed or timed out.
-    private void drainInFlightTasks() {
-        try {
-            final long deadline = System.currentTimeMillis() + (long) config.uploadTimeoutSeconds() * 1_000L;
-            while (inFlightCount.get() > 0 && System.currentTimeMillis() < deadline) {
-                final long remainingMs = deadline - System.currentTimeMillis();
-                final Future<SingleBlockStoreTask.UploadResult> completed =
-                        completionService.poll(Math.min(remainingMs, 200L), TimeUnit.MILLISECONDS);
-                if (completed != null) {
-                    publishResult(completed);
-                }
-            }
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
     /// Decrements the in-flight counter and publishes a {@link PersistedNotification}
     /// for the given completed upload future. Handles {@link InterruptedException} and
     /// {@link ExecutionException} without propagating.
     private void publishResult(final Future<SingleBlockStoreTask.UploadResult> completed) {
-        inFlightCount.decrementAndGet();
         try {
-            // check for canceled result
             if (completed.isCancelled()) {
-                LOGGER.log(WARNING, "Upload was cancelled");
+                LOGGER.log(TRACE, "Upload task was cancelled during shutdown.");
                 return;
             }
 
@@ -283,7 +276,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             Thread.currentThread().interrupt();
             LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
         } catch (final ExecutionException e) {
-            LOGGER.log(WARNING, "Unexpected exception in upload task: ", e);
+            metricsHolder.uploadFailuresTotal().increment();
+            LOGGER.log(WARNING, "Unexpected exception in upload task: ", e.getCause());
         }
     }
 
