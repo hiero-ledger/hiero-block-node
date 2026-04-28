@@ -2,6 +2,7 @@
 package org.hiero.block.node.cloud.storage.expanded;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -124,7 +125,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(failedNotification(0L));
         // Failed verification is skipped synchronously before any task is submitted.
@@ -141,6 +145,8 @@ class ExpandedCloudStoragePluginTest
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
                         "cloud.storage.expanded.objectKeyPrefix", "myblocks",
                         "cloud.storage.expanded.storageClass", "STANDARD"));
 
@@ -164,6 +170,8 @@ class ExpandedCloudStoragePluginTest
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
                         "cloud.storage.expanded.objectKeyPrefix", "blocks"));
 
         // Block 1:         0000000000000000001 → blocks/0000/0000/0000/0000/001.blk.zstd
@@ -193,6 +201,8 @@ class ExpandedCloudStoragePluginTest
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
                         "cloud.storage.expanded.objectKeyPrefix", ""));
 
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
@@ -210,7 +220,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(verifiedNotification(42L, testBlock(42).blockUnparsed()));
         awaitNotifications(1);
@@ -241,7 +254,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(verifiedNotification(7L, testBlock(7).blockUnparsed()));
         awaitNotifications(1);
@@ -274,7 +290,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         assertDoesNotThrow(
                 () -> plugin.handleVerification(
@@ -302,13 +321,35 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
+    @DisplayName("Config rejects blank bucketName and blank regionName at construction time")
+    void configRejectsBlankRequiredFields() {
+        // bucketName blank
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ExpandedCloudStorageConfig(
+                        "http://fake:9000", "", "blocks",
+                        ExpandedCloudStorageConfig.StorageClass.STANDARD, "us-east-1", "", "", 60),
+                "blank bucketName must throw IllegalArgumentException");
+        // regionName blank
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ExpandedCloudStorageConfig(
+                        "http://fake:9000", "bucket", "blocks",
+                        ExpandedCloudStorageConfig.StorageClass.STANDARD, "", "", "", 60),
+                "blank regionName must throw IllegalArgumentException");
+    }
+
+    @Test
     @DisplayName("handleVerification skips upload for null block body and negative block number")
     void handleVerificationGuardsSkipUpload() {
         final CapturingS3Client capturing = new CapturingS3Client();
         start(
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         // verified=true but block payload is null
         plugin.handleVerification(new VerificationNotification(true, 1L, Bytes.EMPTY, null, BlockSource.UNKNOWN));
@@ -343,7 +384,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(verifiedNotification(5L, testBlock(5).blockUnparsed()));
         awaitNotifications(1);
@@ -376,7 +420,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(trackingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
         awaitNotifications(1);
@@ -394,6 +441,8 @@ class ExpandedCloudStoragePluginTest
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
                         "cloud.storage.expanded.objectKeyPrefix", "blocks"));
 
         assertEquals(
@@ -421,7 +470,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
         awaitNotifications(1);
@@ -462,7 +514,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(throwingClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
         awaitNotifications(1);
@@ -506,7 +561,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(capturing),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         for (int i = 0; i < 10; i++) {
             plugin.handleVerification(verifiedNotification(i, testBlock(i).blockUnparsed()));
@@ -552,7 +610,10 @@ class ExpandedCloudStoragePluginTest
         start(
                 new ExpandedCloudStoragePlugin(delayedClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", "http://fake:9000"));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
         assertTrue(uploadStarted.await(5, TimeUnit.SECONDS), "Upload must have started within 5s");
@@ -583,10 +644,15 @@ class ExpandedCloudStoragePluginTest
         // is exercised. BuckyS3UploadClient's constructor will throw UploadException
         // (wrapping S3ClientInitializationException) for a blank endpoint URL, which start()
         // catches and logs — leaving completionService null.
+        // bucketName and regionName are valid; the blank endpointUrl is the only error,
+        // which surfaces inside BuckyS3UploadClient at start() time.
         start(
                 new ExpandedCloudStoragePlugin(),
                 new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of("cloud.storage.expanded.endpointUrl", ""));
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
 
         assertDoesNotThrow(
                 () -> plugin.handleVerification(new VerificationNotification(

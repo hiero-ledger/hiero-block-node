@@ -6,8 +6,10 @@ import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletionService;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -43,10 +45,9 @@ import org.hiero.metrics.core.MetricRegistry;
 /// ## Async upload via CompletionService
 /// Each verified block is submitted as a {@link SingleBlockStoreTask} to a
 /// {@link CompletionService} backed by a dedicated virtual-thread executor. The plugin
-/// drains completed tasks immediately before each new notification, publishing a
-/// {@link PersistedNotification} for every completed upload (success or failure). This
-/// ensures callers waiting on `PersistedNotification` are notified even when uploads
-/// overlap block boundaries.
+/// drains completed tasks immediately before each new notification, buffering results in
+/// a {@link ConcurrentSkipListMap} keyed by block number so that
+/// {@link PersistedNotification}s are always published in ascending block-number order.
 ///
 /// ## Object key format
 /// ```
@@ -101,6 +102,19 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// to call {@link ExecutorService#shutdown()} + {@link ExecutorService#awaitTermination} without
     /// affecting other plugins.
     private ExecutorService virtualThreadExecutor;
+
+    /// Staging map for upload results awaiting publication.
+    ///
+    /// Completed {@link SingleBlockStoreTask.UploadResult}s are placed here keyed by block number.
+    /// {@link #drainCompletedTasks()} then polls entries in ascending block-number order before
+    /// publishing {@link PersistedNotification}s, ensuring monotonically increasing block-number
+    /// delivery to downstream consumers.
+    ///
+    /// Note: strict sequential ordering (holding back block N+1 until block N completes) is not
+    /// enforced here; only the order of already-completed results is sorted. Full gap-aware
+    /// sequential delivery is a planned follow-up.
+    private final ConcurrentSkipListMap<Long, SingleBlockStoreTask.UploadResult> pendingPublish =
+            new ConcurrentSkipListMap<>();
 
     /// Metrics instance, saved in {@link #init} for use in {@link #start}.
     private MetricRegistry metricRegistry;
@@ -229,56 +243,75 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
 
     // ---- Private helpers ----------------------------------------------------
 
-    /// Polls the {@link CompletionService} for all currently-completed upload tasks and
-    /// publishes a {@link PersistedNotification} for each result.
+    /// Polls the {@link CompletionService} for all currently-completed upload tasks,
+    /// stages their results in the {@link #pendingPublish} map by block number, then
+    /// publishes all staged results in ascending block-number order.
     ///
     /// This is a non-blocking drain — it only collects tasks that have already finished.
+    /// Results are published in block-number order regardless of completion order, so
+    /// downstream consumers receive monotonically increasing block-number notifications.
+    ///
     /// Package-private visibility allows test helpers in this package to drive the drain
     /// loop without holding production threads.
     void drainCompletedTasks() {
         if (completionService == null) {
             return;
         }
+        // Collect all currently-finished futures into the sorted staging map.
         Future<SingleBlockStoreTask.UploadResult> completed;
         while ((completed = completionService.poll()) != null) {
-            publishResult(completed);
+            processCompletedFuture(completed);
+        }
+        // Publish staged results in ascending block-number order.
+        Map.Entry<Long, SingleBlockStoreTask.UploadResult> entry;
+        while ((entry = pendingPublish.pollFirstEntry()) != null) {
+            publishResult(entry.getValue());
         }
     }
 
-    /// Decrements the in-flight counter and publishes a {@link PersistedNotification}
-    /// for the given completed upload future. Handles {@link InterruptedException} and
-    /// {@link ExecutionException} without propagating.
-    private void publishResult(final Future<SingleBlockStoreTask.UploadResult> completed) {
+    /// Extracts the {@link SingleBlockStoreTask.UploadResult} from a completed future and
+    /// stages it in {@link #pendingPublish} for ordered publication.
+    ///
+    /// Cancelled tasks are logged at TRACE and skipped — cancellation is expected during
+    /// normal shutdown. {@link ExecutionException} wraps an unexpected unchecked failure
+    /// inside the task; the failure counter is incremented and the cause is logged.
+    private void processCompletedFuture(final Future<SingleBlockStoreTask.UploadResult> completed) {
+        if (completed.isCancelled()) {
+            LOGGER.log(TRACE, "Upload task was cancelled during shutdown.");
+            return;
+        }
         try {
-            if (completed.isCancelled()) {
-                LOGGER.log(TRACE, "Upload task was cancelled during shutdown.");
-                return;
-            }
-
             final SingleBlockStoreTask.UploadResult result = completed.get();
-            blockMessaging.sendBlockPersisted(
-                    new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
-            if (!result.succeeded()) {
-                metricsHolder.uploadFailuresTotal().increment();
-                LOGGER.log(
-                        WARNING,
-                        "Block {0}: upload failed ({1}); PersistedNotification sent with succeeded=false.",
-                        result.blockNumber(),
-                        result.status());
-            } else {
-                metricsHolder.uploadsTotal().increment();
-                metricsHolder.uploadBytesTotal().increment(result.bytesUploaded());
-                LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
-            }
-
-            metricsHolder.uploadLatencyNs().increment(result.uploadDurationNs());
+            pendingPublish.put(result.blockNumber(), result);
         } catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOGGER.log(WARNING, "Interrupted while draining upload results.", e);
+            LOGGER.log(WARNING, "Interrupted while collecting upload result.", e);
         } catch (final ExecutionException e) {
+            // SingleBlockStoreTask.call() catches all known exceptions internally and returns
+            // an UploadResult. An ExecutionException here means an unexpected RuntimeException
+            // escaped the task — count it as a failure and log the root cause.
             metricsHolder.uploadFailuresTotal().increment();
             LOGGER.log(WARNING, "Unexpected exception in upload task: ", e.getCause());
         }
+    }
+
+    /// Publishes a {@link PersistedNotification} for the given upload result and updates metrics.
+    private void publishResult(final SingleBlockStoreTask.UploadResult result) {
+        blockMessaging.sendBlockPersisted(
+                new PersistedNotification(result.blockNumber(), result.succeeded(), 0, result.blockSource()));
+        if (!result.succeeded()) {
+            metricsHolder.uploadFailuresTotal().increment();
+            LOGGER.log(
+                    WARNING,
+                    "Block {0}: upload failed ({1}); PersistedNotification sent with succeeded=false.",
+                    result.blockNumber(),
+                    result.status());
+        } else {
+            metricsHolder.uploadsTotal().increment();
+            metricsHolder.uploadBytesTotal().increment(result.bytesUploaded());
+            LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
+        }
+        metricsHolder.uploadLatencyNs().increment(result.uploadDurationNs());
     }
 
     /// Builds the S3 object key for the given block number using the 4-digit folder
