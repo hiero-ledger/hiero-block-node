@@ -6,7 +6,6 @@ description = "Hiero Block Node Roster Bootstrap Tss Service"
 dependencies {
     implementation(project(":base"))
     implementation(project(":common"))
-    implementation(project(":common"))
 }
 
 // Remove the following line to enable all 'javac' lint checks that we have turned on by default
