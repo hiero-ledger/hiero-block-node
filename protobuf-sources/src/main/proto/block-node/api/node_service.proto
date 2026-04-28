@@ -197,6 +197,10 @@ message TssData {
      * The current TSS roster
      */
     TssRoster current_roster = 3;
+    /**
+     * The starting block number this TssData is valid from
+     */
+    uint64 valid_from_block = 4;
 }
 
 /**
@@ -209,6 +213,10 @@ message TssRoster {
      * The list of `RosterEntry`
      */
     repeated RosterEntry roster_entries = 1;
+    /**
+     * The starting block number this TssRoster is valid from
+     */
+    uint64 valid_from_block = 2;
 }
 
 /**
@@ -233,7 +241,6 @@ message RosterEntry {
      * The schnorr public key
      */
     bytes schnorr_public_key = 3;
-
 }
 
 /**

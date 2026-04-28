@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: Apache-2.0
+syntax = "proto3";
+
+package org.hiero.block.internal;
+
+option java_package = "org.hiero.block.internal.protoc";
+// <<<pbj.java_package = "org.hiero.block.internal">>> This comment is special code for setting PBJ Compiler java package
+option java_multiple_files = true;
+
+import "block-node/api/node_service.proto";
+import "services/timestamp.proto";
+
+/**
+ * A registry of TSS (Threshold Signature Scheme) publication snapshots.
+ * This allows storing an ordered history of LedgerIdPublication transactions
+ * discovered in the block stream.
+ */
+message TssPublicationHistory {
+    /**
+     * An ordered list of TSS publication snapshots, from oldest to newest.
+     */
+    repeated DatedTssPublication publications = 1;
+}
+
+/**
+ * A TSS publication snapshot at a specific block. The block is the block
+ * that contained the LedgerIdPublication transaction.
+ */
+message DatedTssPublication {
+    /**
+     * The block timestamp at which this publication was found.
+     */
+    proto.Timestamp block_timestamp = 1;
+    /**
+     * The block number that contained this publication.
+     */
+    uint64 block_number = 2;
+    /**
+     * The TSS data extracted from the LedgerIdPublication transaction,
+     * stored in the Block Node's canonical format.
+     */
+    org.hiero.block.api.TssData tss_data = 3;
+}
