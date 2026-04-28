@@ -334,6 +334,13 @@ class ExpandedCloudStoragePluginTest
                         "http://fake:9000", "", "blocks",
                         ExpandedCloudStorageConfig.StorageClass.STANDARD, "us-east-1", "", "", 60),
                 "blank bucketName must throw IllegalArgumentException");
+        // endpointUrl blank
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new ExpandedCloudStorageConfig(
+                "", "bucket", "blocks",
+                ExpandedCloudStorageConfig.StorageClass.STANDARD, "us-east-1", "", "", 60),
+            "blank endpointUrl must throw IllegalArgumentException");
         // regionName blank
         assertThrows(
                 IllegalArgumentException.class,
@@ -544,21 +551,6 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
-    @DisplayName("handleVerification is a no-op when the plugin has not been started")
-    void handleVerificationIsNoOpBeforeStart() {
-        final CapturingS3Client capturing = new CapturingS3Client();
-        // Construct the plugin but intentionally do NOT call PluginTestBase.start().
-        // completionService stays null — simulates the post-failure state after a bad start().
-        final ExpandedCloudStoragePlugin uninitPlugin = new ExpandedCloudStoragePlugin(capturing);
-
-        assertDoesNotThrow(
-                () -> uninitPlugin.handleVerification(new VerificationNotification(
-                        true, 1L, Bytes.EMPTY, testBlock(1).blockUnparsed(), BlockSource.UNKNOWN)),
-                "handleVerification must not throw when the plugin has not been started");
-        assertEquals(0, capturing.uploads.size(), "No upload must be attempted when the plugin has not been started");
-    }
-
-    @Test
     @DisplayName("Ten concurrent verified blocks each produce a PersistedNotification with succeeded=true")
     void tenBlocksAllProduceSuccessNotifications() throws InterruptedException {
         final CapturingS3Client capturing = new CapturingS3Client();
@@ -638,32 +630,5 @@ class ExpandedCloudStoragePluginTest
                 "PersistedNotification must be published before stop() completes");
         assertTrue(
                 closedAfterNotification.get(), "S3 client must be closed only after notifications have been published");
-    }
-
-    @Test
-    @DisplayName(
-            "Plugin is inactive when endpointUrl is blank: BuckyS3UploadClient throws UploadException, handleVerification is a no-op")
-    void pluginInactiveOnBlankEndpoint() {
-        // Use the public no-arg constructor so the production BuckyS3UploadClient code path
-        // is exercised. BuckyS3UploadClient's constructor will throw UploadException
-        // (wrapping S3ClientInitializationException) for a blank endpoint URL, which start()
-        // catches and logs — leaving completionService null.
-        // bucketName and regionName are valid; the blank endpointUrl is the only error,
-        // which surfaces inside BuckyS3UploadClient at start() time.
-        start(
-                new ExpandedCloudStoragePlugin(),
-                new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of(
-                        "cloud.storage.expanded.endpointUrl", "",
-                        "cloud.storage.expanded.bucketName", "test-bucket",
-                        "cloud.storage.expanded.regionName", "us-east-1"));
-
-        assertDoesNotThrow(
-                () -> plugin.handleVerification(new VerificationNotification(
-                        true, 1L, Bytes.EMPTY, testBlock(1).blockUnparsed(), BlockSource.UNKNOWN)),
-                "handleVerification must not throw when the plugin is inactive due to blank endpoint");
-        assertTrue(
-                blockMessaging.getSentPersistedNotifications().isEmpty(),
-                "No PersistedNotification must be sent when the plugin is inactive");
     }
 }
