@@ -385,8 +385,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     void startApplicationStateFacility() {
         LOGGER.log(INFO, "ApplicationStateFacility start called");
-        Thread.UncaughtExceptionHandler handler =
-                (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
+        Thread.UncaughtExceptionHandler handler = (thread, e) ->
+                LOGGER.log(INFO, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), e);
 
         // Create thread executors via threadPoolManager.
         applicationStateExecutor = blockNodeContext
