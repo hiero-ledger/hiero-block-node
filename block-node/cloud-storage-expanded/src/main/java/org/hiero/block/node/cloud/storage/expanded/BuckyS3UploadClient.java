@@ -8,7 +8,7 @@ import java.util.Iterator;
 ///
 /// Created using plugin configuration. This is a named concrete class rather than an anonymous
 /// inner class so that it appears by name in stack traces and heap dumps, making debugging easier.
-final class BuckyS3UploadClient extends S3UploadClient {
+final class BuckyS3UploadClient implements S3UploadClient {
 
     /// Underlying bucky S3 client that performs the actual HTTP multipart upload.
     private final com.hedera.bucky.S3Client bucky;
@@ -40,7 +40,7 @@ final class BuckyS3UploadClient extends S3UploadClient {
     /// so that bucky types stay contained within this class and do not leak into the
     /// abstract {@link S3UploadClient} interface or any callers.
     @Override
-    void uploadFile(
+    public void uploadFile(
             final String objectKey,
             final String storageClass,
             final Iterator<byte[]> contentIterable,

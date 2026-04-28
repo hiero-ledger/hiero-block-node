@@ -45,7 +45,7 @@ class SingleBlockStoreTaskTest {
     private S3UploadClient successClient() {
         return new S3UploadClient() {
             @Override
-            void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) {}
+            public void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) {}
 
             @Override
             public void close() {}
@@ -57,7 +57,7 @@ class SingleBlockStoreTaskTest {
     private S3UploadClient throwingS3Client() {
         return new S3UploadClient() {
             @Override
-            void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) throws UploadException {
+            public void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) throws UploadException {
                 throw new UploadException("Simulated S3 failure", null);
             }
 
@@ -71,7 +71,7 @@ class SingleBlockStoreTaskTest {
     private S3UploadClient throwingIoClient() {
         return new S3UploadClient() {
             @Override
-            void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) throws IOException {
+            public void uploadFile(String k, String sc, Iterator<byte[]> c, String ct) throws IOException {
                 throw new IOException("Simulated I/O failure");
             }
 
