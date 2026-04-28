@@ -11,12 +11,6 @@ import org.hiero.block.node.base.Loggable;
 ///
 @ConfigData("roster.bootstrap.tss")
 public record RosterBootstrapTssConfig(
-        @Loggable @ConfigProperty(defaultValue = "") String ledgerId,
-        @Loggable @ConfigProperty(defaultValue = "") String wrapsVerificationKey,
-        @Loggable @ConfigProperty(defaultValue = "0") long nodeId,
-        @Loggable @ConfigProperty(defaultValue = "0") long weight,
-        @Loggable @ConfigProperty(defaultValue = "") String schnorrPublicKey,
-        @Loggable @ConfigProperty(defaultValue = "0") long validFromBlock,
-        @Loggable @ConfigProperty(defaultValue = "0") long rosterValidFromBlock) {}
+        @Loggable @ConfigProperty(defaultValue = "") String tssDataJsonPath) {}
 
 // spotless:on

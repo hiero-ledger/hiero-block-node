@@ -405,9 +405,15 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     private void checkForApplicationStateUpdates() {
         boolean updated = false;
-        while (!tssDataUpdates.isEmpty()) {
-            updated |= updateBlockNodeContext(tssDataUpdates.poll());
+        TssData tssData = tssDataUpdates.poll();
+        ;
+        while (tssData != null) {
+            // Because we only update TssData for the most recent blockNumber,
+            // |= will let us know if any TssData where updated.
+            updated |= updateBlockNodeContext(tssData);
+            tssData = tssDataUpdates.poll();
         }
+
         if (updated) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
             LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
