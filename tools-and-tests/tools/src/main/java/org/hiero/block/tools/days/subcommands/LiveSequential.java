@@ -1501,8 +1501,9 @@ public class LiveSequential implements Runnable {
             System.out.println("[live-sequential] Block " + nextBlockNumber
                     + " timed out waiting for all sigs, proceeding with " + sigCount + "/" + maxExpectedSigs);
         } else {
-            System.out.println("[live-sequential] Block " + nextBlockNumber + " has all signatures (" + sigCount + "/"
-                    + maxExpectedSigs + ")");
+            System.out.printf(
+                    "[live-sequential] Block %d has all signatures (%d/%d)%n",
+                    nextBlockNumber, sigCount, maxExpectedSigs);
         }
 
         return false;
