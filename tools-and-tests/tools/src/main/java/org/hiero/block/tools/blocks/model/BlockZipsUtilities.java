@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks.model;
 import com.github.luben.zstd.ZstdInputStream;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.runtime.io.buffer.BufferedData;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,6 +12,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -23,6 +25,7 @@ import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.tools.blocks.validation.ProtobufParsingConstants;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Shared utilities for discovering, reading, decompressing and parsing block files from directories and zip archives.
@@ -77,9 +80,18 @@ public final class BlockZipsUtilities {
      * @param blockNumber the block number
      * @param preValidationName the name of the validation that failed, or null if all passed
      * @param preValidationError the first validation failure from the parallel stage, or null if all passed
+     * @param blockHash pre-computed block hash via {@code hashBlock()}, or null if not computed
+     * @param blockInstant block timestamp extracted from BlockHeader, or null if not extracted
+     * @param recordFileBytes raw RecordFile bytes extracted from the block, or null if not found
      */
     public record PreValidatedBlock(
-            BlockUnparsed block, long blockNumber, String preValidationName, Exception preValidationError) {}
+            BlockUnparsed block,
+            long blockNumber,
+            String preValidationName,
+            Exception preValidationError,
+            byte @Nullable [] blockHash,
+            @Nullable Instant blockInstant,
+            @Nullable Bytes recordFileBytes) {}
 
     /**
      * Extract a block number from a filename matching block file patterns.
