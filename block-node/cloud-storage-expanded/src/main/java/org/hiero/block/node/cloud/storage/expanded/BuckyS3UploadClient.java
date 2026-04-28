@@ -11,6 +11,10 @@ import java.util.Iterator;
 final class BuckyS3UploadClient implements S3UploadClient {
 
     /// Underlying bucky S3 client that performs the actual HTTP multipart upload.
+    ///
+    /// The fully-qualified name is intentional: importing `com.hedera.bucky.S3Client`
+    /// would conflict with this package's own {@link S3UploadClient} in error messages
+    /// and IDE navigation. The FQN keeps the two types visually distinct.
     private final com.hedera.bucky.S3Client bucky;
 
     /// Constructs a new client from plugin configuration.

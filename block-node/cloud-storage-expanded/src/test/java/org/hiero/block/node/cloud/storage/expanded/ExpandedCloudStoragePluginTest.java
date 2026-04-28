@@ -17,6 +17,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -57,8 +58,11 @@ class ExpandedCloudStoragePluginTest
 
     /// Records `uploadFile` calls so tests can assert the exact arguments passed to the
     /// upload client without hitting any real endpoint.
+    ///
+    /// Uses {@link CopyOnWriteArrayList} because {@code uploadFile} is called from virtual
+    /// upload threads while the test thread reads {@code uploads} after awaiting notifications.
     private static class CapturingS3Client implements S3UploadClient {
-        final List<UploadCall> uploads = new java.util.ArrayList<>();
+        final List<UploadCall> uploads = new CopyOnWriteArrayList<>();
 
         @Override
         public void uploadFile(
