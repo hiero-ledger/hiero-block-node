@@ -213,7 +213,7 @@ jobs:
           if [[ -n "${{ inputs.solo-version }}" ]]; then
             SOLO_VERSION="${{ inputs.solo-version }}"
           else
-            SOLO_VERSION="0.68.0"
+            SOLO_VERSION="0.70.0"
           fi
 
           # Relay version: use input if provided, otherwise default to latest
