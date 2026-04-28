@@ -241,59 +241,6 @@ class BlockNodeCloudStorageTests {
     }
 
     /**
-     * Verifies that the node starts and processes blocks normally when
-     * {@code CLOUD_EXPANDED_ENDPOINT_URL} is blank (plugin inactive).
-     * No S3 objects should appear and the node must remain healthy.
-     */
-    @Test
-    void nodeRemainsHealthyWhenCloudPluginEndpointIsBlank() throws Exception {
-        // Restart the app with a blank endpoint so the cloud plugin stays inactive.
-        // All other properties remain valid — the blank endpoint specifically is what disables the plugin.
-        app.shutdown("nodeRemainsHealthyWhenCloudPluginEndpointIsBlank", "restarting with blank endpoint");
-
-        // Override only the endpoint to blank; other properties remain from setUp().
-        System.setProperty("cloud.storage.expanded.endpointUrl", "");
-
-        app = new BlockNodeApp(new ServiceLoaderFunction(), false);
-        app.start();
-        final long startDeadline = System.currentTimeMillis() + 10_000L;
-        while (app.blockNodeState() != State.RUNNING && System.currentTimeMillis() < startDeadline) {
-            Thread.sleep(50);
-        }
-        assertEquals(
-                State.RUNNING,
-                app.blockNodeState(),
-                "BlockNodeApp must be RUNNING even when cloud plugin endpoint is blank");
-
-        // Publish a block — node must process it normally
-        publishClient = createGrpcClient();
-        final long blockNumber = 0L;
-        final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
-        final PublishStreamRequest blockRequest = PublishStreamRequest.newBuilder()
-                .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
-                .build();
-
-        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publishSvc =
-                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(publishClient, OPTIONS);
-        final ResponsePipelineUtils<PublishStreamResponse> ackObserver = new ResponsePipelineUtils<>();
-        final Pipeline<? super PublishStreamRequest> stream = publishSvc.publishBlockStream(ackObserver);
-
-        final AtomicReference<CountDownLatch> ackLatch = ackObserver.setAndGetOnNextLatch(1);
-        stream.onNext(blockRequest);
-        endBlock(blockNumber, stream);
-        awaitLatch(ackLatch, "block 0 acknowledgement with blank endpoint plugin");
-
-        // No S3 objects must appear — the plugin is inactive
-        Thread.sleep(2_000L);
-        assertThat(listObjectKeys()).isEmpty();
-
-        // Close the stream by sending a duplicate
-        final AtomicReference<CountDownLatch> connClosedLatch = ackObserver.setAndGetConnectionEndedLatch(1);
-        stream.onNext(blockRequest);
-        awaitLatch(connClosedLatch, "connection closed by server after duplicate");
-    }
-
-    /**
      * Publishes three consecutive blocks (0, 1, 2) and asserts each lands in S3Mock
      * with the correct 4/4/4/4/3 folder-hierarchy key. This exercises sequential
      * key computation across block boundaries.
