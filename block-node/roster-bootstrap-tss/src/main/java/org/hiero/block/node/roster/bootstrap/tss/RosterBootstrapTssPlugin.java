@@ -36,9 +36,9 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     private volatile BlockNodeContext blockNodeContext;
     /// The application state facility, for updating application state.
     private ApplicationStateFacility applicationStateFacility;
-    private BlockNodeSource blockNodeSources;
+
     private boolean hasBNSourcesPath = false;
-    /** The ScheduledExecutorService used by the TssBootstrapPlugin to query peer BNs for TssData */
+    /** The ScheduledExecutorService used by the RosterBootstrapPlugin to query peer BNs for TssData */
     private ScheduledExecutorService queryPeerExecutor;
     /** The config information for the RosterBootstrapTssConfig*/
     private RosterBootstrapTssConfig rosterBootstrapTssConfig;
@@ -82,18 +82,27 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         }
 
         try {
-            blockNodeSources = BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
+            BlockNodeSource blockNodeSources =
+                    BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
+            // Let the logs know what we loaded.
+            for (BlockNodeSourceConfig node : blockNodeSources.nodes()) {
+                LOGGER.log(INFO, "Loaded backfill source node: {0}", node);
+            }
+            hasBNSourcesPath = true;
         } catch (ParseException | IOException e) {
             final String parseFailedMsg =
                     "Failed to parse block node sources from path: [%s], TssBootstrapPlugin will not query any peers: %s"
                             .formatted(rosterBootstrapTssConfig.blockNodeSourcesPath(), e.getMessage());
             LOGGER.log(WARNING, parseFailedMsg, e);
         }
-        // Let the logs know what we loaded.
-        for (BlockNodeSourceConfig node : blockNodeSources.nodes()) {
-            LOGGER.log(INFO, "Loaded backfill source node: {0}", node);
-        }
-        hasBNSourcesPath = true;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void stop() {
+        if (queryPeerExecutor != null) queryPeerExecutor.shutdown();
     }
 
     /**
@@ -149,7 +158,5 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     }
 
     /// queries peer BlockNodes for their TssData
-    private void queryPeerTssData() {
-        boolean updated = false;
-    }
+    private void queryPeerTssData() {}
 }
