@@ -310,6 +310,7 @@ class AllBlocksHasherHandlerTest {
                 mock(HealthFacility.class),
                 mock(BlockMessagingFacility.class),
                 facility,
+                null,
                 mock(ServiceLoaderFunction.class),
                 mock(ThreadPoolManager.class),
                 BlockNodeVersions.DEFAULT,
