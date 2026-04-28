@@ -21,6 +21,16 @@ on:
         type: boolean
         required: false
         default: true
+      chart_only:
+        description: "Publish only the block-node-server helm chart (skip images, jars, simulator)"
+        type: boolean
+        required: false
+        default: false
+      release_ref:
+        description: "Branch or tag to checkout for the release (e.g. v0.31.0). Leave empty to use the ref the workflow was triggered on."
+        type: string
+        required: false
+        default: ""
 
 defaults:
   run:
@@ -43,6 +53,7 @@ env:
 
 jobs:
   package-protobuf-source:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 5
     runs-on: hiero-block-node-linux-medium
 
@@ -56,6 +67,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.release_ref || github.ref }}
 
       - name: Extract version
         id: extract_version
@@ -93,6 +105,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   publish-app:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
     strategy:
@@ -113,6 +126,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.release_ref || github.ref }}
 
       - name: Install JDK
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
@@ -175,6 +189,7 @@ jobs:
             distributions=./block-node/app/build/distributions
 
   publish-jars:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
 
@@ -188,6 +203,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.release_ref || github.ref }}
 
       - name: Install GnuPG Tools
         if: "${{ github.event_name != 'workflow_dispatch' || github.event.inputs.publish == 'true' }}"
@@ -236,6 +252,7 @@ jobs:
         run: ./gradlew publishAggregationToCentralPortal -PpublishSigningEnabled=true
 
   publish-simulator:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 30
     runs-on: hiero-block-node-linux-medium
 
@@ -249,6 +266,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.release_ref || github.ref }}
 
       - name: Install JDK
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
@@ -307,6 +325,10 @@ jobs:
     needs:
       - publish-app
       - publish-jars
+    if: |
+      always() &&
+      (needs.publish-app.result == 'success' || needs.publish-app.result == 'skipped') &&
+      (needs.publish-jars.result == 'success' || needs.publish-jars.result == 'skipped')
     runs-on: hiero-block-node-linux-medium
 
     steps:
@@ -317,6 +339,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.inputs.release_ref || github.ref }}
 
       - name: Install Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
@@ -345,6 +369,7 @@ jobs:
           helm push block-node-server-${{ env.VERSION }}.tgz oci://ghcr.io/hiero-ledger/hiero-block-node
 
   helm-chart-release-simulator:
+    if: "${{ github.event.inputs.chart_only != 'true' }}"
     timeout-minutes: 15
     needs: publish-simulator
     runs-on: hiero-block-node-linux-medium
@@ -357,6 +382,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.inputs.release_ref || github.ref }}
 
       - name: Install Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
