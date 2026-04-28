@@ -19,8 +19,7 @@ interface S3UploadClient extends AutoCloseable {
     /// @param contentType     the MIME content type (e.g., `"application/octet-stream"`)
     /// @throws UploadException if the S3 service returns an error response
     /// @throws IOException     if a transport-level I/O error occurs
-    void uploadFile(
-            String objectKey, String storageClass, Iterator<byte[]> contentIterable, String contentType)
+    void uploadFile(String objectKey, String storageClass, Iterator<byte[]> contentIterable, String contentType)
             throws UploadException, IOException;
 
     /// Closes the underlying S3 client and releases any held resources.

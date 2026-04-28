@@ -2,9 +2,9 @@
 package org.hiero.block.node.cloud.storage.expanded;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -17,8 +17,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -331,22 +331,40 @@ class ExpandedCloudStoragePluginTest
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000", "", "blocks",
-                        ExpandedCloudStorageConfig.StorageClass.STANDARD, "us-east-1", "", "", 60),
+                        "http://fake:9000",
+                        "",
+                        "blocks",
+                        ExpandedCloudStorageConfig.StorageClass.STANDARD,
+                        "us-east-1",
+                        "",
+                        "",
+                        60),
                 "blank bucketName must throw IllegalArgumentException");
         // endpointUrl blank
         assertThrows(
-            IllegalArgumentException.class,
-            () -> new ExpandedCloudStorageConfig(
-                "", "bucket", "blocks",
-                ExpandedCloudStorageConfig.StorageClass.STANDARD, "us-east-1", "", "", 60),
-            "blank endpointUrl must throw IllegalArgumentException");
+                IllegalArgumentException.class,
+                () -> new ExpandedCloudStorageConfig(
+                        "",
+                        "bucket",
+                        "blocks",
+                        ExpandedCloudStorageConfig.StorageClass.STANDARD,
+                        "us-east-1",
+                        "",
+                        "",
+                        60),
+                "blank endpointUrl must throw IllegalArgumentException");
         // regionName blank
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new ExpandedCloudStorageConfig(
-                        "http://fake:9000", "bucket", "blocks",
-                        ExpandedCloudStorageConfig.StorageClass.STANDARD, "", "", "", 60),
+                        "http://fake:9000",
+                        "bucket",
+                        "blocks",
+                        ExpandedCloudStorageConfig.StorageClass.STANDARD,
+                        "",
+                        "",
+                        "",
+                        60),
                 "blank regionName must throw IllegalArgumentException");
     }
 
