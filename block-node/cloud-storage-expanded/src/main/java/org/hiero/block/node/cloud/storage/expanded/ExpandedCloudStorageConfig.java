@@ -9,10 +9,10 @@ import org.hiero.block.node.base.Loggable;
 /// Configuration for the expanded cloud storage plugin.
 ///
 /// ## Required fields
-/// `bucketName` and `regionName` must be explicitly set by the operator. A blank value
-/// for either is a misconfiguration and is rejected at startup with a clear error message.
-/// `endpointUrl` is also required; a blank value causes {@link BuckyS3UploadClient} to
-/// throw at {@code start()} time, leaving the plugin inactive.
+/// `endpointUrl`, `bucketName`, and `regionName` must all be explicitly set by the operator.
+/// A blank value for any of them is a misconfiguration that is rejected at construction time
+/// with a clear {@link IllegalArgumentException}. The plugin does not support a soft-disabled
+/// or inactive state — if it is present, it must be fully configured.
 ///
 /// ## Credential options
 /// Three credential strategies are supported, in priority order:
@@ -29,7 +29,7 @@ import org.hiero.block.node.base.Loggable;
 ///    cloud-native (EC2 / ECS / GKE Workload Identity) deployments.
 ///
 /// @param endpointUrl          S3-compatible endpoint URL (e.g. `https://s3.amazonaws.com/`).
-///                             Required; a blank value causes the plugin to be inactive.
+///                             Required; must not be blank.
 /// @param bucketName           name of the S3 bucket to upload blocks into. Required; must not
 ///                             be blank.
 /// @param objectKeyPrefix      prefix prepended to every object key (e.g. `"blocks"`).
@@ -60,12 +60,16 @@ public record ExpandedCloudStorageConfig(
 
     /// Validates required fields at construction time.
     ///
-    /// `bucketName` and `regionName` are required for the plugin to function; a blank
-    /// value indicates an operator misconfiguration rather than an intentional disable.
+    /// `endpointUrl`, `bucketName`, and `regionName` are all required; a blank value for
+    /// any of them indicates operator misconfiguration.
     public ExpandedCloudStorageConfig {
         if (bucketName == null || bucketName.isBlank()) {
             throw new IllegalArgumentException(
                     "cloud.storage.expanded.bucketName must not be blank; set it to the target S3 bucket name.");
+        }
+        if (endpointUrl == null || endpointUrl.isBlank()) {
+            throw new IllegalArgumentException(
+                "cloud.storage.expanded.endpointUrl must not be blank; set it to a valid S3 compatible url (e.g. https://s3.amazonaws.com/).");
         }
         if (regionName == null || regionName.isBlank()) {
             throw new IllegalArgumentException(

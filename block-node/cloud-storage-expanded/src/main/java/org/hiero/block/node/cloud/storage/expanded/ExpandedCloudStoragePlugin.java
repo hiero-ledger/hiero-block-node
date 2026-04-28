@@ -90,8 +90,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// Messaging facility used to publish {@link PersistedNotification} results.
     private BlockMessagingFacility blockMessaging;
 
-    /// The active S3 upload client. `null` when the plugin is misconfigured or not yet
-    /// started. May be pre-set by the package-private test constructor.
+    /// The active S3 upload client. `null` before {@link #start} and after {@link #stop}.
+    /// May be pre-set by the package-private test constructor.
     private S3UploadClient s3Client;
 
     /// `CompletionService` for async block upload tasks.
@@ -119,7 +119,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// Metrics instance, saved in {@link #init} for use in {@link #start}.
     private MetricRegistry metricRegistry;
 
-    /// Counters for upload events; non-null only when the plugin is active.
+    /// Counters for upload events; non-null after {@link #start} succeeds.
     private MetricsHolder metricsHolder;
 
     // ---- Constructors -------------------------------------------------------
@@ -156,16 +156,16 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// {@inheritDoc}
     @Override
     public void start() {
-        try {
-            if (s3Client == null) {
+        if (s3Client == null) {
+            try {
                 s3Client = new BuckyS3UploadClient(config);
+            } catch (final UploadException e) {
+                throw new IllegalStateException("Failed to initialize S3 client: " + e.getMessage(), e);
             }
-            virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
-            completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
-            metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metricRegistry));
-        } catch (final UploadException e) {
-            LOGGER.log(WARNING, "Failed to create S3 client; plugin will be inactive.", e);
         }
+        virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        completionService = new ExecutorCompletionService<>(virtualThreadExecutor);
+        metricsHolder = Objects.requireNonNull(MetricsHolder.createMetrics(metricRegistry));
     }
 
     /// {@inheritDoc}
@@ -217,9 +217,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// {@link CompletionService}.
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        if (s3Client == null || completionService == null) {
-            LOGGER.log(TRACE, "Skipping upload: null s3Client or completionService.");
-        } else if (!notification.success()) {
+        if (!notification.success()) {
             LOGGER.log(
                     TRACE, "Skipping upload for block {0}: verification did not succeed.", notification.blockNumber());
         } else if (notification.blockNumber() < 0) {
@@ -254,9 +252,6 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// Package-private visibility allows test helpers in this package to drive the drain
     /// loop without holding production threads.
     void drainCompletedTasks() {
-        if (completionService == null) {
-            return;
-        }
         // Collect all currently-finished futures into the sorted staging map.
         Future<SingleBlockStoreTask.UploadResult> completed;
         while ((completed = completionService.poll()) != null) {
