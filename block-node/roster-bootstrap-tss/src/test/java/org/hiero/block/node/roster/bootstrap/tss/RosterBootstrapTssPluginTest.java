@@ -12,6 +12,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import org.hiero.block.api.RosterEntry;
+import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
@@ -24,6 +27,8 @@ import org.junit.jupiter.api.io.TempDir;
 public class RosterBootstrapTssPluginTest
         extends PluginTestBase<RosterBootstrapTssPlugin, BlockingExecutor, ScheduledExecutorService> {
 
+    final TssData tssData;
+
     Path testTempDir;
 
     Map<String, String> defaultConfig = new HashMap<>();
@@ -34,22 +39,36 @@ public class RosterBootstrapTssPluginTest
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         this.testTempDir = Objects.requireNonNull(tempDir);
 
-        defaultConfig.put(
-                "roster.bootstrap.tss.ledgerId",
-                "ZmU0MTA2ZWUwNGMzMzgyNTljZDcyMWEwN2Y0ZWFhZDMxMjEyZjEyZWFjOGE1MWFjYjM4YTc3OGE0Y2QyMDg3Mw==");
-        defaultConfig.put(
-                "roster.bootstrap.tss.wrapsVerificationKey",
-                "NTUyZTAxNDNjMGE4MTBmNmYwN2VkOGUyZWI0ZGM1MTkwNWEzMmFkMzljZDQ5Yzk0MWE0MGU1YmM4YWEyZDg4NA==");
-        defaultConfig.put("roster.bootstrap.tss.nodeId", "1");
-        defaultConfig.put("roster.bootstrap.tss.weight", "3");
-        defaultConfig.put("roster.bootstrap.tss.validFromBlock", "100");
-        defaultConfig.put("roster.bootstrap.tss.rosterValidFromBlock", "50");
-        defaultConfig.put(
-                "roster.bootstrap.tss.schnorrPublicKey",
-                "NWFkYWI2ZjBmYjQzMjk1OGU3OTdiNTI2NjRmNjY4OWQ1Yjg2MTRiYzE5NDE4MTQzODRlZDI4NmQyOTM4MDQxNg==");
-        defaultConfig.put(
-                "roster.bootstrap.tss.tssParametersFilePath",
-                testTempDir.resolve("tss-parameters.bin").toString());
+        final String tssDataJsonPath = testTempDir + "/tss-data.json";
+        tssData = TssData.newBuilder()
+                .ledgerId(Bytes.fromBase64(
+                        "ZmU0MTA2ZWUwNGMzMzgyNTljZDcyMWEwN2Y0ZWFhZDMxMjEyZjEyZWFjOGE1MWFjYjM4YTc3OGE0Y2QyMDg3Mw=="))
+                .wrapsVerificationKey(Bytes.fromBase64(
+                        "NTUyZTAxNDNjMGE4MTBmNmYwN2VkOGUyZWI0ZGM1MTkwNWEzMmFkMzljZDQ5Yzk0MWE0MGU1YmM4YWEyZDg4NA=="))
+                .currentRoster(TssRoster.newBuilder()
+                        .rosterEntries(RosterEntry.newBuilder()
+                                .nodeId(1)
+                                .weight(3)
+                                .schnorrPublicKey(
+                                        Bytes.fromBase64(
+                                                "NWFkYWI2ZjBmYjQzMjk1OGU3OTdiNTI2NjRmNjY4OWQ1Yjg2MTRiYzE5NDE4MTQzODRlZDI4NmQyOTM4MDQxNg=="))
+                                .build())
+                        .build())
+                .build();
+
+        createTestBlockNodeSourcesFile(tssData, tssDataJsonPath);
+
+        defaultConfig.put("roster.bootstrap.tss.tssDataJsonPath", tssDataJsonPath);
+    }
+
+    private void createTestBlockNodeSourcesFile(TssData tssData, String configPath) {
+        String jsonString = TssData.JSON.toJSON(tssData);
+        // Write the JSON string to the specified file path
+        try {
+            java.nio.file.Files.write(java.nio.file.Paths.get(configPath), jsonString.getBytes());
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Failed to write config to file: " + configPath, e);
+        }
     }
 
     @Test
@@ -72,30 +91,20 @@ public class RosterBootstrapTssPluginTest
             @Override
             public void onContextUpdate(BlockNodeContext context) {
                 updateTssDataCount[0]++;
+                assertEquals(tssData.ledgerId(), context.tssData().ledgerId());
+                assertEquals(tssData.wrapsVerificationKey(), context.tssData().wrapsVerificationKey());
                 assertEquals(
-                        Bytes.fromBase64(defaultConfig.get("roster.bootstrap.tss.ledgerId")),
-                        context.tssData().ledgerId());
-                assertEquals(
-                        Bytes.fromBase64(defaultConfig.get("roster.bootstrap.tss.wrapsVerificationKey")),
-                        context.tssData().wrapsVerificationKey());
-                assertEquals(
-                        Bytes.fromBase64(defaultConfig.get("roster.bootstrap.tss.schnorrPublicKey")),
+                        tssData.currentRoster().rosterEntries().get(0).schnorrPublicKey(),
                         context.tssData().currentRoster().rosterEntries().get(0).schnorrPublicKey());
                 assertEquals(
-                        Integer.valueOf(defaultConfig.get("roster.bootstrap.tss.nodeId"))
-                                .longValue(),
+                        tssData.currentRoster().rosterEntries().get(0).nodeId(),
                         context.tssData().currentRoster().rosterEntries().get(0).nodeId());
                 assertEquals(
-                        Integer.valueOf(defaultConfig.get("roster.bootstrap.tss.weight"))
-                                .longValue(),
+                        tssData.currentRoster().rosterEntries().get(0).weight(),
                         context.tssData().currentRoster().rosterEntries().get(0).weight());
+                assertEquals(tssData.validFromBlock(), context.tssData().validFromBlock());
                 assertEquals(
-                        Integer.valueOf(defaultConfig.get("roster.bootstrap.tss.validFromBlock"))
-                                .longValue(),
-                        context.tssData().validFromBlock());
-                assertEquals(
-                        Integer.valueOf(defaultConfig.get("roster.bootstrap.tss.rosterValidFromBlock"))
-                                .longValue(),
+                        tssData.currentRoster().validFromBlock(),
                         context.tssData().currentRoster().validFromBlock());
             }
         };
