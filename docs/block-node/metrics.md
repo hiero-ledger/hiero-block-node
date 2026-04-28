@@ -297,7 +297,7 @@ As the product matures through beta and rc phases, high severity alerts will be 
 | M        | `verification_block_time`                  | If value exceeds 20s, otherwise, configure as needed |
 | M        | `files_recent_persistence_time_latency_ns` | If value exceeds 20s, otherwise, configure as needed |
 
-**Archive**: Alerts for metrics regarding file archival
+**Cloud Expanded**: Alerts for metrics regarding expanded cloud storage (single-block S3 uploads)
 
 | Severity | Alert                         | Metric                                 |                      Condition                       |
 |:---------|:------------------------------|:---------------------------------------|------------------------------------------------------|

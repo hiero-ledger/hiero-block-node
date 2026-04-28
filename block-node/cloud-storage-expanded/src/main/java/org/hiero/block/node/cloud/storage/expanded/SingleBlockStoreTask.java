@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.IOException;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
@@ -133,7 +134,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
             LOGGER.log(WARNING, "Block {0}: S3 upload failed: ", blockNumber, e);
             return new UploadResult(
                     blockNumber, UploadStatus.S3_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
-        } catch (final java.io.IOException e) {
+        } catch (final IOException e) {
             LOGGER.log(WARNING, "Block {0}: I/O error during upload: ", blockNumber, e);
             return new UploadResult(
                     blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
