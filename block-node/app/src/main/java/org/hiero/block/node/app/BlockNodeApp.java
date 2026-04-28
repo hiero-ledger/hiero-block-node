@@ -417,17 +417,16 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     void stopApplicationStateFacility() {
-        if (applicationStateExecutor == null) {
-            return;
-        }
-        applicationStateExecutor.shutdownNow();
-        try {
-            if (!applicationStateExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                final String executorTerminationMsg = "applicationStateExecutor did not terminate in time";
-                LOGGER.log(INFO, executorTerminationMsg);
+        if (applicationStateExecutor != null) {
+            applicationStateExecutor.shutdownNow();
+            try {
+                if (!applicationStateExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    final String executorTerminationMsg = "applicationStateExecutor did not terminate in time";
+                    LOGGER.log(INFO, executorTerminationMsg);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 
