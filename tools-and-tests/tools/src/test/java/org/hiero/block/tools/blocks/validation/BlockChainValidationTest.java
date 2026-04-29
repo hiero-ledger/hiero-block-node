@@ -172,7 +172,7 @@ class BlockChainValidationTest {
     }
 
     @Test
-    void preComputedHash_usedWhenProvided() throws ValidationException {
+    void preComputedHashUsedWhenProvided() throws ValidationException {
         BlockChainValidation validation = new BlockChainValidation();
         byte[] preComputedHash = hashBlock(VALID_BLOCK);
         // Validate with pre-computed hash — should use it instead of recomputing
@@ -181,7 +181,7 @@ class BlockChainValidationTest {
     }
 
     @Test
-    void nullPreComputedHash_fallsBackToHashBlock() throws ValidationException {
+    void nullPreComputedHashFallsBackToHashBlock() throws ValidationException {
         BlockChainValidation validation = new BlockChainValidation();
         // Validate with null pre-computed hash — should compute it
         validation.validate(VALID_BLOCK, 0, (byte[]) null);
@@ -190,7 +190,7 @@ class BlockChainValidationTest {
     }
 
     @Test
-    void chainMismatch_stillCaughtWithPreComputedHash() throws ValidationException {
+    void chainMismatchStillCaughtWithPreComputedHash() throws ValidationException {
         BlockChainValidation validation = new BlockChainValidation();
         // Commit first block
         validation.validate(VALID_BLOCK, 0);

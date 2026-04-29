@@ -95,6 +95,10 @@ public class ValidateBlocksCommand implements Runnable {
     /** Read buffer size for ZipInputStream — tunes sequential HDD I/O. */
     private static final int ZIP_READ_BUFFER = 1 << 20; // 1 MiB
 
+    /** Sentinel for blocks that were skipped (e.g. corrupt zip mid-stream). */
+    private static final PreValidatedBlock SKIPPED_BLOCK =
+            new PreValidatedBlock(null, -1, null, null, null, null, null);
+
     /** Number of zip files skipped because their central directory was corrupt. */
     private final AtomicLong corruptZipCount = new AtomicLong(0);
 
@@ -1245,10 +1249,6 @@ public class ValidateBlocksCommand implements Runnable {
         }
         return null;
     }
-
-    /** Sentinel for blocks that were skipped (e.g. corrupt zip mid-stream). */
-    private static final PreValidatedBlock SKIPPED_BLOCK =
-            new PreValidatedBlock(null, -1, null, null, null, null, null);
 
     /**
      * Runs parallel validations and preprocessing, then wraps the results into a {@link PreValidatedBlock}.
