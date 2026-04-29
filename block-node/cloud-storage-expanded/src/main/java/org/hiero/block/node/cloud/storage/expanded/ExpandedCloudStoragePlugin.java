@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.cloud.storage.expanded;
 
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
@@ -297,14 +298,13 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         if (!result.succeeded()) {
             metricsHolder.uploadFailuresTotal().increment();
             LOGGER.log(
-                    WARNING,
+                    INFO,
                     "Block {0}: upload failed ({1}); PersistedNotification sent with succeeded=false.",
                     result.blockNumber(),
                     result.status());
         } else {
             metricsHolder.uploadsTotal().increment();
             metricsHolder.uploadBytesTotal().increment(result.bytesUploaded());
-            LOGGER.log(TRACE, "Block {0}: upload succeeded.", result.blockNumber());
         }
         metricsHolder.uploadLatencyNs().increment(result.uploadDurationNs());
     }

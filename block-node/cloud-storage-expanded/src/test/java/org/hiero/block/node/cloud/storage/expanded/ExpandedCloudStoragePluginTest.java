@@ -34,6 +34,7 @@ import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBloc
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -97,13 +98,13 @@ class ExpandedCloudStoragePluginTest
     /// Builds a {@link VerificationNotification} that reports {@code success=true} for the
     /// given block number and payload — the normal path that triggers an upload.
     private VerificationNotification verifiedNotification(final long blockNumber, final BlockUnparsed block) {
-        return new VerificationNotification(true, blockNumber, Bytes.EMPTY, block, BlockSource.UNKNOWN);
+        return new VerificationNotification(true, null, blockNumber, Bytes.EMPTY, block, BlockSource.UNKNOWN);
     }
 
     /// Builds a {@link VerificationNotification} that reports {@code success=false} —
     /// the plugin must skip the upload for these notifications.
     private VerificationNotification failedNotification(final long blockNumber) {
-        return new VerificationNotification(false, blockNumber, Bytes.EMPTY, null, BlockSource.UNKNOWN);
+        return new VerificationNotification(false, FailureType.BAD_BLOCK_PROOF, blockNumber, Bytes.EMPTY, null, BlockSource.UNKNOWN);
     }
 
     /// Drives the plugin's drain loop and polls until at least `expectedCount`
@@ -381,10 +382,10 @@ class ExpandedCloudStoragePluginTest
                         "cloud.storage.expanded.regionName", "us-east-1"));
 
         // verified=true but block payload is null
-        plugin.handleVerification(new VerificationNotification(true, 1L, Bytes.EMPTY, null, BlockSource.UNKNOWN));
+        plugin.handleVerification(new VerificationNotification(true, null, 1L, Bytes.EMPTY, null, BlockSource.UNKNOWN));
         // verified=true but block number is negative
         plugin.handleVerification(new VerificationNotification(
-                true, -1L, Bytes.EMPTY, testBlock(0).blockUnparsed(), BlockSource.UNKNOWN));
+                true, null, -1L, Bytes.EMPTY, testBlock(0).blockUnparsed(), BlockSource.UNKNOWN));
         // Both cases are skipped synchronously before any task is submitted.
 
         assertEquals(0, capturing.uploads.size(), "No upload expected for null block or negative block number");
