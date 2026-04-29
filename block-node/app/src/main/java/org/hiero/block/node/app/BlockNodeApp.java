@@ -380,18 +380,24 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
+     * UncaughtExceptionHandler for logging uncaught exceptions
+     */
+    private static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
+        LOGGER.log(INFO, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), throwable);
+    }
+
+    /**
      * Starts the ApplicationStateFacility. The thread will be used to check if there are any TssData updates to
      * process.
      */
     void startApplicationStateFacility() {
         LOGGER.log(INFO, "ApplicationStateFacility start called");
-        Thread.UncaughtExceptionHandler handler = (thread, e) ->
-                LOGGER.log(INFO, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), e);
 
         // Create thread executors via threadPoolManager.
         applicationStateExecutor = blockNodeContext
                 .threadPoolManager()
-                .createVirtualThreadScheduledExecutor(1, "ApplicationStateScanner", handler);
+                .createVirtualThreadScheduledExecutor(
+                        1, "ApplicationStateScanner", BlockNodeApp::uncaughtExceptionHandler);
 
         NodeConfig nodeConfig = blockNodeContext.configuration().getConfigData(NodeConfig.class);
 
