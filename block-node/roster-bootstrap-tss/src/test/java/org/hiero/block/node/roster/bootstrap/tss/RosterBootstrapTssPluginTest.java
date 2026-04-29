@@ -90,22 +90,23 @@ public class RosterBootstrapTssPluginTest
         final RosterBootstrapTssPlugin rosterBootstrapTssPlugin = new RosterBootstrapTssPlugin() {
             @Override
             public void onContextUpdate(BlockNodeContext context) {
+                TssData contextTssData = context.tssData();
                 updateTssDataCount[0]++;
-                assertEquals(tssData.ledgerId(), context.tssData().ledgerId());
-                assertEquals(tssData.wrapsVerificationKey(), context.tssData().wrapsVerificationKey());
+                assertEquals(tssData.ledgerId(), contextTssData.ledgerId());
+                assertEquals(tssData.wrapsVerificationKey(), contextTssData.wrapsVerificationKey());
                 assertEquals(
                         tssData.currentRoster().rosterEntries().get(0).schnorrPublicKey(),
-                        context.tssData().currentRoster().rosterEntries().get(0).schnorrPublicKey());
+                        contextTssData.currentRoster().rosterEntries().get(0).schnorrPublicKey());
                 assertEquals(
                         tssData.currentRoster().rosterEntries().get(0).nodeId(),
-                        context.tssData().currentRoster().rosterEntries().get(0).nodeId());
+                        contextTssData.currentRoster().rosterEntries().get(0).nodeId());
                 assertEquals(
                         tssData.currentRoster().rosterEntries().get(0).weight(),
-                        context.tssData().currentRoster().rosterEntries().get(0).weight());
-                assertEquals(tssData.validFromBlock(), context.tssData().validFromBlock());
+                        contextTssData.currentRoster().rosterEntries().get(0).weight());
+                assertEquals(tssData.validFromBlock(), contextTssData.validFromBlock());
                 assertEquals(
                         tssData.currentRoster().validFromBlock(),
-                        context.tssData().currentRoster().validFromBlock());
+                        contextTssData.currentRoster().validFromBlock());
             }
         };
         start(rosterBootstrapTssPlugin, new NoBlocksHistoricalBlockFacility(), defaultConfig);
