@@ -65,7 +65,7 @@ tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh \
 
 ## Configuration
 
-|                      Property                       | Default                                        |                        Description                        |
+|                      Property                       |                    Default                     |                        Description                        |
 |-----------------------------------------------------|------------------------------------------------|-----------------------------------------------------------|
 | `roster.bootstrap.enabled`                          | `true`                                         | Enable/disable the plugin.                                |
 | `roster.bootstrap.filePath`                         | `data/config/rsa-bootstrap-rosterp.pb`         | Path to the local bootstrap file (binary protobuf).       |
@@ -92,7 +92,7 @@ transition window.
 
 ## Follow-on tickets
 
-| Ticket                                                                |                                                                   Work                                                                   |
+|                                Ticket                                 |                                                                   Work                                                                   |
 |-----------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | [#2561](https://github.com/hiero-ledger/hiero-block-node/issues/2561) | Implement `RsaRosterBootstrapPlugin`, `MirrorNodeRosterSource`, `BootstrapRosterConfig`, and extend `BlockNodeContext` with `RsaRoster`. |
 | [#2562](https://github.com/hiero-ledger/hiero-block-node/issues/2562) | Implement RSA `SignedRecordFileProof` verification in `BlockVerificationService`.                                                        |
