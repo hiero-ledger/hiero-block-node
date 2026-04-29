@@ -433,8 +433,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             applicationStateExecutor.shutdownNow();
             try {
                 if (!applicationStateExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    final String executorTerminationMsg = "applicationStateExecutor did not terminate in time";
-                    LOGGER.log(INFO, executorTerminationMsg);
+                    LOGGER.log(INFO, "applicationStateExecutor did not terminate in time");
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -507,10 +506,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 TssData tssData = TssData.PROTOBUF.parse(fileBytes);
                 updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded Application State Data from file: {0}", tssDataFilePath);
-            } catch (IOException e) {
+            } catch (ParseException | IOException e) {
                 LOGGER.log(ERROR, "Failed to read Application State Data file: " + tssDataFilePath, e);
-            } catch (ParseException e) {
-                LOGGER.log(ERROR, "Failed to parse Application State Data file: " + tssDataFilePath, e);
             }
         }
     }
