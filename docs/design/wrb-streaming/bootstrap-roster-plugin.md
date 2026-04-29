@@ -30,10 +30,10 @@
 
 ## 1. Purpose
 
-Phase 2a of the Hiero network upgrade introduces **Wrapped Record Blocks (WRBs)** — block stream blocks whose proof is
-a `SignedRecordFileProof` containing RSA signatures from every consensus node in the current roster. Before the Block
+Phase 2a of the Hiero network upgrade introduces **Wrapped Record Blocks (WRBs)** — Block Stream blocks whose proof is
+a `SignedRecordFileProof` containing RSA signatures from every Consensus Node in the current roster. Before the Block
 Node (BN) can verify these proofs it must know the current address books: specifically the mapping of
-`node_id → RSA public key` for every active consensus node.
+`node_id → RSA public key` for every active Consensus Node.
 
 This design document specifies the **Bootstrap RSA Roster Plugin** (roster-bootstrap-rsa) — a `BlockNodePlugin` that
 loads this mapping at BN startup and makes it available to the proof verification layer via `ApplicationStateFacility`.
@@ -48,7 +48,7 @@ The BN automatically determines which proof type to verify based on the proof pr
 
 **In scope:**
 
-- Load the latest reference consensus node address book (node IDs + RSA public keys) from disk at BN startup.
+- Load the latest reference Consensus Node address book (node IDs + RSA public keys) from disk at BN startup.
 - Fetch the roster from the Hedera Mirror Node `GET /api/v1/network/nodes` API when no local bootstrap file is present.
 - Persist the loaded roster to a local bootstrap file via `ApplicationStateFacility` so subsequent restarts do not
   require network calls.
@@ -81,7 +81,7 @@ The BN automatically determines which proof type to verify based on the proof pr
   </dd>
 
   <dt>SignedRecordFileProof</dt>
-  <dd>The block proof type used in Phase 2a WRBs. Contains one RSA signature per consensus node in the current roster,
+  <dd>The block proof type used in Phase 2a WRBs. Contains one RSA signature per Consensus Node in the current roster,
     produced over a deterministic payload derived from the record file.
   </dd>
 
@@ -91,7 +91,7 @@ The BN automatically determines which proof type to verify based on the proof pr
   </dd>
 
   <dt>Roster</dt>
-  <dd>The set of active consensus nodes contributing to consensus at a given point in time. Represented in this plugin as a
+  <dd>The set of active Consensus Nodes contributing to consensus at a given point in time. Represented in this plugin as a
     <code>NodeAddressBook</code> protobuf message in which each <code>NodeAddress</code> entry carries the node's
     <code>nodeId</code> and <code>RSA_PubKey</code>.
   </dd>
@@ -223,7 +223,7 @@ message NodeAddress {
 
     /**
      * A hexadecimal String encoding of an X509 public key.
-     * Used to verify record stream files.
+     * Used to verify Record Stream files.
      * Stored as a UTF-8 hex string of the DER-encoded public key bytes.
      */
     string RSA_PubKey = 4;
@@ -430,7 +430,7 @@ with an in-memory cache keyed by hex string to avoid repeated `DER` parsing.
 
 #### 4.5.3 Signed Payload Computation
 
-The payload that was signed by each consensus node depends on the record file format version embedded in the WRB:
+The payload that was signed by each Consensus Node depends on the record file format version embedded in the WRB:
 
 | Version |                                         Payload computation                                         |
 |---------|-----------------------------------------------------------------------------------------------------|
@@ -438,7 +438,7 @@ The payload that was signed by each consensus node depends on the record file fo
 | **v5**  | Reconstruct the v5 binary record file from parsed items, then `SHA-384(v5Bytes)`                    |
 | **v2**  | Reconstruct v2 binary record, compute `SHA-384` of reconstructed bytes, then `SHA-384` of that hash |
 
-The `rawRecordStreamFileBytes` in v6 is the verbatim serialised proto bytes of the record stream file contained in the
+The `rawRecordStreamFileBytes` in v6 is the verbatim serialised proto bytes of the Record Stream file contained in the
 WRB, not re-serialised from a parsed representation.
 
 Reference implementation: `SignatureDataExtractor.computeSignedHash()` in `tools-and-tests/tools`.
@@ -494,7 +494,7 @@ code.
 
 When the network transitions from Phase 2a to Phase 2b:
 
-1. Consensus nodes stop emitting WRBs and emit full block stream blocks with `TssSignedBlockProof`.
+1. Consensus nodes stop emitting WRBs and emit full Block Stream blocks with `TssSignedBlockProof`.
 2. The BN automatically routes `TssSignedBlockProof` blocks to the TSS verification path — no configuration change is
    required. The `RsaRosterBootstrapPlugin` remains loaded and the `NodeAddressBook` remains in context but the
    verification layer stops using it for new blocks.
@@ -711,7 +711,7 @@ protoc --decode=NodeAddressBook basic_types.proto < rsa-bootstrap-roster.pb
 |---|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 1 | **Mirror Node down at startup — fail fast or degrade gracefully?** When the MN API is unreachable and no local file exists the current recommendation is to fail fast and shut the BN down. An alternative is to allow the BN to start but leave RSA verification failing until the address book is available. Operators who cannot reach MN can use a publicly available `NodeAddressBook` snapshot (on-chain file `0.0.102`) as a fallback to pre-populate the bootstrap file. | **Open.** Recommendation: fail fast. Final decision pending review.                                                                                                   |
 | 2 | Should the bootstrap file include a separate SHA-256 checksum sidecar for integrity verification?                                                                                                                                                                                                                                                                                                                                                                                | Deferred — document the risk, implement in Phase 2a operational hardening if time allows.                                                                             |
-| 3 | Does the block stream simulator need to generate valid `SignedRecordFileProof` blocks for integration testing?                                                                                                                                                                                                                                                                                                                                                                   | Yes — flagged as a testing gap. If not available for Phase 2a, integration tests will use pre-recorded WRB blocks.                                                    |
+| 3 | Does the Block Stream simulator need to generate valid `SignedRecordFileProof` blocks for integration testing?                                                                                                                                                                                                                                                                                                                                                                   | Yes — flagged as a testing gap. If not available for Phase 2a, integration tests will use pre-recorded WRB blocks.                                                    |
 | 4 | Should stake-weighted threshold be used instead of equal-weight once the `NodeAddress.stake` field is confirmed populated in the on-chain address book?                                                                                                                                                                                                                                                                                                                          | Deferred to #2562 — the equal-weight threshold is correct for Phase 2a. Stake-weighting can be added as an enhancement without changing the bootstrap file format.    |
 | 5 | Should the roster structure used map to the `AddressBook` or the `TSSRoster`? If `AddressBook` then BN will support 2 types, if `TSSRoster` we may have to default certain values and couple the plugin.                                                                                                                                                                                                                                                                         | `AddressBook` was chosen to utilize the same pathway explored by MN and WRB CLI as well as support record files from genesis ousde of the Phase 2a timeline.          |
 | 6 | Should the BN at startup check if there have been AddressBook changes that it can quickly retrieve from MN? This would ensure that upgrades are light on the node operator and a simple restart is needed.                                                                                                                                                                                                                                                                       | No, not initially. In future maybe the MAPI query logic can be optimized to update the address book at upgrade boundaries or upon request.                            |
