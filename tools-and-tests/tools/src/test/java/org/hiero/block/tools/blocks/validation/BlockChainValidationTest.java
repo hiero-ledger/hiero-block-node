@@ -184,7 +184,7 @@ class BlockChainValidationTest {
     void nullPreComputedHash_fallsBackToHashBlock() throws ValidationException {
         BlockChainValidation validation = new BlockChainValidation();
         // Validate with null pre-computed hash — should compute it
-        validation.validate(VALID_BLOCK, 0, null);
+        validation.validate(VALID_BLOCK, 0, (byte[]) null);
         byte[] expectedHash = hashBlock(VALID_BLOCK);
         assertArrayEquals(expectedHash, validation.getStagedBlockHash());
     }

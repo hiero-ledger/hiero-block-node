@@ -46,6 +46,7 @@ import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
 import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
 import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor;
+import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor.PreprocessedData;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
 import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
@@ -655,25 +656,7 @@ public class ValidateBlocksCommand implements Runnable {
                                     byte[] raw = Files.readAllBytes(path);
                                     BlockUnparsed block =
                                             BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                                    var ppd = ParallelBlockPreprocessor.preprocess(block);
-                                    return err != null
-                                            ? new PreValidatedBlock(
-                                                    block,
-                                                    bNum,
-                                                    (String) err[0],
-                                                    (Exception) err[1],
-                                                    ppd.blockHash(),
-                                                    ppd.blockInstant(),
-                                                    ppd.recordFileBytes())
-                                            : new PreValidatedBlock(
-                                                    block,
-                                                    bNum,
-                                                    null,
-                                                    null,
-                                                    ppd.blockHash(),
-                                                    ppd.blockInstant(),
-                                                    ppd.recordFileBytes());
+                                    return buildPreValidatedBlock(block, bNum, parallelValidations);
                                 }));
                                 i++;
                             } else {
@@ -702,8 +685,7 @@ public class ValidateBlocksCommand implements Runnable {
                                             "@|yellow Warning:|@ error streaming zip (blocks skipped): "
                                                     + zipPath.getFileName() + " — " + e.getMessage()));
                                     for (int k = i; k < runEnd; k++) {
-                                        blockQueue.put(CompletableFuture.completedFuture(
-                                                new PreValidatedBlock(null, -1, null, null, null, null, null)));
+                                        blockQueue.put(CompletableFuture.completedFuture(SKIPPED_BLOCK));
                                     }
                                 }
                                 i = runEnd;
@@ -798,26 +780,12 @@ public class ValidateBlocksCommand implements Runnable {
 
                         // Phase 1: validate sequential (stateful) validations only,
                         // passing pre-computed data to avoid redundant work on the main thread
+                        final PreprocessedData ppd = new PreprocessedData(
+                                preValidated.blockHash(), preValidated.blockInstant(), preValidated.recordFileBytes());
                         for (BlockValidation v : sequentialValidations) {
                             try {
                                 long vStart = verbose ? System.nanoTime() : 0;
-                                if (v == chainValidation) {
-                                    chainValidation.validate(block, blockNum, preValidated.blockHash());
-                                } else if (v instanceof AddressBookUpdateValidation abv) {
-                                    abv.validate(
-                                            block,
-                                            blockNum,
-                                            preValidated.blockInstant(),
-                                            preValidated.recordFileBytes());
-                                } else if (v instanceof NodeStakeUpdateValidation nsv) {
-                                    nsv.validate(
-                                            block,
-                                            blockNum,
-                                            preValidated.blockInstant(),
-                                            preValidated.recordFileBytes());
-                                } else {
-                                    v.validate(block, blockNum);
-                                }
+                                v.validate(block, blockNum, ppd);
                                 if (verbose) {
                                     perValidationNanos.get(v.name())[0] += System.nanoTime() - vStart;
                                 }
@@ -1167,25 +1135,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final byte[] raw = zis.readAllBytes();
                 blockQueue.put(decompPool.submit(() -> {
                     BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                    var ppd = ParallelBlockPreprocessor.preprocess(block);
-                    return err != null
-                            ? new PreValidatedBlock(
-                                    block,
-                                    bNum,
-                                    (String) err[0],
-                                    (Exception) err[1],
-                                    ppd.blockHash(),
-                                    ppd.blockInstant(),
-                                    ppd.recordFileBytes())
-                            : new PreValidatedBlock(
-                                    block,
-                                    bNum,
-                                    null,
-                                    null,
-                                    ppd.blockHash(),
-                                    ppd.blockInstant(),
-                                    ppd.recordFileBytes());
+                    return buildPreValidatedBlock(block, bNum, parallelValidations);
                 }));
             }
         } catch (IOException streamErr) {
@@ -1209,25 +1159,7 @@ public class ValidateBlocksCommand implements Runnable {
                     }
                     blockQueue.put(decompPool.submit(() -> {
                         BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                        Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                        var ppd = ParallelBlockPreprocessor.preprocess(block);
-                        return err != null
-                                ? new PreValidatedBlock(
-                                        block,
-                                        bNum,
-                                        (String) err[0],
-                                        (Exception) err[1],
-                                        ppd.blockHash(),
-                                        ppd.blockInstant(),
-                                        ppd.recordFileBytes())
-                                : new PreValidatedBlock(
-                                        block,
-                                        bNum,
-                                        null,
-                                        null,
-                                        ppd.blockHash(),
-                                        ppd.blockInstant(),
-                                        ppd.recordFileBytes());
+                        return buildPreValidatedBlock(block, bNum, parallelValidations);
                     }));
                 }
             }
@@ -1259,25 +1191,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
                     BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                    var ppd = ParallelBlockPreprocessor.preprocess(block);
-                    return err != null
-                            ? new PreValidatedBlock(
-                                    block,
-                                    bNum,
-                                    (String) err[0],
-                                    (Exception) err[1],
-                                    ppd.blockHash(),
-                                    ppd.blockInstant(),
-                                    ppd.recordFileBytes())
-                            : new PreValidatedBlock(
-                                    block,
-                                    bNum,
-                                    null,
-                                    null,
-                                    ppd.blockHash(),
-                                    ppd.blockInstant(),
-                                    ppd.recordFileBytes());
+                    return buildPreValidatedBlock(block, bNum, parallelValidations);
                 }));
             }
         }
@@ -1306,25 +1220,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
                     BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                    var ppd = ParallelBlockPreprocessor.preprocess(block);
-                    return err != null
-                            ? new PreValidatedBlock(
-                                    block,
-                                    bNum,
-                                    (String) err[0],
-                                    (Exception) err[1],
-                                    ppd.blockHash(),
-                                    ppd.blockInstant(),
-                                    ppd.recordFileBytes())
-                            : new PreValidatedBlock(
-                                    block,
-                                    bNum,
-                                    null,
-                                    null,
-                                    ppd.blockHash(),
-                                    ppd.blockInstant(),
-                                    ppd.recordFileBytes());
+                    return buildPreValidatedBlock(block, bNum, parallelValidations);
                 }));
             }
         }
@@ -1348,5 +1244,26 @@ public class ValidateBlocksCommand implements Runnable {
             }
         }
         return null;
+    }
+
+    /** Sentinel for blocks that were skipped (e.g. corrupt zip mid-stream). */
+    private static final PreValidatedBlock SKIPPED_BLOCK =
+            new PreValidatedBlock(null, -1, null, null, null, null, null);
+
+    /**
+     * Runs parallel validations and preprocessing, then wraps the results into a {@link PreValidatedBlock}.
+     */
+    private static PreValidatedBlock buildPreValidatedBlock(
+            final BlockUnparsed block, final long blockNumber, final List<BlockValidation> parallelValidations) {
+        Object[] err = runParallelValidations(parallelValidations, block, blockNumber);
+        PreprocessedData ppd = ParallelBlockPreprocessor.preprocess(block);
+        return new PreValidatedBlock(
+                block,
+                blockNumber,
+                err != null ? (String) err[0] : null,
+                err != null ? (Exception) err[1] : null,
+                ppd.blockHash(),
+                ppd.blockInstant(),
+                ppd.recordFileBytes());
     }
 }

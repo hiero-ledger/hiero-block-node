@@ -16,6 +16,7 @@ import java.util.Arrays;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.HasherStateFiles;
+import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor.PreprocessedData;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.jspecify.annotations.Nullable;
 
@@ -51,7 +52,13 @@ public final class BlockChainValidation implements BlockValidation {
 
     @Override
     public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
-        validate(block, blockNumber, null);
+        validate(block, blockNumber, (byte[]) null);
+    }
+
+    @Override
+    public void validate(final BlockUnparsed block, final long blockNumber, final PreprocessedData preprocessed)
+            throws ValidationException {
+        validate(block, blockNumber, preprocessed != null ? preprocessed.blockHash() : null);
     }
 
     /**
