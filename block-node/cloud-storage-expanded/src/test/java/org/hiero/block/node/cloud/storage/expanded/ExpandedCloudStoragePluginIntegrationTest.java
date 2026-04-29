@@ -110,7 +110,7 @@ class ExpandedCloudStoragePluginIntegrationTest
     /// Builds a {@link VerificationNotification} that reports {@code success=true} for the
     /// given block number and payload — the normal path that triggers an upload.
     private VerificationNotification verifiedNotification(final long blockNumber, final BlockUnparsed block) {
-        return new VerificationNotification(true, blockNumber, Bytes.EMPTY, block, BlockSource.UNKNOWN);
+        return new VerificationNotification(true, null, blockNumber, Bytes.EMPTY, block, BlockSource.UNKNOWN);
     }
 
     // ---- Tests --------------------------------------------------------------
