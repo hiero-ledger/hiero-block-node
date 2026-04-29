@@ -200,7 +200,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
         // ==== LOAD APPLICATION STATE =================================================================================
         // Must be done after the block node context is created
-        loadApplicationState();
+        loadApplicationState(blockNodeContext.configuration());
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         LOGGER.log(INFO, "Initializing plugins:");
@@ -382,7 +382,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /**
      * UncaughtExceptionHandler for logging uncaught exceptions
      */
-    private static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
+    static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
         LOGGER.log(INFO, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), throwable);
     }
 
@@ -433,7 +433,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             applicationStateExecutor.shutdownNow();
             try {
                 if (!applicationStateExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    LOGGER.log(INFO, "applicationStateExecutor did not terminate in time");
+                    final String executorTerminationMsg = "applicationStateExecutor did not terminate in time";
+                    LOGGER.log(INFO, executorTerminationMsg);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -497,9 +498,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      *
      * This must be called after the blockNode context is created
      */
-    private void loadApplicationState() {
+    private void loadApplicationState(Configuration configuration) {
         final Path tssDataFilePath =
-                blockNodeContext.configuration().getConfigData(NodeConfig.class).appStateDataFilePath();
+                configuration.getConfigData(NodeConfig.class).appStateDataFilePath();
         if (Files.exists(tssDataFilePath)) {
             try {
                 Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssDataFilePath));
