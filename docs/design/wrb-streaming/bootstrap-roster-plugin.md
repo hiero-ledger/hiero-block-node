@@ -65,9 +65,9 @@ The BN automatically determines which proof type to verify based on the proof pr
 - Mid-instance address book reload without restart — not required for Phase 2a. The plugin loads once at `start()` and
   does not watch for roster changes at runtime. (#2563)
 - On-chain address book tracking via record file parsing — deferred to a future plugin iteration.
-- Cloud upload path changes for WRBs — handled separately.
-- Block simulator support for generating valid `SignedRecordFileProof` blocks — flagged as a testing gap; tracked
-  under #2561.
+- Cloud upload of individual WRBs — handled separately.
+- Block simulator support for generating valid `SignedRecordFileProof` blocks — flagged as a testing gap; delayed and
+  hopefully not needed.
 - Verification of v2 and v5 record files.
 
 ---
@@ -185,14 +185,13 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 }
 ```
 
-**`ApplicationStateFacility` extension:** `ApplicationStateFacility` currently exposes `updateTssData`.
-A new `updateAddressBook(NodeAddressBook)` method must be added, following the same pattern:
+**`ApplicationStateFacility` extension:** A new `updateAddressBook(NodeAddressBook)` method must be added:
 - `BlockNodeApp` implements the method.
 - The method updates the `nodeAddressBook` field in `BlockNodeContext`.
 - The method writes the bootstrap file if the address book was fetched from Mirror Node (file did not previously
-  exist).
+exist).
 - The method calls `plugin.onContextUpdate(updatedContext)` for each loaded plugin so downstream consumers (e.g.
-  `BlockVerificationService`) receive the populated address book before they begin verifying blocks.
+`BlockVerificationService`) receive the populated address book before they begin verifying blocks.
 
 > **Thread safety note:** `onContextUpdate()` is called from a different thread than the plugin's own `start()` thread
 > (as documented in `BlockNodePlugin`). Downstream plugins that consume the `NodeAddressBook` must update their
@@ -263,9 +262,9 @@ final NodeAddressBook nodeAddressBook =
 
 **Notes:**
 - The `RSA_PubKey` string in `NodeAddress` is the raw hex-encoded DER bytes without an `0x` prefix. Mirror Node
-  returns the key with a leading `0x` which must be stripped before storing.
+returns the key with a leading `0x` which must be stripped before storing.
 - The file does not embed metadata such as network name or generation timestamp. Operators wishing to annotate the
-  file should maintain a separate sidecar file or rely on filesystem timestamps.
+file should maintain a separate sidecar file or rely on filesystem timestamps.
 
 ---
 
@@ -393,14 +392,14 @@ in `tools-and-tests/tools`, which in turn match the verification logic used by H
 > **Proof type routing:** The BN determines which verification path to invoke based on the proof type present in each
 > block. No configuration flag is required:
 >
-> | Block proof type         | Verification path                              |
-> |--------------------------|------------------------------------------------|
-> | `SignedRecordFileProof`  | RSA roster verification (this plugin)          |
-> | `StateProof`             | State proof verification (Phase 2a and 2b)     |
-> | `TssSignedBlockProof`    | TSS verification (`TssBootstrapPlugin`)        |
+> |    Block proof type     |             Verification path              |
+> |-------------------------|--------------------------------------------|
+> | `SignedRecordFileProof` | RSA roster verification (this plugin)      |
+> | `StateProof`            | State proof verification (Phase 2a and 2b) |
+> | `TssSignedBlockProof`   | TSS verification (`TssBootstrapPlugin`)    |
 >
 > Both Phase 2a and Phase 2b support `StateProof`. No operator-configured proof mode is needed.
-
+>
 > **Placement in the pipeline:** RSA verification is performed by the block verification layer
 > (`BlockVerificationService`) immediately after a complete WRB is received from the publisher, before the block is
 > written to storage. The `RsaRosterBootstrapPlugin` supplies the `NodeAddressBook` via `onContextUpdate`; the
@@ -478,13 +477,13 @@ tracked in #2562.
 
 #### 4.5.6 Failure Modes
 
-|                      Condition                      |                          Action                          |
-|-----------------------------------------------------|----------------------------------------------------------|
-| Zero valid signatures                               | Reject block; increment `rsa_verification_failure_total` |
-| `validatedCount < threshold`                        | Reject block; increment `rsa_verification_failure_total` |
-| `node_id` not in `NodeAddressBook`                  | Skip signature; increment `roster_mismatch_total`        |
-| Zeroed signature bytes (all 0x00)                   | Skip signature; log at DEBUG level                       |
-| Malformed DER public key in `RSA_PubKey`            | Skip signature; log at WARN level                        |
+|                Condition                 |                          Action                          |
+|------------------------------------------|----------------------------------------------------------|
+| Zero valid signatures                    | Reject block; increment `rsa_verification_failure_total` |
+| `validatedCount < threshold`             | Reject block; increment `rsa_verification_failure_total` |
+| `node_id` not in `NodeAddressBook`       | Skip signature; increment `roster_mismatch_total`        |
+| Zeroed signature bytes (all 0x00)        | Skip signature; log at DEBUG level                       |
+| Malformed DER public key in `RSA_PubKey` | Skip signature; log at WARN level                        |
 
 Rejected blocks are **not** written to storage. The publisher receives the appropriate `PublishStreamResponse` error
 code.
@@ -586,15 +585,15 @@ sequenceDiagram
 
 ## 6. Configuration
 
-All properties are under the `roster.bootstrap` namespace.
+All properties are under the `roster.bootstrap.rsa` namespace.
 
-|                      Property                       |  Type   | Default                                        |                                                                                 Description                                                                                  |
-|-----------------------------------------------------|---------|------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `roster.bootstrap.filePath`                         | string  | `data/config/rsa-bootstrap-roster.pb`          | Path to the local bootstrap file (binary protobuf). Relative to BN working directory.                                                                                        |
-| `roster.bootstrap.mirrorNode.baseUrl`               | string  | `https://testnet-public.mirrornode.hedera.com` | Base URL for Mirror Node REST API calls. Used when no local bootstrap file is present.                                                                                       |
-| `roster.bootstrap.mirrorNode.connectTimeoutSeconds` | integer | `5`                                            | TCP connect timeout for Mirror Node HTTP calls.                                                                                                                              |
-| `roster.bootstrap.mirrorNode.readTimeoutSeconds`    | integer | `10`                                           | Read timeout for Mirror Node HTTP calls.                                                                                                                                     |
-| `roster.bootstrap.mirrorNode.pageSize`              | integer | `100`                                          | Items per page for paginated Mirror Node calls. Max 100.                                                                                                                     |
+| Property                                                | Type    | Default                                        | Description                                                                            |
+|---------------------------------------------------------|---------|------------------------------------------------|----------------------------------------------------------------------------------------|
+| `roster.bootstrap.rsa.filePath`                         | string  | `data/config/rsa-bootstrap-roster.pb`          | Path to the local bootstrap file (binary protobuf). Relative to BN working directory.  |
+| `roster.bootstrap.rsa.mirrorNode.baseUrl`               | string  | `https://testnet-public.mirrornode.hedera.com` | Base URL for Mirror Node REST API calls. Used when no local bootstrap file is present. |
+| `roster.bootstrap.rsa.mirrorNode.connectTimeoutSeconds` | integer | `5`                                            | TCP connect timeout for Mirror Node HTTP calls.                                        |
+| `roster.bootstrap.rsa.mirrorNode.readTimeoutSeconds`    | integer | `10`                                           | Read timeout for Mirror Node HTTP calls.                                               |
+| `roster.bootstrap.rsa.mirrorNode.pageSize`              | integer | `100`                                          | Items per page for paginated Mirror Node calls. Max 100.                               |
 
 **Environment variable overrides** follow the standard Swirlds Config pattern (uppercase, `_` for `.` and `-`). For example:
 
@@ -608,13 +607,13 @@ ROSTER_BOOTSTRAP_MIRROR_NODE_BASE_URL=https://testnet.mirrornode.hedera.com
 
 All metrics use the BN-standard category `blocknode` and must follow existing naming conventions.
 
-|                 Metric name                  |   Type    |           Labels            |                                         Description                                          |
+| Metric name                                  | Type      | Labels                      | Description                                                                                  |
 |----------------------------------------------|-----------|-----------------------------|----------------------------------------------------------------------------------------------|
 | `blocknode_rsa_verification_total`           | Counter   | `result={success,failure}`  | Count of WRB RSA proof verifications by result.                                              |
 | `blocknode_rsa_verification_latency_seconds` | Histogram | —                           | Latency of the full RSA verification step per block (p50, p95, p99 buckets).                 |
-| `blocknode_roster_entries_loaded`            | Gauge     | `source={file,mirror_node}` | Number of `NodeAddress` entries loaded at startup, labelled by source.                       |
-| `blocknode_roster_mismatch_total`            | Counter   | —                           | Count of signatures where the signing node ID was not found in the loaded `NodeAddressBook`. |
-| `blocknode_roster_load_duration_seconds`     | Gauge     | `source={file,mirror_node}` | Time taken to load the roster at startup (for alerting on slow Mirror Node calls).           |
+| `blocknode_rsa_roster_entries_loaded`        | Gauge     | `source={file,mirror_node}` | Number of `NodeAddress` entries loaded at startup, labelled by source.                       |
+| `blocknode_rsa_roster_mismatch_total`        | Counter   | —                           | Count of signatures where the signing node ID was not found in the loaded `NodeAddressBook`. |
+| `blocknode_rsa_roster_load_duration_seconds` | Gauge     | `source={file,mirror_node}` | Time taken to load the roster at startup (for alerting on slow Mirror Node calls).           |
 
 ---
 
@@ -643,7 +642,7 @@ that have  already been processed are not replayed.
 
 ## 9. Operator Tooling
 
-A script `tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh` should be provided. Its responsibilities:
+A script `tools-and-tests/scripts/node-operations/generate-roster-rsa-bootstrap.sh` should be provided. Its responsibilities:
 
 1. Accept `--network <mainnet|testnet|previewnet>` and optionally `--mirror-node-url <url>`.
 2. Query `GET /api/v1/network/nodes` (with pagination) to collect all nodes with non-empty `public_key`.
@@ -654,7 +653,7 @@ A script `tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh` 
 **Expected usage before a Phase 2a cutover:**
 
 ```bash
-generate-roster-bootstrap.sh --network mainnet --output /opt/blocknode/data/config/rsa-bootstrap-roster.pb
+generate-rsa-roster-bootstrap.sh --network mainnet --output /opt/blocknode/data/config/rsa-bootstrap-roster.pb
 ```
 
 Operators must regenerate and restart the BN if the address book changes (new nodes added, nodes removed).
@@ -698,11 +697,11 @@ protoc --decode=NodeAddressBook basic_types.proto < rsa-bootstrap-roster.pb
 
 ## 11. Follow-on Ticket Mapping
 
-|                                Ticket                                 |                                                                                                                              Scope                                                                                                                              |
-|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [#2561](https://github.com/hiero-ledger/hiero-block-node/issues/2561) | Implement `RsaRosterBootstrapPlugin` per this design. Includes extending `ApplicationStateFacility` with `updateAddressBook`, extending `BlockNodeContext` with `NodeAddressBook nodeAddressBook`, PBJ read/write of `rsa-bootstrap-roster.pb`, and unit + integration tests. |
+| Ticket                                                                |                                                                                                                                        Scope                                                                                                                                         |
+|-----------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [#2561](https://github.com/hiero-ledger/hiero-block-node/issues/2561) | Implement `RsaRosterBootstrapPlugin` per this design. Includes extending `ApplicationStateFacility` with `updateAddressBook`, extending `BlockNodeContext` with `NodeAddressBook nodeAddressBook`, PBJ read/write of `rsa-bootstrap-roster.pb`, and unit + integration tests.        |
 | [#2562](https://github.com/hiero-ledger/hiero-block-node/issues/2562) | Implement RSA `SignedRecordFileProof` verification in `BlockVerificationService`. Reads `NodeAddressBook` from context via `onContextUpdate`, builds `node_id → PublicKey` map, applies the algorithm in §4.5. Includes proof-type routing logic and per-block verification metrics. |
-| [#2563](https://github.com/hiero-ledger/hiero-block-node/issues/2563) | Implement `generate-roster-bootstrap.sh` operator script and document the Phase 2a cutover runbook.                                                                                                                                                             |
+| [#2660](https://github.com/hiero-ledger/hiero-block-node/issues/2660) | Implement `generate-roster-bootstrap.sh` operator script and document the Phase 2a cutover runbook.                                                                                                                                                                                  |
 
 ---
 
@@ -717,3 +716,4 @@ protoc --decode=NodeAddressBook basic_types.proto < rsa-bootstrap-roster.pb
 | 5 | Should the roster structure used map to the `AddressBook` or the `TSSRoster`? If `AddressBook` then BN will support 2 types, if `TSSRoster` we may have to default certain values and couple the plugin.                                                                                                                                                                                                                                                                         | `AddressBook` was chosen to utilize the same pathway explored by MN and WRB CLI as well as support record files from genesis ousde of the Phase 2a timeline.          |
 | 6 | Should the BN at startup check if there have been AddressBook changes that it can quickly retrieve from MN? This would ensure that upgrades are light on the node operator and a simple restart is needed.                                                                                                                                                                                                                                                                       | No, not initially. In future maybe the MAPI query logic can be optimized to update the address book at upgrade boundaries or upon request.                            |
 | 7 | Should `RsaRosterBootstrapPlugin` have a defined lifetime? Should we note a timeline after which it can be removed? Currently, it makes sense to leave it around so that a BN can be the recipient of all WRBs at any point in the future. Note, it will require the MAPI calls to consider time ranges of address books.                                                                                                                                                        | BN should be able to support processing WRBs from genesis going forward by any operator on their own schedule. As such the plugin should remain and be run as needed. |
+| 8 | Should we have a `roster.bootstrap.rsa.failOnFetchError` flag to avoid needing a real file?                                                                                                                                                                                                                                                                                                                                                                                      | No, better to create a default `data/config/rsa-bootstrap-roster.pb` file for use                                                                                     |

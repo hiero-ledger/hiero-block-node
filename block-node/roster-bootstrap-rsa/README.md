@@ -11,8 +11,8 @@
 ## Purpose
 
 This plugin loads the consensus node roster — a mapping of `node_id → RSA public key` — at Block
-Node startup. The loaded roster is made available to the proof verification layer so that Wrapped
-Record Blocks (WRBs) carrying `SignedRecordFileProof` block proofs can be verified.
+Node startup. The loaded roster is made available to all plugins ensuring the verification plugin
+has the details to verify Wrapped Record Blocks (WRBs) carrying `SignedRecordFileProof` block proofs.
 
 WRBs are produced by Consensus Nodes during Phase 2a of the Hiero network upgrade. They carry a
 set of gossiped RSA signatures from every node in the current roster as their block proof. Without
@@ -28,9 +28,7 @@ the roster cannot be loaded.
 2. **Mirror Node fallback:** If no local file is present, the roster is fetched from the Hedera
    Mirror Node REST API (`GET /api/v1/network/nodes`, paginated). The result is written to the
    bootstrap file for future restarts.
-3. **Fail fast:** If neither source succeeds and `roster.bootstrap.failOnFetchError=true`
-   (the default), startup is aborted with a clear error message. Set to `false` only in test
-   environments.
+3. **Fail fast:** If neither source succeeds startup is aborted with a clear error message.
 4. **No runtime reload:** The roster is loaded once and does not change for the lifetime of the
    BN instance. An address-book change requires a restart with a refreshed bootstrap file.
 
@@ -44,10 +42,10 @@ at Hedera file `0.0.102`, avoiding a bespoke schema.
 
 Only two fields from each `NodeAddress` entry are populated:
 
-| Field | Proto field # | Type | Content |
-|---|---|---|---|
-| `nodeId` | 5 | `int64` | Numeric node identifier |
-| `RSA_PubKey` | 4 | `string` | Raw hex-encoded DER X.509 RSA public key — **no** `0x` prefix |
+|    Field     | Proto field # |   Type   |                            Content                            |
+|--------------|---------------|----------|---------------------------------------------------------------|
+| `nodeId`     | 5             | `int64`  | Numeric node identifier                                       |
+| `RSA_PubKey` | 4             | `string` | Raw hex-encoded DER X.509 RSA public key — **no** `0x` prefix |
 
 No metadata fields (network name, generation timestamp, schema version) are embedded; the file is
 a direct binary protobuf of `NodeAddressBook`. Operators wishing to annotate the file should
@@ -67,16 +65,13 @@ tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh \
 
 ## Configuration
 
-|                      Property                       |                    Default                     |                 Description                  |
-|-----------------------------------------------------|------------------------------------------------|----------------------------------------------|
-| `roster.bootstrap.enabled`                          | `true`                                         | Enable/disable the plugin.                        |
-| `roster.bootstrap.filePath`                         | `data/config/rsa-bootstrap-rosterp.pb`              | Path to the local bootstrap file (binary protobuf). |
-| `roster.bootstrap.proofMode`                        | `RSA`                                          | Accepted proof type: `RSA`, `TSS`, or `ANY`.      |
-| `roster.bootstrap.rosterSource`                     | `MIRROR_NODE`                                  | Source when no local file exists.                 |
-| `roster.bootstrap.failOnFetchError`                 | `true`                                         | Fail startup if roster cannot be loaded.          |
-| `roster.bootstrap.mirrorNode.baseUrl`               | `https://mainnet-public.mirrornode.hedera.com` | Mirror Node base URL.                             |
-| `roster.bootstrap.mirrorNode.connectTimeoutSeconds` | `5`                                            | Connect timeout for Mirror Node calls.            |
-| `roster.bootstrap.mirrorNode.readTimeoutSeconds`    | `10`                                           | Read timeout for Mirror Node calls.               |
+|                      Property                       | Default                                        |                        Description                        |
+|-----------------------------------------------------|------------------------------------------------|-----------------------------------------------------------|
+| `roster.bootstrap.enabled`                          | `true`                                         | Enable/disable the plugin.                                |
+| `roster.bootstrap.filePath`                         | `data/config/rsa-bootstrap-rosterp.pb`         | Path to the local bootstrap file (binary protobuf).       |
+| `roster.bootstrap.mirrorNode.baseUrl`               | `https://testnet-public.mirrornode.hedera.com` | Mirror Node base URL.                                     |
+| `roster.bootstrap.mirrorNode.connectTimeoutSeconds` | `5`                                            | Connect timeout for Mirror Node calls.                    |
+| `roster.bootstrap.mirrorNode.readTimeoutSeconds`    | `10`                                           | Read timeout for Mirror Node calls.                       |
 | `roster.bootstrap.mirrorNode.pageSize`              | `100`                                          | Nodes per page for paginated Mirror Node calls (max 100). |
 
 ---
@@ -97,8 +92,8 @@ transition window.
 
 ## Follow-on tickets
 
-|                                Ticket                                 |                                                                   Work                                                                   |
+| Ticket                                                                |                                                                   Work                                                                   |
 |-----------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | [#2561](https://github.com/hiero-ledger/hiero-block-node/issues/2561) | Implement `RsaRosterBootstrapPlugin`, `MirrorNodeRosterSource`, `BootstrapRosterConfig`, and extend `BlockNodeContext` with `RsaRoster`. |
 | [#2562](https://github.com/hiero-ledger/hiero-block-node/issues/2562) | Implement RSA `SignedRecordFileProof` verification in `BlockVerificationService`.                                                        |
-| [#2563](https://github.com/hiero-ledger/hiero-block-node/issues/2563) | Implement `generate-roster-bootstrap.sh` operator script and Phase 2a cutover runbook.                                                   |
+| [#2660](https://github.com/hiero-ledger/hiero-block-node/issues/2660) | Implement `generate-roster-bootstrap.sh` operator script and Phase 2a cutover runbook.                                                   |
