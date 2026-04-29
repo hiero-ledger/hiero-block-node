@@ -11,7 +11,8 @@ import org.hiero.block.node.base.Loggable;
 ///
 @ConfigData("roster.bootstrap.tss")
 public record RosterBootstrapTssConfig(
-        // todo: configure peer BNs here
-) {}
+        @Loggable @ConfigProperty(defaultValue = "") String blockNodeSourcesPath,
+        @Loggable @ConfigProperty(defaultValue = "60000") @Min(100) int queryPeerInterval,
+        @Loggable @ConfigProperty(defaultValue = "5000") @Min(500) int queryPeerInitialDelay) {}
 
 // spotless:on
