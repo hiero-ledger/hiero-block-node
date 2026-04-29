@@ -232,6 +232,8 @@ class BlockValidationJimfsTest {
                 DataOutputStream dos = new DataOutputStream(fos)) {
             dos.writeLong(blockNumber);
             dos.write(blockHash);
+            dos.write(new byte[48]); // consensus timestamp hash placeholder
+            dos.write(new byte[48]); // output items tree root hash placeholder
             dos.writeLong(hasher.leafCount());
             dos.writeInt(state.size());
             for (byte[] h : state) {

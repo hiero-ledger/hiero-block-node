@@ -5,7 +5,7 @@ import static org.hiero.block.tools.blocks.AmendmentProvider.createAmendmentProv
 import static org.hiero.block.tools.blocks.HasherStateFiles.saveStateCheckpoint;
 import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_COMPRESSION;
 import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_POWERS_OF_TEN_PER_ZIP;
-import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
+import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlockDetailed;
 import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractTransactionBody;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
 import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
@@ -49,6 +49,7 @@ import org.hiero.block.tools.blocks.model.BlockWriter.BlockPath;
 import org.hiero.block.tools.blocks.model.BlockWriter.BlockZipAppender;
 import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
+import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.BlockHashResult;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
 import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
@@ -466,6 +467,8 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
             // Track the last block number and hash in memory, write once at the end
             final AtomicLong jumpstartBlockNumber = new AtomicLong(-1);
             final AtomicReference<byte[]> jumpstartBlockHash = new AtomicReference<>(null);
+            final AtomicReference<byte[]> jumpstartConsensusTimestampHash = new AtomicReference<>(null);
+            final AtomicReference<byte[]> jumpstartOutputItemsTreeRootHash = new AtomicReference<>(null);
 
             // Register a shutdown hook to request orderly drain on JVM exit (Ctrl+C, etc.)
             final Thread shutdownHook = new Thread(
@@ -528,6 +531,8 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                                         jumpstartFile,
                                         jumpstartBlockNumber.get(),
                                         jumpstartBlockHash.get(),
+                                        jumpstartConsensusTimestampHash.get(),
+                                        jumpstartOutputItemsTreeRootHash.get(),
                                         streamingHasher);
                             }
                         }
@@ -701,12 +706,15 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
 
                         // Update chain state under lock so the shutdown hook cannot read
                         // partially updated hashers while saving state.
-                        final byte[] blockStreamBlockHash = hashBlock(wrapped);
+                        final BlockHashResult hashResult = hashBlockDetailed(wrapped);
+                        final byte[] blockStreamBlockHash = hashResult.blockHash();
                         synchronized (chainStateLock) {
                             streamingHasher.addNodeByHash(blockStreamBlockHash);
                             blockRegistry.addBlock(blockNum, blockStreamBlockHash);
                             jumpstartBlockNumber.set(blockNum);
                             jumpstartBlockHash.set(blockStreamBlockHash);
+                            jumpstartConsensusTimestampHash.set(hashResult.consensusTimestampHash());
+                            jumpstartOutputItemsTreeRootHash.set(hashResult.outputItemsTreeRootHash());
                         }
 
                         // Pre-compute block path on the convert thread (pure arithmetic, fast).
@@ -854,7 +862,13 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
 
             // Save jumpstart data once at the end
             if (jumpstartBlockHash.get() != null) {
-                saveJumpstartData(jumpstartFile, jumpstartBlockNumber.get(), jumpstartBlockHash.get(), streamingHasher);
+                saveJumpstartData(
+                        jumpstartFile,
+                        jumpstartBlockNumber.get(),
+                        jumpstartBlockHash.get(),
+                        jumpstartConsensusTimestampHash.get(),
+                        jumpstartOutputItemsTreeRootHash.get(),
+                        streamingHasher);
             }
 
             addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
@@ -1024,6 +1038,8 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
      * <ul>
      *   <li>Block number (8 bytes, long)</li>
      *   <li>Previous block root hash (48 bytes, SHA-384)</li>
+     *   <li>Consensus timestamp hash (48 bytes, SHA-384) — leaf hash of the block's first consensus timestamp</li>
+     *   <li>Output items tree root hash (48 bytes, SHA-384) — streaming merkle root of all output items</li>
      *   <li>Streaming hasher leaf count (8 bytes, long)</li>
      *   <li>Streaming hasher hash count (4 bytes, int)</li>
      *   <li>Streaming hasher pending subtree hashes (48 bytes x hash count)</li>
@@ -1032,14 +1048,26 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
      * @param file the file to write to
      * @param blockNumber the block number
      * @param blockHash the block hash (SHA-384, 48 bytes) - this is the previous block root hash
+     * @param consensusTimestampHash the consensus timestamp leaf hash (SHA-384, 48 bytes)
+     * @param outputItemsTreeRootHash the output items tree root hash (SHA-384, 48 bytes)
      * @param streamingHasher the streaming hasher containing the merkle tree state
      */
-    static void saveJumpstartData(Path file, long blockNumber, byte[] blockHash, StreamingHasher streamingHasher) {
+    static void saveJumpstartData(
+            Path file,
+            long blockNumber,
+            byte[] blockHash,
+            byte[] consensusTimestampHash,
+            byte[] outputItemsTreeRootHash,
+            StreamingHasher streamingHasher) {
         try (DataOutputStream out = new DataOutputStream(
                 Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))) {
             // Block number and hash (previous block root hash for the next block)
             out.writeLong(blockNumber);
             out.write(blockHash);
+            // Consensus timestamp hash (SHA-384 leaf hash of the block's first consensus timestamp)
+            out.write(consensusTimestampHash);
+            // Output items tree root hash (streaming merkle root of all output items)
+            out.write(outputItemsTreeRootHash);
 
             // Streaming hasher state for subtree 2 continuation
             out.writeLong(streamingHasher.leafCount());

@@ -5,7 +5,7 @@ import static org.hiero.block.tools.blocks.AmendmentProvider.createAmendmentProv
 import static org.hiero.block.tools.blocks.HasherStateFiles.saveStateCheckpoint;
 import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_COMPRESSION;
 import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_POWERS_OF_TEN_PER_ZIP;
-import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
+import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlockDetailed;
 import static org.hiero.block.tools.days.downloadlive.ValidateDownloadLive.findPrimaryRecord;
 import static org.hiero.block.tools.days.downloadlive.ValidateDownloadLive.findSidecars;
 import static org.hiero.block.tools.days.downloadlive.ValidateDownloadLive.findSignatures;
@@ -61,6 +61,7 @@ import org.hiero.block.tools.blocks.model.BlockWriter.BlockPath;
 import org.hiero.block.tools.blocks.model.BlockWriter.BlockZipAppender;
 import org.hiero.block.tools.blocks.model.PreVerifiedBlock;
 import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHashRegistry;
+import org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.BlockHashResult;
 import org.hiero.block.tools.blocks.model.hashing.StreamingHasher;
 import org.hiero.block.tools.blocks.validation.AddressBookUpdateValidation;
 import org.hiero.block.tools.blocks.validation.BlockChainValidation;
@@ -249,6 +250,8 @@ public class LiveSequential implements Runnable {
         long blocksSinceWatermarkFlush;
         long blocksValidated;
         long lastCheckpointSaveMs = System.currentTimeMillis();
+        byte[] lastConsensusTimestampHash;
+        byte[] lastOutputItemsTreeRootHash;
     }
 
     /** A block whose file downloads have been fired but not yet joined. */
@@ -772,8 +775,14 @@ public class LiveSequential implements Runnable {
                 saveWatermark(watermarkFile, ls.durableWatermark);
                 saveStateCheckpoint(streamingMerkleTreeFile, streamingHasher);
                 byte[] lastBlockHash = blockRegistry.getBlockHash(ls.durableWatermark);
-                if (lastBlockHash != null) {
-                    saveJumpstart(vc.jumpstartPath(), ls.durableWatermark, lastBlockHash, streamingHasher);
+                if (lastBlockHash != null && ls.lastConsensusTimestampHash != null) {
+                    saveJumpstart(
+                            vc.jumpstartPath(),
+                            ls.durableWatermark,
+                            lastBlockHash,
+                            ls.lastConsensusTimestampHash,
+                            ls.lastOutputItemsTreeRootHash,
+                            streamingHasher);
                 }
                 addressBookRegistry.saveAddressBookRegistryToJsonFile(addressBookFile);
 
@@ -1083,7 +1092,10 @@ public class LiveSequential implements Runnable {
                 amendmentProvider);
 
         // Hash and update chain state
-        byte[] blockStreamBlockHash = hashBlock(wrapped);
+        BlockHashResult hashResult = hashBlockDetailed(wrapped);
+        byte[] blockStreamBlockHash = hashResult.blockHash();
+        ls.lastConsensusTimestampHash = hashResult.consensusTimestampHash();
+        ls.lastOutputItemsTreeRootHash = hashResult.outputItemsTreeRootHash();
         streamingHasher.addNodeByHash(blockStreamBlockHash);
         blockRegistry.addBlock(blockNum, blockStreamBlockHash);
 
@@ -1101,7 +1113,13 @@ public class LiveSequential implements Runnable {
         }
 
         // Save jumpstart.bin every block
-        saveJumpstart(vc.jumpstartPath(), blockNum, blockStreamBlockHash, streamingHasher);
+        saveJumpstart(
+                vc.jumpstartPath(),
+                blockNum,
+                blockStreamBlockHash,
+                ls.lastConsensusTimestampHash,
+                ls.lastOutputItemsTreeRootHash,
+                streamingHasher);
 
         // Periodic checkpoint save
         long nowMs = System.currentTimeMillis();
@@ -1655,16 +1673,24 @@ public class LiveSequential implements Runnable {
 
     /**
      * Save jumpstart.bin atomically. Format matches what {@link JumpstartValidation} reads:
-     * block number (long), block hash (48 bytes), leaf count (long), hash count (int),
+     * block number (long), block hash (48 bytes), consensus timestamp hash (48 bytes),
+     * output items tree root hash (48 bytes), leaf count (long), hash count (int),
      * followed by hash count × 48-byte hashes (streaming hasher intermediate state).
      */
     private static void saveJumpstart(
-            Path jumpstartPath, long blockNumber, byte[] blockHash, StreamingHasher streamingHasher) {
+            Path jumpstartPath,
+            long blockNumber,
+            byte[] blockHash,
+            byte[] consensusTimestampHash,
+            byte[] outputItemsTreeRootHash,
+            StreamingHasher streamingHasher) {
         try {
             HasherStateFiles.saveAtomically(jumpstartPath, path -> {
                 try (var out = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(path), 8192))) {
                     out.writeLong(blockNumber);
                     out.write(blockHash);
+                    out.write(consensusTimestampHash);
+                    out.write(outputItemsTreeRootHash);
                     out.writeLong(streamingHasher.leafCount());
                     List<byte[]> hashes = streamingHasher.intermediateHashingState();
                     out.writeInt(hashes.size());

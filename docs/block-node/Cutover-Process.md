@@ -29,11 +29,18 @@ node signature to Block Streams, Block Nodes, and HinTS/TSS signatures.
     adding Header and Footer details, and generating a Block Proof based
     on the individual node signatures produced for that Record File.</dd>
 <dt>Jumpstart Data</dt><dd>
-    A file containing the Block Hash for a specific WRB, the state of the
-    historical block hash tree after hashing that block, and the block number
-    of that block. The historical block hash tree state is the minimal set of
-    hashes needed to continue the streaming hash algorithm with the next
-    block.</dd>
+    A file containing the Block Hash for a specific WRB, the Consensus
+    Timestamp Hash (SHA-384 leaf hash of the block's first consensus
+    timestamp), the Output Items Tree Root Hash (streaming merkle root of all
+    output items: BlockHeader, RecordFile, TransactionResult,
+    TransactionOutput), the state of the historical block hash tree after
+    hashing that block, and the block number of that block. The Consensus
+    Timestamp Hash and Output Items Tree Root Hash enable the Consensus Node
+    to cross-validate that its locally produced wrapped record block hashes
+    match those from the offline wrapping process before running the
+    jumpstart migration. The historical block hash tree state is the minimal
+    set of hashes needed to continue the streaming hash algorithm with the
+    next block.</dd>
 <dt>WRB Catch Up</dt><dd>
     A process where the Consensus Node Software combines a Jumpstart Data with
     the Timestamp and root hashes for subtrees 3-8 to produce a valid WRB hash
