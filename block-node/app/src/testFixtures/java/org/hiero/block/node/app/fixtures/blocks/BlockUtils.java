@@ -58,8 +58,9 @@ public final class BlockUtils {
      */
     public static SampleBlockInfo getSampleBlockInfo(SampleBlock sampleBlock) throws IOException, ParseException {
         BlockUnparsed blockUnparsed;
-        try (InputStream stream = TestUtils.class.getModule().getResourceAsStream("test-blocks/" + sampleBlock.getBlockName());
-             final GZIPInputStream gzipInputStream = new GZIPInputStream(stream)) {
+        try (InputStream stream =
+                        TestUtils.class.getModule().getResourceAsStream("test-blocks/" + sampleBlock.getBlockName());
+                final GZIPInputStream gzipInputStream = new GZIPInputStream(stream)) {
             byte[] bytes = gzipInputStream.readAllBytes();
             blockUnparsed = BlockUnparsed.PROTOBUF.parse(
                     Bytes.wrap(bytes).toReadableSequentialData(),

@@ -176,18 +176,27 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // while we don't have state management, use the start of block state root hash from the footer
         Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
 
-        // Try direct TSS proof first (most common case)
-        BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
-        if (tssBasedProof != null) {
-            return getVerificationResult(
-                    tssBasedProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
-        }
+        try {
+            // Try direct TSS proof first (most common case)
+            BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
+            if (tssBasedProof != null) {
+                return getVerificationResult(
+                        tssBasedProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
+            }
 
-        // Try indirect (state) proof — used when TSS signing was delayed
-        BlockProof stateBasedProof = getSingle(blockProofs, BlockProof::hasBlockStateProof);
-        if (stateBasedProof != null) {
-            return getStateProofVerificationResult(
-                    stateBasedProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
+            // Try indirect (state) proof — used when TSS signing was delayed
+            BlockProof stateBasedProof = getSingle(blockProofs, BlockProof::hasBlockStateProof);
+            if (stateBasedProof != null) {
+                return getStateProofVerificationResult(
+                        stateBasedProof,
+                        previousBlockHashToUse,
+                        rootOfAllPreviousBlockHashes,
+                        startOfBlockStateRootHash);
+            }
+        } catch (final IllegalStateException e) {
+            LOGGER.log(WARNING, "Block [{0}] has malformed proof structure: %s".formatted(e.getMessage()), e);
+            return new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
 
         // No supported proof type found
@@ -279,7 +288,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         final boolean verified = verifyStateProof(blockRootHash, blockProof.blockStateProof());
 
         return new VerificationNotification(
-                verified, blockNumber, blockRootHash, verified ? new BlockUnparsed(blockItems) : null, blockSource);
+                verified,
+                verified ? null : FailureType.BAD_BLOCK_PROOF,
+                blockNumber,
+                blockRootHash,
+                verified ? new BlockUnparsed(blockItems) : null,
+                blockSource);
     }
 
     /**
@@ -341,7 +355,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         }
         // Starting hash must be present and non-empty to avoid propagating incorrect hashes
         if (!siblingPath.hasHash() || siblingPath.hash().length() == 0) {
-            LOGGER.log(WARNING, "Block {0} state proof path 1 (sibling) has missing or empty starting hash", blockNumber);
+            LOGGER.log(
+                    WARNING, "Block {0} state proof path 1 (sibling) has missing or empty starting hash", blockNumber);
             return false;
         }
         for (SiblingNode sibling : siblings) {
@@ -454,19 +469,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         return body.ledgerIdPublicationOrThrow();
     }
 
-    /**
-     * Returns the single element matching the predicate, or null if none match.
-     * Logs a WARNING and returns null if multiple elements match.
-     */
+    /** Returns the single element matching the predicate, or null if none match. */
     private <T> T getSingle(List<T> list, Predicate<T> predicate) {
         List<T> filtered = list.stream().filter(predicate).toList();
         if (filtered.size() > 1) {
-            LOGGER.log(
-                    WARNING,
-                    "Expected exactly 1 element matching predicate [{0}], but found {1}.",
-                    predicate,
-                    filtered.size());
-            return null;
+            throw new IllegalStateException(
+                    "Expected at most 1 element matching predicate, but found " + filtered.size());
         }
         return filtered.isEmpty() ? null : filtered.get(0);
     }
