@@ -21,7 +21,6 @@ module org.hiero.block.node.verification {
     requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
-    requires org.antlr.antlr4.runtime;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             VerificationServicePlugin;
