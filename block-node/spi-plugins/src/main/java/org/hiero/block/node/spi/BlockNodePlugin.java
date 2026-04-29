@@ -91,6 +91,8 @@ public interface BlockNodePlugin {
     /**
      * Notify the plugin of an update to the BlockNodeContext. This method is called when the block node context has
      * been updated. It provides the plugin an opportunity to update its state when the BlockNodeContext changes.
+     * `onContextUpdate()` will be called from a different thread than the thread the plugin was started on so local copy
+     * of the `BlockNodeContext should be created and used to avoid the address of the BlockNodeContext changing mid-use.
      * <p>
      * The default implementation does nothing. This is to be overridden by the plugin if it needs to handle
      * {@link BlockNodeContext} updates.

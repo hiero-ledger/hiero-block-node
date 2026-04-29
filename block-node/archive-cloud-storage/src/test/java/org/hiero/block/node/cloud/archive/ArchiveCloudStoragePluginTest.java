@@ -35,7 +35,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
-import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -184,8 +183,9 @@ class ArchiveCloudStoragePluginTest {
                     historicalBlockFacility,
                     null,
                     null,
+                    null,
                     BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT);
+                    null);
             final ArchiveCloudStoragePlugin plugin = new ArchiveCloudStoragePlugin();
             assertThatNoException().isThrownBy(() -> plugin.init(testContext, null));
         }
@@ -209,8 +209,9 @@ class ArchiveCloudStoragePluginTest {
                     new SimpleInMemoryHistoricalBlockFacility(),
                     null,
                     null,
+                    null,
                     BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT);
+                    null);
             new ArchiveCloudStoragePlugin().init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
         }
@@ -258,8 +259,9 @@ class ArchiveCloudStoragePluginTest {
                     new SimpleInMemoryHistoricalBlockFacility(),
                     null,
                     null,
+                    null,
                     BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT);
+                    null);
             new ArchiveCloudStoragePlugin().init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isOne();
         }
