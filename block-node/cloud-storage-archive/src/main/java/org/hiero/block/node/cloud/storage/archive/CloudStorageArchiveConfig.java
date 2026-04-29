@@ -40,19 +40,19 @@ public record CloudStorageArchiveConfig(
     /// for any required fields that are empty.  An empty list means the configuration is valid.
     List<String> validate() {
         List<String> violations = new ArrayList<>();
-        if (endpointUrl.isEmpty()) {
+        if (endpointUrl.isBlank()) {
             violations.add("endpoint URL");
         }
-        if (regionName.isEmpty()) {
+        if (regionName.isBlank()) {
             violations.add("region name");
         }
-        if (accessKey.isEmpty()) {
+        if (accessKey.isBlank()) {
             violations.add("access key");
         }
-        if (secretKey.isEmpty()) {
+        if (secretKey.isBlank()) {
             violations.add("secret key");
         }
-        if (bucketName.isEmpty()) {
+        if (bucketName.isBlank()) {
             violations.add("bucket name");
         }
         return violations;

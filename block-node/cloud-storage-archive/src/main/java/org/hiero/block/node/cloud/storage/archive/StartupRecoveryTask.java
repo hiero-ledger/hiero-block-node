@@ -111,13 +111,15 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
     private String findLastCommonPrefix(S3Client s3, String prefix) throws S3ResponseException, IOException {
         String lastPrefix = null;
         String token = null;
-        do {
+        boolean hasMore = true;
+        while (hasMore) {
             final S3Client.ListPage page = s3.listObjectsPage(prefix, token, "/", MAX_LIST_RESULTS);
             if (!page.keys().isEmpty()) {
                 lastPrefix = page.keys().getLast();
             }
             token = page.continuationToken();
-        } while (token != null);
+            hasMore = token != null;
+        }
         return lastPrefix;
     }
 
@@ -126,13 +128,15 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
     private String findLastObject(S3Client s3, String prefix) throws S3ResponseException, IOException {
         String lastKey = null;
         String token = null;
-        do {
+        boolean hasMore = true;
+        while (hasMore) {
             final S3Client.ListPage page = s3.listObjectsPage(prefix, token, null, MAX_LIST_RESULTS);
             if (!page.keys().isEmpty()) {
                 lastKey = page.keys().getLast();
             }
             token = page.continuationToken();
-        } while (token != null);
+            hasMore = token != null;
+        }
         return lastKey;
     }
 

@@ -139,7 +139,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                     }
                     final long blockNumber = notification.blockNumber();
                     // Start a new upload task when there is none active
-                    if (currentUploadFuture == null) {
+                    if (currentUploadFuture == null && recoveryFuture == null) {
                         startNewUploadTask(blockNumber);
                     }
                     // Route the verified block; if it belongs to the active task's range, attempt to drain
@@ -207,6 +207,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                         result.uploadId() != null ? result : null));
                 tryReplayStash();
             }
+            // No else: currentGroupStart == -1 means a fresh start with no prior S3 state.
+            // currentGroupStart stays -1, so the calling handleVerification picks it up via startNewUploadTask.
         } catch (ExecutionException e) {
             LOGGER.log(TRACE, "Startup recovery task failed", e);
             throw e;

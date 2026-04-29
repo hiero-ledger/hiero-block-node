@@ -190,11 +190,12 @@ class CloudStorageArchivePluginTest {
         }
 
         /// Verifies that the plugin does NOT register as a block notification handler when a
-        /// required configuration field is empty.  Each case omits exactly one field so that
-        /// [CloudStorageArchiveConfig#validate] returns a non-empty violation list.
-        @ParameterizedTest(name = "plugin not registered when {0} is empty")
-        @MethodSource("emptyFieldConfigs")
-        @DisplayName("Plugin not registered when a required config field is missing")
+        /// required configuration field is blank or empty.  Each case omits exactly one field, or
+        /// sets it to whitespace only, so that [CloudStorageArchiveConfig#validate] returns a
+        /// non-empty violation list.
+        @ParameterizedTest(name = "plugin not registered when {0} is blank or empty")
+        @MethodSource("blankOrEmptyFieldConfigs")
+        @DisplayName("Plugin not registered when a required config field is blank or empty")
         void testPluginNotRegisteredForMissingField(String fieldName, Map<String, String> configValues) {
             final ConfigurationBuilder builder =
                     ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
@@ -215,7 +216,7 @@ class CloudStorageArchivePluginTest {
             assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
         }
 
-        static Stream<Arguments> emptyFieldConfigs() {
+        static Stream<Arguments> blankOrEmptyFieldConfigs() {
             final Map<String, String> full = new HashMap<>(Map.of(
                     "cloud.archive.endpointUrl", "http://localhost:9000",
                     "cloud.archive.regionName", "us-east-1",
@@ -223,16 +224,27 @@ class CloudStorageArchivePluginTest {
                     "cloud.archive.secretKey", "minioadmin",
                     "cloud.archive.bucketName", "test-bucket"));
             return Stream.of(
-                    Arguments.of("endpointUrl", withoutKey(full, "cloud.archive.endpointUrl")),
-                    Arguments.of("regionName", withoutKey(full, "cloud.archive.regionName")),
-                    Arguments.of("accessKey", withoutKey(full, "cloud.archive.accessKey")),
-                    Arguments.of("secretKey", withoutKey(full, "cloud.archive.secretKey")),
-                    Arguments.of("bucketName", withoutKey(full, "cloud.archive.bucketName")));
+                    Arguments.of("endpointUrl (empty)", withoutKey(full, "cloud.archive.endpointUrl")),
+                    Arguments.of("regionName (empty)", withoutKey(full, "cloud.archive.regionName")),
+                    Arguments.of("accessKey (empty)", withoutKey(full, "cloud.archive.accessKey")),
+                    Arguments.of("secretKey (empty)", withoutKey(full, "cloud.archive.secretKey")),
+                    Arguments.of("bucketName (empty)", withoutKey(full, "cloud.archive.bucketName")),
+                    Arguments.of("endpointUrl (blank)", withValue(full, "cloud.archive.endpointUrl", "   ")),
+                    Arguments.of("regionName (blank)", withValue(full, "cloud.archive.regionName", "   ")),
+                    Arguments.of("accessKey (blank)", withValue(full, "cloud.archive.accessKey", "   ")),
+                    Arguments.of("secretKey (blank)", withValue(full, "cloud.archive.secretKey", "   ")),
+                    Arguments.of("bucketName (blank)", withValue(full, "cloud.archive.bucketName", "   ")));
         }
 
         private static Map<String, String> withoutKey(Map<String, String> source, String key) {
             final Map<String, String> copy = new HashMap<>(source);
             copy.remove(key);
+            return copy;
+        }
+
+        private static Map<String, String> withValue(Map<String, String> source, String key, String value) {
+            final Map<String, String> copy = new HashMap<>(source);
+            copy.put(key, value);
             return copy;
         }
 
