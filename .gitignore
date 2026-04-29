@@ -68,3 +68,8 @@ protobuf-sources/hiero-consensus-node/
 node_modules/
 k6-proto/
 k6-out/
+
+# LLM agent files
+.agent/**
+agent/**
+

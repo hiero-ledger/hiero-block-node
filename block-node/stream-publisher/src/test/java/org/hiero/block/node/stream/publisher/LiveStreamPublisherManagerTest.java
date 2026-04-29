@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
+import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -2123,7 +2124,7 @@ class LiveStreamPublisherManagerTest {
             }
         }
 
-        /// Tests for [LiveStreamPublisherManager#addHandler(PublisherHandler.MetricsHolder)].
+        /// Tests for [LiveStreamPublisherManager#addHandler].
         @Nested
         @DisplayName("addHandler() Tests")
         class AddHandlerTests {
@@ -2144,7 +2145,7 @@ class LiveStreamPublisherManagerTest {
             }
 
             /// This test aims to assert that registering a new handler
-            /// via [LiveStreamPublisherManager#addHandler(PublisherHandler.MetricsHolder)]
+            /// via [LiveStreamPublisherManager#addHandler]
             /// will fire a [PublisherStatusUpdateNotification]
             /// indicating that a new publisher has connected.
             @Test
@@ -2168,7 +2169,7 @@ class LiveStreamPublisherManagerTest {
             }
 
             /// This test aims to assert that registering a new handler
-            /// via [LiveStreamPublisherManager#addHandler(PublisherHandler.MetricsHolder)]
+            /// via [LiveStreamPublisherManager#addHandler]
             /// will update the current active publishers count metric.
             @Test
             @DisplayName("addHandler() updates the current active publishers count metric")
@@ -2308,6 +2309,257 @@ class LiveStreamPublisherManagerTest {
                 assertThat(actionForBlock)
                         .returns(BlockAction.RESEND, ActionForBlock::action)
                         .returns(blockThatFailsVerification.number(), ActionForBlock::blockNumber);
+            }
+        }
+
+        /// Tests for stall detection via [LiveStreamPublisherManager#checkForStalledHandlers].
+        @Nested
+        @DisplayName("StallDetection Tests")
+        class StallDetectionTests {
+
+            /// A handler holding ACCEPT for a block and completing it normally
+            /// (single handler) must never trigger stall detection.
+            @Test
+            @DisplayName("no stall detected when only one handler is connected")
+            void testNoStallWithSingleHandler() {
+                // Remove second handler so only handler 1 is connected.
+                toTest.removeHandler(publisherHandlerId2);
+                // Stream and complete blocks 0-3 via handler 1 alone.
+                for (long block = 0L; block <= 3L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler.onNext(req);
+                    endThisBlock(publisherHandler, block);
+                }
+                // No EndStream(TIMEOUT) should have been sent.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("single handler should never receive EndStream(TIMEOUT)")
+                        .noneMatch(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                assertThat(responsePipeline.getOnCompleteCalls().get())
+                        .as("single handler should not be shut down by stall detection")
+                        .isZero();
+            }
+
+            /// Handler 2 completing block N+2 must NOT fire stall detection;
+            /// only completing a block strictly greater than N+2 fires it.
+            @Test
+            @DisplayName("no stall when completed block equals stalled + 2 (threshold boundary)")
+            void testNoStallWhenThresholdNotMet() {
+                // Handler 1 sends only the header for block 0 — goes silent.
+                sendHeaderOnly(publisherHandler, 0L);
+                // Handler 2 streams and completes block 1 (SKIP for 0, ACCEPT for 1).
+                final PublishStreamRequestUnparsed block1Req = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(TestBlockBuilder.generateBlockWithNumber(1L).asItemSetUnparsed())
+                        .build();
+                publisherHandler2.onNext(block1Req);
+                endThisBlock(publisherHandler2, 1L);
+                // Handler 2 completes block 2: 2 == 0+2, NOT strictly greater — no stall yet.
+                final PublishStreamRequestUnparsed block2Req = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(TestBlockBuilder.generateBlockWithNumber(2L).asItemSetUnparsed())
+                        .build();
+                publisherHandler2.onNext(block2Req);
+                endThisBlock(publisherHandler2, 2L);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("completing block 2 (== 0+2) must not trigger stall detection")
+                        .noneMatch(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
+                // Handler 2 completes block 3: 3 > 0+2 — stall MUST fire now.
+                final PublishStreamRequestUnparsed block3Req = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(TestBlockBuilder.generateBlockWithNumber(3L).asItemSetUnparsed())
+                        .build();
+                publisherHandler2.onNext(block3Req);
+                endThisBlock(publisherHandler2, 3L);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("completing block 3 (> 0+2) must trigger EndStream(TIMEOUT) on handler 1")
+                        .anySatisfy(r -> {
+                            assertThat(r.response().kind())
+                                    .isEqualTo(PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                            assertThat(r.endStream().status())
+                                    .isEqualTo(PublishStreamResponse.EndOfStream.Code.TIMEOUT);
+                        });
+                assertThat(responsePipeline.getOnCompleteCalls().get())
+                        .as("stalled handler 1 must be shut down")
+                        .isEqualTo(1);
+            }
+
+            /// Basic stall detection: handler 1 sends only a header for block 0
+            /// then goes silent; handler 2 completes block 3.
+            @Test
+            @DisplayName("stall detected and EndStream(TIMEOUT) sent when ACCEPT winner goes silent")
+            void testStallDetectedAndEndStreamSent() {
+                // Handler 1 sends header only for block 0.
+                sendHeaderOnly(publisherHandler, 0L);
+                // Handler 2 is SKIPped for 0, then completes blocks 1, 2, 3.
+                for (long block = 1L; block <= 3L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                // Handler 1 must have received EndStream(TIMEOUT) and been shut down.
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("stalled handler 1 must receive EndStream(TIMEOUT)")
+                        .anySatisfy(r -> {
+                            assertThat(r.response().kind())
+                                    .isEqualTo(PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                            assertThat(r.endStream().status())
+                                    .isEqualTo(PublishStreamResponse.EndOfStream.Code.TIMEOUT);
+                        });
+                assertThat(responsePipeline.getOnCompleteCalls().get())
+                        .as("stalled handler 1 must be shut down after stall")
+                        .isEqualTo(1);
+            }
+
+            /// When the stalled handler disconnects before stall detection fires,
+            /// block-is-ending adds block 0 to blocksToResend via the drop path.
+            /// Stall detection should find no queue entry and be a no-op — no
+            /// double action, no extra metric increment.
+            @Test
+            @DisplayName("stall action is a no-op when ACCEPT winner already disconnected")
+            void testStalledHandlerAlreadyDisconnectedBeforeAction() {
+                // Handler 1 sends header only then disconnects (clientEndStreamReceived).
+                sendHeaderOnly(publisherHandler, 0L);
+                publisherHandler.clientEndStreamReceived();
+                // Clear pipeline noise from the disconnect itself.
+                responsePipeline.clear();
+                // Handler 2 completes blocks 1, 2, 3 — would trigger stall but block 0
+                // queue is already gone.
+                for (long block = 1L; block <= 3L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                // No EndStream(TIMEOUT) should be sent (handler 1 already gone).
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("no extra EndStream(TIMEOUT) when handler already disconnected")
+                        .noneMatch(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                // No additional shutdown on handler 1 pipeline.
+                assertThat(responsePipeline.getOnCompleteCalls().get())
+                        .as("no extra onComplete when handler already disconnected")
+                        .isZero();
+            }
+
+            /// If the ACCEPT winner finishes its block before stall detection fires,
+            /// the entry is already removed from acceptWinnerByBlock at endOfBlock time;
+            /// no EndStream(TIMEOUT) should be sent.
+            @Test
+            @DisplayName("no stall when ACCEPT winner completes block before threshold is reached")
+            void testStalledHandlerCompletesBeforeActionExecutes() {
+                // Handler 1 streams and fully completes block 0.
+                final PublishStreamRequestUnparsed block0Req = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(TestBlockBuilder.generateBlockWithNumber(0L).asItemSetUnparsed())
+                        .build();
+                publisherHandler.onNext(block0Req);
+                endThisBlock(publisherHandler, 0L);
+                // Handler 2 then completes blocks 1, 2, 3 — but block 0 is already done.
+                for (long block = 1L; block <= 3L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                // Handler 1 must not have received EndStream(TIMEOUT).
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("completed handler 1 must not receive EndStream(TIMEOUT)")
+                        .noneMatch(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                assertThat(responsePipeline.getOnCompleteCalls().get())
+                        .as("handler 1 should not be shut down by stall detection")
+                        .isZero();
+            }
+
+            /// When two handlers are simultaneously stalled, a single completing
+            /// handler that is far enough ahead must terminate both.
+            @Test
+            @DisplayName("all stalled handlers are terminated when multiple are stalled simultaneously")
+            void testMultipleStalledHandlersAllTerminated() {
+                // Add a third handler.
+                final TestResponsePipeline<PublishStreamResponse> responsePipeline3 = new TestResponsePipeline<>();
+                final PublisherHandler publisherHandler3 =
+                        toTest.addHandler(responsePipeline3, sharedHandlerMetrics, "testID");
+                // Handler 1 wins ACCEPT for block 0 — sends header only.
+                sendHeaderOnly(publisherHandler, 0L);
+                // Handler 2 wins ACCEPT for block 1 — sends header only.
+                sendHeaderOnly(publisherHandler2, 1L);
+                // Handler 3 completes block 4: 4 > 0+2 AND 4 > 1+2 — both stalled.
+                for (long block = 2L; block <= 4L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler3.onNext(req);
+                    endThisBlock(publisherHandler3, block);
+                }
+                // Both handler 1 and handler 2 must have received EndStream(TIMEOUT).
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("stalled handler 1 must receive EndStream(TIMEOUT)")
+                        .anySatisfy(r -> {
+                            assertThat(r.response().kind())
+                                    .isEqualTo(PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                            assertThat(r.endStream().status())
+                                    .isEqualTo(PublishStreamResponse.EndOfStream.Code.TIMEOUT);
+                        });
+                assertThat(responsePipeline.getOnCompleteCalls().get())
+                        .as("stalled handler 1 must be shut down")
+                        .isEqualTo(1);
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .as("stalled handler 2 must receive EndStream(TIMEOUT)")
+                        .anySatisfy(r -> {
+                            assertThat(r.response().kind())
+                                    .isEqualTo(PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                            assertThat(r.endStream().status())
+                                    .isEqualTo(PublishStreamResponse.EndOfStream.Code.TIMEOUT);
+                        });
+                assertThat(responsePipeline2.getOnCompleteCalls().get())
+                        .as("stalled handler 2 must be shut down")
+                        .isEqualTo(1);
+            }
+
+            /// After stall detection fires and block 0 is added to blocksToResend,
+            /// the next endOfBlock from handler 2 must deliver ResendBlock(0) back
+            /// to handler 2's publisher so it can take over.
+            @Test
+            @DisplayName("ResendBlock delivered at next endOfBlock after stall detection")
+            void testResendDeliveredAtNextEndOfBlock() {
+                // Handler 1 sends header only for block 0 — stalls.
+                sendHeaderOnly(publisherHandler, 0L);
+                // Handler 2 completes blocks 1, 2, 3 — triggers stall on block 3.
+                for (long block = 1L; block <= 3L; block++) {
+                    final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
+                            .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
+                                    .asItemSetUnparsed())
+                            .build();
+                    publisherHandler2.onNext(req);
+                    endThisBlock(publisherHandler2, block);
+                }
+                // Stall must have fired — handler 1 terminated.
+                assertThat(responsePipeline.getOnCompleteCalls().get())
+                        .as("handler 1 must be shut down by stall detection before checking resend")
+                        .isEqualTo(1);
+                // Clear pipeline 2 noise (SKIP responses for blocks 0-2).
+                responsePipeline2.clear();
+                // Handler 2 now streams block 4; its endOfBlock must return ResendBlock(0).
+                final PublishStreamRequestUnparsed block4Req = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(TestBlockBuilder.generateBlockWithNumber(4L).asItemSetUnparsed())
+                        .build();
+                publisherHandler2.onNext(block4Req);
+                endThisBlock(publisherHandler2, 4L);
+                // Handler 2 must have received a ResendBlock(0) response.
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .as("handler 2 must receive ResendBlock(0) at next endOfBlock after stall")
+                        .anySatisfy(r -> {
+                            assertThat(r.response().kind())
+                                    .isEqualTo(PublishStreamResponse.ResponseOneOfType.RESEND_BLOCK);
+                            assertThat(r.resendBlock().blockNumber()).isEqualTo(0L);
+                        });
             }
         }
     }
