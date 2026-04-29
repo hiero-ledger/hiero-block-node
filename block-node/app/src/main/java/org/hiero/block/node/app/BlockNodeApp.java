@@ -3,6 +3,7 @@ package org.hiero.block.node.app;
 
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
@@ -502,9 +503,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded Application State Data from file: {0}", tssDataFilePath);
             } catch (IOException e) {
-                throw new UncheckedIOException("Failed to read Application State Data file: " + tssDataFilePath, e);
+                LOGGER.log(ERROR, "Failed to read Application State Data file: " + tssDataFilePath, e);
             } catch (ParseException e) {
-                throw new IllegalStateException("Failed to parse Application State Data file: " + tssDataFilePath, e);
+                LOGGER.log(ERROR, "Failed to parse Application State Data file: " + tssDataFilePath, e);
             }
         }
     }
