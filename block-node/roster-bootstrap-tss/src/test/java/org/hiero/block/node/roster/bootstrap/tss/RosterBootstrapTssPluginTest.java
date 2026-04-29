@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -33,7 +34,7 @@ public class RosterBootstrapTssPluginTest
 
     Map<String, String> defaultConfig = new HashMap<>();
 
-    public RosterBootstrapTssPluginTest(@TempDir final Path tempDir) {
+    public RosterBootstrapTssPluginTest(@TempDir final Path tempDir) throws IOException {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
@@ -61,14 +62,10 @@ public class RosterBootstrapTssPluginTest
         defaultConfig.put("roster.bootstrap.tss.tssDataJsonPath", tssDataJsonPath);
     }
 
-    private void createTestBlockNodeSourcesFile(TssData tssData, String configPath) {
+    private void createTestBlockNodeSourcesFile(TssData tssData, String configPath) throws IOException {
         String jsonString = TssData.JSON.toJSON(tssData);
         // Write the JSON string to the specified file path
-        try {
-            java.nio.file.Files.write(java.nio.file.Paths.get(configPath), jsonString.getBytes());
-        } catch (java.io.IOException e) {
-            throw new RuntimeException("Failed to write config to file: " + configPath, e);
-        }
+        java.nio.file.Files.write(java.nio.file.Paths.get(configPath), jsonString.getBytes());
     }
 
     @Test

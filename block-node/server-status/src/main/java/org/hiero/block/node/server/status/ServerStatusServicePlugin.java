@@ -38,8 +38,6 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private HistoricalBlockFacility blockProvider;
     /** The block node context, used to provide access to facilities */
     private volatile BlockNodeContext blockNodeContext;
-    /** The application state facility, for updating application state. */
-    private ApplicationStateFacility applicationStateFacility;
     /** Counter for the number of status requests */
     private LongCounter.Measurement requestStatusCounter;
     /** Counter for the number of detail requests */
