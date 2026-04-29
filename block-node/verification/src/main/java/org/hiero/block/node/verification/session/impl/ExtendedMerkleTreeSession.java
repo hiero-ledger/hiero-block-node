@@ -286,17 +286,17 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * Walks the merkle path chain in a state proof to reconstruct the directly-signed block's
      * root hash, then verifies the TSS signature on that root.
      *
-     * <p>The state proof contains 3 paths:
+     * <p>A valid block state proof contains 3 paths:
      * <ul>
      *   <li>Path 0: timestamp leaf of the signed block</li>
-     *   <li>Path 1: sibling hashes from the target block through all gap blocks to the signed block</li>
+     *   <li>Path 1: sibling hashes from the target block through all `gap` (i.e. not directly signed) blocks to the signed block</li>
      *   <li>Path 2: terminal (empty)</li>
      * </ul>
      *
      * <p>Path 1's siblings are laid out as groups:
      * <ul>
-     *   <li>Per gap block (4 siblings): prevBlockRootsHash, depth5Node2, depth4Node2, timestamp</li>
-     *   <li>Final signed block (3 siblings): prevBlockRootsHash, depth5Node2, depth4Node2</li>
+     *   <li>Per gap block (4 siblings): prevBlockRootsHash (right), depth5Node2 (right), depth4Node2 (right), <i>already-hashed</i> timestamp (left)</li>
+     *   <li>Final signed block (3 siblings): prevBlockRootsHash (right), depth5Node2 (right), depth4Node2 (right)
      * </ul>
      *
      * @param blockRootHash the computed root hash of the target block
@@ -306,6 +306,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     protected boolean verifyStateProof(@NonNull Bytes blockRootHash, @NonNull StateProof stateProof) {
         List<MerklePath> paths = stateProof.paths();
         if (paths.size() != 3) {
+            LOGGER.log(WARNING, "Block {0} state proof has {1} paths, expected 3", blockNumber, paths.size());
             return false;
         }
 
@@ -315,12 +316,15 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         if (!terminalPath.siblings().isEmpty() || terminalPath.hasTimestampLeaf()) {
             LOGGER.log(WARNING, "Block {0} state proof path 2 (terminal) is unexpectedly non-empty", blockNumber);
+            return false;
         }
 
         if (!timestampPath.hasTimestampLeaf()) {
+            LOGGER.log(WARNING, "Block {0} state proof path 0 (timestamp) is missing timestamp leaf", blockNumber);
             return false;
         }
         if (!stateProof.hasSignedBlockProof()) {
+            LOGGER.log(WARNING, "Block {0} state proof is missing signed block proof", blockNumber);
             return false;
         }
 
@@ -328,29 +332,39 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         int totalSiblings = siblings.size();
         // Must have at least 3 (signed block siblings) and remainder must be groups of 4 (gap blocks)
         if (totalSiblings < 3 || (totalSiblings - 3) % 4 != 0) {
+            LOGGER.log(
+                    WARNING,
+                    "Block {0} state proof sibling count {1} is invalid (need >= 3, remainder must be multiple of 4)",
+                    blockNumber,
+                    totalSiblings);
             return false;
         }
-        // Starting hash and all sibling hashes must be non-empty to avoid propagating incorrect hashes
-        if (siblingPath.hash().length() == 0) {
+        // Starting hash must be present and non-empty to avoid propagating incorrect hashes
+        if (!siblingPath.hasHash() || siblingPath.hash().length() == 0) {
+            LOGGER.log(WARNING, "Block {0} state proof path 1 (sibling) has missing or empty starting hash", blockNumber);
             return false;
         }
         for (SiblingNode sibling : siblings) {
             if (sibling.hash().length() == 0) {
+                LOGGER.log(WARNING, "Block {0} state proof contains a sibling node with an empty hash", blockNumber);
                 return false;
             }
         }
 
-        // Start from path1.hash = previousBlockHash of the target block (= rootHash of block T-1).
-        // Walk through siblings in groups, rebuilding each block's root hash in the chain.
+        // siblingPath.hash() is the previous block's (T-1) root hash. Walking the siblings in groups
+        // first reconstructs the target block T's root hash, then each subsequent gap block's root hash,
+        // until we reach the signed block. After the first iteration, current equals T's reconstructed
+        // root hash — verify it matches the independently computed blockRootHash to ensure block content integrity.
         byte[] current = siblingPath.hash().toByteArray();
         int index = 0;
+        boolean firstIteration = true;
 
-        // Process gap blocks — each contributes 4 siblings
+        // Process gap blocks (including the target block itself) — each contributes 4 siblings
         while (totalSiblings - index > 3) {
             SiblingNode prevBlockRootsHash = siblings.get(index);
             SiblingNode depth5Node2Sibling = siblings.get(index + 1);
             SiblingNode depth4Node2Sibling = siblings.get(index + 2);
-            SiblingNode timestampSibling = siblings.get(index + 3);
+            SiblingNode hashedTimestampSibling = siblings.get(index + 3);
 
             byte[] depth5Node1 = combineSibling(current, prevBlockRootsHash);
             byte[] depth4Node1 = combineSibling(depth5Node1, depth5Node2Sibling);
@@ -358,7 +372,24 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
             // The timestamp sibling hash is already hashLeaf(rawTimestamp) — a 48-byte node value.
             // Combine as depth2Node1 (left) with depth2Node2 (right) to reconstruct the gap block root.
-            current = hashInternalNode(timestampSibling.hash().toByteArray(), depth2Node2);
+            current = hashInternalNode(hashedTimestampSibling.hash().toByteArray(), depth2Node2);
+
+            if (firstIteration) {
+                // current now holds the reconstructed target block root hash; verify it matches
+                // the hash computed from the actual block content we received.
+                final Bytes reconstructed = Bytes.wrap(current);
+                if (!blockRootHash.equals(reconstructed)) {
+                    LOGGER.log(
+                            WARNING,
+                            "Block {0} state proof integrity check failed: hash reconstructed from path 1 siblings"
+                                    + " [{1}] does not match block root hash computed from block content [{2}]",
+                            blockNumber,
+                            reconstructed,
+                            blockRootHash);
+                    return false;
+                }
+                firstIteration = false;
+            }
 
             index += 4;
         }
@@ -370,8 +401,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         // Reconstruct the signed block's root hash using Path 0's raw timestamp bytes
         byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
-        byte[] timestampLeaf = hashLeaf(timestampPath.timestampLeaf().toByteArray());
-        byte[] signedBlockRoot = hashInternalNode(timestampLeaf, depth2Node2);
+        byte[] hashedTimestampLeaf = hashLeaf(timestampPath.timestampLeaf().toByteArray());
+        byte[] signedBlockRoot = hashInternalNode(hashedTimestampLeaf, depth2Node2);
 
         // Verify TSS signature on the signed block's root hash
         return verifySignature(
@@ -430,8 +461,11 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     private <T> T getSingle(List<T> list, Predicate<T> predicate) {
         List<T> filtered = list.stream().filter(predicate).toList();
         if (filtered.size() > 1) {
-            LOGGER.log(WARNING, "Expected exactly 1 element matching predicate [{0}], but found {1}.",
-                    predicate, filtered.size());
+            LOGGER.log(
+                    WARNING,
+                    "Expected exactly 1 element matching predicate [{0}], but found {1}.",
+                    predicate,
+                    filtered.size());
             return null;
         }
         return filtered.isEmpty() ? null : filtered.get(0);

@@ -28,6 +28,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Verifies that indirect (state) proof verification works end-to-end, including both the
@@ -135,6 +137,30 @@ class StateProofVerificationTest {
     }
 
     @Test
+    void shouldRejectTamperedBlockContentWithValidStateProof() throws ParseException {
+        // Tamper with a transaction in the block body while leaving the state proof unchanged.
+        // The independently computed blockRootHash will differ from what the state proof chain
+        // encodes, so the first-iteration integrity check must reject the block.
+        BlockUnparsed tamperedBlock = tamperSignedTransaction(block3.blockUnparsed());
+        VerificationNotification notification = verifyBlock(block3.blockNumber(), tamperedBlock);
+        assertNotNull(notification, "Tampered block must still produce a notification");
+        assertFalse(
+                notification.success(),
+                "Tampered block content with valid state proof must cause verification to fail");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 4})
+    void shouldRejectInvalidSiblingCount(int siblingCount) throws ParseException {
+        // 1 and 2 fail the "< 3" guard; 4 fails the "(count - 3) % 4 == 0" guard.
+        // Block 3 has 7 siblings, so truncating to 1, 2, or 4 always produces an invalid count.
+        BlockUnparsed tamperedBlock = withSiblingCount(block3.blockUnparsed(), siblingCount);
+        VerificationNotification notification = verifyBlock(block3.blockNumber(), tamperedBlock);
+        assertNotNull(notification, "Block with " + siblingCount + " sibling(s) must still produce a notification");
+        assertFalse(notification.success(), "State proof with " + siblingCount + " sibling(s) must fail verification");
+    }
+
+    @Test
     void shouldVerifyDirectTssProofStillWorks() throws ParseException {
         // Block 0 and block 4 have direct TSS proofs — ensure the existing path still works
         VerificationNotification notification0 = verifyBlock(block0);
@@ -219,6 +245,71 @@ class StateProofVerificationTest {
             break;
         }
         return new BlockUnparsed(items);
+    }
+
+    /**
+     * Creates a copy of the block with the state proof's path 1 siblings truncated to {@code count} entries.
+     * Used to exercise the sibling-count validation in {@code verifyStateProof}.
+     */
+    private static BlockUnparsed withSiblingCount(BlockUnparsed block, int count) throws ParseException {
+        List<BlockItemUnparsed> items = new ArrayList<>(block.blockItems());
+        for (int i = items.size() - 1; i >= 0; i--) {
+            BlockItemUnparsed item = items.get(i);
+            if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
+                continue;
+            }
+            BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow());
+            if (!proof.hasBlockStateProof()) {
+                continue;
+            }
+            StateProof stateProof = proof.blockStateProof();
+            List<SiblingNode> truncated =
+                    new ArrayList<>(stateProof.paths().get(1).siblings().subList(0, count));
+            StateProof tamperedStateProof = stateProof
+                    .copyBuilder()
+                    .paths(List.of(
+                            stateProof.paths().get(0),
+                            stateProof
+                                    .paths()
+                                    .get(1)
+                                    .copyBuilder()
+                                    .siblings(truncated)
+                                    .build(),
+                            stateProof.paths().get(2)))
+                    .build();
+            BlockProof tamperedProof =
+                    proof.copyBuilder().blockStateProof(tamperedStateProof).build();
+            items.set(
+                    i,
+                    BlockItemUnparsed.newBuilder()
+                            .blockProof(BlockProof.PROTOBUF.toBytes(tamperedProof))
+                            .build());
+            return new BlockUnparsed(items);
+        }
+        throw new IllegalStateException("No state proof found in block");
+    }
+
+    /**
+     * Creates a copy of the block with a tampered signed transaction item.
+     * Flips the first byte of the first signed transaction's raw bytes, leaving the state proof intact.
+     */
+    private static BlockUnparsed tamperSignedTransaction(BlockUnparsed block) {
+        List<BlockItemUnparsed> items = new ArrayList<>(block.blockItems());
+        for (int i = 0; i < items.size(); i++) {
+            BlockItemUnparsed item = items.get(i);
+            if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION) {
+                continue;
+            }
+            byte[] tamperedTx = item.signedTransactionOrThrow().toByteArray();
+            tamperedTx[0] = (byte) ~tamperedTx[0];
+            items.set(
+                    i,
+                    BlockItemUnparsed.newBuilder()
+                            .signedTransaction(Bytes.wrap(tamperedTx))
+                            .build());
+            return new BlockUnparsed(items);
+        }
+        throw new IllegalStateException("No SIGNED_TRANSACTION found in block");
     }
 
     /**
