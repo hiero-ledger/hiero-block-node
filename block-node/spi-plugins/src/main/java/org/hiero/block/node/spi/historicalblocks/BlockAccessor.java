@@ -52,7 +52,7 @@ public interface BlockAccessor extends AutoCloseable {
             }
             return BlockUnparsed.PROTOBUF.parse(
                     rawData.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, MAX_BLOCK_SIZE_BYTES);
-        } catch (final ParseException e) {
+        } catch (final RuntimeException | ParseException e) {
             final System.Logger LOGGER = System.getLogger(getClass().getName());
             LOGGER.log(WARNING, "Failed to parse block", e);
             return null;

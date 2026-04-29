@@ -466,6 +466,7 @@ class VerificationServicePluginTest
             return new VerificationConfig(
                     allBlocksHasherFilePath,
                     allBlocksHasherEnabled,
+                    false,
                     allBlocksHasherPersistenceInterval,
                     tssParametersFilePath);
         }

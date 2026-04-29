@@ -34,6 +34,7 @@ import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
 import org.hiero.block.common.hasher.StreamingHasher;
 import org.hiero.block.common.hasher.StreamingTreeHasher;
+import org.hiero.block.internal.AllPreviousBlocksRootHashHasherSnapshot;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.MinimalBlockAccessor;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;

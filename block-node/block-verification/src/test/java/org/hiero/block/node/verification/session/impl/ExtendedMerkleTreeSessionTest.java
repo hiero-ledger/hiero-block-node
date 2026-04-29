@@ -7,11 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.hedera.hapi.block.stream.BlockProof;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -21,6 +23,7 @@ import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.verification.VerificationServicePlugin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -128,6 +131,40 @@ class ExtendedMerkleTreeSessionTest {
         Bytes garbageSignature = Bytes.wrap(new byte[2920]);
         assertFalse(
                 session.verifySignature(hash, garbageSignature), "A zero-filled 2920-byte signature must not verify");
+    }
+
+    @Test
+    @DisplayName("should fail verification when block contains duplicate TSS proofs")
+    void shouldFailWithDuplicateTssProofs() throws IOException, ParseException {
+        BlockUtils.SampleBlockInfo sampleBlockInfo = BlockUtils.getSampleBlockInfo(BlockUtils.SAMPLE_BLOCKS.BLOCK_0);
+        List<BlockItemUnparsed> originalItems = sampleBlockInfo.blockUnparsed().blockItems();
+        long blockNumber = BlockHeader.PROTOBUF
+                .parse(originalItems.getFirst().blockHeaderOrThrow())
+                .number();
+
+        BlockItemUnparsed tssProofItem = null;
+        for (BlockItemUnparsed item : originalItems) {
+            if (item.item().kind() == BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
+                BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow());
+                if (proof.hasSignedBlockProof()) {
+                    tssProofItem = item;
+                    break;
+                }
+            }
+        }
+        assertNotNull(tssProofItem, "Test block must contain a TSS proof item");
+
+        List<BlockItemUnparsed> items = new ArrayList<>(originalItems);
+        items.add(tssProofItem);
+
+        ExtendedMerkleTreeSession session =
+                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, null);
+        VerificationNotification notification =
+                session.processBlockItems(new BlockItems(items, blockNumber, true, true));
+
+        assertNotNull(notification, "Session must produce a notification for a malformed block");
+        assertFalse(notification.success(), "Duplicate TSS proofs must not verify successfully");
+        assertEquals(FailureType.BAD_BLOCK_PROOF, notification.failureType());
     }
 
     private static ExtendedMerkleTreeSession createAndProcessSession(BlockUnparsed block, Bytes ledgerId)

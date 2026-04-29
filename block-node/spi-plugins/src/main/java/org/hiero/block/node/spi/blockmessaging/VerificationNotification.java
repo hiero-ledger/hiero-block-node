@@ -35,5 +35,11 @@ public record VerificationNotification(
         UNABLE_TO_PARSE,
         /// This type indicates that the block is missing a mandatory item
         MISSING_MANDATORY_ITEM,
+        /// This type indicates that the block is missing a mandatory field (null)
+        MISSING_MANDATORY_FIELD,
+        /// This type indicates that the session was cancelled
+        CANCELLED,
+        /// This type indicates that an unknow error occurred
+        UNKNOWN_ERROR
     }
 }
