@@ -66,7 +66,7 @@ class ParallelBlockPreprocessorTest {
         try {
             return BlockUnparsed.PROTOBUF.parse(Block.PROTOBUF.toBytes(block));
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new IllegalStateException("Failed to parse block", e);
         }
     }
 
