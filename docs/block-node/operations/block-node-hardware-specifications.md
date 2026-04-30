@@ -79,10 +79,10 @@ across all drives in the configuration, not per-drive requirements.
 
 ### Disk Performance Targets
 
-| Disk Type | Sustained Write | Sustained Read | Required Write IOPS | Required Read IOPS | P99 Write Latency | P99 Read Latency |
-|-----------|-----------------|----------------|---------------------|--------------------|-------------------|------------------|
-| Fast NVMe | 4 GBps          | 6 GBps         | 350k                | 900k               | < 300 µs          | < 200 µs         |
-| Bulk Disk | 300 MBps        | 1 GBps         | 150k                | 500k               | —                 | —                |
+| Disk Type | Sustained Write | Sustained Read | Required Write IOPS | Required Read IOPS | Random Read AIO IOPS | P99 Write Latency | P99 Read Latency |
+|-----------|-----------------|----------------|---------------------|--------------------|----------------------|-------------------|------------------|
+| Fast NVMe | 4 GBps          | 6 GBps         | 350k                | 900k               | 1M                   | < 300 µs          | < 200 µs         |
+| Bulk Disk | 300 MBps        | 1 GBps         | 150k                | 500k               | -                    | —                 | —                |
 
 #### Notes
 
