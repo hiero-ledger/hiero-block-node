@@ -186,4 +186,13 @@ Currently, no specific options.
 
 ### Verification Plugin Configuration
 
-Currently, no specific options.
+| ENV Variable                                    | Description                                                            |                                                           Default |
+|:------------------------------------------------|:-----------------------------------------------------------------------|------------------------------------------------------------------:|
+| VERIFICATION_ALL_BLOCKS_HASHER_ENABLED          | Enable the all-blocks hasher to compute and verify a rolling root hash. |                                                             false |
+| VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH        | Path to the persisted root hash file for all previous blocks.          | /opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin |
+| VERIFICATION_ALL_BLOCKS_HASHER_PERSISTENCE_INTERVAL | How often (in blocks) the hasher persists its state to disk.       |                                                                10 |
+| VERIFICATION_TSS_PARAMETERS_FILE_PATH           | Path to the persisted TSS parameters file (ledger ID, address book, WRAPS VK). | /opt/hiero/block-node/verification/tss-parameters.bin |
+
+> **Note:** `VERIFICATION_ALL_BLOCKS_HASHER_ENABLED` must remain `false` (the default).
+> The all-blocks hasher requires a strictly sequential block stream; out-of-order or
+> forward-arriving blocks will cause it to fall out of sync and produce incorrect root hashes.
