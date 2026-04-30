@@ -207,7 +207,7 @@ public abstract class PluginTestBase<
     @AfterEach
     public void tearDown() throws IOException {
         testThreadPoolManager.shutdownNow();
-        metricsRegistry.close();
+        if (metricsRegistry != null) metricsRegistry.close();
     }
 
     /**

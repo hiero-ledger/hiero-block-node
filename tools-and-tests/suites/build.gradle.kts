@@ -36,6 +36,8 @@ mainModuleInfo {
     runtimeOnly("org.hiero.block.node.access.service")
     runtimeOnly("org.hiero.block.node.backfill")
     runtimeOnly("org.hiero.block.node.archive.s3cloud")
+    runtimeOnly("org.hiero.block.node.cloud.storage.expanded")
+    runtimeOnly("s3mock.testcontainers")
 }
 
 // =============================================================================
@@ -68,6 +70,7 @@ dependencies {
     appCoreRuntime(project(":app"))
     testPlugins(project(path = ":app", configuration = "blockNodePlugins"))
     implementation(project(":common"))
+    implementation(project(":base"))
 }
 
 // Task to prepare plugins for E2E test container mounting

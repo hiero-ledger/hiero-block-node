@@ -15,6 +15,8 @@ dependencies.constraints {
     val eclipseCollectionsVersion = "13.0.0"
     val mockitoVersion = "5.23.0"
     val testContainersVersion = "1.21.4"
+    val buckyVersion = "0.1.0-rc4"
+    val s3MockVersion = "4.11.0"
 
     api("com.github.luben:zstd-jni:1.5.7-7") { because("com.github.luben.zstd_jni") }
     api("com.github.spotbugs:spotbugs-annotations:4.9.8") {
@@ -111,12 +113,15 @@ dependencies.constraints {
         because("org.testcontainers")
     }
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
-    api("com.hedera.bucky:bucky-client:0.1.0-rc4") { because("com.hedera.bucky") }
+    api("com.hedera.bucky:bucky-client:${buckyVersion}") { because("com.hedera.bucky") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
     api("com.squareup.okio:okio-jvm:3.17.0") { because("okio") } // required by minio
     api("com.squareup.okio:okio:3.17.0") {
         because("okio")
     } // override strict 3.6.0 from bucky-client (broken JPMS module descriptor)
+    api("com.adobe.testing:s3mock-testcontainers:${s3MockVersion}") {
+        because("s3mock.testcontainers")
+    }
 
     // Versions of additional tools that are not part of the product or test module paths
     api("com.google.protobuf:protoc:${protobufVersion}")
