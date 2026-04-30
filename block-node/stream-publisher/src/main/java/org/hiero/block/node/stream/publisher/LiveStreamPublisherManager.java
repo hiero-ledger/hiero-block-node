@@ -4,6 +4,7 @@ package org.hiero.block.node.stream.publisher;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.TRACE;
+import static org.hiero.block.api.PublishStreamResponse.EndOfStream.Code.TIMEOUT;
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_BATCHES_MESSAGED;
@@ -12,6 +13,7 @@ import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_LOWEST_BLOCK_NUMBER_INBOUND;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_OPEN_CONNECTIONS;
+import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_STALL_TIMEOUTS_SENT;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
@@ -19,6 +21,7 @@ import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NavigableSet;
 import java.util.NoSuchElementException;
@@ -40,6 +43,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.config.node.NodeConfig;
@@ -60,6 +64,9 @@ import org.hiero.metrics.core.MetricRegistry;
 /// todo(1420) add documentation
 public final class LiveStreamPublisherManager implements StreamPublisherManager {
     private static final int DATA_READY_WAIT_MICROSECONDS = 5000;
+    private static final int MAX_ADVANCE_FOR_STALL_DETECTION = 2;
+    private static final String STALL_DETECTED_LOG_MESSAGE =
+            "Stall detected: handler {0} has not completed block {1}, another handler completed block {2}";
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
@@ -93,6 +100,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentNavigableMap<Long, BlockItemUnparsed> blockProofs;
     private final NavigableSet<Long> endBlocksReceived;
     private final NavigableSet<Long> blocksToResend;
+    /// Maps block number to the ID of the handler that currently holds ACCEPT for that block.
+    /// An entry is added when a handler wins ACCEPT via registerQueueForBlock().
+    /// An entry is removed when endOfBlock() is called for that block, when blockIsEnding()
+    /// fires for a mid-block drop, when stall detection removes it, or on shutdown.
+    private final ConcurrentNavigableMap<Long, Long> activeStreamHandlerByBlock;
 
     /// todo(1420) add documentation
     public LiveStreamPublisherManager(
@@ -121,6 +133,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
         blocksToResend = new ConcurrentSkipListSet<>();
+        activeStreamHandlerByBlock = new ConcurrentSkipListMap<>();
         initializeBlockNumbers(serverContext);
     }
 
@@ -183,6 +196,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // re-starting it mid-block. We need to remove a potentially collected block proof.
             blockProofs.remove(blockNumber);
         }
+        // Record which handler won ACCEPT for this block so stall detection
+        // can identify and terminate a silent publisher.
+        activeStreamHandlerByBlock.put(blockNumber, handlerId);
     }
 
     @Override
@@ -200,6 +216,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             // Remove a proof in case it is collected
             blockProofs.remove(blockNumber);
         }
+        // The completing block is no longer an ACCEPT candidate for stall detection.
+        activeStreamHandlerByBlock.remove(blockNumber);
+        // After removing the completing block, check whether any remaining
+        // ACCEPT holders are stalled relative to this completion.
+        checkForStalledHandlers(blockNumber);
         final long blockToResend = nextBlockToResend();
         if (blockToResend != UNKNOWN_BLOCK_NUMBER) {
             return new ActionForBlock(BlockAction.RESEND, blockToResend);
@@ -213,6 +234,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // @todo(2344) we can further improve this
         LOGGER.log(INFO, "Handler {0} is ending mid-block {1}", handlerId, blockNumber);
         final Deque<BlockItemSetUnparsed> deque = queueByBlockMap.remove(blockNumber);
+        // Remove this block from the ACCEPT winner tracking in all cases;
+        // if the handler dropped mid-block there is no stall to detect here.
+        activeStreamHandlerByBlock.remove(blockNumber);
         if (deque != null) {
             if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
                 final String message = "Block {0} will be resent due to handler {1} ending mid block";
@@ -248,7 +272,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         for (final Long nextKey : handlers.keySet()) {
             final PublisherHandler value = handlers.remove(nextKey);
             if (value != null) {
-                value.closeCommunication();
+                value.endStreamWithCode(Code.SUCCESS, false);
                 value.onComplete();
             }
         }
@@ -259,6 +283,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             lastResult.cancel(true);
         }
         queueByBlockMap.clear();
+        activeStreamHandlerByBlock.clear();
         // We can safely shut down the scheduled executor abruptly. The timeout
         // tasks can be ignored completely as we shut down the manager.
         scheduledExecutor.shutdownNow();
@@ -357,7 +382,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 final long blockNumber = notification.blockNumber();
                 // @todo(2198): We may have an extremely rare race condition here
                 nextUnstreamedBlockNumber.set(blockNumber);
-                handlers.values().parallelStream().unordered().forEach(PublisherHandler::handleFailedPersistence);
+                handlers.values().parallelStream()
+                        .unordered()
+                        .forEach((handler) -> handler.endStreamWithCode(Code.PERSISTENCE_FAILED, false));
             }
         }
     }
@@ -396,6 +423,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     queueByBlockMap.remove(candidate);
                     // possibly remove a just collected block proof
                     blockProofs.remove(candidate);
+                    // remove from stall-detection tracking; this block is now obsolete
+                    activeStreamHandlerByBlock.remove(candidate);
                 }
             }
         }
@@ -443,6 +472,54 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             }
         } catch (final NoSuchElementException e) {
             return null;
+        }
+    }
+
+    /// Checks whether any currently accepted block is stalled relative to the
+    /// block that just completed. A handler is considered stalled when it holds
+    /// ACCEPT for block N, has not yet called endOfBlock(N), and another handler
+    /// has just called endOfBlock(M) where M > N + 2.
+    ///
+    /// The +2 threshold respects the protocol requirement that a publisher may
+    /// reasonably require up to 2 block times to complete a block due to
+    /// signature gathering.
+    ///
+    /// For each stalled block found:
+    /// - Its queue and proof entries are removed so the forwarder can advance.
+    /// - Its block number is added to blocksToResend.
+    /// - The owning handler receives EndStream(TIMEOUT) and is shut down.
+    /// - The stall-timeout metric is incremented.
+    ///
+    /// Thread safety: multiple handler threads may call this concurrently for
+    /// different values of completedBlockNumber. The
+    /// ConcurrentNavigableMap.remove(key, value) CAS ensures that only one
+    /// caller acts on each stalled block even if two threads detect it
+    /// simultaneously.
+    ///
+    /// @param completedBlockNumber the block number that just finished via endOfBlock()
+    private void checkForStalledHandlers(final long completedBlockNumber) {
+        for (final Map.Entry<Long, Long> entry : activeStreamHandlerByBlock.entrySet()) {
+            final long stalledBlock = entry.getKey();
+            final long handlerId = entry.getValue();
+            if (completedBlockNumber > stalledBlock + MAX_ADVANCE_FOR_STALL_DETECTION
+                    && !endBlocksReceived.contains(stalledBlock)
+                    // TODO: Blocks to resend isn't enough here, need a better check...
+                    && !blocksToResend.contains(stalledBlock)
+                    && activeStreamHandlerByBlock.remove(stalledBlock, handlerId)) {
+                // This thread won the CAS — execute the stall action.
+                // @todo: Add CorrelationID _for the handler that is stalled_
+                //        (not the thread that called this method).
+                //     This requires making correlation ID accessible in Handler.
+                LOGGER.log(DEBUG, STALL_DETECTED_LOG_MESSAGE, handlerId, stalledBlock, completedBlockNumber);
+                queueByBlockMap.remove(stalledBlock);
+                blockProofs.remove(stalledBlock);
+                blocksToResend.add(stalledBlock);
+                final PublisherHandler stalledHandler = handlers.get(handlerId);
+                if (stalledHandler != null) {
+                    stalledHandler.endStreamWithCode(TIMEOUT, true);
+                }
+                metrics.stallTimeoutsSent().increment();
+            }
         }
     }
 
@@ -871,7 +948,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             LongGauge.Measurement lowestBlockNumber,
             LongGauge.Measurement highestBlockNumber,
             LongGauge.Measurement latestBlockNumberAcknowledged,
-            LongCounter.Measurement blocksClosedComplete) {
+            LongCounter.Measurement blocksClosedComplete,
+            LongCounter.Measurement stallTimeoutsSent) {
         /// todo(1420) add documentation
         static MetricsHolder createMetrics(@NonNull final MetricRegistry metricRegistry) {
             final LongCounter.Measurement blockItemsMessaged = metricRegistry
@@ -886,6 +964,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     .register(LongCounter.builder(METRIC_PUBLISHER_BLOCKS_CLOSED_COMPLETE)
                             .setDescription("Blocks received complete (with both header and proof) by any Handler"))
                     .getOrCreateLabeled();
+            final LongCounter.Measurement stallTimeoutsSent = metricRegistry
+                    .register(LongCounter.builder(METRIC_PUBLISHER_STALL_TIMEOUTS_SENT)
+                            .setDescription("Publishers terminated due to stall detection (silent ACCEPT winner)"))
+                    .getOrCreateNotLabeled();
             final LongGauge.Measurement numberOfProducers = metricRegistry
                     .register(
                             LongGauge.builder(METRIC_PUBLISHER_OPEN_CONNECTIONS).setDescription("Connected publishers"))
@@ -909,7 +991,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                     lowestBlockNumber,
                     highestBlockNumber,
                     latestBlockNumberAcknowledged,
-                    blocksClosedComplete);
+                    blocksClosedComplete,
+                    stallTimeoutsSent);
         }
     }
 
