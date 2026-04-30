@@ -52,21 +52,21 @@ final class TarEntries {
 
         final String currentBlockName = String.format("%0" + BLOCK_NUMBER_WIDTH + "d", blockNumber) + EXTENSION;
         final byte[] rawBytes = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
-        final ByteArrayOutputStream baos = new ByteArrayOutputStream(rawBytes.length);
-        try (final OutputStream zstdOut = CompressionType.ZSTD.wrapStream(baos)) {
-            zstdOut.write(rawBytes);
+        try (final ByteArrayOutputStream baos = new ByteArrayOutputStream(rawBytes.length)) {
+            try (final OutputStream zstdOut = CompressionType.ZSTD.wrapStream(baos)) {
+                zstdOut.write(rawBytes);
+            }
+            final byte[] currentBlockBytes = baos.toByteArray();
+            final byte[] header = createTarHeader(currentBlockName, currentBlockBytes.length);
+            final int paddingBytesRemaining = (512 - (currentBlockBytes.length % 512)) % 512;
+            final byte[] entry = new byte[512 + currentBlockBytes.length + paddingBytesRemaining];
+
+            System.arraycopy(header, 0, entry, 0, 512);
+            System.arraycopy(currentBlockBytes, 0, entry, 512, currentBlockBytes.length);
+            // padding bytes are already zero-initialized
+
+            return entry;
         }
-        final byte[] currentBlockBytes = baos.toByteArray();
-
-        final byte[] header = createTarHeader(currentBlockName, currentBlockBytes.length);
-        final int paddingBytesRemaining = (512 - (currentBlockBytes.length % 512)) % 512;
-        final byte[] entry = new byte[512 + currentBlockBytes.length + paddingBytesRemaining];
-
-        System.arraycopy(header, 0, entry, 0, 512);
-        System.arraycopy(currentBlockBytes, 0, entry, 512, currentBlockBytes.length);
-        // padding bytes are already zero-initialized
-
-        return entry;
     }
 
     /// Scans `bytes` for the last valid UStar tar header and returns its byte offset.
