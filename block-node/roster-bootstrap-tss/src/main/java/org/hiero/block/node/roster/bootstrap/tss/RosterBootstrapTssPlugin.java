@@ -161,5 +161,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     }
 
     /// queries peer BlockNodes for their TssData
-    private void queryPeerTssData() {}
+    private void queryPeerTssData() {
+        // todo: add in the code to query the peers
+    }
 }
