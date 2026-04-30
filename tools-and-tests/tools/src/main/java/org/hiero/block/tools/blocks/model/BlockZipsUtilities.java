@@ -22,6 +22,7 @@ import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.tools.blocks.validation.ProtobufParsingConstants;
 
 /**
  * Shared utilities for discovering, reading, decompressing and parsing block files from directories and zip archives.
@@ -348,7 +349,8 @@ public final class BlockZipsUtilities {
         } else {
             blockBytes = raw;
         }
-        return Block.PROTOBUF.parse(BufferedData.wrap(blockBytes), true, false, 1000, 100 * 1024 * 1024); // 100MB
+        return Block.PROTOBUF.parse(
+                BufferedData.wrap(blockBytes), true, false, 1000, ProtobufParsingConstants.MAX_PARSE_SIZE);
     }
     /**
      * Decompresses raw bytes and parses them as a {@link BlockUnparsed} protobuf. BlockUnparsed is shallow parsed so
@@ -375,7 +377,7 @@ public final class BlockZipsUtilities {
             blockBytes = raw;
         }
         return BlockUnparsed.PROTOBUF.parse(
-                BufferedData.wrap(blockBytes), true, false, 1000, 100 * 1024 * 1024); // 100MB
+                BufferedData.wrap(blockBytes), true, false, 1000, ProtobufParsingConstants.MAX_PARSE_SIZE);
     }
 
     /**

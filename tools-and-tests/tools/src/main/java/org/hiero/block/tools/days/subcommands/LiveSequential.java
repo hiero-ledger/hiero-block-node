@@ -72,6 +72,7 @@ import org.hiero.block.tools.blocks.validation.HbarSupplyValidation;
 import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
 import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
+import org.hiero.block.tools.blocks.validation.ProtobufParsingConstants;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
 import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
@@ -1173,7 +1174,11 @@ public class LiveSequential implements Runnable {
             Bytes wrappedBytes, long blockNum, ValidationConfig vc, WrapLoopState ls, Path checkpointDir)
             throws Exception {
         BlockUnparsed blockUnparsed = BlockUnparsed.PROTOBUF.parse(
-                wrappedBytes.toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, 37_748_736);
+                wrappedBytes.toReadableSequentialData(),
+                false,
+                false,
+                Codec.DEFAULT_MAX_DEPTH,
+                ProtobufParsingConstants.MAX_PARSE_SIZE);
 
         for (BlockValidation v : vc.sequentialValidations()) {
             try {
