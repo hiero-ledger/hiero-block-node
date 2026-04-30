@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
+import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlock;
 import static org.hiero.block.tools.blocks.model.hashing.HashingUtils.EMPTY_TREE_HASH;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -166,6 +168,38 @@ class BlockChainValidationTest {
         Block block = new Block(List.of(HEADER_ITEM, RECORD_FILE_ITEM, emptyHashFooter, PROOF_ITEM));
         ValidationException ex =
                 assertThrows(ValidationException.class, () -> validation.validate(toUnparsed(block), 1));
+        assertTrue(ex.getMessage().contains("previous block hash mismatch"));
+    }
+
+    @Test
+    void preComputedHashUsedWhenProvided() throws ValidationException {
+        BlockChainValidation validation = new BlockChainValidation();
+        byte[] preComputedHash = hashBlock(VALID_BLOCK);
+        // Validate with pre-computed hash — should use it instead of recomputing
+        validation.validate(VALID_BLOCK, 0, preComputedHash);
+        assertArrayEquals(preComputedHash, validation.getStagedBlockHash());
+    }
+
+    @Test
+    void nullPreComputedHashFallsBackToHashBlock() throws ValidationException {
+        BlockChainValidation validation = new BlockChainValidation();
+        // Validate with null pre-computed hash — should compute it
+        validation.validate(VALID_BLOCK, 0, (byte[]) null);
+        byte[] expectedHash = hashBlock(VALID_BLOCK);
+        assertArrayEquals(expectedHash, validation.getStagedBlockHash());
+    }
+
+    @Test
+    void chainMismatchStillCaughtWithPreComputedHash() throws ValidationException {
+        BlockChainValidation validation = new BlockChainValidation();
+        // Commit first block
+        validation.validate(VALID_BLOCK, 0);
+        validation.commitState(VALID_BLOCK, 0);
+        // The footer in VALID_BLOCK has EMPTY_TREE_HASH as previousBlockRootHash,
+        // which won't match the committed hash from block 0
+        byte[] preComputedHash = hashBlock(VALID_BLOCK);
+        ValidationException ex =
+                assertThrows(ValidationException.class, () -> validation.validate(VALID_BLOCK, 1, preComputedHash));
         assertTrue(ex.getMessage().contains("previous block hash mismatch"));
     }
 }
