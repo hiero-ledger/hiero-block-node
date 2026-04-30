@@ -151,6 +151,23 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         this.config = context.configuration().getConfigData(ExpandedCloudStorageConfig.class);
         this.blockMessaging = context.blockMessaging();
         metricRegistry = context.metricRegistry();
+        // @todo(#XXXX) replace these warnings with proper plugin health reporting once
+        //   the block node supports plugin-level healthy/unhealthy status indication.
+        if (config.bucketName() == null || config.bucketName().isBlank()) {
+            LOGGER.log(
+                    WARNING,
+                    "cloud.storage.expanded.bucketName is blank; S3 uploads will be skipped until configured.");
+        }
+        if (config.endpointUrl() == null || config.endpointUrl().isBlank()) {
+            LOGGER.log(
+                    WARNING,
+                    "cloud.storage.expanded.endpointUrl is blank; S3 uploads will be skipped until configured.");
+        }
+        if (config.regionName() == null || config.regionName().isBlank()) {
+            LOGGER.log(
+                    WARNING,
+                    "cloud.storage.expanded.regionName is blank; S3 uploads will be skipped until configured.");
+        }
         blockMessaging.registerBlockNotificationHandler(this, false, name());
     }
 
@@ -161,7 +178,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             try {
                 s3Client = new BuckyS3UploadClient(config);
             } catch (final UploadException e) {
-                throw new IllegalStateException("Failed to initialize S3 client: " + e.getMessage(), e);
+                LOGGER.log(WARNING, "Failed to initialize S3 client ({0}); uploads will be skipped.", e.getMessage());
             }
         }
         virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
@@ -218,7 +235,10 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// {@link CompletionService}.
     @Override
     public void handleVerification(@NonNull final VerificationNotification notification) {
-        if (!notification.success()) {
+        if (s3Client == null) {
+            LOGGER.log(
+                    TRACE, "Skipping upload for block {0}: S3 client is not configured.", notification.blockNumber());
+        } else if (!notification.success()) {
             LOGGER.log(
                     TRACE, "Skipping upload for block {0}: verification did not succeed.", notification.blockNumber());
         } else if (notification.blockNumber() < 0) {

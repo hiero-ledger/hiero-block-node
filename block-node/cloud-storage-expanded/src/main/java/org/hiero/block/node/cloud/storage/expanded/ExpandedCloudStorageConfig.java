@@ -10,9 +10,11 @@ import org.hiero.block.node.base.Loggable;
 ///
 /// ## Required fields
 /// `endpointUrl`, `bucketName`, and `regionName` must all be explicitly set by the operator.
-/// A blank value for any of them is a misconfiguration that is rejected at construction time
-/// with a clear {@link IllegalArgumentException}. The plugin does not support a soft-disabled
-/// or inactive state — if it is present, it must be fully configured.
+/// A blank value for any of them is a misconfiguration. The plugin logs a WARNING for each
+/// blank required field at initialisation time and skips all uploads until the values are
+/// corrected and the node is restarted. This soft-disabled behaviour is temporary — once the
+/// block node supports plugin-level health reporting, a missing required field will cause the
+/// plugin to report unhealthy rather than silently skipping uploads.
 ///
 /// ## Credential options
 /// Three credential strategies are supported, in priority order:
@@ -57,25 +59,6 @@ public record ExpandedCloudStorageConfig(
         @ConfigProperty(defaultValue = "") String accessKey,
         @ConfigProperty(defaultValue = "") String secretKey,
         @Loggable @ConfigProperty(defaultValue = "60") @Min(1) int uploadTimeoutSeconds) {
-
-    /// Validates required fields at construction time.
-    ///
-    /// `endpointUrl`, `bucketName`, and `regionName` are all required; a blank value for
-    /// any of them indicates operator misconfiguration.
-    public ExpandedCloudStorageConfig {
-        if (bucketName == null || bucketName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "cloud.storage.expanded.bucketName must not be blank; set it to the target S3 bucket name.");
-        }
-        if (endpointUrl == null || endpointUrl.isBlank()) {
-            throw new IllegalArgumentException(
-                "cloud.storage.expanded.endpointUrl must not be blank; set it to a valid S3 compatible url (e.g. https://s3.amazonaws.com/).");
-        }
-        if (regionName == null || regionName.isBlank()) {
-            throw new IllegalArgumentException(
-                    "cloud.storage.expanded.regionName must not be blank; set it to the AWS/S3 region (e.g. us-east-1).");
-        }
-    }
 
     /// S3 storage class values accepted by this plugin.
     public enum StorageClass {
