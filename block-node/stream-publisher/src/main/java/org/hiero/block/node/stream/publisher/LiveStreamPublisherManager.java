@@ -177,7 +177,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final long blockNumber, final BlockAction previousAction, final long handlerId) {
         return switch (previousAction) {
             case null -> getActionForHeader(blockNumber);
-            case ACCEPT -> getActionForCurrentlyStreaming(blockNumber, handlerId);
+            case ACCEPT -> getActionForCurrentlyStreaming(blockNumber);
             case END_ERROR, END_DUPLICATE ->
                 // This should not happen because the Handler should have shut down.
                 BlockAction.END_ERROR;
@@ -324,8 +324,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             blocksToResend.add(blockNumber);
             // Iterate over all handlers and attempt to send the
             // bad block proof message.
-            // @todo(2339) improve the loop below, find the handler that should send the bad block proof code
-            //    and then let it handle the failed verification.
             for (final PublisherHandler handler : handlers.values()) {
                 if (handler.handleFailedVerification(blockNumber)) {
                     // There will always be only one handler that will send the
@@ -505,9 +503,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final long handlerId = entry.getValue();
             if (completedBlockNumber > stalledBlock + MAX_ADVANCE_FOR_STALL_DETECTION
                     && !endBlocksReceived.contains(stalledBlock)
+                    // TODO: Blocks to resend isn't enough here, need a better check...
                     && !blocksToResend.contains(stalledBlock)
                     && activeStreamHandlerByBlock.remove(stalledBlock, handlerId)) {
                 // This thread won the CAS — execute the stall action.
+                // @todo: Add CorrelationID _for the handler that is stalled_
+                //        (not the thread that called this method).
+                //     This requires making correlation ID accessible in Handler.
                 LOGGER.log(DEBUG, STALL_DETECTED_LOG_MESSAGE, handlerId, stalledBlock, completedBlockNumber);
                 queueByBlockMap.remove(stalledBlock);
                 blockProofs.remove(stalledBlock);
@@ -671,7 +673,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     }
 
     /// todo(1420) add documentation
-    private BlockAction getActionForCurrentlyStreaming(final long blockNumber, final long handlerId) {
+    private BlockAction getActionForCurrentlyStreaming(final long blockNumber) {
         if (queueByBlockMap.containsKey(blockNumber)) {
             updateHighestBlockMetric(blockNumber);
             // We're one of the handlers currently streaming, keep going.
