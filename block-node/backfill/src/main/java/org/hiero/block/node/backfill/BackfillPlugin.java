@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -23,6 +22,7 @@ import java.util.function.Consumer;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.backfill.client.BackfillSource;
 import org.hiero.block.node.backfill.client.BackfillSourceConfig;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -126,7 +126,7 @@ public class BackfillPlugin implements BlockNodePlugin, BlockNotificationHandler
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = context;
-        this.applicationStateFacility = Objects.requireNonNull(applicationStateFacility);
+        this.applicationStateFacility = context.applicationStateFacility();
         backfillConfiguration = context.configuration().getConfigData(BackfillConfiguration.class);
         earliestManagedBlock =
                 context.configuration().getConfigData(NodeConfig.class).earliestManagedBlock();
