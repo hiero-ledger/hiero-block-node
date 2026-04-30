@@ -6,12 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import org.hiero.block.api.RosterEntry;
+import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
@@ -24,32 +28,44 @@ import org.junit.jupiter.api.io.TempDir;
 public class RosterBootstrapTssPluginTest
         extends PluginTestBase<RosterBootstrapTssPlugin, BlockingExecutor, ScheduledExecutorService> {
 
+    final TssData tssData;
+
     Path testTempDir;
 
     Map<String, String> defaultConfig = new HashMap<>();
 
-    public RosterBootstrapTssPluginTest(@TempDir final Path tempDir) {
+    public RosterBootstrapTssPluginTest(@TempDir final Path tempDir) throws IOException {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         this.testTempDir = Objects.requireNonNull(tempDir);
 
-        defaultConfig.put(
-                "roster.bootstrap.tss.ledgerId",
-                "ZmU0MTA2ZWUwNGMzMzgyNTljZDcyMWEwN2Y0ZWFhZDMxMjEyZjEyZWFjOGE1MWFjYjM4YTc3OGE0Y2QyMDg3Mw==");
-        defaultConfig.put(
-                "roster.bootstrap.tss.wrapsVerificationKey",
-                "NTUyZTAxNDNjMGE4MTBmNmYwN2VkOGUyZWI0ZGM1MTkwNWEzMmFkMzljZDQ5Yzk0MWE0MGU1YmM4YWEyZDg4NA==");
-        defaultConfig.put("roster.bootstrap.tss.nodeId", "1");
-        defaultConfig.put("roster.bootstrap.tss.weight", "3");
-        defaultConfig.put("roster.bootstrap.tss.validFromBlock", "100");
-        defaultConfig.put("roster.bootstrap.tss.rosterValidFromBlock", "50");
-        defaultConfig.put(
-                "roster.bootstrap.tss.schnorrPublicKey",
-                "NWFkYWI2ZjBmYjQzMjk1OGU3OTdiNTI2NjRmNjY4OWQ1Yjg2MTRiYzE5NDE4MTQzODRlZDI4NmQyOTM4MDQxNg==");
-        defaultConfig.put(
-                "roster.bootstrap.tss.tssParametersFilePath",
-                testTempDir.resolve("tss-parameters.bin").toString());
+        final String tssDataJsonPath = testTempDir + "/tss-data.json";
+        tssData = TssData.newBuilder()
+                .ledgerId(Bytes.fromBase64(
+                        "ZmU0MTA2ZWUwNGMzMzgyNTljZDcyMWEwN2Y0ZWFhZDMxMjEyZjEyZWFjOGE1MWFjYjM4YTc3OGE0Y2QyMDg3Mw=="))
+                .wrapsVerificationKey(Bytes.fromBase64(
+                        "NTUyZTAxNDNjMGE4MTBmNmYwN2VkOGUyZWI0ZGM1MTkwNWEzMmFkMzljZDQ5Yzk0MWE0MGU1YmM4YWEyZDg4NA=="))
+                .currentRoster(TssRoster.newBuilder()
+                        .rosterEntries(RosterEntry.newBuilder()
+                                .nodeId(1)
+                                .weight(3)
+                                .schnorrPublicKey(
+                                        Bytes.fromBase64(
+                                                "NWFkYWI2ZjBmYjQzMjk1OGU3OTdiNTI2NjRmNjY4OWQ1Yjg2MTRiYzE5NDE4MTQzODRlZDI4NmQyOTM4MDQxNg=="))
+                                .build())
+                        .build())
+                .build();
+
+        createTestBlockNodeSourcesFile(tssData, tssDataJsonPath);
+
+        defaultConfig.put("roster.bootstrap.tss.tssDataJsonPath", tssDataJsonPath);
+    }
+
+    private void createTestBlockNodeSourcesFile(TssData tssData, String configPath) throws IOException {
+        String jsonString = TssData.JSON.toJSON(tssData);
+        // Write the JSON string to the specified file path
+        java.nio.file.Files.write(java.nio.file.Paths.get(configPath), jsonString.getBytes());
     }
 
     @Test
@@ -71,32 +87,23 @@ public class RosterBootstrapTssPluginTest
         final RosterBootstrapTssPlugin rosterBootstrapTssPlugin = new RosterBootstrapTssPlugin() {
             @Override
             public void onContextUpdate(BlockNodeContext context) {
+                TssData contextTssData = context.tssData();
                 updateTssDataCount[0]++;
+                assertEquals(tssData.ledgerId(), contextTssData.ledgerId());
+                assertEquals(tssData.wrapsVerificationKey(), contextTssData.wrapsVerificationKey());
                 assertEquals(
-                        Bytes.fromBase64(defaultConfig.get("roster.bootstrap.tss.ledgerId")),
-                        context.tssData().ledgerId());
+                        tssData.currentRoster().rosterEntries().get(0).schnorrPublicKey(),
+                        contextTssData.currentRoster().rosterEntries().get(0).schnorrPublicKey());
                 assertEquals(
-                        Bytes.fromBase64(defaultConfig.get("roster.bootstrap.tss.wrapsVerificationKey")),
-                        context.tssData().wrapsVerificationKey());
+                        tssData.currentRoster().rosterEntries().get(0).nodeId(),
+                        contextTssData.currentRoster().rosterEntries().get(0).nodeId());
                 assertEquals(
-                        Bytes.fromBase64(defaultConfig.get("roster.bootstrap.tss.schnorrPublicKey")),
-                        context.tssData().currentRoster().rosterEntries().get(0).schnorrPublicKey());
+                        tssData.currentRoster().rosterEntries().get(0).weight(),
+                        contextTssData.currentRoster().rosterEntries().get(0).weight());
+                assertEquals(tssData.validFromBlock(), contextTssData.validFromBlock());
                 assertEquals(
-                        Integer.valueOf(defaultConfig.get("roster.bootstrap.tss.nodeId"))
-                                .longValue(),
-                        context.tssData().currentRoster().rosterEntries().get(0).nodeId());
-                assertEquals(
-                        Integer.valueOf(defaultConfig.get("roster.bootstrap.tss.weight"))
-                                .longValue(),
-                        context.tssData().currentRoster().rosterEntries().get(0).weight());
-                assertEquals(
-                        Integer.valueOf(defaultConfig.get("roster.bootstrap.tss.validFromBlock"))
-                                .longValue(),
-                        context.tssData().validFromBlock());
-                assertEquals(
-                        Integer.valueOf(defaultConfig.get("roster.bootstrap.tss.rosterValidFromBlock"))
-                                .longValue(),
-                        context.tssData().currentRoster().validFromBlock());
+                        tssData.currentRoster().validFromBlock(),
+                        contextTssData.currentRoster().validFromBlock());
             }
         };
         start(rosterBootstrapTssPlugin, new NoBlocksHistoricalBlockFacility(), defaultConfig);

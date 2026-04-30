@@ -302,6 +302,19 @@ class BlockNodeAppTest {
     }
 
     /**
+     * Test UncaughtExceptionHandler.
+     */
+    @Test
+    @DisplayName("Test UncaughtExceptionHandler")
+    void testUncaughtExceptionHandler() {
+        Thread thisThread = Thread.currentThread();
+        assertNotNull(thisThread);
+        Throwable throwable = new IllegalStateException();
+        assertNotNull(throwable);
+        BlockNodeApp.uncaughtExceptionHandler(thisThread, throwable);
+    }
+
+    /**
      * Test ApplicationStateFacility.
      */
     @Test
