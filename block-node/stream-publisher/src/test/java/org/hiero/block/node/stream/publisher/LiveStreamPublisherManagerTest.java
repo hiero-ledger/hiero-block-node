@@ -24,7 +24,6 @@ import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
-import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
@@ -40,6 +39,7 @@ import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -2355,16 +2355,18 @@ class LiveStreamPublisherManagerTest {
         final MetricRegistry metricRegistry = TestUtils.createMetrics();
         final HealthFacility serverHealth = null;
         final ServiceLoaderFunction serviceLoader = null;
+        final ApplicationStateFacility applicationStateFacility = null;
         return new BlockNodeContext(
                 configuration,
                 metricRegistry,
                 serverHealth,
                 blockMessagingFacility,
                 historicalBlockFacility,
+                applicationStateFacility,
                 serviceLoader,
                 threadPoolManager,
                 BlockNodeVersions.DEFAULT,
-                TssData.DEFAULT);
+                null);
     }
 
     private static Configuration createTestConfiguration() {

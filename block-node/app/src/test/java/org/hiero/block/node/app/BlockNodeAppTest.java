@@ -13,20 +13,28 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.RosterEntry;
+import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility.State;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,8 +58,8 @@ class BlockNodeAppTest {
      * @param num The instance number of the plugin to create. This is used to differentiate different instances of the
      *            plugin.
      * @param pluginClass The class of the plugin to create. This is used to create the plugin.
-     * @return The mocked plugin instance.
      * @param <T> The type of the plugin to create. This is used to create the plugin.
+     * @return The mocked plugin instance.
      */
     private static <T extends BlockNodePlugin> T createMockedPlugin(int num, Class<T> pluginClass) {
         T plugin = mock(pluginClass);
@@ -91,6 +99,15 @@ class BlockNodeAppTest {
         };
         // now we can create the BlockNodeApp instance
         blockNodeApp = spy(new BlockNodeApp(serviceLoaderFunction, false));
+    }
+
+    @AfterEach
+    void cleanup() {
+        try {
+            Files.deleteIfExists(Path.of("build/tmp/data/block/node/app-state-data.bin"));
+        } catch (Exception e) {
+            // ignore the exception
+        }
     }
 
     @Test
@@ -273,5 +290,121 @@ class BlockNodeAppTest {
         assertEquals(State.RUNNING, blockNodeApp.blockNodeState());
         blockNodeApp.shutdown("BlockNodeTestApp", "testPluginStartupIndependence");
         assertEquals(State.SHUTTING_DOWN, blockNodeApp.blockNodeState());
+    }
+
+    private static class TestPlugin implements BlockNodePlugin {
+        int contextUpdated = 0;
+
+        @Override
+        public void onContextUpdate(BlockNodeContext context) {
+            contextUpdated++;
+        }
+    }
+
+    /**
+     * Test ApplicationStateFacility.
+     */
+    @Test
+    @DisplayName("Test ApplicationStateFacility")
+    void testApplicationStateFacility() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        final TestPlugin testPlugin = new TestPlugin();
+
+        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
+        blockNodeApp.startApplicationStateFacility();
+
+        blockNodeApp.loadedPlugins.add(testPlugin);
+
+        blockNodeApp.updateTssData(null);
+        blockNodeApp.updateTssData(
+                buildTssData(Bytes.fromHex("040506"), Bytes.fromHex("010203"), 1, 2, Bytes.fromHex("070809"), 200, 50));
+        TssData tssData =
+                buildTssData(Bytes.fromHex("040506"), Bytes.fromHex("010203"), 1, 2, Bytes.fromHex("070809"), 100, 50);
+        blockNodeApp.updateTssData(tssData);
+        // let the ApplicationStateFacility process the update
+        Thread.sleep(1_000);
+
+        assertEquals(1, testPlugin.contextUpdated);
+
+        // stop the ApplicationStateFacility manually as blockNodeApp.shutdown() is not being called
+        blockNodeApp.stopApplicationStateFacility();
+    }
+
+    /**
+     * Test ApplicationStateFacility persistence.
+     */
+    @Test
+    @DisplayName("should persist and load TssData")
+    void testApplicationStateFacilityPersistence() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
+        blockNodeApp.startApplicationStateFacility();
+        // update the tssData which should persist to disk
+        TssData tssData =
+                buildTssData(Bytes.fromHex("010203"), Bytes.fromHex("040506"), 1, 2, Bytes.fromHex("070809"), 50, 100);
+        blockNodeApp.updateTssData(tssData);
+        // let the ApplicationStateFacility process the update
+        Thread.sleep(1_000);
+
+        // create a new BlockNodeApp which will load the persisted TssData
+        final BlockNodeApp blockNodeApp2 = new BlockNodeApp(serviceLoaderFunction, false);
+        // start the ApplicationStateFacility manually as start() is not being called
+        blockNodeApp2.startApplicationStateFacility();
+        // let the ApplicationStateFacility process the update
+        Thread.sleep(1_000);
+
+        TssData tssData1 = blockNodeApp2.blockNodeContext.tssData();
+        assertNotNull(tssData1);
+        assertEquals(tssData.ledgerId(), tssData1.ledgerId());
+        assertEquals(tssData.wrapsVerificationKey(), tssData1.wrapsVerificationKey());
+
+        RosterEntry roster = tssData.currentRoster().rosterEntries().getFirst();
+        RosterEntry roster1 = tssData1.currentRoster().rosterEntries().getFirst();
+
+        assertEquals(roster.nodeId(), roster1.nodeId());
+        assertEquals(roster.weight(), roster1.weight());
+        assertEquals(roster.schnorrPublicKey(), roster1.schnorrPublicKey());
+
+        // stop the ApplicationStateFacility manually as shutdown() is not being called
+        blockNodeApp2.stopApplicationStateFacility();
+        // stop the ApplicationStateFacility manually as shutdown() is not being called
+        blockNodeApp.stopApplicationStateFacility();
+    }
+
+    /// build a `TssData` object from individual fields from the `TssBootstrapConfig`
+    ///
+    /// @param ledgerId The ledgerId Bytes
+    /// @param wrapsVerificationKey The wrapsVerificationKey Bytes
+    /// @param nodeId The node id
+    /// @param weight The weight
+    /// @param schnorrPublicKey The schnorrPublicKey Bytes
+    /// @param validFromBlock The block from which this TssData is valid
+    /// @param rosterValidFromBlock The block from which this TssRoster is valid
+    /// @return a `TssData` object
+    private TssData buildTssData(
+            Bytes ledgerId,
+            Bytes wrapsVerificationKey,
+            long nodeId,
+            long weight,
+            Bytes schnorrPublicKey,
+            long validFromBlock,
+            long rosterValidFromBlock) {
+        RosterEntry rosterEntry = RosterEntry.newBuilder()
+                .nodeId(nodeId)
+                .weight(weight)
+                .schnorrPublicKey(schnorrPublicKey)
+                .build();
+        TssRoster tssRoster = TssRoster.newBuilder()
+                .rosterEntries(rosterEntry)
+                .validFromBlock(rosterValidFromBlock)
+                .build();
+        return TssData.newBuilder()
+                .ledgerId(ledgerId)
+                .wrapsVerificationKey(wrapsVerificationKey)
+                .currentRoster(tssRoster)
+                .validFromBlock(validFromBlock)
+                .build();
     }
 }

@@ -30,7 +30,6 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.hiero.block.api.BlockNodeVersions;
-import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -200,11 +199,12 @@ class BlockFileHistoricPluginTest {
                     new TestBlockMessagingFacility(),
                     historicalBlockProvider,
                     null,
+                    null,
                     new TestThreadPoolManager<>(
                             new BlockingExecutor(new LinkedBlockingQueue<>()),
                             new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
                     BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT);
+                    null);
             // call
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();
             assertThatNoException().isThrownBy(() -> toTest.init(testContext, null));

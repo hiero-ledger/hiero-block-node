@@ -11,7 +11,6 @@ import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
-import org.hiero.block.api.TssData;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.TestUtils;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -23,6 +22,7 @@ import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleBlockRangeSet;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
@@ -306,6 +306,7 @@ class PublisherManagerRegressionTest {
                 .build();
         final MetricRegistry metrics = TestUtils.createMetrics();
         final HealthFacility serverHealth = null;
+        final ApplicationStateFacility applicationStateFacility = null;
         final ServiceLoaderFunction serviceLoader = null;
         return new BlockNodeContext(
                 configuration,
@@ -313,9 +314,10 @@ class PublisherManagerRegressionTest {
                 serverHealth,
                 blockMessagingFacility,
                 historicalBlockFacility,
+                applicationStateFacility,
                 serviceLoader,
                 threadPoolManager,
                 BlockNodeVersions.DEFAULT,
-                TssData.DEFAULT);
+                null);
     }
 }

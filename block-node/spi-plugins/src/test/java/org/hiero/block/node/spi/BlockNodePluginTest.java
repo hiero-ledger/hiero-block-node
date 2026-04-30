@@ -4,6 +4,7 @@ package org.hiero.block.node.spi;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
@@ -12,6 +13,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.List;
+import org.hiero.block.api.TssData;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +49,42 @@ public class BlockNodePluginTest {
         }
     };
     private static final HttpService testHttpService = rules -> {};
+
+    private static class TestApplicationStateFacilityDefault implements ApplicationStateFacility {
+        @Override
+        public void updateTssData(TssData tssData) {
+            // do nothing
+        }
+    }
+
+    @Test
+    @DisplayName("Test default ApplicationStateFacility.updateTssData()")
+    void testDefaultUpdateTssData() {
+        TestApplicationStateFacilityDefault testApplicationStateFacilityDefault =
+                new TestApplicationStateFacilityDefault();
+        try {
+            testApplicationStateFacilityDefault.updateTssData(null);
+        } catch (Exception e) {
+            fail(e);
+        }
+    }
+
+    private static class TestApplicationStateFacility implements ApplicationStateFacility {
+        TssData tssData = null;
+
+        @Override
+        public void updateTssData(TssData tssData) {
+            this.tssData = tssData;
+        }
+    }
+
+    @Test
+    @DisplayName("Test ApplicationStateFacility.updateTssData()")
+    void testUpdateTssData() {
+        TestApplicationStateFacility testApplicationStateFacility = new TestApplicationStateFacility();
+        testApplicationStateFacility.updateTssData(null);
+        assertEquals(null, testApplicationStateFacility.tssData);
+    }
 
     private static class TestBlockNodePlugin implements BlockNodePlugin {
         BlockNodeContext context;
@@ -130,7 +168,7 @@ public class BlockNodePluginTest {
             }
         });
 
-        BlockNodeContext context = new BlockNodeContext(null, null, null, null, null, null, null, null, null);
+        BlockNodeContext context = new BlockNodeContext(null, null, null, null, null, null, null, null, null, null);
 
         plugin.onContextUpdate(context);
 
