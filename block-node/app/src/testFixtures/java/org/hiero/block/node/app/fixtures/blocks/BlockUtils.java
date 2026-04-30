@@ -8,6 +8,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,15 +54,14 @@ public final class BlockUtils {
     }
 
     /**
-     * Gets a SampleBlockInfo, out of the defined sample blocks enum.
+     * Gets a SampleBlockInfo from any sample block enum.
      */
-    public static SampleBlockInfo getSampleBlockInfo(SAMPLE_BLOCKS sampleBlocks) throws IOException, ParseException {
+    public static SampleBlockInfo getSampleBlockInfo(SampleBlock sampleBlock) throws IOException, ParseException {
         BlockUnparsed blockUnparsed;
-        var stream = TestUtils.class.getModule().getResourceAsStream("test-blocks/" + sampleBlocks.blockName);
-        try (final var gzipInputStream = new GZIPInputStream(stream)) {
-            // Read the bytes from the GZIPInputStream
+        try (InputStream stream =
+                        TestUtils.class.getModule().getResourceAsStream("test-blocks/" + sampleBlock.getBlockName());
+                final GZIPInputStream gzipInputStream = new GZIPInputStream(stream)) {
             byte[] bytes = gzipInputStream.readAllBytes();
-            // Parse the bytes into a BlockUnparsed object
             blockUnparsed = BlockUnparsed.PROTOBUF.parse(
                     Bytes.wrap(bytes).toReadableSequentialData(),
                     false,
@@ -70,11 +70,7 @@ public final class BlockUtils {
                     BlockAccessor.MAX_BLOCK_SIZE_BYTES);
         }
 
-        // Get the block root hash and block number
-        Bytes blockRootHash = sampleBlocks.getBlockHash();
-        long blockNumber = sampleBlocks.getBlockNumber();
-        // Return a SampleBlockInfo object with the block root hash, block number, and BlockUnparsed object
-        return new SampleBlockInfo(blockRootHash, blockNumber, blockUnparsed);
+        return new SampleBlockInfo(sampleBlock.getBlockHash(), sampleBlock.getBlockNumber(), blockUnparsed);
     }
 
     /**
@@ -83,10 +79,21 @@ public final class BlockUtils {
     public record SampleBlockInfo(Bytes blockRootHash, Long blockNumber, BlockUnparsed blockUnparsed) {}
 
     /**
+     * Common interface for sample block enums providing block metadata for test fixtures.
+     */
+    public interface SampleBlock {
+        String getBlockName();
+
+        Bytes getBlockHash();
+
+        long getBlockNumber();
+    }
+
+    /**
      * Sample blocks for testing.
      * These blocks are used for testing purposes only.
      */
-    public enum SAMPLE_BLOCKS {
+    public enum SAMPLE_BLOCKS implements SampleBlock {
         /** Genesis block — bootstraps TSS parameters and ledger ID. */
         BLOCK_0(
                 "CN_0_73_TSS_WRAPS/0.blk.gz",
@@ -128,6 +135,61 @@ public final class BlockUtils {
         private final long blockNumber;
 
         SAMPLE_BLOCKS(String blockName, String blockHash, long blockNumber) {
+            this.blockName = blockName;
+            this.blockHash = Bytes.fromHex(blockHash);
+            this.blockNumber = blockNumber;
+        }
+
+        public String getBlockName() {
+            return blockName;
+        }
+
+        public Bytes getBlockHash() {
+            return blockHash;
+        }
+
+        public long getBlockNumber() {
+            return blockNumber;
+        }
+    }
+
+    /**
+     * Sample blocks containing state proofs from a hapiTestWraps capture with Schnorr TSS signatures.
+     * Every 4th block (0, 4, ...) is directly signed; blocks in between have state proofs.
+     * Block 0 contains LedgerIdPublicationTransactionBody for TSS initialization.
+     */
+    public enum SAMPLE_BLOCKS_STATE_PROOFS implements SampleBlock {
+        /** Genesis block — bootstraps TSS parameters and ledger ID. Direct Schnorr proof. */
+        BLOCK_0(
+                "CN_0_73_TSS_SCHNORR/0.blk.gz",
+                "abca002469f5a59badf0634f8e759895891c65a0df3c3c7f9b78ef0920bc53670e9c5da867ab20d95a4bafb7a192e7f8",
+                0),
+        /** Indirect proof — 3-gap state proof (15 siblings), references signed block 4. */
+        BLOCK_1(
+                "CN_0_73_TSS_SCHNORR/1.blk.gz",
+                "16be13db66b0ee4b8b5c1f1173eb081fe267197e219273bc501a293c51eedd4a301edd9db12a452e23a874eab71b32d5",
+                1),
+        /** Indirect proof — 2-gap state proof (11 siblings), references signed block 4. */
+        BLOCK_2(
+                "CN_0_73_TSS_SCHNORR/2.blk.gz",
+                "ebb69bd6d03e4a152baf68f2bdd3cebb0bf90fbe5d3b7e6f0f4134f043945355f170cc162a352367230a377312e4efc8",
+                2),
+        /** Indirect proof — 1-gap state proof (7 siblings), references signed block 4. */
+        BLOCK_3(
+                "CN_0_73_TSS_SCHNORR/3.blk.gz",
+                "ab58d1104bb0a09b2562927b5dbd46e47c2e9962f6e0938de529babe43077636e8ee3f67473be490c28e781998294a33",
+                3),
+        /** Direct Schnorr TSS proof — the signed block referenced by blocks 1-3. */
+        BLOCK_4(
+                "CN_0_73_TSS_SCHNORR/4.blk.gz",
+                "fedfb3dafcb18673938f71da192efdf246cfb1e6e80016aba18cc97a09484f610acc087ae1f468d46e34dd00e92dcfc0",
+                4);
+
+        private final String blockName;
+        private final Bytes blockHash;
+        private final long blockNumber;
+
+        SAMPLE_BLOCKS_STATE_PROOFS(String blockName, String blockHash, long blockNumber) {
             this.blockName = blockName;
             this.blockHash = Bytes.fromHex(blockHash);
             this.blockNumber = blockNumber;
