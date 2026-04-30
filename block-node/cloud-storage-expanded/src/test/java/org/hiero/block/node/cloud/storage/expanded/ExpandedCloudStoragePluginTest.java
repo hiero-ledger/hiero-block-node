@@ -4,7 +4,6 @@ package org.hiero.block.node.cloud.storage.expanded;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -104,7 +103,8 @@ class ExpandedCloudStoragePluginTest
     /// Builds a {@link VerificationNotification} that reports {@code success=false} —
     /// the plugin must skip the upload for these notifications.
     private VerificationNotification failedNotification(final long blockNumber) {
-        return new VerificationNotification(false, FailureType.BAD_BLOCK_PROOF, blockNumber, Bytes.EMPTY, null, BlockSource.UNKNOWN);
+        return new VerificationNotification(
+                false, FailureType.BAD_BLOCK_PROOF, blockNumber, Bytes.EMPTY, null, BlockSource.UNKNOWN);
     }
 
     /// Drives the plugin's drain loop and polls until at least `expectedCount`
@@ -326,11 +326,11 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
-    @DisplayName("Config rejects blank bucketName and blank regionName at construction time")
-    void configRejectsBlankRequiredFields() {
-        // bucketName blank
-        assertThrows(
-                IllegalArgumentException.class,
+    @DisplayName("Config accepts blank required fields — plugin logs WARNING instead of throwing")
+    void configAcceptsBlankRequiredFields() {
+        // blank bucketName, endpointUrl, and regionName must all be accepted at construction time;
+        // the plugin reports misconfiguration via WARNING logs, not exceptions.
+        assertDoesNotThrow(
                 () -> new ExpandedCloudStorageConfig(
                         "http://fake:9000",
                         "",
@@ -340,10 +340,8 @@ class ExpandedCloudStoragePluginTest
                         "",
                         "",
                         60),
-                "blank bucketName must throw IllegalArgumentException");
-        // endpointUrl blank
-        assertThrows(
-                IllegalArgumentException.class,
+                "blank bucketName must not throw");
+        assertDoesNotThrow(
                 () -> new ExpandedCloudStorageConfig(
                         "",
                         "bucket",
@@ -353,10 +351,8 @@ class ExpandedCloudStoragePluginTest
                         "",
                         "",
                         60),
-                "blank endpointUrl must throw IllegalArgumentException");
-        // regionName blank
-        assertThrows(
-                IllegalArgumentException.class,
+                "blank endpointUrl must not throw");
+        assertDoesNotThrow(
                 () -> new ExpandedCloudStorageConfig(
                         "http://fake:9000",
                         "bucket",
@@ -366,7 +362,7 @@ class ExpandedCloudStoragePluginTest
                         "",
                         "",
                         60),
-                "blank regionName must throw IllegalArgumentException");
+                "blank regionName must not throw");
     }
 
     @Test
