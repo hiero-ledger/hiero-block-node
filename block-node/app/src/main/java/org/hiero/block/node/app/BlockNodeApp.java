@@ -3,6 +3,7 @@ package org.hiero.block.node.app;
 
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
@@ -22,7 +23,6 @@ import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -200,7 +200,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
         // ==== LOAD APPLICATION STATE =================================================================================
         // Must be done after the block node context is created
-        loadApplicationState();
+        loadApplicationState(blockNodeContext.configuration());
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         LOGGER.log(INFO, "Initializing plugins:");
@@ -380,18 +380,24 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
+     * UncaughtExceptionHandler for logging uncaught exceptions
+     */
+    static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
+        LOGGER.log(INFO, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), throwable);
+    }
+
+    /**
      * Starts the ApplicationStateFacility. The thread will be used to check if there are any TssData updates to
      * process.
      */
     void startApplicationStateFacility() {
         LOGGER.log(INFO, "ApplicationStateFacility start called");
-        Thread.UncaughtExceptionHandler handler =
-                (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
 
         // Create thread executors via threadPoolManager.
         applicationStateExecutor = blockNodeContext
                 .threadPoolManager()
-                .createVirtualThreadScheduledExecutor(1, "ApplicationStateScanner", handler);
+                .createVirtualThreadScheduledExecutor(
+                        1, "ApplicationStateScanner", BlockNodeApp::uncaughtExceptionHandler);
 
         NodeConfig nodeConfig = blockNodeContext.configuration().getConfigData(NodeConfig.class);
 
@@ -405,9 +411,15 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     private void checkForApplicationStateUpdates() {
         boolean updated = false;
-        while (!tssDataUpdates.isEmpty()) {
-            updated |= updateBlockNodeContext(tssDataUpdates.poll());
+        TssData tssData = tssDataUpdates.poll();
+        ;
+        while (tssData != null) {
+            // Because we only update TssData for the most recent blockNumber,
+            // |= will let us know if any TssData where updated.
+            updated |= updateBlockNodeContext(tssData);
+            tssData = tssDataUpdates.poll();
         }
+
         if (updated) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
             LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
@@ -486,19 +498,17 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      *
      * This must be called after the blockNode context is created
      */
-    private void loadApplicationState() {
+    private void loadApplicationState(Configuration configuration) {
         final Path tssDataFilePath =
-                blockNodeContext.configuration().getConfigData(NodeConfig.class).appStateDataFilePath();
+                configuration.getConfigData(NodeConfig.class).appStateDataFilePath();
         if (Files.exists(tssDataFilePath)) {
             try {
                 Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssDataFilePath));
                 TssData tssData = TssData.PROTOBUF.parse(fileBytes);
                 updateTssData(tssData);
                 LOGGER.log(INFO, "Loaded Application State Data from file: {0}", tssDataFilePath);
-            } catch (IOException e) {
-                throw new UncheckedIOException("Failed to read Application State Data file: " + tssDataFilePath, e);
-            } catch (ParseException e) {
-                throw new IllegalStateException("Failed to parse Application State Data file: " + tssDataFilePath, e);
+            } catch (ParseException | IOException e) {
+                LOGGER.log(ERROR, "Failed to read Application State Data file: " + tssDataFilePath, e);
             }
         }
     }
