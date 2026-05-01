@@ -85,7 +85,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
                     BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
             // Let the logs know what we loaded.
             for (BlockNodeSourceConfig node : blockNodeSources.nodes()) {
-                LOGGER.log(INFO, "Loaded backfill source node: {0}", node);
+                LOGGER.log(INFO, "Loaded peer BN source node: {0}", node);
             }
             hasBNSourcesPath = true;
         } catch (ParseException | IOException e) {
@@ -105,22 +105,29 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     }
 
     /**
+     * UncaughtExceptionHandler for logging uncaught exceptions
+     */
+    private void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
+        LOGGER.log(WARNING, "Uncaught exception in RosterBootstrapTssPlugin thread: " + thread.getName(), throwable);
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
     public void start() {
+        /// Don't start the querying thread if there are no peers defined.
         if (!hasBNSourcesPath) {
+            LOGGER.log(WARNING, "RosterBootstrapTssPlugin: No BN Peers defined");
             return;
         }
         // save the reference of this volatile object.
         BlockNodeContext context = blockNodeContext;
-        LOGGER.log(INFO, "ApplicationStateFacility start called");
-        Thread.UncaughtExceptionHandler handler =
-                (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
+        LOGGER.log(INFO, "RosterBootstrapTssPlugin start called");
 
         // Create thread executors via threadPoolManager.
-        queryPeerExecutor =
-                context.threadPoolManager().createVirtualThreadScheduledExecutor(1, "ApplicationStateScanner", handler);
+        queryPeerExecutor = context.threadPoolManager()
+                .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
 
         // Schedule periodic gap detection task using autonomous executor
         queryPeerExecutor.scheduleAtFixedRate(
