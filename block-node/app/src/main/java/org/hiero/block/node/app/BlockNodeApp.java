@@ -198,9 +198,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
-        // ==== LOAD APPLICATION STATE =================================================================================
-        // Must be done after the block node context is created
-        loadApplicationState(blockNodeContext.configuration());
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         LOGGER.log(INFO, "Initializing plugins:");
@@ -392,6 +389,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     void startApplicationStateFacility() {
         LOGGER.log(INFO, "ApplicationStateFacility start called");
+
+        // ==== LOAD APPLICATION STATE =================================================================================
+        loadApplicationState(blockNodeContext.configuration());
 
         // Create thread executors via threadPoolManager.
         applicationStateExecutor = blockNodeContext

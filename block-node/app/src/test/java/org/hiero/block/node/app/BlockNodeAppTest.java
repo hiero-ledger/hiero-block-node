@@ -4,6 +4,7 @@ package org.hiero.block.node.app;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
@@ -26,6 +27,7 @@ import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
+import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
@@ -329,6 +331,29 @@ class BlockNodeAppTest {
 
         // stop the ApplicationStateFacility manually as blockNodeApp.shutdown() is not being called
         blockNodeApp.stopApplicationStateFacility();
+    }
+
+    /**
+     * Test ApplicationStateFacility load failure.
+     */
+    @Test
+    @DisplayName("should not fail on bad TssData file")
+    void testApplicationStateFacilityBadFile() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        final Path appStateDataFilePath = blockNodeApp
+                .blockNodeContext
+                .configuration()
+                .getConfigData(NodeConfig.class)
+                .appStateDataFilePath();
+
+        Files.deleteIfExists(appStateDataFilePath);
+        Files.createFile(appStateDataFilePath);
+
+        // start the ApplicationStateFacility manually as blockNodeApp.start() is not being called
+        blockNodeApp.startApplicationStateFacility();
+
+        assertNull(blockNodeApp.blockNodeContext.tssData());
     }
 
     /**
