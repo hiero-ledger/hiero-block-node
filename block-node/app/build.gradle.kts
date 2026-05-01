@@ -133,7 +133,7 @@ dependencies {
     blockNodePlugins(project(":blocks-file-historic"))
 
     // Cloud storage
-    blockNodePlugins(project(":archive-cloud-storage"))
+    blockNodePlugins(project(":cloud-storage-archive"))
 
     // Extended functionality
     blockNodePlugins(project(":backfill"))
@@ -211,7 +211,7 @@ testModuleInfo {
     runtimeOnly("org.hiero.block.node.access.service")
     runtimeOnly("org.hiero.block.node.backfill")
     runtimeOnly("org.hiero.block.node.archive.s3cloud")
-    runtimeOnly("org.hiero.block.node.cloud.archive")
+    runtimeOnly("org.hiero.block.node.cloud.storage.archive")
 
     exportsTo("com.swirlds.config.impl")
 }

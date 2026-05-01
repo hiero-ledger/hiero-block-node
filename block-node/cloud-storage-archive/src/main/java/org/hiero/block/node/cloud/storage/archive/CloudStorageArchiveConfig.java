@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.cloud.archive;
+package org.hiero.block.node.cloud.storage.archive;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
+import java.util.ArrayList;
+import java.util.List;
 import org.hiero.block.node.base.Loggable;
 
 // spotless:off
 @ConfigData("cloud.archive")
-public record ArchiveCloudStorageConfig(
+public record CloudStorageArchiveConfig(
 
     @Loggable @ConfigProperty(defaultValue = "5") @Max(6) @Min(1) int groupingLevel,
     @Loggable @ConfigProperty(defaultValue = "10") @Max(2047) @Min(5) int partSizeMb,
@@ -32,5 +34,27 @@ public record ArchiveCloudStorageConfig(
         GLACIER_IR,
         DEEP_ARCHIVE,
         REDUCED_REDUNDANCY
+    }
+
+    /// Validates the plugin configuration and returns a list of human-readable violation messages
+    /// for any required fields that are empty.  An empty list means the configuration is valid.
+    List<String> validate() {
+        List<String> violations = new ArrayList<>();
+        if (endpointUrl.isBlank()) {
+            violations.add("endpoint URL");
+        }
+        if (regionName.isBlank()) {
+            violations.add("region name");
+        }
+        if (accessKey.isBlank()) {
+            violations.add("access key");
+        }
+        if (secretKey.isBlank()) {
+            violations.add("secret key");
+        }
+        if (bucketName.isBlank()) {
+            violations.add("bucket name");
+        }
+        return violations;
     }
 }
