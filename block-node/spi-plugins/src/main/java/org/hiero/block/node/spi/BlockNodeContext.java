@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi;
 
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.swirlds.config.api.Configuration;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.TssData;
@@ -35,6 +36,7 @@ import org.hiero.metrics.core.MetricRegistry;
  * @param threadPoolManager the thread pool manager for the block node
  * @param blockNodeVersions the version information associated with a block node
  * @param tssData the tss information needed for block verification
+ * @param nodeAddressBook the RSA node address book loaded at startup for WRB proof verification
  */
 public record BlockNodeContext(
         Configuration configuration,
@@ -46,4 +48,5 @@ public record BlockNodeContext(
         ServiceLoaderFunction serviceLoader,
         ThreadPoolManager threadPoolManager,
         BlockNodeVersions blockNodeVersions,
-        TssData tssData) {}
+        TssData tssData,
+        NodeAddressBook nodeAddressBook) {}

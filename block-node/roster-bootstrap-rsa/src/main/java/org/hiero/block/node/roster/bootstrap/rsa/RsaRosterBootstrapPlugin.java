@@ -7,15 +7,11 @@ import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
-import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,22 +25,26 @@ import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * Loads the consensus node RSA roster at Block Node startup and publishes it to all plugins via
- * `ApplicationStateFacility.updateAddressBook()`.
+ * {@code ApplicationStateFacility.updateAddressBook()}.
  *
- * ## Startup sequence
+ * <p>File loading and persistence are handled by {@code BlockNodeApp}: it reads the bootstrap file
+ * in {@code loadApplicationState()} before plugins are initialised, and persists the file in
+ * {@code updateAddressBook()} after a Mirror Node fetch. This plugin's sole responsibility is to
+ * check whether the address book was already loaded ({@code context.nodeAddressBook() != null}) and,
+ * if not, to fetch it from the Mirror Node.
  *
- * 1. If `rsa-bootstrap-roster.pb` exists at the configured path: parse it and validate it has
- *    at least one entry with a non-blank `RSA_PubKey`.
- * 2. Otherwise: query `GET /api/v1/network/nodes` (paginated) on the configured Mirror Node,
- *    build a `NodeAddressBook`, and write it to the bootstrap file for future startups.
- * 3. If neither source succeeds: log `ERROR` and throw to trigger BN fail-fast shutdown.
+ * <p><b>Startup sequence:</b>
+ * <ol>
+ *   <li>If {@code context.nodeAddressBook()} is non-null: BlockNodeApp loaded it from the
+ *       bootstrap file — emit metrics and return.
+ *   <li>Otherwise: query {@code GET /api/v1/network/nodes} (paginated) on the configured Mirror
+ *       Node, build a {@code NodeAddressBook}, and call
+ *       {@code applicationStateFacility.updateAddressBook()} — which persists the file and
+ *       notifies all plugins via {@code onContextUpdate}.
+ *   <li>If neither source succeeds: log {@code ERROR} and throw to trigger BN fail-fast.
+ * </ol>
  *
- * ## Thread safety
- *
- * `start()` runs on the plugin startup thread. After `updateAddressBook()` returns the roster
- * is available to all other plugins via `context.nodeAddressBook()`.
- *
- * See `docs/design/wrb-streaming/bootstrap-roster-plugin.md` for the full design.
+ * <p>See {@code docs/design/wrb-streaming/bootstrap-roster-plugin.md} for the full design.
  */
 public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
@@ -62,9 +62,9 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /** Max Mirror Node fetch retries before fail-fast. */
     private static final int MAX_RETRIES = 3;
 
+    private BlockNodeContext context;
     private BootstrapRosterConfig config;
     private ApplicationStateFacility applicationStateFacility;
-    private MetricRegistry metricRegistry;
 
     // Metric values stored after startup so ObservableGauge can read them
     private volatile long rosterEntriesLoaded = 0L;
@@ -79,9 +79,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /** {@inheritDoc} */
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
-        config = context.configuration().getConfigData(BootstrapRosterConfig.class);
-        applicationStateFacility = context.applicationStateFacility();
-        metricRegistry = context.metricRegistry();
+        this.context = context;
+        this.config = context.configuration().getConfigData(BootstrapRosterConfig.class);
+        this.applicationStateFacility = context.applicationStateFacility();
+        final MetricRegistry metricRegistry = context.metricRegistry();
         metricRegistry.register(ObservableGauge.builder(METRIC_ROSTER_ENTRIES_LOADED)
                 .setDescription("Number of NodeAddress entries loaded at startup")
                 .observe(() -> rosterEntriesLoaded));
@@ -91,82 +92,33 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     }
 
     /**
-     * Loads the address book (file-first, Mirror Node fallback) and publishes it to all plugins
-     * via `applicationStateFacility.updateAddressBook()`. Throws an unchecked exception if
-     * neither source is available, triggering BN fail-fast.
+     * Checks whether BlockNodeApp already loaded the address book from the bootstrap file.
+     * If so, records metrics and returns. Otherwise fetches from Mirror Node and calls
+     * {@code applicationStateFacility.updateAddressBook()} which persists the file and notifies
+     * all plugins. Throws if neither source succeeds, triggering BN fail-fast.
      */
     @Override
     public void start() {
         final long startMs = System.currentTimeMillis();
-        final NodeAddressBook book;
+        NodeAddressBook book = context.nodeAddressBook();
         final String source;
 
-        if (Files.exists(config.filePath())) {
-            book = loadFromFile(config.filePath());
+        if (book != null) {
+            // Bootstrap file was loaded by BlockNodeApp.loadApplicationState() before init().
             source = "file";
         } else {
-            LOGGER.log(INFO, "RSA bootstrap file not found at {0}, querying Mirror Node", config.filePath());
+            LOGGER.log(INFO, "RSA bootstrap file not found, querying Mirror Node at {0}",
+                    config.mirrorNodeBaseUrl());
             book = fetchFromMirrorNode();
-            persistToFile(book, config.filePath());
+            // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
+            applicationStateFacility.updateAddressBook(book);
             source = "mirror_node";
         }
 
         rosterEntriesLoaded = book.nodeAddress().size();
         rosterLoadDurationMs = System.currentTimeMillis() - startMs;
-
-        LOGGER.log(INFO, "RSA roster loaded: {0} entries from {1} in {2}ms",
+        LOGGER.log(INFO, "RSA roster available: {0} entries from {1} in {2}ms",
                 rosterEntriesLoaded, source, rosterLoadDurationMs);
-
-        applicationStateFacility.updateAddressBook(book);
-    }
-
-    // -------------------------------------------------------------------------
-    // File loading
-    // -------------------------------------------------------------------------
-
-    /**
-     * Parses `NodeAddressBook` from the binary protobuf file at `filePath`.
-     *
-     * @param filePath path to the binary protobuf bootstrap file
-     * @return the parsed and validated `NodeAddressBook`
-     * @throws IllegalStateException if the file cannot be parsed or contains no usable entries
-     */
-    private NodeAddressBook loadFromFile(final Path filePath) {
-        LOGGER.log(INFO, "Loading RSA address book from {0}", filePath);
-        try {
-            final byte[] raw = Files.readAllBytes(filePath);
-            final NodeAddressBook book = NodeAddressBook.PROTOBUF.parse(BufferedData.wrap(raw));
-            validate(book, filePath.toString());
-            return book;
-        } catch (IOException e) {
-            throw new IllegalStateException(
-                    "Failed to read RSA bootstrap file at " + filePath + ": " + e.getMessage(), e);
-        } catch (com.hedera.pbj.runtime.ParseException e) {
-            throw new IllegalStateException(
-                    "Corrupt RSA bootstrap file at " + filePath + " — delete and restart to re-fetch from Mirror Node",
-                    e);
-        }
-    }
-
-    /**
-     * Validates that `book` has at least one entry with a non-blank `RSA_PubKey`.
-     *
-     * @param book the address book to validate
-     * @param source human-readable source name for error messages
-     * @throws IllegalStateException if the book is empty or has no usable entries
-     */
-    private void validate(final NodeAddressBook book, final String source) {
-        if (book.nodeAddress().isEmpty()) {
-            throw new IllegalStateException("RSA address book from " + source + " contains no entries — cannot verify WRB proofs");
-        }
-        final long usable = book.nodeAddress().stream()
-                .filter(a -> !a.rsaPubKey().isBlank())
-                .count();
-        if (usable == 0) {
-            throw new IllegalStateException(
-                    "RSA address book from " + source + " has " + book.nodeAddress().size()
-                            + " entries but none have a non-blank RSA_PubKey");
-        }
     }
 
     // -------------------------------------------------------------------------
@@ -265,38 +217,4 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         throw new IllegalStateException("Mirror Node unreachable after " + MAX_RETRIES + " attempts", lastCause);
     }
 
-    // -------------------------------------------------------------------------
-    // File persistence
-    // -------------------------------------------------------------------------
-
-    /**
-     * Atomically writes the `NodeAddressBook` to `filePath` using a write-to-temp-then-rename
-     * pattern. A write failure is logged but does not abort startup — the in-memory book is
-     * already published to the application state.
-     *
-     * @param book the address book to persist
-     * @param filePath the target file path
-     */
-    private void persistToFile(final NodeAddressBook book, final Path filePath) {
-        try {
-            Files.createDirectories(filePath.getParent());
-            final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
-            final com.hedera.pbj.runtime.io.buffer.Bytes encoded = NodeAddressBook.PROTOBUF.toBytes(book);
-            Files.write(tmp, encoded.toByteArray());
-            Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            // Restrict file permissions to owner read/write
-            try {
-                filePath.toFile().setReadable(false, false);
-                filePath.toFile().setReadable(true, true);
-                filePath.toFile().setWritable(false, false);
-                filePath.toFile().setWritable(true, true);
-            } catch (Exception e) {
-                LOGGER.log(WARNING, "Could not set file permissions on {0}: {1}", filePath, e.getMessage());
-            }
-            LOGGER.log(INFO, "RSA bootstrap file written to {0}", filePath);
-        } catch (IOException e) {
-            LOGGER.log(WARNING, "Could not persist RSA bootstrap file to {0}: {1} — will re-fetch on next startup",
-                    filePath, e.getMessage());
-        }
-    }
 }

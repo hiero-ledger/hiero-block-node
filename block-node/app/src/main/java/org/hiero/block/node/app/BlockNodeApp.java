@@ -11,8 +11,10 @@ import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -25,6 +27,7 @@ import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -196,6 +199,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 serviceLoader,
                 threadPoolManager,
                 versionInfo(loadedPlugins),
+                null,
                 null);
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
@@ -379,6 +383,32 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
+     * Allow plugins to update the NodeAddressBook for this BlockNodeApp. Updates the context
+     * immediately, notifies all plugins via {@code onContextUpdate}, and persists the book to the
+     * bootstrap file for future restarts.
+     *
+     * @param nodeAddressBook the NodeAddressBook to store in BlockNodeContext
+     */
+    @Override
+    public void updateAddressBook(NodeAddressBook nodeAddressBook) {
+        blockNodeContext = new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                blockNodeContext.tssData(),
+                nodeAddressBook);
+        loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
+        LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins (nodeAddressBook update)");
+        persistNodeAddressBook(nodeAddressBook);
+    }
+
+    /**
      * UncaughtExceptionHandler for logging uncaught exceptions
      */
     static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
@@ -464,7 +494,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                     blockNodeContext.serviceLoader(),
                     blockNodeContext.threadPoolManager(),
                     blockNodeContext.blockNodeVersions(),
-                    tssData);
+                    tssData,
+                    blockNodeContext.nodeAddressBook());
             LOGGER.log(INFO, "BlockNodeContext updated");
             updated = true;
         }
@@ -495,16 +526,32 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         }
     }
 
+    private void persistNodeAddressBook(NodeAddressBook nodeAddressBook) {
+        final Path filePath =
+                blockNodeContext.configuration().getConfigData(NodeConfig.class).rsaBootstrapFilePath();
+        try {
+            Files.createDirectories(filePath.getParent());
+            final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
+            final Bytes encoded = NodeAddressBook.PROTOBUF.toBytes(nodeAddressBook);
+            Files.write(tmp, encoded.toByteArray());
+            Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            LOGGER.log(INFO, "Persisted RSA address book to file: {0}", filePath);
+        } catch (IOException e) {
+            LOGGER.log(WARNING,
+                    "Failed to persist RSA address book to {0}: {1} — will re-fetch on next startup",
+                    filePath, e.getMessage());
+        }
+    }
+
     /**
-     * Loads the ApplicationState
+     * Loads all ApplicationState from file paths specified in the NodeConfig class.
+     * Must be called after the BlockNodeContext is created and all plugins have been init'd.
      *
-     * Loads the ApplicationState from file path(s) specified in the NodeConfig class.
-     *
-     * This must be called after the blockNode context is created
+     * @param configuration the current configuration
      */
-    private void loadApplicationState(Configuration configuration) {
-        final Path tssDataJsonPath =
-                configuration.getConfigData(ApplicationStateConfig.class).dataFilePath();
+    private void loadApplicationState(final Configuration configuration) {
+        // Load TssData (JSON format)
+        final Path tssDataJsonPath = configuration.getConfigData(NodeConfig.class).appStateDataFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
                 TssData tssData = TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
@@ -513,6 +560,64 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             } catch (ParseException | IOException e) {
                 LOGGER.log(ERROR, "Failed to read Application State Data file: " + tssDataJsonPath, e);
             }
+        }
+
+        // Load RSA NodeAddressBook
+        final Path rsaFilePath = configuration.getConfigData(NodeConfig.class).rsaBootstrapFilePath();
+        if (Files.exists(rsaFilePath)) {
+            try {
+                final byte[] raw = Files.readAllBytes(rsaFilePath);
+                final NodeAddressBook book = NodeAddressBook.PROTOBUF.parse(BufferedData.wrap(raw));
+                validateAddressBook(book, rsaFilePath.toString());
+                // Update context and notify all plugins. loadApplicationState() is called from
+                // startApplicationStateFacility() which runs after plugin.init() and before
+                // plugin.start(), so calling onContextUpdate here ensures plugins see the book
+                // in their stored context reference when start() runs.
+                blockNodeContext = new BlockNodeContext(
+                        blockNodeContext.configuration(),
+                        blockNodeContext.metricRegistry(),
+                        blockNodeContext.serverHealth(),
+                        blockNodeContext.blockMessaging(),
+                        blockNodeContext.historicalBlockProvider(),
+                        blockNodeContext.applicationStateFacility(),
+                        blockNodeContext.serviceLoader(),
+                        blockNodeContext.threadPoolManager(),
+                        blockNodeContext.blockNodeVersions(),
+                        blockNodeContext.tssData(),
+                        book);
+                loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
+                LOGGER.log(INFO, "Loaded RSA address book from file: {0} ({1} entries)",
+                        rsaFilePath, book.nodeAddress().size());
+            } catch (IOException e) {
+                throw new IllegalStateException(
+                        "Failed to read RSA bootstrap file: " + rsaFilePath, e);
+            } catch (ParseException e) {
+                throw new IllegalStateException(
+                        "Corrupt RSA bootstrap file at " + rsaFilePath
+                                + " — delete and restart to re-fetch from Mirror Node", e);
+            }
+        }
+    }
+
+    /**
+     * Validates that the NodeAddressBook has at least one entry with a non-blank RSA_PubKey.
+     *
+     * @param book the address book to validate
+     * @param source human-readable source name for error messages
+     * @throws IllegalStateException if the book is empty or has no usable entries
+     */
+    private static void validateAddressBook(final NodeAddressBook book, final String source) {
+        if (book.nodeAddress().isEmpty()) {
+            throw new IllegalStateException(
+                    "RSA address book from " + source + " contains no entries — cannot verify WRB proofs");
+        }
+        final long usable = book.nodeAddress().stream()
+                .filter(a -> !a.rsaPubKey().isBlank())
+                .count();
+        if (usable == 0) {
+            throw new IllegalStateException(
+                    "RSA address book from " + source + " has " + book.nodeAddress().size()
+                            + " entries but none have a non-blank RSA_PubKey");
         }
     }
 }

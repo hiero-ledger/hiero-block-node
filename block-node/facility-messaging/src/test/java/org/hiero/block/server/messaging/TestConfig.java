@@ -45,6 +45,7 @@ public class TestConfig {
                         new BlockingExecutor(new LinkedBlockingQueue<>()),
                         new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
                 BlockNodeVersions.DEFAULT,
+                null,
                 null);
     }
 
@@ -59,6 +60,7 @@ public class TestConfig {
                 null,
                 threadPoolManager,
                 BlockNodeVersions.DEFAULT,
+                null,
                 null);
     }
 

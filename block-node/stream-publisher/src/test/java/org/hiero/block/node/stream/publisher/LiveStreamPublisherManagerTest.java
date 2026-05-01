@@ -2623,6 +2623,7 @@ class LiveStreamPublisherManagerTest {
                 serviceLoader,
                 threadPoolManager,
                 BlockNodeVersions.DEFAULT,
+                null,
                 null);
     }
 

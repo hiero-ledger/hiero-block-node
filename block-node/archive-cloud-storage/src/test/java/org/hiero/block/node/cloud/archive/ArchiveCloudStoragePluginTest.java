@@ -185,7 +185,8 @@ class ArchiveCloudStoragePluginTest {
                     null,
                     null,
                     BlockNodeVersions.DEFAULT,
-                    null);
+                    null,
+                null);
             final ArchiveCloudStoragePlugin plugin = new ArchiveCloudStoragePlugin();
             assertThatNoException().isThrownBy(() -> plugin.init(testContext, null));
         }
@@ -211,7 +212,8 @@ class ArchiveCloudStoragePluginTest {
                     null,
                     null,
                     BlockNodeVersions.DEFAULT,
-                    null);
+                    null,
+                null);
             new ArchiveCloudStoragePlugin().init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
         }
@@ -261,7 +263,8 @@ class ArchiveCloudStoragePluginTest {
                     null,
                     null,
                     BlockNodeVersions.DEFAULT,
-                    null);
+                    null,
+                null);
             new ArchiveCloudStoragePlugin().init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isOne();
         }

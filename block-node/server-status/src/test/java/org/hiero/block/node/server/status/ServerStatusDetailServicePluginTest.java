@@ -138,7 +138,8 @@ public class ServerStatusDetailServicePluginTest
                 blockNodeContext.serviceLoader(),
                 blockNodeContext.threadPoolManager(),
                 BlockNodeVersions.DEFAULT,
-                buildTssData());
+                buildTssData(),
+                null);
         plugin.onContextUpdate(newBlockNodeContext);
 
         ServerStatusRequest request = ServerStatusRequest.newBuilder().build();

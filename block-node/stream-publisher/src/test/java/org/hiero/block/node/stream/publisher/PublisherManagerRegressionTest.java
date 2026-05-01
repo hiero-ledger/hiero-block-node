@@ -318,6 +318,7 @@ class PublisherManagerRegressionTest {
                 serviceLoader,
                 threadPoolManager,
                 BlockNodeVersions.DEFAULT,
+                null,
                 null);
     }
 }

@@ -19,6 +19,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;
@@ -125,6 +126,28 @@ public abstract class PluginTestBase<
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides,
             @NonNull final Map<Class<?>, ConfigConverter<?>> converters) {
+        start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, converters, null);
+    }
+
+    /**
+     * Start the test fixture with a pre-loaded NodeAddressBook, simulating what BlockNodeApp does
+     * when it reads the RSA bootstrap file before plugins are initialised.
+     *
+     * @param plugin the plugin to be tested
+     * @param historicalBlockFacility the historical block facility to be used
+     * @param additionalPlugins additional test plugins to be initialized and started
+     * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
+     * @param converters an optional map of custom converters to be used for the configuration
+     * @param preloadedAddressBook when non-null, injected into BlockNodeContext before plugin.init()
+     *     to simulate BlockNodeApp having loaded the RSA bootstrap file
+     */
+    public void start(
+            @NonNull final P plugin,
+            @NonNull final HistoricalBlockFacility historicalBlockFacility,
+            @Nullable final List<BlockNodePlugin> additionalPlugins,
+            @Nullable final Map<String, String> configOverrides,
+            @NonNull final Map<Class<?>, ConfigConverter<?>> converters,
+            @Nullable final NodeAddressBook preloadedAddressBook) {
 
         Objects.requireNonNull(plugin);
         Objects.requireNonNull(historicalBlockFacility);
@@ -163,7 +186,8 @@ public abstract class PluginTestBase<
                 new ServiceLoaderFunction(),
                 testThreadPoolManager,
                 buildBlockNodeVersions(),
-                null);
+                null,
+                preloadedAddressBook);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
@@ -276,7 +300,25 @@ public abstract class PluginTestBase<
                 blockNodeContext.serviceLoader(),
                 blockNodeContext.threadPoolManager(),
                 blockNodeContext.blockNodeVersions(),
-                tssData);
+                tssData,
+                blockNodeContext.nodeAddressBook());
+        plugin.onContextUpdate(blockNodeContext);
+    }
+
+    @Override
+    public void updateAddressBook(NodeAddressBook nodeAddressBook) {
+        blockNodeContext = new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                blockNodeContext.tssData(),
+                nodeAddressBook);
         plugin.onContextUpdate(blockNodeContext);
     }
 }

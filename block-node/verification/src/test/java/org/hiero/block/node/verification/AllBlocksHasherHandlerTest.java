@@ -317,6 +317,7 @@ class AllBlocksHasherHandlerTest {
                 mock(ServiceLoaderFunction.class),
                 mock(ThreadPoolManager.class),
                 BlockNodeVersions.DEFAULT,
+                null,
                 null);
     }
 

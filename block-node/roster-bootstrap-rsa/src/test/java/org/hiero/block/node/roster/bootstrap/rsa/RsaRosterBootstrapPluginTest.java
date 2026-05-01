@@ -9,10 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -27,12 +24,18 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+
 /**
  * Unit tests for `RsaRosterBootstrapPlugin`.
  *
- * Uses `PluginTestBase` which synchronously calls `onContextUpdate()` when `updateAddressBook()`
- * is invoked, allowing assertions on `blockNodeContext.nodeAddressBook()` immediately after
- * `start()` returns.
+ * <p>File loading and persistence are now handled by {@code BlockNodeApp}. The plugin's
+ * sole responsibility is to check whether the address book was already loaded
+ * ({@code context.nodeAddressBook() != null}) and, if not, to fetch it from the Mirror Node.
+ *
+ * <p>Tests that simulate "BlockNodeApp loaded the file" pass a pre-built
+ * {@code NodeAddressBook} via the {@code preloadedAddressBook} overload of
+ * {@code PluginTestBase.start()}.
  */
 class RsaRosterBootstrapPluginTest
         extends PluginTestBase<RsaRosterBootstrapPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
@@ -57,23 +60,21 @@ class RsaRosterBootstrapPluginTest
     }
 
     // -------------------------------------------------------------------------
-    // File-loading tests
+    // Pre-loaded address book tests (simulates BlockNodeApp loading from file)
     // -------------------------------------------------------------------------
 
     @Nested
-    @DisplayName("File-based loading")
-    class FileLoading {
+    @DisplayName("Pre-loaded address book (BlockNodeApp loaded from file)")
+    class PreloadedAddressBook {
 
         @Test
-        @DisplayName("Valid bootstrap file is loaded and published to context")
-        void loadsValidBootstrapFile(@TempDir final Path tempDir) throws Exception {
-            final Path filePath = tempDir.resolve("rsa-bootstrap-roster.pb");
+        @DisplayName("Pre-loaded book is reflected in context after start()")
+        void preloadedBookIsReflectedInContext() {
             final NodeAddressBook book = buildAddressBook(3);
-            writeAddressBook(book, filePath);
 
             start(new RsaRosterBootstrapPlugin(),
                     new SimpleInMemoryHistoricalBlockFacility(),
-                    Map.of("roster.bootstrap.filePath", filePath.toString()));
+                    null, null, Map.of(), book);
 
             final NodeAddressBook loaded = blockNodeContext.nodeAddressBook();
             assertNotNull(loaded);
@@ -82,62 +83,31 @@ class RsaRosterBootstrapPluginTest
         }
 
         @Test
-        @DisplayName("Bootstrap file with no usable RSA keys throws at start()")
-        void emptyKeysBootstrapFileThrows(@TempDir final Path tempDir) throws Exception {
-            final Path filePath = tempDir.resolve("rsa-bootstrap-roster.pb");
-            // Write a book with entries that have blank RSA keys
-            final NodeAddressBook book = NodeAddressBook.newBuilder()
-                    .nodeAddress(List.of(NodeAddress.newBuilder().nodeId(0).rsaPubKey("").build()))
-                    .build();
-            writeAddressBook(book, filePath);
+        @DisplayName("Metrics are recorded when address book is pre-loaded")
+        void metricsAreRecordedForPreloadedBook() {
+            final NodeAddressBook book = buildAddressBook(4);
 
-            assertThrows(IllegalStateException.class, () -> start(
-                    new RsaRosterBootstrapPlugin(),
+            start(new RsaRosterBootstrapPlugin(),
                     new SimpleInMemoryHistoricalBlockFacility(),
-                    Map.of("roster.bootstrap.filePath", filePath.toString())));
-        }
+                    null, null, Map.of(), book);
 
-        @Test
-        @DisplayName("Empty bootstrap file (zero entries) throws at start()")
-        void emptyBootstrapFileThrows(@TempDir final Path tempDir) throws Exception {
-            final Path filePath = tempDir.resolve("rsa-bootstrap-roster.pb");
-            final NodeAddressBook book = NodeAddressBook.newBuilder()
-                    .nodeAddress(List.of())
-                    .build();
-            writeAddressBook(book, filePath);
-
-            assertThrows(IllegalStateException.class, () -> start(
-                    new RsaRosterBootstrapPlugin(),
-                    new SimpleInMemoryHistoricalBlockFacility(),
-                    Map.of("roster.bootstrap.filePath", filePath.toString())));
-        }
-
-        @Test
-        @DisplayName("Corrupt (non-protobuf) bootstrap file throws at start()")
-        void corruptBootstrapFileThrows(@TempDir final Path tempDir) throws Exception {
-            final Path filePath = tempDir.resolve("rsa-bootstrap-roster.pb");
-            Files.write(filePath, new byte[] {0x00, 0x01, 0x02, (byte) 0xFF});
-
-            assertThrows(IllegalStateException.class, () -> start(
-                    new RsaRosterBootstrapPlugin(),
-                    new SimpleInMemoryHistoricalBlockFacility(),
-                    Map.of("roster.bootstrap.filePath", filePath.toString())));
+            assertEquals(4, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
+            assertTrue(getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_LOAD_DURATION_MS) >= 0);
         }
 
         @Test
         @DisplayName("onContextUpdate is called when updateAddressBook is invoked")
-        void contextUpdateIsDelivered(@TempDir final Path tempDir) throws Exception {
-            final Path filePath = tempDir.resolve("rsa-bootstrap-roster.pb");
-            writeAddressBook(buildAddressBook(2), filePath);
+        void contextUpdateIsDeliveredViaUpdateAddressBook() {
+            final NodeAddressBook book = buildAddressBook(2);
 
             start(new RsaRosterBootstrapPlugin(),
                     new SimpleInMemoryHistoricalBlockFacility(),
-                    Map.of("roster.bootstrap.filePath", filePath.toString()));
+                    null, null, Map.of(), book);
 
             // updateAddressBook triggers onContextUpdate synchronously in PluginTestBase.
-            // Verify that the context reflects the published book.
             final NodeAddressBook published = blockNodeContext.nodeAddressBook();
             assertFalse(published.nodeAddress().isEmpty());
+            assertEquals(2, published.nodeAddress().size());
         }
     }
 
@@ -150,18 +120,19 @@ class RsaRosterBootstrapPluginTest
     class MirrorNodeFallback {
 
         @Test
-        @DisplayName("Unreachable Mirror Node (invalid URL) throws at start()")
+        @DisplayName("Unreachable Mirror Node (invalid URL) throws at start() when no book pre-loaded")
         void unreachableMirrorNodeThrows(@TempDir final Path tempDir) {
-            final Path filePath = tempDir.resolve("rsa-bootstrap-roster.pb");
-            // File does not exist; MN URL is unreachable
+            // No preloaded address book — plugin must fetch from Mirror Node and fail
             assertThrows(IllegalStateException.class, () -> start(
                     new RsaRosterBootstrapPlugin(),
                     new SimpleInMemoryHistoricalBlockFacility(),
+                    null,
                     Map.of(
-                            "roster.bootstrap.filePath", filePath.toString(),
                             "roster.bootstrap.mirrorNodeBaseUrl", "http://localhost:1",
                             "roster.bootstrap.mirrorNodeConnectTimeoutSeconds", "1",
-                            "roster.bootstrap.mirrorNodeReadTimeoutSeconds", "1")));
+                            "roster.bootstrap.mirrorNodeReadTimeoutSeconds", "1"),
+                    Map.of(),
+                    null));
         }
     }
 
@@ -190,10 +161,5 @@ class RsaRosterBootstrapPluginTest
                     .build());
         }
         return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
-    }
-
-    private static void writeAddressBook(final NodeAddressBook book, final Path path) throws Exception {
-        final Bytes encoded = NodeAddressBook.PROTOBUF.toBytes(book);
-        Files.write(path, encoded.toByteArray());
     }
 }
