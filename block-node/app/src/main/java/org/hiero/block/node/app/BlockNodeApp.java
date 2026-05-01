@@ -380,7 +380,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * UncaughtExceptionHandler for logging uncaught exceptions
      */
     static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
-        LOGGER.log(INFO, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), throwable);
+        LOGGER.log(WARNING, "Uncaught exception in ApplicationStateFacility thread: " + thread.getName(), throwable);
     }
 
     /**
