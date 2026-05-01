@@ -2355,24 +2355,29 @@ class LiveStreamPublisherManagerTest {
                         .build();
                 publisherHandler2.onNext(block1Req);
                 endThisBlock(publisherHandler2, 1L);
-                // Handler 2 completes block 2: 2 == 0+2, NOT strictly greater — no stall yet.
+                // Handler 2 completes block 2, 3: 3 == 0+3, NOT strictly greater — no stall yet.
                 final PublishStreamRequestUnparsed block2Req = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(TestBlockBuilder.generateBlockWithNumber(2L).asItemSetUnparsed())
                         .build();
                 publisherHandler2.onNext(block2Req);
-                endThisBlock(publisherHandler2, 2L);
-                assertThat(responsePipeline.getOnNextCalls())
-                        .as("completing block 2 (== 0+2) must not trigger stall detection")
-                        .noneMatch(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.END_STREAM);
-                assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
-                // Handler 2 completes block 3: 3 > 0+2 — stall MUST fire now.
+                // Handler 2 completes block 2, 3: 3 == 0+3, NOT strictly greater — no stall yet.
                 final PublishStreamRequestUnparsed block3Req = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(TestBlockBuilder.generateBlockWithNumber(3L).asItemSetUnparsed())
                         .build();
                 publisherHandler2.onNext(block3Req);
                 endThisBlock(publisherHandler2, 3L);
                 assertThat(responsePipeline.getOnNextCalls())
-                        .as("completing block 3 (> 0+2) must trigger EndStream(TIMEOUT) on handler 1")
+                        .as("completing block 3 (== 0+3) must not trigger stall detection")
+                        .noneMatch(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.END_STREAM);
+                assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
+                // Handler 2 completes block 4: 4 > 0+3 — stall MUST fire now.
+                final PublishStreamRequestUnparsed block4Req = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(TestBlockBuilder.generateBlockWithNumber(4L).asItemSetUnparsed())
+                        .build();
+                publisherHandler2.onNext(block4Req);
+                endThisBlock(publisherHandler2, 4L);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .as("completing block 4 (> 0+3) must trigger EndStream(TIMEOUT) on handler 1")
                         .anySatisfy(r -> {
                             assertThat(r.response().kind())
                                     .isEqualTo(PublishStreamResponse.ResponseOneOfType.END_STREAM);
@@ -2391,8 +2396,8 @@ class LiveStreamPublisherManagerTest {
             void testStallDetectedAndEndStreamSent() {
                 // Handler 1 sends header only for block 0.
                 sendHeaderOnly(publisherHandler, 0L);
-                // Handler 2 is SKIPped for 0, then completes blocks 1, 2, 3.
-                for (long block = 1L; block <= 3L; block++) {
+                // Handler 2 is SKIPped for 0, then completes blocks 1, 2, 3, 4.
+                for (long block = 1L; block <= 4L; block++) {
                     final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                             .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
                                     .asItemSetUnparsed())
@@ -2489,8 +2494,8 @@ class LiveStreamPublisherManagerTest {
                 sendHeaderOnly(publisherHandler, 0L);
                 // Handler 2 wins ACCEPT for block 1 — sends header only.
                 sendHeaderOnly(publisherHandler2, 1L);
-                // Handler 3 completes block 4: 4 > 0+2 AND 4 > 1+2 — both stalled.
-                for (long block = 2L; block <= 4L; block++) {
+                // Handler 3 completes block 5: 4 > 0+3 AND 5 > 1+3 — both stalled.
+                for (long block = 2L; block <= 5L; block++) {
                     final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                             .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
                                     .asItemSetUnparsed())
@@ -2531,8 +2536,8 @@ class LiveStreamPublisherManagerTest {
             void testResendDeliveredAtNextEndOfBlock() {
                 // Handler 1 sends header only for block 0 — stalls.
                 sendHeaderOnly(publisherHandler, 0L);
-                // Handler 2 completes blocks 1, 2, 3 — triggers stall on block 3.
-                for (long block = 1L; block <= 3L; block++) {
+                // Handler 2 completes blocks 1, 2, 3, 4 — triggers stall on block 4.
+                for (long block = 1L; block <= 4L; block++) {
                     final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                             .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
                                     .asItemSetUnparsed())
@@ -2544,14 +2549,14 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getOnCompleteCalls().get())
                         .as("handler 1 must be shut down by stall detection before checking resend")
                         .isEqualTo(1);
-                // Clear pipeline 2 noise (SKIP responses for blocks 0-2).
+                // Clear pipeline 2 noise (SKIP responses for blocks 0-4).
                 responsePipeline2.clear();
-                // Handler 2 now streams block 4; its endOfBlock must return ResendBlock(0).
-                final PublishStreamRequestUnparsed block4Req = PublishStreamRequestUnparsed.newBuilder()
-                        .blockItems(TestBlockBuilder.generateBlockWithNumber(4L).asItemSetUnparsed())
+                // Handler 2 now streams block 5; its endOfBlock must return ResendBlock(0).
+                final PublishStreamRequestUnparsed block5Req = PublishStreamRequestUnparsed.newBuilder()
+                        .blockItems(TestBlockBuilder.generateBlockWithNumber(5L).asItemSetUnparsed())
                         .build();
-                publisherHandler2.onNext(block4Req);
-                endThisBlock(publisherHandler2, 4L);
+                publisherHandler2.onNext(block5Req);
+                endThisBlock(publisherHandler2, 5L);
                 // Handler 2 must have received a ResendBlock(0) response.
                 assertThat(responsePipeline2.getOnNextCalls())
                         .as("handler 2 must receive ResendBlock(0) at next endOfBlock after stall")
