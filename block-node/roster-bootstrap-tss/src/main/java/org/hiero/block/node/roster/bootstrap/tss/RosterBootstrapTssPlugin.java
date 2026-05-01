@@ -15,9 +15,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
 public class RosterBootstrapTssPlugin implements BlockNodePlugin {
 
-    /** The logger for this class. */
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
-
     /// {@inheritDoc}
     @NonNull
     @Override
