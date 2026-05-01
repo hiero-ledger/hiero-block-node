@@ -479,7 +479,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 blockNodeContext.configuration().getConfigData(NodeConfig.class).appStateDataFilePath();
         try {
             Files.createDirectories(appStateDataFilePath.getParent());
-            Bytes serialized = TssData.PROTOBUF.toBytes(tssData);
+            Bytes serialized = TssData.JSON.toBytes(tssData);
             Files.write(appStateDataFilePath, serialized.toByteArray());
             LOGGER.log(INFO, "Persisted Application State Data to file: {0}", appStateDataFilePath);
         } catch (IOException e) {
@@ -498,16 +498,15 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * This must be called after the blockNode context is created
      */
     private void loadApplicationState(Configuration configuration) {
-        final Path tssDataFilePath =
+        final Path tssDataJsonPath =
                 configuration.getConfigData(NodeConfig.class).appStateDataFilePath();
-        if (Files.exists(tssDataFilePath)) {
+        if (Files.exists(tssDataJsonPath)) {
             try {
-                Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssDataFilePath));
-                TssData tssData = TssData.PROTOBUF.parse(fileBytes);
+                TssData tssData = TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
                 updateTssData(tssData);
-                LOGGER.log(INFO, "Loaded Application State Data from file: {0}", tssDataFilePath);
+                LOGGER.log(INFO, "Loaded Application State Data from file: {0}", tssDataJsonPath);
             } catch (ParseException | IOException e) {
-                LOGGER.log(ERROR, "Failed to read Application State Data file: " + tssDataFilePath, e);
+                LOGGER.log(ERROR, "Failed to read Application State Data file: " + tssDataJsonPath, e);
             }
         }
     }

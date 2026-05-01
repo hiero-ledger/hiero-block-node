@@ -11,6 +11,7 @@ import org.hiero.block.node.base.Loggable;
 ///
 @ConfigData("roster.bootstrap.tss")
 public record RosterBootstrapTssConfig(
-        @Loggable @ConfigProperty(defaultValue = "") String tssDataJsonPath) {}
+        // todo: configure peer BNs here
+) {}
 
 // spotless:on
