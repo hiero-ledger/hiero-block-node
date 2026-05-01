@@ -18,9 +18,11 @@ import org.hiero.block.node.base.Loggable;
 @ConfigData("roster.bootstrap")
 public record BootstrapRosterConfig(
         @Loggable @ConfigProperty(defaultValue = "data/config/rsa-bootstrap-roster.pb")
-                Path filePath,
+        Path filePath,
+
         @Loggable @ConfigProperty(defaultValue = "https://testnet-public.mirrornode.hedera.com")
-                String mirrorNodeBaseUrl,
+        String mirrorNodeBaseUrl,
+
         @Loggable @ConfigProperty(defaultValue = "5") int mirrorNodeConnectTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "10") int mirrorNodeReadTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "100") int mirrorNodePageSize) {}

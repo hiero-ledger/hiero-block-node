@@ -10,10 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -23,8 +23,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import java.nio.file.Path;
 
 /**
  * Unit tests for `RsaRosterBootstrapPlugin`.
@@ -72,9 +70,13 @@ class RsaRosterBootstrapPluginTest
         void preloadedBookIsReflectedInContext() {
             final NodeAddressBook book = buildAddressBook(3);
 
-            start(new RsaRosterBootstrapPlugin(),
+            start(
+                    new RsaRosterBootstrapPlugin(),
                     new SimpleInMemoryHistoricalBlockFacility(),
-                    null, null, Map.of(), book);
+                    null,
+                    null,
+                    Map.of(),
+                    book);
 
             final NodeAddressBook loaded = blockNodeContext.nodeAddressBook();
             assertNotNull(loaded);
@@ -87,9 +89,13 @@ class RsaRosterBootstrapPluginTest
         void metricsAreRecordedForPreloadedBook() {
             final NodeAddressBook book = buildAddressBook(4);
 
-            start(new RsaRosterBootstrapPlugin(),
+            start(
+                    new RsaRosterBootstrapPlugin(),
                     new SimpleInMemoryHistoricalBlockFacility(),
-                    null, null, Map.of(), book);
+                    null,
+                    null,
+                    Map.of(),
+                    book);
 
             assertEquals(4, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
             assertTrue(getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_LOAD_DURATION_MS) >= 0);
@@ -100,9 +106,13 @@ class RsaRosterBootstrapPluginTest
         void contextUpdateIsDeliveredViaUpdateAddressBook() {
             final NodeAddressBook book = buildAddressBook(2);
 
-            start(new RsaRosterBootstrapPlugin(),
+            start(
+                    new RsaRosterBootstrapPlugin(),
                     new SimpleInMemoryHistoricalBlockFacility(),
-                    null, null, Map.of(), book);
+                    null,
+                    null,
+                    Map.of(),
+                    book);
 
             // updateAddressBook triggers onContextUpdate synchronously in PluginTestBase.
             final NodeAddressBook published = blockNodeContext.nodeAddressBook();
@@ -123,16 +133,18 @@ class RsaRosterBootstrapPluginTest
         @DisplayName("Unreachable Mirror Node (invalid URL) throws at start() when no book pre-loaded")
         void unreachableMirrorNodeThrows(@TempDir final Path tempDir) {
             // No preloaded address book — plugin must fetch from Mirror Node and fail
-            assertThrows(IllegalStateException.class, () -> start(
-                    new RsaRosterBootstrapPlugin(),
-                    new SimpleInMemoryHistoricalBlockFacility(),
-                    null,
-                    Map.of(
-                            "roster.bootstrap.mirrorNodeBaseUrl", "http://localhost:1",
-                            "roster.bootstrap.mirrorNodeConnectTimeoutSeconds", "1",
-                            "roster.bootstrap.mirrorNodeReadTimeoutSeconds", "1"),
-                    Map.of(),
-                    null));
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> start(
+                            new RsaRosterBootstrapPlugin(),
+                            new SimpleInMemoryHistoricalBlockFacility(),
+                            null,
+                            Map.of(
+                                    "roster.bootstrap.mirrorNodeBaseUrl", "http://localhost:1",
+                                    "roster.bootstrap.mirrorNodeConnectTimeoutSeconds", "1",
+                                    "roster.bootstrap.mirrorNodeReadTimeoutSeconds", "1"),
+                            Map.of(),
+                            null));
         }
     }
 
@@ -143,9 +155,7 @@ class RsaRosterBootstrapPluginTest
     @Test
     @DisplayName("configDataTypes() includes BootstrapRosterConfig")
     void configDataTypesIncludesBootstrapRosterConfig() {
-        assertTrue(new RsaRosterBootstrapPlugin()
-                .configDataTypes()
-                .contains(BootstrapRosterConfig.class));
+        assertTrue(new RsaRosterBootstrapPlugin().configDataTypes().contains(BootstrapRosterConfig.class));
     }
 
     // -------------------------------------------------------------------------
@@ -155,10 +165,8 @@ class RsaRosterBootstrapPluginTest
     private static NodeAddressBook buildAddressBook(final int count) {
         final List<NodeAddress> addresses = new java.util.ArrayList<>();
         for (int i = 0; i < count; i++) {
-            addresses.add(NodeAddress.newBuilder()
-                    .nodeId(i)
-                    .rsaPubKey("hexkey" + i)
-                    .build());
+            addresses.add(
+                    NodeAddress.newBuilder().nodeId(i).rsaPubKey("hexkey" + i).build());
         }
         return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
     }

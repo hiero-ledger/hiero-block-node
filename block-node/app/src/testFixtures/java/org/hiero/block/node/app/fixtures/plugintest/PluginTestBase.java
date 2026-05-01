@@ -2,6 +2,7 @@
 package org.hiero.block.node.app.fixtures.plugintest;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -19,7 +20,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
-import com.hedera.hapi.node.base.NodeAddressBook;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.TestThreadPoolManager;

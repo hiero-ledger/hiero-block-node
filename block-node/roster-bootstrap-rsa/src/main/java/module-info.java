@@ -23,8 +23,9 @@ module org.hiero.block.node.roster.bootstrap.rsa {
             org.hiero.block.node.app;
 
     requires transitive org.hiero.block.node.spi;
-    requires org.hiero.block.node.base;
+    requires transitive org.hiero.block.protobuf.pbj;
     requires com.hedera.pbj.runtime;
+    requires org.hiero.block.node.base;
     requires java.net.http;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with

@@ -48,8 +48,7 @@ import org.hiero.metrics.core.MetricRegistry;
  */
 public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
-    private static final System.Logger LOGGER =
-            System.getLogger(RsaRosterBootstrapPlugin.class.getName());
+    private static final System.Logger LOGGER = System.getLogger(RsaRosterBootstrapPlugin.class.getName());
 
     /** `blocknode:roster_entries_loaded` — number of `NodeAddress` entries loaded at startup. */
     static final MetricKey<ObservableGauge> METRIC_ROSTER_ENTRIES_LOADED =
@@ -107,8 +106,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             // Bootstrap file was loaded by BlockNodeApp.loadApplicationState() before init().
             source = "file";
         } else {
-            LOGGER.log(INFO, "RSA bootstrap file not found, querying Mirror Node at {0}",
-                    config.mirrorNodeBaseUrl());
+            LOGGER.log(INFO, "RSA bootstrap file not found, querying Mirror Node at {0}", config.mirrorNodeBaseUrl());
             book = fetchFromMirrorNode();
             // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
             applicationStateFacility.updateAddressBook(book);
@@ -117,8 +115,12 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
         rosterEntriesLoaded = book.nodeAddress().size();
         rosterLoadDurationMs = System.currentTimeMillis() - startMs;
-        LOGGER.log(INFO, "RSA roster available: {0} entries from {1} in {2}ms",
-                rosterEntriesLoaded, source, rosterLoadDurationMs);
+        LOGGER.log(
+                INFO,
+                "RSA roster available: {0} entries from {1} in {2}ms",
+                rosterEntriesLoaded,
+                source,
+                rosterLoadDurationMs);
     }
 
     // -------------------------------------------------------------------------
@@ -137,8 +139,8 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 .build();
 
         final List<NodeAddress> addresses = new ArrayList<>();
-        String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit="
-                + config.mirrorNodePageSize() + "&order=asc";
+        String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize()
+                + "&order=asc";
 
         while (nextUrl != null) {
             final String body = fetchWithRetry(client, nextUrl);
@@ -149,9 +151,8 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                     continue;
                 }
                 // Strip optional 0x prefix
-                final String hexKey = entry.publicKey().startsWith("0x")
-                        ? entry.publicKey().substring(2)
-                        : entry.publicKey();
+                final String hexKey =
+                        entry.publicKey().startsWith("0x") ? entry.publicKey().substring(2) : entry.publicKey();
                 final NodeAddress addr = NodeAddress.newBuilder()
                         .nodeId(entry.nodeId())
                         .rsaPubKey(hexKey)
@@ -210,11 +211,12 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 lastCause = e;
             }
         }
-        LOGGER.log(ERROR,
+        LOGGER.log(
+                ERROR,
                 "RSA address book could not be created — Mirror Node API unavailable after {0} attempts at {1}."
                         + " BN cannot verify WRB proofs. Provide rsa-bootstrap-roster.pb or ensure Mirror Node is reachable.",
-                MAX_RETRIES, config.mirrorNodeBaseUrl());
+                MAX_RETRIES,
+                config.mirrorNodeBaseUrl());
         throw new IllegalStateException("Mirror Node unreachable after " + MAX_RETRIES + " attempts", lastCause);
     }
-
 }

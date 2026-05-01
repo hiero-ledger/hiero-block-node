@@ -61,7 +61,7 @@ final class MirrorNodeNodesResponse {
      *     { "node_id": 0, "public_key": "0x..." },
      *     ...
      *   ],
-     *   "links": { "next": "/api/v1/network/nodes?limit=100&order=asc&node.id=gt:0" }
+     *   "links": { ... }
      * }
      * ```
      *

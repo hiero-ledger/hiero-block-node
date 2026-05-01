@@ -404,7 +404,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 blockNodeContext.tssData(),
                 nodeAddressBook);
         loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
-        LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins (nodeAddressBook update)");
+        LOGGER.log(
+                INFO,
+                "ApplicationStateFacility called plugin.onContextUpdate for all plugins (nodeAddressBook update)");
         persistNodeAddressBook(nodeAddressBook);
     }
 
@@ -537,9 +539,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             LOGGER.log(INFO, "Persisted RSA address book to file: {0}", filePath);
         } catch (IOException e) {
-            LOGGER.log(WARNING,
+            LOGGER.log(
+                    WARNING,
                     "Failed to persist RSA address book to {0}: {1} — will re-fetch on next startup",
-                    filePath, e.getMessage());
+                    filePath,
+                    e.getMessage());
         }
     }
 
@@ -586,15 +590,18 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         blockNodeContext.tssData(),
                         book);
                 loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
-                LOGGER.log(INFO, "Loaded RSA address book from file: {0} ({1} entries)",
-                        rsaFilePath, book.nodeAddress().size());
+                LOGGER.log(
+                        INFO,
+                        "Loaded RSA address book from file: {0} ({1} entries)",
+                        rsaFilePath,
+                        book.nodeAddress().size());
             } catch (IOException e) {
-                throw new IllegalStateException(
-                        "Failed to read RSA bootstrap file: " + rsaFilePath, e);
+                throw new IllegalStateException("Failed to read RSA bootstrap file: " + rsaFilePath, e);
             } catch (ParseException e) {
                 throw new IllegalStateException(
                         "Corrupt RSA bootstrap file at " + rsaFilePath
-                                + " — delete and restart to re-fetch from Mirror Node", e);
+                                + " — delete and restart to re-fetch from Mirror Node",
+                        e);
             }
         }
     }
@@ -615,9 +622,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .filter(a -> !a.rsaPubKey().isBlank())
                 .count();
         if (usable == 0) {
-            throw new IllegalStateException(
-                    "RSA address book from " + source + " has " + book.nodeAddress().size()
-                            + " entries but none have a non-blank RSA_PubKey");
+            throw new IllegalStateException("RSA address book from " + source + " has "
+                    + book.nodeAddress().size() + " entries but none have a non-blank RSA_PubKey");
         }
     }
 }
