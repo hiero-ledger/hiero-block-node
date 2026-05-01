@@ -412,10 +412,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private void checkForApplicationStateUpdates() {
         boolean updated = false;
         TssData tssData = tssDataUpdates.poll();
-        ;
         while (tssData != null) {
             // Because we only update TssData for the most recent blockNumber,
-            // |= will let us know if any TssData where updated.
+            // |= will let us know if any TssData were updated.
             updated |= updateBlockNodeContext(tssData);
             tssData = tssDataUpdates.poll();
         }
