@@ -5,6 +5,7 @@ import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
@@ -15,7 +16,6 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import org.hiero.block.api.TssData;
 import org.hiero.block.node.roster.boostrap.tss.BlockNodeSource;
 import org.hiero.block.node.roster.boostrap.tss.BlockNodeSourceConfig;
 import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
