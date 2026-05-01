@@ -4,12 +4,15 @@ package org.hiero.block.node.app;
 import static java.lang.System.Logger;
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_PROPERTIES;
 import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST_PROPERTIES;
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
@@ -19,10 +22,15 @@ import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
@@ -35,6 +43,7 @@ import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
@@ -48,7 +57,7 @@ import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
 /** Main class for the block node server */
-public class BlockNodeApp implements HealthFacility {
+public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /** Constant mapped to PbjProtocolProvider.CONFIG_NAME in the PBJ Helidon Plugin */
     public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
     /** Metric key for the oldest historical block available */
@@ -73,9 +82,15 @@ public class BlockNodeApp implements HealthFacility {
     /** Should the shutdown() method exit the JVM. */
     private final boolean shouldExitJvmOnShutdown;
     /** The block node context. Package so accessible for testing. */
-    final BlockNodeContext blockNodeContext;
+    BlockNodeContext blockNodeContext;
     /** list of all loaded plugins. Package so accessible for testing. */
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
+
+    /** Create a ConcurrentLinkedQueue to hold TssData updates */
+    private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
+
+    /** The ScheduledExecutorService used by the ApplicationStateFacility to check for TssData updates */
+    private ScheduledExecutorService applicationStateExecutor;
 
     /**
      * Constructor for the BlockNodeApp class. This constructor initializes the server configuration,
@@ -175,13 +190,17 @@ public class BlockNodeApp implements HealthFacility {
                 this,
                 blockMessagingService,
                 historicalBlockFacility,
+                this,
                 serviceLoader,
                 threadPoolManager,
                 versionInfo(loadedPlugins),
-                TssData.DEFAULT);
+                null);
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
         final ServiceBuilderImpl serviceBuilder = new ServiceBuilderImpl();
+        // ==== LOAD APPLICATION STATE =================================================================================
+        // Must be done after the block node context is created
+        loadApplicationState();
         // ==== INITIALIZE PLUGINS =====================================================================================
         // Initialize all the facilities & plugins, adding routing for each plugin
         LOGGER.log(INFO, "Initializing plugins:");
@@ -264,6 +283,8 @@ public class BlockNodeApp implements HealthFacility {
         LOGGER.log(INFO, "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
         // Start the web server
         webServer.start();
+        // start the ApplicationStateFacility
+        startApplicationStateFacility();
         // start the plugins
         startPlugins(loadedPlugins);
         // mark the server as started
@@ -295,6 +316,9 @@ public class BlockNodeApp implements HealthFacility {
     public void shutdown(String className, String reason) {
         state.set(State.SHUTTING_DOWN);
         LOGGER.log(INFO, "Shutting down, reason={0} class={1}", reason, className);
+        // stop the application state facility
+        stopApplicationStateFacility();
+
         // wait for the shutdown delay
         try {
             Thread.sleep(serverConfig.shutdownDelayMillis());
@@ -343,5 +367,139 @@ public class BlockNodeApp implements HealthFacility {
             LOGGER.log(INFO, "    " + plugin.name());
             plugin.start();
         });
+    }
+
+    /**
+     * Allow plugins to update the TssData for this BlockNodeApp
+     *
+     * @param tssData - The TssData to be updated on the `BlockNodeContext`
+     */
+    @Override
+    public void updateTssData(TssData tssData) {
+        if (tssData != null) tssDataUpdates.add(tssData);
+    }
+
+    /**
+     * Starts the ApplicationStateFacility. The thread will be used to check if there are any TssData updates to
+     * process.
+     */
+    void startApplicationStateFacility() {
+        LOGGER.log(INFO, "ApplicationStateFacility start called");
+        Thread.UncaughtExceptionHandler handler =
+                (thread, e) -> LOGGER.log(INFO, "Uncaught exception in thread: " + thread.getName(), e);
+
+        // Create thread executors via threadPoolManager.
+        applicationStateExecutor = blockNodeContext
+                .threadPoolManager()
+                .createVirtualThreadScheduledExecutor(1, "ApplicationStateScanner", handler);
+
+        NodeConfig nodeConfig = blockNodeContext.configuration().getConfigData(NodeConfig.class);
+
+        // Schedule periodic gap detection task using autonomous executor
+        applicationStateExecutor.scheduleAtFixedRate(
+                this::checkForApplicationStateUpdates,
+                nodeConfig.appStateUpdateInitialDelay(),
+                nodeConfig.appStateUpdateScanInterval(),
+                TimeUnit.MILLISECONDS);
+    }
+
+    private void checkForApplicationStateUpdates() {
+        boolean updated = false;
+        while (!tssDataUpdates.isEmpty()) {
+            updated |= updateBlockNodeContext(tssDataUpdates.poll());
+        }
+        if (updated) {
+            loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
+            LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
+            persistTssData(blockNodeContext.tssData());
+            LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
+        }
+    }
+
+    void stopApplicationStateFacility() {
+        if (applicationStateExecutor != null) {
+            applicationStateExecutor.shutdownNow();
+            try {
+                if (!applicationStateExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    final String executorTerminationMsg = "applicationStateExecutor did not terminate in time";
+                    LOGGER.log(INFO, executorTerminationMsg);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /**
+     * Update the BlockNodeContext with the new TssData if the validFromBlock is greater than that of the context
+     *
+     * @param tssData The TssData to update
+     * @return A boolean indicating if the BlockNodeContext was updated.
+     */
+    private boolean updateBlockNodeContext(TssData tssData) {
+        boolean updated = false;
+        if (blockNodeContext.tssData() == null
+                || blockNodeContext.tssData().validFromBlock() < tssData.validFromBlock()) {
+            blockNodeContext = new BlockNodeContext(
+                    blockNodeContext.configuration(),
+                    blockNodeContext.metricRegistry(),
+                    blockNodeContext.serverHealth(),
+                    blockNodeContext.blockMessaging(),
+                    blockNodeContext.historicalBlockProvider(),
+                    blockNodeContext.applicationStateFacility(),
+                    blockNodeContext.serviceLoader(),
+                    blockNodeContext.threadPoolManager(),
+                    blockNodeContext.blockNodeVersions(),
+                    tssData);
+            LOGGER.log(INFO, "BlockNodeContext updated");
+            updated = true;
+        }
+        return updated;
+    }
+
+    /**
+     * Persist the TssData
+     * Persists the TssData to the file path specified in the NodeConfig class.
+     *
+     * @param tssData The TssData to persist
+     */
+    private void persistTssData(TssData tssData) {
+        final Path appStateDataFilePath =
+                blockNodeContext.configuration().getConfigData(NodeConfig.class).appStateDataFilePath();
+        try {
+            Files.createDirectories(appStateDataFilePath.getParent());
+            Bytes serialized = TssData.PROTOBUF.toBytes(tssData);
+            Files.write(appStateDataFilePath, serialized.toByteArray());
+            LOGGER.log(INFO, "Persisted Application State Data to file: {0}", appStateDataFilePath);
+        } catch (IOException e) {
+            LOGGER.log(
+                    WARNING,
+                    "Failed to persist Application State Data to %s: %s".formatted(appStateDataFilePath, e),
+                    e);
+        }
+    }
+
+    /**
+     * Loads the ApplicationState
+     *
+     * Loads the ApplicationState from file path(s) specified in the NodeConfig class.
+     *
+     * This must be called after the blockNode context is created
+     */
+    private void loadApplicationState() {
+        final Path tssDataFilePath =
+                blockNodeContext.configuration().getConfigData(NodeConfig.class).appStateDataFilePath();
+        if (Files.exists(tssDataFilePath)) {
+            try {
+                Bytes fileBytes = Bytes.wrap(Files.readAllBytes(tssDataFilePath));
+                TssData tssData = TssData.PROTOBUF.parse(fileBytes);
+                updateTssData(tssData);
+                LOGGER.log(INFO, "Loaded Application State Data from file: {0}", tssDataFilePath);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to read Application State Data file: " + tssDataFilePath, e);
+            } catch (ParseException e) {
+                throw new IllegalStateException("Failed to parse Application State Data file: " + tssDataFilePath, e);
+            }
+        }
     }
 }

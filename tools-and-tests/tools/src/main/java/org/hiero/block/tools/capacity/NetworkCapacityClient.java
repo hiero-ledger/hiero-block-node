@@ -33,6 +33,7 @@ import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.tools.blocks.validation.ProtobufParsingConstants;
 import org.hiero.block.tools.config.HelidonWebClientConfig;
 
 public class NetworkCapacityClient {
@@ -137,9 +138,12 @@ public class NetworkCapacityClient {
         try (final var gzipInputStream = new GZIPInputStream(Files.newInputStream(blockFile))) {
             blockData = gzipInputStream.readAllBytes();
         }
-        // 36 MB — matches BlockAccessor.MAX_BLOCK_SIZE_BYTES in spi-plugins
         Block block = Block.PROTOBUF.parse(
-                Bytes.wrap(blockData).toReadableSequentialData(), false, false, Codec.DEFAULT_MAX_DEPTH, 37_748_736);
+                Bytes.wrap(blockData).toReadableSequentialData(),
+                false,
+                false,
+                Codec.DEFAULT_MAX_DEPTH,
+                ProtobufParsingConstants.MAX_PARSE_SIZE);
         long blockNumber = block.items().getFirst().blockHeader().number();
 
         List<BlockItem> items = block.items();

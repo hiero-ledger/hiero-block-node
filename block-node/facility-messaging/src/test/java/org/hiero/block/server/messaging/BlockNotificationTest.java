@@ -260,7 +260,7 @@ public class BlockNotificationTest {
                 LockSupport.parkNanos(500_000);
             }
             messagingService.sendBlockVerification(
-                    new VerificationNotification(true, i, null, null, BlockSource.PUBLISHER));
+                    new VerificationNotification(true, null, i, null, null, BlockSource.PUBLISHER));
             // have to slow down production to make test reliable
             LockSupport.parkNanos(500_000);
         }
@@ -341,7 +341,7 @@ public class BlockNotificationTest {
         public void run() {
             for (int i = 0; i < TEST_DATA_COUNT; i++) {
                 messagingService.sendBlockVerification(
-                        new VerificationNotification(true, i, null, null, BlockSource.PUBLISHER));
+                        new VerificationNotification(true, null, i, null, null, BlockSource.PUBLISHER));
                 int totalSent = sentCounter.incrementAndGet();
                 if (pauseControl != null) {
                     // release the pause control occasionally, to slow a handler by some amount.

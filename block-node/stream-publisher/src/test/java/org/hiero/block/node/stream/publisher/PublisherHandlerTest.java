@@ -218,8 +218,9 @@ class PublisherHandlerTest {
 
             // Triggers a DEBUG log: "Handler {0} handling failed verification for block {1}"
             handler.handleFailedVerification(10L);
-            // Triggers a DEBUG log: "Handler {0} handling failed persistence"
-            handler.handleFailedPersistence();
+            // FLAKEY WARNING - Tests that rely on log output are rarely reliable.
+            // Triggers a DEBUG log: "[{0}] Handler {1} ending with code {2}"
+            handler.endStreamWithCode(Code.PERSISTENCE_FAILED, false);
 
             final long prefixedCount = logHandler.getLogMessages().stream()
                     .filter(msg -> msg.startsWith("[" + TEST_CORRELATION_ID + "] "))

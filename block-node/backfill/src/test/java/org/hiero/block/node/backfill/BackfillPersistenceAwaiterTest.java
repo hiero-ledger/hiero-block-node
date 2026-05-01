@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -243,8 +244,8 @@ class BackfillPersistenceAwaiterTest {
             subject.trackBlock(blockNumber);
 
             // when - verification failed
-            subject.handleVerification(
-                    new VerificationNotification(false, blockNumber, null, null, BlockSource.BACKFILL));
+            subject.handleVerification(new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, BlockSource.BACKFILL));
 
             // then - await should return immediately
             boolean result = subject.awaitPersistence(blockNumber, 100);
@@ -260,7 +261,7 @@ class BackfillPersistenceAwaiterTest {
 
             // when - verification succeeded
             subject.handleVerification(
-                    new VerificationNotification(true, blockNumber, null, null, BlockSource.BACKFILL));
+                    new VerificationNotification(true, null, blockNumber, null, null, BlockSource.BACKFILL));
 
             // then - block should still be pending (waiting for persistence), await times out
             boolean result = subject.awaitPersistence(blockNumber, 50);
@@ -275,8 +276,8 @@ class BackfillPersistenceAwaiterTest {
             subject.trackBlock(blockNumber);
 
             // when - verification failure from PUBLISHER source
-            subject.handleVerification(
-                    new VerificationNotification(false, blockNumber, null, null, BlockSource.PUBLISHER));
+            subject.handleVerification(new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, BlockSource.PUBLISHER));
 
             // then - block should still be pending, await times out
             boolean result = subject.awaitPersistence(blockNumber, 50);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_PARSE_SIZE;
+
 import com.hedera.hapi.block.stream.output.MapChangeKey;
 import com.hedera.hapi.block.stream.output.MapChangeValue;
 import com.hedera.hapi.block.stream.output.MapUpdateChange;
@@ -56,9 +58,6 @@ public final class HbarSupplyValidation implements BlockValidation {
 
     /** Total HBAR supply expressed in tinybar (50 billion HBAR * 100 million tinybar per HBAR). */
     public static final long FIFTY_BILLION_HBAR_IN_TINYBAR = 5_000_000_000_000_000_000L;
-
-    /** Maximum parse size for protobuf messages (100 MB) to handle large StateChanges items. */
-    private static final int MAX_PARSE_SIZE = 100 * 1024 * 1024;
 
     /** The running account state. */
     private final RunningAccountsState accounts = new RunningAccountsState();

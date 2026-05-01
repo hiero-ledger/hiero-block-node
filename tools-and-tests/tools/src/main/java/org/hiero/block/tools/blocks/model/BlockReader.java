@@ -18,6 +18,7 @@ import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import org.hiero.block.node.base.BlockFile;
 import org.hiero.block.node.base.CompressionType;
+import org.hiero.block.tools.blocks.validation.ProtobufParsingConstants;
 
 /**
  * Class for reading blocks from disk as written by {@link BlockWriter}.
@@ -335,8 +336,8 @@ public class BlockReader {
         try (final ByteArrayInputStream byteStream = new ByteArrayInputStream(compressedBytes);
                 final InputStream decompressedStream = compressionType.wrapStream(byteStream);
                 final ReadableStreamingData in = new ReadableStreamingData(decompressedStream)) {
-            // 36 MB — matches BlockAccessor.MAX_BLOCK_SIZE_BYTES in spi-plugins
-            return Block.PROTOBUF.parse(in, false, false, Codec.DEFAULT_MAX_DEPTH, 37_748_736);
+            return Block.PROTOBUF.parse(
+                    in, false, false, Codec.DEFAULT_MAX_DEPTH, ProtobufParsingConstants.MAX_PARSE_SIZE);
         } catch (ParseException e) {
             throw new IOException("Failed to parse block from bytes", e);
         }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
     api(platform("io.netty:netty-bom:4.2.12.Final"))
-    api(platform("com.google.cloud:libraries-bom:26.79.0"))
+    api(platform("com.google.cloud:libraries-bom:26.80.0"))
 }
 
 dependencies.constraints {
@@ -23,7 +23,7 @@ dependencies.constraints {
     api("com.google.auto.service:auto-service-annotations:1.1.1") {
         because("com.google.auto.service")
     }
-    api("com.google.guava:guava:33.5.0-jre") { because("com.google.common") }
+    api("com.google.guava:guava:33.6.0-jre") { because("com.google.common") }
     api("com.google.protobuf:protobuf-java-util:$protobufVersion") {
         because("com.google.protobuf.util")
     }
@@ -96,6 +96,10 @@ dependencies.constraints {
     api("com.github.docker-java:docker-java-api:3.7.1") { because("com.github.dockerjava.api") }
     api("org.assertj:assertj-core:3.27.7") { because("org.assertj.core") }
     api("org.junit.jupiter:junit-jupiter-api:6.0.3") { because("org.junit.jupiter.api") }
+    api("org.junit.jupiter:junit-jupiter-engine:6.0.3") { because("org.junit.jupiter.engine") }
+    api("org.junit.platform:junit-platform-launcher:6.0.3") {
+        because("org.junit.platform.launcher")
+    }
     api("org.mockito:mockito-core:${mockitoVersion}") { because("org.mockito") }
     api("org.mockito:mockito-junit-jupiter:${mockitoVersion}") {
         because("org.mockito.junit.jupiter")
@@ -107,10 +111,12 @@ dependencies.constraints {
         because("org.testcontainers")
     }
     api("com.google.jimfs:jimfs:1.3.1") { because("com.google.common.jimfs") }
-    // uncomment in the next commit when we start using bucky client
-    // api("com.hedera.bucky:bucky-client:0.1.0-rc1") { because("com.hedera.bucky") }
+    api("com.hedera.bucky:bucky-client:0.1.0-rc4") { because("com.hedera.bucky") }
     api("io.minio:minio:8.5.17") { because("io.minio") }
     api("com.squareup.okio:okio-jvm:3.17.0") { because("okio") } // required by minio
+    api("com.squareup.okio:okio:3.17.0") {
+        because("okio")
+    } // override strict 3.6.0 from bucky-client (broken JPMS module descriptor)
 
     // Versions of additional tools that are not part of the product or test module paths
     api("com.google.protobuf:protoc:${protobufVersion}")

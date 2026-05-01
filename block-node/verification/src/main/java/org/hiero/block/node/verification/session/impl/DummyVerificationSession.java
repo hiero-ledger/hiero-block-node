@@ -56,7 +56,7 @@ public class DummyVerificationSession implements VerificationSession {
             block = BlockUnparsed.newBuilder().blockItems(this.blockItems).build();
             blockHash = Bytes.wrap("0x00");
             LOGGER.log(TRACE, "Returning always True verification notification for block {0}", blockNumber);
-            return new VerificationNotification(true, blockNumber, blockHash, block, blockSource);
+            return new VerificationNotification(true, null, blockNumber, blockHash, block, blockSource);
         }
         return null;
     }

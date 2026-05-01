@@ -118,7 +118,7 @@ class BackfillPluginHelperTest {
             final BackfillPlugin plugin = new BackfillPlugin();
             // Create a verification notification with PUBLISHER source
             VerificationNotification notification =
-                    new VerificationNotification(true, 100L, Bytes.wrap("hash"), null, BlockSource.PUBLISHER);
+                    new VerificationNotification(true, null, 100L, Bytes.wrap("hash"), null, BlockSource.PUBLISHER);
 
             // Should not throw - does nothing for non-BACKFILL source
             assertDoesNotThrow(() -> plugin.handleVerification(notification));

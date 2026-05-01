@@ -80,6 +80,19 @@ Prometheus-format metrics. Its properties are prefixed with
 
 ## Configurations By Plugin
 
+### Archive Cloud Storage Plugin Configuration
+
+| ENV Variable                 | Description                                                                                                                                                                                              |    Default |
+|:-----------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------:|
+| CLOUD_ARCHIVE_GROUPING_LEVEL | Files per archive in powers of ten (1=10, 2=100, …, 6=1,000,000).                                                                                                                                        |          5 |
+| CLOUD_ARCHIVE_PART_SIZE_MB   | The size of each multi-part upload part in megabytes. Minimum value is 5, maximum value is 2047                                                                                                          |         10 |
+| CLOUD_ARCHIVE_ENDPOINT_URL   | Endpoint URL for the cloud archive service (e.g., `https://s3.amazonaws.com/`).                                                                                                                          |         "" |
+| CLOUD_ARCHIVE_BUCKET_NAME    | Bucket name where cloud archive files are stored.                                                                                                                                                        |         "" |
+| CLOUD_ARCHIVE_STORAGE_CLASS  | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE). Values available at [AWS S3 storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html) | "STANDARD" |
+| CLOUD_ARCHIVE_REGION_NAME    | Region for the cloud archive service (e.g., `us-east-1`).                                                                                                                                                |         "" |
+| CLOUD_ARCHIVE_ACCESS_KEY     | Access key for the archive service.                                                                                                                                                                      |         "" |
+| CLOUD_ARCHIVE_SECRET_KEY     | Secret key for the archive service.                                                                                                                                                                      |         "" |
+
 ### Backfill Plugin Configuration
 
 | ENV Variable                          | Description                                                     |   Default |
@@ -173,4 +186,13 @@ Currently, no specific options.
 
 ### Verification Plugin Configuration
 
-Currently, no specific options.
+| ENV Variable                                        | Description                                                                    |                                                            Default |
+|:----------------------------------------------------|:-------------------------------------------------------------------------------|-------------------------------------------------------------------:|
+| VERIFICATION_ALL_BLOCKS_HASHER_ENABLED              | Enable the all-blocks hasher to compute and verify a rolling root hash.        |                                                              false |
+| VERIFICATION_ALL_BLOCKS_HASHER_FILE_PATH            | Path to the persisted root hash file for all previous blocks.                  | /opt/hiero/block-node/verification/rootHashOfAllPreviousBlocks.bin |
+| VERIFICATION_ALL_BLOCKS_HASHER_PERSISTENCE_INTERVAL | How often (in blocks) the hasher persists its state to disk.                   |                                                                 10 |
+| VERIFICATION_TSS_PARAMETERS_FILE_PATH               | Path to the persisted TSS parameters file (ledger ID, address book, WRAPS VK). |              /opt/hiero/block-node/verification/tss-parameters.bin |
+
+> **Note:** `VERIFICATION_ALL_BLOCKS_HASHER_ENABLED` must remain `false` (the default).
+> The all-blocks hasher requires a strictly sequential block stream; out-of-order or
+> forward-arriving blocks will cause it to fall out of sync and produce incorrect root hashes.

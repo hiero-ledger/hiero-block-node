@@ -32,8 +32,8 @@ import picocli.CommandLine.Parameters;
 @SuppressWarnings({"DataFlowIssue", "unused", "DuplicatedCode", "ConstantValue"})
 @Command(name = "json", description = "Converts a binary block stream to JSON")
 public class ConvertToJson implements Runnable {
-    // 36 MB — matches BlockAccessor.MAX_BLOCK_SIZE_BYTES in spi-plugins
-    private static final int MAX_BLOCK_SIZE_BYTES = 37_748_736;
+    /** Maximum protobuf parse size in bytes (120 MB). */
+    private static final int MAX_BLOCK_SIZE_BYTES = 120 * 1024 * 1024;
 
     @Parameters(index = "0..*")
     private Path[] files;

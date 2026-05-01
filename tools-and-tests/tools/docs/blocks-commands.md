@@ -4,14 +4,14 @@ The `blocks` command contains utilities for working with Block Stream files (.bl
 
 ### Available Subcommands
 
-|          Command          |                                     Description                                     |
-|---------------------------|-------------------------------------------------------------------------------------|
-| `json`                    | Converts a binary Block Stream to JSON                                              |
-| `ls`                      | Prints info for block files (supports .blk, .blk.gz, .blk.zstd, and zip archives)   |
-| `validate`                | Validates a wrapped Block Stream (hash chain and signatures)                        |
-| `validate-wrapped`        | Validates wrapped blocks produced by `wrap` (chain, merkle tree, structure, supply) |
-| `wrap`                    | Convert record file blocks in day files to wrapped Block Stream blocks              |
-| `fetchBalanceCheckpoints` | Fetch balance checkpoint files from GCP and compile into a resource file            |
+|          Command          |                                    Description                                    |
+|---------------------------|-----------------------------------------------------------------------------------|
+| `json`                    | Converts a binary Block Stream to JSON                                            |
+| `ls`                      | Prints info for block files (supports .blk, .blk.gz, .blk.zstd, and zip archives) |
+| `validate`                | Validates a wrapped Block Stream (hash chain and signatures)                      |
+| `wrap`                    | Convert record file blocks in day files to wrapped Block Stream blocks            |
+| `fetchBalanceCheckpoints` | Fetch balance checkpoint files from GCP and compile into a resource file          |
+| `repair-zips`             | Repair corrupt zip CENs in wrapped-block directories                              |
 
 ---
 
@@ -71,11 +71,16 @@ blocks ls [-c] [-ms=<minSizeMb>] [-o=<outputFile>] [<files>...]
 
 ### The `validate` Subcommand
 
-Validates a wrapped Block Stream by checking:
+Validates wrapped block stream files produced by the `wrap` command. Walks all blocks in the input directory in order and performs the following checks:
 
-- **Hash chain continuity** - each block's previousBlockRootHash matches computed hash of previous block
-- **Genesis block** - first block has 48 zero bytes for previous hash
-- **Signature validation** - at least 1/3 + 1 of address book nodes must sign
+- **Hash chain continuity** — each block's `previousBlockRootHash` in the footer matches the computed hash of the preceding block.
+- **Genesis block** — first block has 48 zero bytes for previous hash.
+- **Historical block tree root** — the `rootHashOfAllBlockHashesTree` in the footer matches the expected merkle tree root computed from all preceding block hashes (only when starting from block 0).
+- **Required items** — every block contains at least one `BlockHeader`, `RecordFile`, `BlockFooter`, and `BlockProof`.
+- **Item ordering** — items appear in the correct order: `BlockHeader`, optional `StateChanges`, `RecordFile`, `BlockFooter`, one or more `BlockProof` items, with no duplicates or misplaced items.
+- **Signature validation** — at least 1/3 + 1 of address book nodes must sign.
+- **50 billion HBAR supply** — tracks account balances across all blocks (from `StateChanges` and `RecordFile` transfer lists) and verifies the total equals exactly 50 billion HBAR after each block (only when starting from block 0).
+- **Balance checkpoints** — validates computed account balances against pre-fetched balance checkpoints at configurable intervals.
 
 #### Supported Inputs
 
@@ -86,80 +91,29 @@ Validates a wrapped Block Stream by checking:
 #### Usage
 
 ```
-blocks validate [-v] [--skip-signatures] [--no-resume] [--threads=<N>] [--prefetch=<N>]
-                [-a=<addressBookFile>] [<files>...]
+blocks validate [-v] [--skip-signatures] [--skip-supply] [--no-resume] [--threads=<N>] [--prefetch=<N>]
+                [-a=<addressBookFile>] [--network=<network>] [--[no-]validate-balances]
+                [--balance-checkpoints=<file>] [--custom-balances-dir=<dir>]
+                [--balance-check-interval-days=<days>] [<files>...]
 ```
 
 #### Options
 
-|            Option             |                                                      Description                                                       |
-|-------------------------------|------------------------------------------------------------------------------------------------------------------------|
-| `-a`, `--address-book <file>` | Path to address book history JSON file. If not specified, auto-detects `addressBookHistory.json` in input directories. |
-| `--skip-signatures`           | Skip signature validation (only check hash chain and state).                                                           |
-| `--no-resume`                 | Ignore any existing checkpoint and start validation from scratch.                                                      |
-| `--threads <N>`               | Decompression + parse threads (default: available CPU cores - 1).                                                      |
-| `--prefetch <N>`              | Number of blocks to buffer ahead for decompression (default: 512).                                                     |
-| `-v`, `--verbose`             | Print details for each block.                                                                                          |
-| `<files>...`                  | Block files or directories to validate.                                                                                |
-
-#### Notes
-
-- When validating output from the `wrap` command, you can simply pass the output directory as the only parameter. The command will automatically find the `addressBookHistory.json` file in that directory if not explicitly specified.
-
-#### Example
-
-```bash
-# Validate blocks in a directory (auto-detect address book)
-blocks validate /path/to/wrappedBlocks
-
-# Validate with explicit address book
-blocks validate -a /path/to/addressBookHistory.json /path/to/blocks/
-
-# Hash chain validation only (skip signatures)
-blocks validate --skip-signatures /path/to/blocks/
-```
-
-#### Testnet Example
-
-```bash
-# Validate testnet blocks (uses testnet address book automatically)
-blocks validate /path/to/testnetWrappedBlocks --network testnet
-
-# Testnet without balance validation (balance checkpoints not yet available for testnet)
-blocks validate --no-validate-balances /path/to/testnetWrappedBlocks --network testnet
-```
-
-> **Note:** Balance checkpoint files are not yet available for testnet. Use `--no-validate-balances` to skip balance validation when running against testnet data.
-
----
-
-### The `validate-wrapped` Subcommand
-
-Validates wrapped block stream files produced by the `wrap` command. Walks all blocks in the input directory in order and performs the following checks:
-
-- **Blockchain chain validation** — each block's `previousBlockRootHash` in the footer matches the computed hash of the preceding block.
-- **Historical block tree root** — the `rootHashOfAllBlockHashesTree` in the footer matches the expected merkle tree root computed from all preceding block hashes (only when starting from block 0).
-- **Required items** — every block contains at least one `BlockHeader`, `RecordFile`, `BlockFooter`, and `BlockProof`.
-- **Item ordering** — items appear in the correct order: `BlockHeader`, optional `StateChanges`, `RecordFile`, `BlockFooter`, one or more `BlockProof` items, with no duplicates or misplaced items.
-- **50 billion HBAR supply** — tracks account balances across all blocks (from `StateChanges` and `RecordFile` transfer lists) and verifies the total equals exactly 50 billion HBAR after each block (only when starting from block 0).
-
-#### Usage
-
-```
-blocks validate-wrapped [--network=<network>] [--[no-]validate-balances] [--balance-checkpoints=<file>]
-                        [--custom-balances-dir=<dir>] [--balance-check-interval-days=<days>] [<files>...]
-```
-
-#### Options
-
-|                      Option                      |                                           Description                                            |
-|--------------------------------------------------|--------------------------------------------------------------------------------------------------|
-| `--network <name>`                               | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. |
-| `--validate-balances` / `--no-validate-balances` | Enable or disable balance checkpoint validation. Default: enabled.                               |
-| `--balance-checkpoints <file>`                   | Path to pre-fetched balance checkpoints file (`balance_checkpoints.zstd`).                       |
-| `--custom-balances-dir <dir>`                    | Directory containing custom balance files (`accountBalances_{blockNumber}.pb.gz`).               |
-| `--balance-check-interval-days <days>`           | Only validate balance checkpoints every N days (default: 30 = monthly).                          |
-| `<files>...`                                     | Block files, directories, or zip archives to process.                                            |
+|                      Option                      |                                                      Description                                                       |
+|--------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| `-a`, `--address-book <file>`                    | Path to address book history JSON file. If not specified, auto-detects `addressBookHistory.json` in input directories. |
+| `--skip-signatures`                              | Skip signature validation (only check hash chain and state).                                                           |
+| `--skip-supply`                                  | Skip HBAR supply validation (useful for networks with known transfer list imbalances).                                 |
+| `--no-resume`                                    | Ignore any existing checkpoint and start validation from scratch.                                                      |
+| `--threads <N>`                                  | Decompression + parse threads (default: available CPU cores - 1).                                                      |
+| `--prefetch <N>`                                 | Number of blocks to buffer ahead for decompression (default: 64).                                                      |
+| `-v`, `--verbose`                                | Print details for each block.                                                                                          |
+| `--network <name>`                               | Network name for network-specific validation (`mainnet`, `testnet`, `none`). Default: `mainnet`. (Inherited global.)   |
+| `--validate-balances` / `--no-validate-balances` | Enable or disable balance checkpoint validation. Default: enabled.                                                     |
+| `--balance-checkpoints <file>`                   | Path to pre-fetched balance checkpoints file (`balance_checkpoints.zstd`).                                             |
+| `--custom-balances-dir <dir>`                    | Directory containing custom balance files (`accountBalances_{blockNumber}.pb.gz`).                                     |
+| `--balance-check-interval-days <days>`           | Only validate balance checkpoints every N days (default: 30 = monthly).                                                |
+| `<files>...`                                     | Block files or directories to validate.                                                                                |
 
 #### Balance Validation
 
@@ -181,6 +135,7 @@ value.
 
 #### Notes
 
+- When validating output from the `wrap` command, you can simply pass the output directory as the only parameter. The command will automatically find the `addressBookHistory.json` file in that directory if not explicitly specified.
 - When starting from block 0, a `StreamingHasher` is created to validate the historical block hash merkle tree and a balance map is maintained for 50 billion HBAR supply validation. When starting from a later block, both are skipped because the prior state is unavailable.
 - Supports both individual block files (nested directories of `.blk.zstd`) and zip archives produced by the `wrap` command.
 - Progress is printed every 1000 blocks with an ETA and on the last block.
@@ -189,21 +144,92 @@ value.
 #### Example
 
 ```bash
-# Validate wrapped blocks in a directory (balance validation enabled by default)
-blocks validate-wrapped /path/to/wrappedBlocks
+# Validate blocks in a directory (auto-detect address book)
+blocks validate /path/to/wrappedBlocks
+
+# Validate with explicit address book
+blocks validate -a /path/to/addressBookHistory.json /path/to/blocks/
+
+# Hash chain validation only (skip signatures)
+blocks validate --skip-signatures /path/to/blocks/
 
 # Validate with explicit balance checkpoint file
-blocks validate-wrapped --balance-checkpoints data/balance_checkpoints.zstd /path/to/wrappedBlocks
+blocks validate --balance-checkpoints data/balance_checkpoints.zstd /path/to/wrappedBlocks
 
 # Validate balances weekly instead of monthly
-blocks validate-wrapped --balance-check-interval-days 7 /path/to/wrappedBlocks
+blocks validate --balance-check-interval-days 7 /path/to/wrappedBlocks
 
 # Skip balance validation for faster runs
-blocks validate-wrapped --no-validate-balances /path/to/wrappedBlocks
+blocks validate --no-validate-balances /path/to/wrappedBlocks
 
 # Validate with custom balance files from saved states
-blocks validate-wrapped --custom-balances-dir /path/to/balance_files /path/to/wrappedBlocks
+blocks validate --custom-balances-dir /path/to/balance_files /path/to/wrappedBlocks
 ```
+
+#### Testnet Example
+
+```bash
+# Validate testnet blocks (uses testnet address book automatically)
+blocks validate /path/to/testnetWrappedBlocks --network testnet
+
+# Testnet without balance validation (balance checkpoints not yet available for testnet)
+blocks validate --no-validate-balances /path/to/testnetWrappedBlocks --network testnet
+```
+
+> **Note:** Balance checkpoint files are not yet available for testnet. Use `--no-validate-balances` to skip balance validation when running against testnet data.
+
+---
+
+### The `repair-zips` Subcommand
+
+Repair corrupt zip central directories (CEN) in wrapped-block directories, then optionally fill any blocks still missing from source day archives. This is a two-phase tool:
+
+- **Phase 1** (always runs): Scans all zip files, detects corrupt or missing central directories, and rebuilds them from intact local file entries.
+- **Phase 2** (optional, when `-i` is provided): Re-wraps missing blocks from source day archives and appends them to repaired zips.
+
+#### Usage
+
+```
+blocks repair-zips [--scan-threads=<N>] [--repair-threads=<N>] [--buffer-size=<MiB>]
+                   [--backup=<dir>] [--dry-run] [-i=<inputDir>] [-b=<blockTimesFile>]
+                   [-d=<dayBlocksFile>] <wrappedBlockDir>
+```
+
+#### Options
+
+|              Option              |                                             Description                                             |
+|----------------------------------|-----------------------------------------------------------------------------------------------------|
+| `<wrappedBlockDir>`              | Directory containing wrapped block zip files to scan and repair (required).                         |
+| `--scan-threads <N>`             | Number of threads for parallel CEN scan phase (default: 4).                                         |
+| `--repair-threads <N>`           | Number of threads for parallel CEN repair phase (default: 4).                                       |
+| `--buffer-size <MiB>`            | Per-thread buffer size in MiB for in-memory repair (default: auto-computed from heap size).         |
+| `--backup <dir>`                 | Directory to copy corrupt zip files before repairing. If not specified, repairs in-place.           |
+| `--dry-run`                      | Scan and report missing blocks without modifying files (Phase 2 only).                              |
+| `-i`, `--input-dir <dir>`        | Directory containing source record-file `.tar.zstd` day archives for Phase 2 missing-block filling. |
+| `-b`, `--blocktimes-file <file>` | Block-times binary file for mapping block numbers to timestamps (default: `block_times.bin`).       |
+| `-d`, `--day-blocks <file>`      | Day-blocks JSON file mapping calendar dates to block numbers (default: `day_blocks.json`).          |
+
+#### Example
+
+```bash
+# Phase 1 only: scan and repair corrupt zip CENs
+blocks repair-zips /path/to/wrappedBlocks
+
+# Phase 1 + Phase 2: repair CENs and fill missing blocks from day archives
+blocks repair-zips -i /path/to/compressedDays /path/to/wrappedBlocks
+
+# Dry run to see what's missing without modifying anything
+blocks repair-zips --dry-run -i /path/to/compressedDays /path/to/wrappedBlocks
+
+# Backup corrupt zips before repairing
+blocks repair-zips --backup /path/to/backup /path/to/wrappedBlocks
+```
+
+#### Notes
+
+- Phase 1 rebuilds the central directory from intact local file entries within each zip.
+- Phase 2 requires `-i` (source day archives), `-b` (block times), and `-d` (day blocks) to re-wrap and append missing blocks.
+- The `--buffer-size` defaults to approximately 75% of max heap divided by `2 × repairThreads`.
 
 ---
 
@@ -256,7 +282,7 @@ The command writes:
 - `blockStreamBlockHashes.bin` - registry of computed block hashes
 - `streamingMerkleTree.bin` and `completeMerkleTree.bin` - Merkle tree state for resume capability
 - `wrap-commit.bin` - durable commit watermark tracking the highest block number fully written to zip
-- `jumpstart.bin` - jumpstart data (block number, hash, streaming hasher state) for Consensus Node continuation
+- `jumpstart.bin` - jumpstart data (block number, block hash, consensus timestamp hash, output items tree root hash, streaming hasher state) for Consensus Node WRB catch-up integrity checks
 
 #### Notes
 
@@ -352,5 +378,5 @@ blocks fetchBalanceCheckpoints --skip-signatures -o balance_checkpoints.zstd
 - The command handles large balance files (2M+ accounts) that exceed standard protobuf parsing limits by using a custom wire-format parser.
 - Downloaded files are cached locally to avoid re-downloading on subsequent runs.
 - Signature verification ensures checkpoint integrity but requires an address book history file.
-- The compiled output file can be used with `validate-wrapped --balance-checkpoints` for offline validation.
+- The compiled output file can be used with `validate --balance-checkpoints` for offline validation.
 - The `--interval-days` value determines the granularity of validation possible. For example, monthly checkpoints (`--interval-days 30`) only allow monthly validation, not weekly. Choose the fetch interval based on your validation needs.

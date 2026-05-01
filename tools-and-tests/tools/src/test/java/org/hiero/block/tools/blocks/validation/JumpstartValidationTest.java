@@ -57,12 +57,20 @@ class JumpstartValidationTest {
     /**
      * Writes a jumpstart.bin file matching the given streaming hasher state.
      */
-    private static void writeJumpstartFile(Path path, long blockNum, byte[] blockHash, StreamingHasher hasher)
+    private static void writeJumpstartFile(
+            Path path,
+            long blockNum,
+            byte[] blockHash,
+            byte[] consensusTimestampHash,
+            byte[] outputItemsTreeRootHash,
+            StreamingHasher hasher)
             throws Exception {
         List<byte[]> hashes = hasher.intermediateHashingState();
         try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(path))) {
             out.writeLong(blockNum);
             out.write(blockHash);
+            out.write(consensusTimestampHash);
+            out.write(outputItemsTreeRootHash);
             out.writeLong(hasher.leafCount());
             out.writeInt(hashes.size());
             for (byte[] h : hashes) {
@@ -83,7 +91,7 @@ class JumpstartValidationTest {
         chain.commitState(toUnparsed(VALID_BLOCK), 0);
 
         Path jumpstartFile = tempDir.resolve("jumpstart.bin");
-        writeJumpstartFile(jumpstartFile, 0, blockHash, tree.getStreamingHasher());
+        writeJumpstartFile(jumpstartFile, 0, blockHash, new byte[48], new byte[48], tree.getStreamingHasher());
 
         JumpstartValidation validation = new JumpstartValidation(jumpstartFile, tree, null);
         assertDoesNotThrow(() -> validation.finalize(1, 0));
@@ -102,7 +110,7 @@ class JumpstartValidationTest {
 
         Path jumpstartFile = tempDir.resolve("jumpstart.bin");
         // Write block number 99 instead of 0
-        writeJumpstartFile(jumpstartFile, 99, blockHash, tree.getStreamingHasher());
+        writeJumpstartFile(jumpstartFile, 99, blockHash, new byte[48], new byte[48], tree.getStreamingHasher());
 
         JumpstartValidation validation = new JumpstartValidation(jumpstartFile, tree, null);
         ValidationException ex = assertThrows(ValidationException.class, () -> validation.finalize(1, 0));
@@ -126,6 +134,8 @@ class JumpstartValidationTest {
         try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(jumpstartFile))) {
             out.writeLong(0); // correct block number
             out.write(blockHash);
+            out.write(new byte[48]); // consensus timestamp hash
+            out.write(new byte[48]); // output items tree root hash
             out.writeLong(999); // wrong leaf count
             out.writeInt(hashes.size());
             for (byte[] h : hashes) {
@@ -154,6 +164,8 @@ class JumpstartValidationTest {
         try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(jumpstartFile))) {
             out.writeLong(0);
             out.write(blockHash);
+            out.write(new byte[48]); // consensus timestamp hash
+            out.write(new byte[48]); // output items tree root hash
             out.writeLong(1); // correct leaf count
             out.writeInt(1);
             out.write(new byte[48]); // wrong hash
@@ -162,6 +174,36 @@ class JumpstartValidationTest {
         JumpstartValidation validation = new JumpstartValidation(jumpstartFile, tree, null);
         ValidationException ex = assertThrows(ValidationException.class, () -> validation.finalize(1, 0));
         assertTrue(ex.getMessage().contains("root mismatch"));
+    }
+
+    @Test
+    void wrongConsensusTimestampHashFormatFails(@TempDir Path tempDir) throws Exception {
+        BlockChainValidation chain = new BlockChainValidation();
+        HistoricalBlockTreeValidation tree = new HistoricalBlockTreeValidation(chain);
+
+        chain.validate(toUnparsed(VALID_BLOCK), 0);
+        tree.validate(toUnparsed(VALID_BLOCK), 0);
+        byte[] blockHash = chain.getStagedBlockHash();
+        tree.commitState(toUnparsed(VALID_BLOCK), 0);
+        chain.commitState(toUnparsed(VALID_BLOCK), 0);
+
+        // Write a jumpstart file with consensus timestamp hash of wrong size (32 bytes instead of 48)
+        Path jumpstartFile = tempDir.resolve("jumpstart.bin");
+        List<byte[]> hashes = tree.getStreamingHasher().intermediateHashingState();
+        try (DataOutputStream out = new DataOutputStream(Files.newOutputStream(jumpstartFile))) {
+            out.writeLong(0);
+            out.write(blockHash);
+            out.write(new byte[32]); // wrong size — should be 48
+            out.write(new byte[48]); // output items tree root hash
+            out.writeLong(tree.getStreamingHasher().leafCount());
+            out.writeInt(hashes.size());
+            for (byte[] h : hashes) {
+                out.write(h);
+            }
+        }
+
+        JumpstartValidation validation = new JumpstartValidation(jumpstartFile, tree, null);
+        assertThrows(ValidationException.class, () -> validation.finalize(1, 0));
     }
 
     @Test

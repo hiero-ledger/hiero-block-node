@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.blocks.validation;
 
+import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractBlockInstant;
+import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractRecordFileBytes;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_DEPTH;
+import static org.hiero.block.tools.blocks.validation.ProtobufParsingConstants.MAX_RECORD_FILE_SIZE;
+
 import com.hedera.hapi.block.stream.RecordFileItem;
-import com.hedera.hapi.block.stream.output.BlockHeader;
-import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.base.Transaction;
 import com.hedera.hapi.node.transaction.TransactionBody;
 import com.hedera.hapi.streams.RecordStreamFile;
@@ -14,7 +17,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.days.model.AddressBookRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
@@ -32,8 +34,6 @@ import picocli.CommandLine.Help.Ansi;
 public final class AddressBookUpdateValidation implements BlockValidation {
 
     private static final String SAVE_FILE_NAME = "addressBookHistory.json";
-    private static final int MAX_DEPTH = 512;
-    private static final int MAX_RECORD_FILE_SIZE = 128 * 1024 * 1024;
 
     private final AddressBookRegistry addressBookRegistry;
 
@@ -79,26 +79,6 @@ public final class AddressBookUpdateValidation implements BlockValidation {
             // record file might be in a format we don't fully handle (e.g., genesis or very early blocks).
             // Signature validation will catch if the address book is actually wrong.
         }
-    }
-
-    private static Instant extractBlockInstant(final BlockUnparsed block) throws Exception {
-        for (final BlockItemUnparsed item : block.blockItems()) {
-            if (item.hasBlockHeader()) {
-                final BlockHeader header = BlockHeader.PROTOBUF.parse(item.blockHeaderOrThrow());
-                final Timestamp ts = header.blockTimestampOrThrow();
-                return Instant.ofEpochSecond(ts.seconds(), ts.nanos());
-            }
-        }
-        return null;
-    }
-
-    private static Bytes extractRecordFileBytes(final BlockUnparsed block) {
-        for (final BlockItemUnparsed item : block.blockItems()) {
-            if (item.hasRecordFile()) {
-                return item.recordFileOrThrow();
-            }
-        }
-        return null;
     }
 
     private static List<Transaction> extractTransactions(final Bytes recordFileBytes) throws Exception {
