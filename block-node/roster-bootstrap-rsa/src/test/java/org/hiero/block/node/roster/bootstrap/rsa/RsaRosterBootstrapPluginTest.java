@@ -24,17 +24,14 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/**
- * Unit tests for `RsaRosterBootstrapPlugin`.
- *
- * <p>File loading and persistence are now handled by {@code BlockNodeApp}. The plugin's
- * sole responsibility is to check whether the address book was already loaded
- * ({@code context.nodeAddressBook() != null}) and, if not, to fetch it from the Mirror Node.
- *
- * <p>Tests that simulate "BlockNodeApp loaded the file" pass a pre-built
- * {@code NodeAddressBook} via the {@code preloadedAddressBook} overload of
- * {@code PluginTestBase.start()}.
- */
+/// Unit tests for `RsaRosterBootstrapPlugin`.
+///
+/// File loading and persistence are now handled by `BlockNodeApp`. The plugin's
+/// sole responsibility is to check whether the address book was already loaded
+/// (`context.nodeAddressBook() != null`) and, if not, to fetch it from the Mirror Node.
+///
+/// Tests that simulate "BlockNodeApp loaded the file" pass a pre-built
+/// `NodeAddressBook` via the `preloadedAddressBook` overload of `PluginTestBase.start()`.
 class RsaRosterBootstrapPluginTest
         extends PluginTestBase<RsaRosterBootstrapPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
@@ -44,10 +41,8 @@ class RsaRosterBootstrapPluginTest
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
     }
 
-    /**
-     * Override tearDown to gracefully handle cases where `start()` threw before
-     * the base class could initialise `metricsRegistry` (e.g. exception tests).
-     */
+    /// Override tearDown to gracefully handle cases where `start()` threw before
+    /// the base class could initialise `metricsRegistry` (e.g. exception tests).
     @Override
     @AfterEach
     public void tearDown() throws IOException {

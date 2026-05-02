@@ -6,15 +6,13 @@ import com.swirlds.config.api.ConfigProperty;
 import java.nio.file.Path;
 import org.hiero.block.node.base.Loggable;
 
-/**
- * Configuration for the RSA roster bootstrap plugin.
- *
- * @param filePath path to the local binary protobuf bootstrap file
- * @param mirrorNodeBaseUrl base URL of the Mirror Node REST API used when the file is absent
- * @param mirrorNodeConnectTimeoutSeconds TCP connect timeout when calling the Mirror Node
- * @param mirrorNodeReadTimeoutSeconds per-request read timeout when calling the Mirror Node
- * @param mirrorNodePageSize number of nodes requested per paginated Mirror Node call
- */
+/// Configuration for the RSA roster bootstrap plugin.
+///
+/// @param filePath path to the local binary protobuf bootstrap file
+/// @param mirrorNodeBaseUrl base URL of the Mirror Node REST API used when the file is absent
+/// @param mirrorNodeConnectTimeoutSeconds TCP connect timeout when calling the Mirror Node
+/// @param mirrorNodeReadTimeoutSeconds per-request read timeout when calling the Mirror Node
+/// @param mirrorNodePageSize number of nodes requested per paginated Mirror Node call
 @ConfigData("roster.bootstrap")
 public record BootstrapRosterConfig(
         @Loggable @ConfigProperty(defaultValue = "data/config/rsa-bootstrap-roster.pb")

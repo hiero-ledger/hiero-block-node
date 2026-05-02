@@ -23,42 +23,39 @@ import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
 
-/**
- * Loads the consensus node RSA roster at Block Node startup and publishes it to all plugins via
- * {@code ApplicationStateFacility.updateAddressBook()}.
- *
- * <p>File loading and persistence are handled by {@code BlockNodeApp}: it reads the bootstrap file
- * in {@code loadApplicationState()} before plugins are initialised, and persists the file in
- * {@code updateAddressBook()} after a Mirror Node fetch. This plugin's sole responsibility is to
- * check whether the address book was already loaded ({@code context.nodeAddressBook() != null}) and,
- * if not, to fetch it from the Mirror Node.
- *
- * <p><b>Startup sequence:</b>
- * <ol>
- *   <li>If {@code context.nodeAddressBook()} is non-null: BlockNodeApp loaded it from the
- *       bootstrap file — emit metrics and return.
- *   <li>Otherwise: query {@code GET /api/v1/network/nodes} (paginated) on the configured Mirror
- *       Node, build a {@code NodeAddressBook}, and call
- *       {@code applicationStateFacility.updateAddressBook()} — which persists the file and
- *       notifies all plugins via {@code onContextUpdate}.
- *   <li>If neither source succeeds: log {@code ERROR} and throw to trigger BN fail-fast.
- * </ol>
- *
- * <p>See {@code docs/design/wrb-streaming/bootstrap-roster-plugin.md} for the full design.
- */
+/// Loads the consensus node RSA roster at Block Node startup and publishes it to all plugins via
+/// `ApplicationStateFacility.updateAddressBook()`.
+///
+/// File loading and persistence are handled by `BlockNodeApp`: it reads the bootstrap file
+/// in `loadApplicationState()` before plugins are initialised, and persists the file in
+/// `updateAddressBook()` after a Mirror Node fetch. This plugin's sole responsibility is to
+/// check whether the address book was already loaded (`context.nodeAddressBook() != null`) and,
+/// if not, to fetch it from the Mirror Node.
+///
+/// **Startup sequence:**
+///
+/// 1. If `context.nodeAddressBook()` is non-null: BlockNodeApp loaded it from the
+///    bootstrap file — emit metrics and return.
+/// 2. Otherwise: query `GET /api/v1/network/nodes` (paginated) on the configured Mirror
+///    Node, build a `NodeAddressBook`, and call
+///    `applicationStateFacility.updateAddressBook()` — which persists the file and
+///    notifies all plugins via `onContextUpdate`.
+/// 3. If neither source succeeds: log `ERROR` and throw to trigger BN fail-fast.
+///
+/// See `docs/design/wrb-streaming/bootstrap-roster-plugin.md` for the full design.
 public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     private static final System.Logger LOGGER = System.getLogger(RsaRosterBootstrapPlugin.class.getName());
 
-    /** `blocknode:roster_entries_loaded` — number of `NodeAddress` entries loaded at startup. */
+    /// `blocknode:roster_entries_loaded` — number of `NodeAddress` entries loaded at startup.
     static final MetricKey<ObservableGauge> METRIC_ROSTER_ENTRIES_LOADED =
             MetricKey.of("roster_entries_loaded", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
-    /** `blocknode:roster_load_duration_ms` — time to load the roster at startup in ms. */
+    /// `blocknode:roster_load_duration_ms` — time to load the roster at startup in ms.
     static final MetricKey<ObservableGauge> METRIC_ROSTER_LOAD_DURATION_MS =
             MetricKey.of("roster_load_duration_ms", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
-    /** Max Mirror Node fetch retries before fail-fast. */
+    /// Max Mirror Node fetch retries before fail-fast.
     private static final int MAX_RETRIES = 3;
 
     private BlockNodeContext context;
@@ -69,13 +66,13 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     private volatile long rosterEntriesLoaded = 0L;
     private volatile long rosterLoadDurationMs = 0L;
 
-    /** {@inheritDoc} */
+    /// {@inheritDoc}
     @Override
     public List<Class<? extends Record>> configDataTypes() {
         return List.of(BootstrapRosterConfig.class);
     }
 
-    /** {@inheritDoc} */
+    /// {@inheritDoc}
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = context;
@@ -90,18 +87,16 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 .observe(() -> rosterLoadDurationMs));
     }
 
-    /** {@inheritDoc} */
+    /// {@inheritDoc}
     @Override
     public void onContextUpdate(final BlockNodeContext updatedContext) {
         this.context = updatedContext;
     }
 
-    /**
-     * Checks whether BlockNodeApp already loaded the address book from the bootstrap file.
-     * If so, records metrics and returns. Otherwise fetches from Mirror Node and calls
-     * {@code applicationStateFacility.updateAddressBook()} which persists the file and notifies
-     * all plugins. Throws if neither source succeeds, triggering BN fail-fast.
-     */
+    /// Checks whether BlockNodeApp already loaded the address book from the bootstrap file.
+    /// If so, records metrics and returns. Otherwise fetches from Mirror Node and calls
+    /// `applicationStateFacility.updateAddressBook()` which persists the file and notifies
+    /// all plugins. Throws if neither source succeeds, triggering BN fail-fast.
     @Override
     public void start() {
         final long startMs = System.currentTimeMillis();
@@ -134,12 +129,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // Mirror Node fetch
     // -------------------------------------------------------------------------
 
-    /**
-     * Fetches the node address book from the Mirror Node REST API with pagination and retries.
-     *
-     * @return a non-empty `NodeAddressBook`
-     * @throws IllegalStateException if the Mirror Node is unreachable after retries or returns no usable entries
-     */
+    /// Fetches the node address book from the Mirror Node REST API with pagination and retries.
+    ///
+    /// @return a non-empty `NodeAddressBook`
+    /// @throws IllegalStateException if the Mirror Node is unreachable after retries or returns
+    ///     no usable entries
     private NodeAddressBook fetchFromMirrorNode() {
         final HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
@@ -178,14 +172,12 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
     }
 
-    /**
-     * Performs a single HTTP GET with exponential-backoff retries.
-     *
-     * @param client the HTTP client to use
-     * @param url the URL to fetch
-     * @return the response body as a string
-     * @throws IllegalStateException if all retries are exhausted
-     */
+    /// Performs a single HTTP GET with exponential-backoff retries.
+    ///
+    /// @param client the HTTP client to use
+    /// @param url the URL to fetch
+    /// @return the response body as a string
+    /// @throws IllegalStateException if all retries are exhausted
     private String fetchWithRetry(final HttpClient client, final String url) {
         long delayMs = 1_000L;
         Exception lastCause = null;
