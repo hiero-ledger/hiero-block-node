@@ -25,6 +25,7 @@ module org.hiero.block.node.roster.bootstrap.rsa {
     requires com.hedera.pbj.runtime;
     requires org.hiero.block.node.base;
     requires java.net.http;
+    requires com.google.gson;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             RsaRosterBootstrapPlugin;

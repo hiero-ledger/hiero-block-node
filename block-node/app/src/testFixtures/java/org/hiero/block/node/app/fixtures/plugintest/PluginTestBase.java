@@ -71,6 +71,8 @@ public abstract class PluginTestBase<
     protected TestBlockMessagingFacility blockMessaging = new TestBlockMessagingFacility();
     /** The plugin to be tested */
     protected P plugin;
+    /** The historical block facility used by the current test, retained for doStart(). */
+    private HistoricalBlockFacility activeHistoricalBlockFacility;
 
     protected PluginTestBase(@NonNull final E executorService, @NonNull final S scheduledExecutorService) {
         testThreadPoolManager = new TestThreadPoolManager<>(executorService, scheduledExecutorService);
@@ -112,7 +114,8 @@ public abstract class PluginTestBase<
 
     /**
      * Start the test fixture with the given plugin, historical block facility, additional plugins,
-     * configuration overrides and a filesystem.
+     * configuration overrides and converters. Equivalent to calling {@link #doInit} then
+     * {@link #doStart}.
      *
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
@@ -126,34 +129,42 @@ public abstract class PluginTestBase<
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides,
             @NonNull final Map<Class<?>, ConfigConverter<?>> converters) {
-        start(plugin, historicalBlockFacility, additionalPlugins, configOverrides, converters, null);
+        doInit(plugin, historicalBlockFacility, additionalPlugins, configOverrides, converters);
+        doStart();
     }
 
     /**
-     * Start the test fixture with a pre-loaded NodeAddressBook, simulating what BlockNodeApp does
-     * when it reads the RSA bootstrap file before plugins are initialised.
+     * Initialise the test context and call {@code plugin.init()} without starting the plugin.
+     *
+     * <p>Use this together with {@link #simulatePreloadedAddressBook} and {@link #doStart} when a
+     * test needs to simulate {@code BlockNodeApp} loading the RSA bootstrap file between
+     * {@code plugin.init()} and {@code plugin.start()}:
+     *
+     * <pre>{@code
+     * doInit(plugin, historicalFacility, null, null, Map.of());
+     * simulatePreloadedAddressBook(addressBook);   // exercises onContextUpdate
+     * doStart();
+     * }</pre>
      *
      * @param plugin the plugin to be tested
      * @param historicalBlockFacility the historical block facility to be used
      * @param additionalPlugins additional test plugins to be initialized and started
      * @param configOverrides a map of configuration overrides to be applied to the loaded configuration
      * @param converters an optional map of custom converters to be used for the configuration
-     * @param preloadedAddressBook when non-null, injected into BlockNodeContext before plugin.init()
-     *     to simulate BlockNodeApp having loaded the RSA bootstrap file
      */
-    public void start(
+    protected void doInit(
             @NonNull final P plugin,
             @NonNull final HistoricalBlockFacility historicalBlockFacility,
             @Nullable final List<BlockNodePlugin> additionalPlugins,
             @Nullable final Map<String, String> configOverrides,
-            @NonNull final Map<Class<?>, ConfigConverter<?>> converters,
-            @Nullable final NodeAddressBook preloadedAddressBook) {
+            @NonNull final Map<Class<?>, ConfigConverter<?>> converters) {
 
         Objects.requireNonNull(plugin);
         Objects.requireNonNull(historicalBlockFacility);
         Objects.requireNonNull(converters);
 
         this.plugin = plugin;
+        this.activeHistoricalBlockFacility = historicalBlockFacility;
         org.hiero.block.node.app.fixtures.logging.CleanColorfulFormatter.makeLoggingColorful();
         // Build the configuration
         //noinspection unchecked
@@ -175,7 +186,7 @@ public abstract class PluginTestBase<
                 MetricRegistry.builder().setMetricsExporter(testMetricsExporter).build();
         // mock health facility
         final HealthFacility healthFacility = new TestHealthFacility();
-        // create block node context
+        // create block node context with no address book — simulatePreloadedAddressBook() populates it
         blockNodeContext = new BlockNodeContext(
                 configuration,
                 metricsRegistry,
@@ -187,7 +198,7 @@ public abstract class PluginTestBase<
                 testThreadPoolManager,
                 buildBlockNodeVersions(),
                 null,
-                preloadedAddressBook);
+                null);
         // if the subclass implements ServiceBuilder, use it otherwise create a mock
         final ServiceBuilder mockServiceBuilder = (this instanceof ServiceBuilder)
                 ? (ServiceBuilder) this
@@ -218,11 +229,31 @@ public abstract class PluginTestBase<
                 additionalPlugin.start();
             }
         }
-        // init plugin
+        // init plugin (but do not start — caller decides when to start via doStart())
         plugin.init(blockNodeContext, mockServiceBuilder);
-        // start everything
-        historicalBlockFacility.start();
+    }
+
+    /**
+     * Start the historical block facility and the plugin under test. Call this after
+     * {@link #doInit} (and optionally {@link #simulatePreloadedAddressBook}).
+     */
+    protected void doStart() {
+        activeHistoricalBlockFacility.start();
         plugin.start();
+    }
+
+    /**
+     * Simulates {@code BlockNodeApp.loadApplicationState()} loading the RSA bootstrap file between
+     * {@code plugin.init()} and {@code plugin.start()}.
+     *
+     * <p>Updates {@code blockNodeContext} with the given address book and calls
+     * {@code plugin.onContextUpdate()} so the plugin's cached context reference reflects the book
+     * before {@link #doStart()} is called.
+     *
+     * @param book the pre-loaded address book to inject
+     */
+    public void simulatePreloadedAddressBook(@NonNull final NodeAddressBook book) {
+        updateAddressBook(book);
     }
 
     /**

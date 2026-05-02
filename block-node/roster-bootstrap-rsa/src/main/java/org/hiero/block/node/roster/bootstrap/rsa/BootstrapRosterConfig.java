@@ -15,7 +15,7 @@ import org.hiero.block.node.base.Loggable;
 /// @param mirrorNodePageSize number of nodes requested per paginated Mirror Node call
 @ConfigData("roster.bootstrap")
 public record BootstrapRosterConfig(
-        @Loggable @ConfigProperty(defaultValue = "data/config/rsa-bootstrap-roster.pb")
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/rsa-bootstrap-roster.pb")
         Path filePath,
 
         @Loggable @ConfigProperty(defaultValue = "https://testnet-public.mirrornode.hedera.com")

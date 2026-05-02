@@ -19,7 +19,7 @@ import org.hiero.block.node.base.Loggable;
  *     are persisted across restarts as a serialized {@code TssData}.
  * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (binary protobuf {@code NodeAddressBook}).
  *     Must match {@code roster.bootstrap.filePath} when that property is customised by the operator.
- *     Defaults to {@code data/config/rsa-bootstrap-roster.pb}.
+ *     Defaults to {@code /opt/hiero/block-node/node/rsa-bootstrap-roster.pb}.
  * @param appStateUpdateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
  *     checking to see if there are any {@code TssData} updates to process.
  */
@@ -28,7 +28,7 @@ import org.hiero.block.node.base.Loggable;
 public record NodeConfig(
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/app-state-data.bin") Path appStateDataFilePath,
-        @Loggable @ConfigProperty(defaultValue = "data/config/rsa-bootstrap-roster.pb") Path rsaBootstrapFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/rsa-bootstrap-roster.pb") Path rsaBootstrapFilePath,
         @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long appStateUpdateScanInterval,
         @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int appStateUpdateInitialDelay) {}
 // spotless:on

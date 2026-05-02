@@ -216,6 +216,17 @@ testModuleInfo {
     exportsTo("com.swirlds.config.impl")
 }
 
+// Copy the RSA bootstrap fixture into build/tmp so tests can read from (and write to) a
+// writable path that is consistent with other test data paths (appStateDataFilePath etc.).
+val copyRsaTestFixture =
+    tasks.register<Copy>("copyRsaTestFixture") {
+        description = "Copies the RSA bootstrap test fixture into build/tmp/data/config/"
+        from(layout.projectDirectory.file("src/test/resources/data/config/rsa-bootstrap-roster.pb"))
+        into(layout.buildDirectory.dir("tmp/data/config"))
+    }
+
+tasks.named("test") { dependsOn(copyRsaTestFixture) }
+
 // =============================================================================
 // Docker Tasks
 // =============================================================================

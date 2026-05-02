@@ -112,8 +112,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                     .rangeEnd(longRange.end())
                     .build());
         }
-        // return the block availability information.
-        // nodeAddressBook() returns null when not yet loaded; PBJ omits the field in that case.
+        // return detailed block node status information.
         return detailsBuilder
                 .availableRanges(blockRanges)
                 .tssData(context.tssData())
