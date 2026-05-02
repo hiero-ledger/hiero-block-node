@@ -84,7 +84,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private volatile ScheduledFuture<Boolean> publisherUnavailabilityTimeoutFuture;
 
     /// Future tracking the queue forwarder task.
-    ///MaxFutureBlocksBeforeStalled
+    ///
     /// This will run until it encounters an exception or reaches a reasonable
     /// run time limit. When handlers encounter a block proof, a method is called
     /// to check and restart the task if it is not yet running or has completed.
