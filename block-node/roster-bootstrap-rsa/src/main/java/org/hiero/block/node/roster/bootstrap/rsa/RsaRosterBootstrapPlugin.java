@@ -90,6 +90,12 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 .observe(() -> rosterLoadDurationMs));
     }
 
+    /** {@inheritDoc} */
+    @Override
+    public void onContextUpdate(final BlockNodeContext updatedContext) {
+        this.context = updatedContext;
+    }
+
     /**
      * Checks whether BlockNodeApp already loaded the address book from the bootstrap file.
      * If so, records metrics and returns. Otherwise fetches from Mirror Node and calls
@@ -103,7 +109,8 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         final String source;
 
         if (book != null) {
-            // Bootstrap file was loaded by BlockNodeApp.loadApplicationState() before init().
+            // Bootstrap file was loaded by BlockNodeApp.loadApplicationState() which runs in
+            // startApplicationStateFacility() before startPlugins() and calls onContextUpdate().
             source = "file";
         } else {
             LOGGER.log(INFO, "RSA bootstrap file not found, querying Mirror Node at {0}", config.mirrorNodeBaseUrl());

@@ -22,7 +22,6 @@ import org.hiero.block.node.base.Loggable;
  *     Defaults to {@code data/config/rsa-bootstrap-roster.pb}.
  * @param appStateUpdateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
  *     checking to see if there are any {@code TssData} updates to process.
->>>>>>> bfb8c26b (feat: move RSA address book load/persist to BlockNodeApp; add nodeAddressBook to BlockNodeContext)
  */
 // spotless:off
 @ConfigData("block.node")
