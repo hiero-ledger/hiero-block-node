@@ -52,7 +52,7 @@ message ServerStatusDetailResponse {
      * RSA Node Address Book Data from the block node server.
      * Node Id, rsa public key information
      */
-    proto.NodeAddressBook node_addess_book = 4;
+    proto.NodeAddressBook node_address_book = 4;
 }
 
 /**
