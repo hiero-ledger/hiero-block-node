@@ -431,7 +431,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final NavigableSet<Long> keysBeforeBlock = new TreeSet<>();
             keysBeforeBlock.addAll(queueByBlockMap.headMap(blockNumber, true).keySet());
             for (final Long candidate : keysBeforeBlock) {
-                if (!(blockProofs.containsKey(candidate) || hasBlockProof(queueByBlockMap.get(candidate)))) {
+                if (!(blockProofs.containsKey(candidate)
+                        || hasBlockProof(queueByBlockMap.get(candidate))
+                        || activeResendBlocks.contains(candidate))) {
                     queueByBlockMap.remove(candidate);
                     // possibly remove a just collected block proof
                     blockProofs.remove(candidate);
@@ -533,6 +535,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 queueByBlockMap.remove(candidateBlock);
                 blockProofs.remove(candidateBlock);
                 blocksToResend.add(candidateBlock);
+                activeResendBlocks.add(candidateBlock);
                 if (stalledHandler != null) {
                     stalledHandler.endStreamWithCode(TIMEOUT, true);
                 }
@@ -947,14 +950,22 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // continue.
                 result = publisherLastForwardedBlockNumber;
             } else {
-                // Else, we either continue with the next one in line or proceed to
-                // supply a block that was resent.
-                final Entry<Long, Deque<BlockItemSetUnparsed>> firstEntry =
-                        publisherManager.queueByBlockMap.firstEntry();
-                if (firstEntry != null) {
-                    result = firstEntry.getKey();
+                // If the block the forwarder was on was stalled and is awaiting
+                // re-delivery, hold position rather than gap-skipping to a later
+                // block. blocksToResend covers the window before a publisher
+                // accepts the resend; activeResendBlocks covers the window from
+                // acceptance until endOfBlock completes.
+                if (publisherManager.blocksToResend.contains(publisherLastForwardedBlockNumber)
+                        || publisherManager.activeResendBlocks.contains(publisherLastForwardedBlockNumber)) {
+                    result = publisherLastForwardedBlockNumber;
                 } else {
-                    result = UNKNOWN_BLOCK_NUMBER;
+                    final Entry<Long, Deque<BlockItemSetUnparsed>> firstEntry =
+                            publisherManager.queueByBlockMap.firstEntry();
+                    if (firstEntry != null) {
+                        result = firstEntry.getKey();
+                    } else {
+                        result = UNKNOWN_BLOCK_NUMBER;
+                    }
                 }
             }
             // Always set the latest streaming block number to the result here
