@@ -590,7 +590,8 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
-    @DisplayName("Unchecked exception escaping upload task increments failure counter and sends no PersistedNotification")
+    @DisplayName(
+            "Unchecked exception escaping upload task increments failure counter and sends no PersistedNotification")
     void uncheckedExceptionInTaskIncrementsFailureCounter() throws InterruptedException {
         final CountDownLatch exceptionThrown = new CountDownLatch(1);
         final S3UploadClient throwingClient = new S3UploadClient() {
@@ -631,7 +632,8 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
-    @DisplayName("PersistedNotifications are published in ascending block-number order when results are drained together")
+    @DisplayName(
+            "PersistedNotifications are published in ascending block-number order when results are drained together")
     void notificationsPublishedInAscendingBlockOrder() throws InterruptedException {
         final CountDownLatch bothUploaded = new CountDownLatch(2);
         final S3UploadClient countingClient = new S3UploadClient() {
@@ -667,14 +669,19 @@ class ExpandedCloudStoragePluginTest
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(2, notifications.size(), "Both blocks must produce PersistedNotifications");
-        assertEquals(2L, notifications.get(0).blockNumber(),
+        assertEquals(
+                2L,
+                notifications.get(0).blockNumber(),
                 "Block 2 must be published first even though it was submitted second");
-        assertEquals(7L, notifications.get(1).blockNumber(),
+        assertEquals(
+                7L,
+                notifications.get(1).blockNumber(),
                 "Block 7 must be published second even though it was submitted first");
     }
 
     @Test
-    @DisplayName("Mixed success and failure in the same drain batch each produce the correct PersistedNotification and metrics")
+    @DisplayName(
+            "Mixed success and failure in the same drain batch each produce the correct PersistedNotification and metrics")
     void mixedSuccessAndFailureProduceCorrectNotificationsAndMetrics() throws InterruptedException {
         final S3UploadClient mixedClient = new S3UploadClient() {
             @Override

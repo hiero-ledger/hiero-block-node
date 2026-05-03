@@ -199,7 +199,9 @@ class SingleBlockStoreTaskTest {
         assertEquals(1, capturedKey.size(), "Exactly one uploadFile call expected");
         assertEquals("blocks/0000/0000/0000/0000/042.blk.zstd", capturedKey.getFirst(), "objectKey must match");
         assertEquals("INTELLIGENT_TIERING", capturedStorageClass.getFirst(), "storageClass must match");
-        assertEquals("application/octet-stream", capturedContentType.getFirst(),
+        assertEquals(
+                "application/octet-stream",
+                capturedContentType.getFirst(),
                 "content-type must be application/octet-stream");
     }
 
