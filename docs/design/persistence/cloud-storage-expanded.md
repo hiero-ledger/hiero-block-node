@@ -126,7 +126,7 @@ bucky's exception hierarchy. Always wraps the original cause for diagnostics.
 
 `Callable<UploadResult>` submitted per block to the `CompletionService`. Responsible for:
 1. Serialising the block to Protobuf bytes via `BlockUnparsed.PROTOBUF.write(block, streamingData)`
-   written into a `ByteArrayOutputStream`.
+written into a `ByteArrayOutputStream`.
 2. Compressing to ZSTD (`CompressionType.ZSTD.compress(...)`).
 3. Uploading via `S3UploadClient.uploadFile()` directly, relying on S3 SDK connection/socket timeouts.
 
@@ -211,9 +211,9 @@ Results flow through two methods:
 **`processCompletedFuture(future)`** — called per drained future:
 1. If the future was cancelled (expected during shutdown): logs TRACE and skips.
 2. Otherwise calls `future.get()` and stages the `UploadResult` in `pendingPublish` keyed by
-   block number.
+block number.
 3. On `ExecutionException` (unexpected `RuntimeException` escaped the task): increments
-   `uploadFailuresTotal` and logs WARNING. No `PersistedNotification` is sent for this case.
+`uploadFailuresTotal` and logs WARNING. No `PersistedNotification` is sent for this case.
 
 **`publishResult(result)`** — called per staged result in ascending block-number order:
 1. Publishes `PersistedNotification(blockNumber, succeeded, 0, blockSource)`.
