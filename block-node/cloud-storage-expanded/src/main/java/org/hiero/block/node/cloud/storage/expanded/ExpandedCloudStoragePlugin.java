@@ -177,8 +177,10 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         if (s3Client == null) {
             try {
                 s3Client = new BuckyS3UploadClient(config);
+                LOGGER.log(INFO, "S3 client initialized successfully");
             } catch (final UploadException e) {
-                LOGGER.log(WARNING, "Failed to initialize S3 client ({0}); uploads will be skipped.", e.getMessage());
+                final String msg = "Failed to initialize S3 client; uploads will be skipped";
+                LOGGER.log(WARNING, msg, e);
             }
         }
         virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
@@ -307,7 +309,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             // an UploadResult. An ExecutionException here means an unexpected RuntimeException
             // escaped the task — count it as a failure and log the root cause.
             metricsHolder.uploadFailuresTotal().increment();
-            LOGGER.log(WARNING, "Unexpected exception in upload task: ", e.getCause());
+            final String msg = "Unexpected exception in upload task";
+            LOGGER.log(WARNING, msg, e.getCause());
         }
     }
 

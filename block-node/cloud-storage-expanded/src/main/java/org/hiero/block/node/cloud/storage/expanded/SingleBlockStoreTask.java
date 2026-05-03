@@ -131,11 +131,13 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
                     System.nanoTime() - uploadStartNs);
 
         } catch (final UploadException e) {
-            LOGGER.log(WARNING, "Block {0}: S3 upload failed: ", blockNumber, e);
+            final String msg = "Block " + blockNumber + ": S3 upload failed";
+            LOGGER.log(WARNING, msg, e);
             return new UploadResult(
                     blockNumber, UploadStatus.S3_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
         } catch (final IOException e) {
-            LOGGER.log(WARNING, "Block {0}: I/O error during upload: ", blockNumber, e);
+            final String msg = "Block " + blockNumber + ": I/O error during upload";
+            LOGGER.log(WARNING, msg, e);
             return new UploadResult(
                     blockNumber, UploadStatus.IO_ERROR, 0L, blockSource, System.nanoTime() - uploadStartNs);
         }
