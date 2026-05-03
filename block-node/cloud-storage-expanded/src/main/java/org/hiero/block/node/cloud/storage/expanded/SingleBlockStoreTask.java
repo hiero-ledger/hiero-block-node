@@ -8,6 +8,7 @@ import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.concurrent.Callable;
@@ -45,6 +46,7 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
         /// Block was compressed and uploaded successfully.
         SUCCESS,
         /// Compression produced empty bytes — upload was skipped.
+        /// In practice this is not triggered by the ZSTD streaming path; retained as a guard.
         COMPRESSION_ERROR,
         /// S3 service returned an error (4xx / 5xx HTTP response or client init failure).
         S3_ERROR,
@@ -111,8 +113,10 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
         final long uploadStartNs = System.nanoTime();
         try {
             final ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            BlockUnparsed.PROTOBUF.write(block, new WritableStreamingData(baos));
-            final byte[] compressed = CompressionType.ZSTD.compress(baos.toByteArray());
+            try (final OutputStream zstdOut = CompressionType.ZSTD.wrapStream(baos)) {
+                BlockUnparsed.PROTOBUF.write(block, new WritableStreamingData(zstdOut));
+            }
+            final byte[] compressed = baos.toByteArray();
 
             if (compressed.length == 0) {
                 LOGGER.log(WARNING, "Block {0}: compressed bytes are empty, skipping upload.", blockNumber);
