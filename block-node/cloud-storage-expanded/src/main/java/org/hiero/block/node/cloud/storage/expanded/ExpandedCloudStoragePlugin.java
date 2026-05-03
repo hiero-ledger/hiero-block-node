@@ -244,9 +244,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             LOGGER.log(
                     TRACE, "Skipping upload for block {0}: verification did not succeed.", notification.blockNumber());
         } else if (notification.blockNumber() < 0) {
-            LOGGER.log(TRACE, "Skipping upload: invalid block number {0}.", notification.blockNumber());
+            LOGGER.log(INFO, "Skipping upload: invalid block number {0}.", notification.blockNumber());
         } else if (notification.block() == null) {
-            LOGGER.log(WARNING, "Skipping upload for block {0}: block payload is null.", notification.blockNumber());
+            LOGGER.log(INFO, "Skipping upload for block {0}: block payload is null.", notification.blockNumber());
         } else {
             // Drain results from previously submitted tasks before queuing new work.
             drainCompletedTasks();
@@ -309,8 +309,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
             // an UploadResult. An ExecutionException here means an unexpected RuntimeException
             // escaped the task — count it as a failure and log the root cause.
             metricsHolder.uploadFailuresTotal().increment();
-            final String msg = "Unexpected exception in upload task";
-            LOGGER.log(WARNING, msg, e.getCause());
+            LOGGER.log(WARNING, "Unexpected exception in upload task", e.getCause());
         }
     }
 

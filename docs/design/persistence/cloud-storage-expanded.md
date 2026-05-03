@@ -24,15 +24,15 @@ cloud.
 
 ## Goals
 
-* The CSEP must store every block, as received, after verification.
-* The CSEP must store each verified block as a single ZStandard-compressed file using ZSTD-compressed
+* The plugin must store every block, as received, after verification.
+* The plugin must store each verified block as a single ZStandard-compressed file using ZSTD-compressed
   Protobuf encoding.
-* The CSEP must adhere to a file pattern as defined below.
-* The CSEP must store all blocks as files or objects in a cloud storage system.
-* The CSEP must not report success until data is stored such that it can be
+* The plugin must adhere to a file pattern as defined below.
+* The plugin must store all blocks as files or objects in a cloud storage system.
+* The plugin must not report success until data is stored such that it can be
   recovered if the local system fails unexpectedly, including a failure that
   results in complete and unrecoverable loss of all local storage.
-* The CSEP must support any S3-compatible store (AWS S3, GCS S3-interop, etc)
+* The plugin must support any S3-compatible store (AWS S3, GCS S3-interop, etc)
   backed by the `com.hedera.bucky:bucky-client` library.
 
 ## Terms
@@ -249,8 +249,7 @@ and remains inactive for the duration of the process — `completionService` sta
 all `handleVerification` calls are no-ops.
 
 **Intent**: once per-plugin health checks are supported, a misconfigured plugin should be
-marked **UNHEALTHY** and surfaced through the `/health` endpoint rather than silently
-degrading.
+marked **UNHEALTHY** and surfaced appropriately rather than silently degrading.
 
 ## Diagram
 
@@ -258,7 +257,7 @@ degrading.
 
 ```mermaid
 sequenceDiagram
-    participant CN as ConsensusNode
+    participant MF as MessagingFacility
     participant ECS as ExpandedCloudStoragePlugin
     participant CS as CompletionService
     participant Task as SingleBlockStoreTask
@@ -266,7 +265,7 @@ sequenceDiagram
     participant Bucky as BuckyS3UploadClient
     participant Store as S3-Compatible Store
 
-    CN->>ECS: handleVerification(VerificationNotification)
+    MF->>ECS: handleVerification(VerificationNotification)
     ECS->>ECS: check s3Client != null && completionService != null
     ECS->>ECS: check success() && blockNumber >= 0 && block != null
     ECS->>CS: drain completed tasks → publish PersistedNotifications
@@ -411,9 +410,9 @@ crash the node.
 5. **`UploadException` isolation**: `UploadException` thrown by `uploadFile` → plugin does
    not rethrow; sends `PersistedNotification` with `succeeded=false`.
 6. **`IOException` isolation**: `IOException` thrown by `uploadFile` → same handling as above.
-7. **Plugin inactive on blank endpoint**: `cloud.storage.expanded.endpointUrl` is blank →
-   `BuckyS3UploadClient` constructor throws `UploadException` → plugin logs WARNING and stays
-   inactive; `handleVerification` is a no-op.
+7. **Uploads skipped on blank s3 credentials**: If `bucketName`, `endPointUrl` or `regionName` are blank →
+   `BuckyS3UploadClient` constructor throws `UploadException` → plugin logs WARNING and
+   `handleVerification` is a no-op and uploads are not attempted.
 8. **Integration (S3Mock)**: after `handleVerification` for blocks 100–104, all five objects
    appear in the S3Mock bucket with the correct folder-hierarchy keys.
 9. **PersistedNotification on success**: successful upload publishes
