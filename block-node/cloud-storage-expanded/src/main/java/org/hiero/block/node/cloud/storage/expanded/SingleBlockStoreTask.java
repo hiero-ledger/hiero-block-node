@@ -4,7 +4,9 @@ package org.hiero.block.node.cloud.storage.expanded;
 import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 
+import com.hedera.pbj.runtime.io.stream.WritableStreamingData;
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
@@ -108,8 +110,9 @@ public class SingleBlockStoreTask implements Callable<SingleBlockStoreTask.Uploa
     public UploadResult call() {
         final long uploadStartNs = System.nanoTime();
         try {
-            final byte[] protoBytes = BlockUnparsed.PROTOBUF.toBytes(block).toByteArray();
-            final byte[] compressed = CompressionType.ZSTD.compress(protoBytes);
+            final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            BlockUnparsed.PROTOBUF.write(block, new WritableStreamingData(baos));
+            final byte[] compressed = CompressionType.ZSTD.compress(baos.toByteArray());
 
             if (compressed.length == 0) {
                 LOGGER.log(WARNING, "Block {0}: compressed bytes are empty, skipping upload.", blockNumber);
