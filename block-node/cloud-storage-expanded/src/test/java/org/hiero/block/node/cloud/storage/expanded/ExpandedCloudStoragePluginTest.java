@@ -631,6 +631,128 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
+    @DisplayName("PersistedNotifications are published in ascending block-number order when results are drained together")
+    void notificationsPublishedInAscendingBlockOrder() throws InterruptedException {
+        final CountDownLatch bothUploaded = new CountDownLatch(2);
+        final S3UploadClient countingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType) {
+                bothUploaded.countDown();
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(countingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
+
+        // Submit out of numeric order: 7 first, then 2
+        plugin.handleVerification(verifiedNotification(7L, testBlock(7).blockUnparsed()));
+        plugin.handleVerification(verifiedNotification(2L, testBlock(2).blockUnparsed()));
+
+        // Wait for both uploads to complete, then do a single drain pass so both results
+        // are staged in the ConcurrentSkipListMap before any notification is published.
+        assertTrue(bothUploaded.await(5, TimeUnit.SECONDS), "Both uploads must complete within 5s");
+        Thread.sleep(50); // let virtual threads return UploadResult to CompletionService
+        plugin.drainCompletedTasks();
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(2, notifications.size(), "Both blocks must produce PersistedNotifications");
+        assertEquals(2L, notifications.get(0).blockNumber(),
+                "Block 2 must be published first even though it was submitted second");
+        assertEquals(7L, notifications.get(1).blockNumber(),
+                "Block 7 must be published second even though it was submitted first");
+    }
+
+    @Test
+    @DisplayName("Mixed success and failure in the same drain batch each produce the correct PersistedNotification and metrics")
+    void mixedSuccessAndFailureProduceCorrectNotificationsAndMetrics() throws InterruptedException {
+        final S3UploadClient mixedClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType)
+                    throws UploadException {
+                if (objectKey.contains("/002.blk.zstd")) {
+                    throw new UploadException("Simulated failure for block 2", null);
+                }
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(mixedClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1",
+                        "cloud.storage.expanded.objectKeyPrefix", "blocks"));
+
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        plugin.handleVerification(verifiedNotification(2L, testBlock(2).blockUnparsed()));
+        awaitNotifications(2);
+
+        final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
+        assertEquals(2, notifications.size(), "Both blocks must produce a PersistedNotification");
+        assertTrue(
+                notifications.stream().anyMatch(n -> n.blockNumber() == 1L && n.succeeded()),
+                "Block 1 must have succeeded=true");
+        assertTrue(
+                notifications.stream().anyMatch(n -> n.blockNumber() == 2L && !n.succeeded()),
+                "Block 2 must have succeeded=false");
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOADS),
+                "uploadsTotal must be 1 — only block 1 succeeded");
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+                "uploadFailuresTotal must be 1 — only block 2 failed");
+    }
+
+    @Test
+    @DisplayName("handleVerification is a no-op after stop() has nulled the S3 client")
+    void handleVerificationIsNoOpAfterStop() throws InterruptedException {
+        final CapturingS3Client capturing = new CapturingS3Client();
+        start(
+                new ExpandedCloudStoragePlugin(capturing),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
+
+        // First notification works normally
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        awaitNotifications(1);
+        assertEquals(1, capturing.uploads.size(), "One upload expected before stop()");
+
+        // stop() clears s3Client — subsequent handleVerification calls must be no-ops
+        plugin.stop();
+        plugin.handleVerification(verifiedNotification(2L, testBlock(2).blockUnparsed()));
+        Thread.sleep(50);
+
+        assertEquals(1, capturing.uploads.size(), "No further upload must occur after stop()");
+        assertEquals(
+                1,
+                blockMessaging.getSentPersistedNotifications().size(),
+                "No new PersistedNotification must be sent after stop()");
+    }
+
+    @Test
     @DisplayName("stop() publishes all pending PersistedNotifications before closing the S3 client")
     void stopDrainsNotificationsBeforeClose() throws InterruptedException {
         final CountDownLatch uploadStarted = new CountDownLatch(1);

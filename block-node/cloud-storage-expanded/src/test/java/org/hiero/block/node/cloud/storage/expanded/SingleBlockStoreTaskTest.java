@@ -5,15 +5,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
+import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
+import org.hiero.block.node.base.CompressionType;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -156,6 +162,94 @@ class SingleBlockStoreTaskTest {
                 assertFalse(result.succeeded(), "succeeded() must be false for " + status);
             }
         }
+    }
+
+    @Test
+    @DisplayName("Successful upload passes the exact objectKey, storageClass, and content-type to S3UploadClient")
+    void successPassesCorrectArgumentsToUploadClient() {
+        final List<String> capturedKey = new ArrayList<>();
+        final List<String> capturedStorageClass = new ArrayList<>();
+        final List<String> capturedContentType = new ArrayList<>();
+        final S3UploadClient capturingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType) {
+                capturedKey.add(objectKey);
+                capturedStorageClass.add(storageClass);
+                capturedContentType.add(contentType);
+            }
+
+            @Override
+            public void close() {}
+        };
+
+        final SingleBlockStoreTask task = new SingleBlockStoreTask(
+                42L,
+                testBlock(42L).blockUnparsed(),
+                capturingClient,
+                "blocks/0000/0000/0000/0000/042.blk.zstd",
+                "INTELLIGENT_TIERING",
+                BlockSource.UNKNOWN);
+        final SingleBlockStoreTask.UploadResult result = task.call();
+
+        assertEquals(SingleBlockStoreTask.UploadStatus.SUCCESS, result.status());
+        assertEquals(1, capturedKey.size(), "Exactly one uploadFile call expected");
+        assertEquals("blocks/0000/0000/0000/0000/042.blk.zstd", capturedKey.getFirst(), "objectKey must match");
+        assertEquals("INTELLIGENT_TIERING", capturedStorageClass.getFirst(), "storageClass must match");
+        assertEquals("application/octet-stream", capturedContentType.getFirst(),
+                "content-type must be application/octet-stream");
+    }
+
+    @Test
+    @DisplayName("Bytes delivered to S3UploadClient are ZSTD-compressed and round-trip back to the original block")
+    void contentBytesRoundTripToOriginalBlock() throws Exception {
+        final List<byte[]> capturedPayload = new ArrayList<>();
+        final S3UploadClient capturingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType) {
+                // Drain the PayloadIterator to capture the exact bytes that would be uploaded.
+                final java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                while (contentIterable.hasNext()) {
+                    final byte[] chunk = contentIterable.next();
+                    baos.write(chunk, 0, chunk.length);
+                }
+                capturedPayload.add(baos.toByteArray());
+            }
+
+            @Override
+            public void close() {}
+        };
+
+        final long blockNumber = 77L;
+        final TestBlock block = testBlock(blockNumber);
+        new SingleBlockStoreTask(
+                        blockNumber,
+                        block.blockUnparsed(),
+                        capturingClient,
+                        "blocks/0000/0000/0000/0000/077.blk.zstd",
+                        "STANDARD",
+                        BlockSource.UNKNOWN)
+                .call();
+
+        assertEquals(1, capturedPayload.size(), "Exactly one chunk expected from PayloadIterator");
+        assertTrue(capturedPayload.getFirst().length > 0, "Compressed payload must be non-empty");
+
+        // Decompress and parse — must round-trip back to the original block number
+        final byte[] decompressed = CompressionType.ZSTD.decompress(capturedPayload.getFirst());
+        final BlockUnparsed parsed = BlockUnparsed.PROTOBUF.parseStrict(Bytes.wrap(decompressed));
+        assertEquals(
+                blockNumber,
+                BlockHeader.PROTOBUF
+                        .parse(parsed.blockItems().getFirst().blockHeaderOrThrow())
+                        .number(),
+                "Block header number must survive ZSTD compress→decompress→parse round-trip");
     }
 
     @Test
