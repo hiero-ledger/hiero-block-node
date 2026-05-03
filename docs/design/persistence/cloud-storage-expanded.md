@@ -65,10 +65,10 @@ cloud.
       no other class in the package imports them.</dd>
 
   <dt>S3UploadClient</dt>
-  <dd>Package-private abstract class that abstracts the S3 upload operation. It exposes only
+  <dd>Package-private interface that abstracts the S3 upload operation. It exposes only
       <code>uploadFile(...)</code> and <code>close()</code>, throwing
       <code>UploadException</code> or <code>IOException</code> — no bucky types.
-      Unit tests subclass it directly to capture calls or simulate failures without requiring
+      Unit tests implement it directly to capture calls or simulate failures without requiring
       a real S3 endpoint or a mocking framework.</dd>
 
   <dt>BuckyS3UploadClient</dt>
@@ -89,9 +89,9 @@ cloud.
 
 ## Entities
 
-### `S3UploadClient` (abstract class)
+### `S3UploadClient` (interface)
 
-Package-private abstract class in `org.hiero.block.node.cloud.storage.expanded`. Defines the
+Package-private interface in `org.hiero.block.node.cloud.storage.expanded`. Defines the
 upload contract used by the rest of the package. Exposes:
 
 - `uploadFile(objectKey, storageClass, Iterator<byte[]> content, contentType)` — throws
@@ -99,7 +99,7 @@ upload contract used by the rest of the package. Exposes:
 - `close()` (from `AutoCloseable`)
 
 The sole production implementation is `BuckyS3UploadClient`, instantiated directly in
-`ExpandedCloudStoragePlugin.start()`. Tests subclass `S3UploadClient` directly, never
+`ExpandedCloudStoragePlugin.start()`. Tests implement `S3UploadClient` directly, never
 importing bucky types.
 
 ### `BuckyS3UploadClient` (concrete class)
@@ -180,7 +180,7 @@ file storage.
 5. **Drain**: poll `CompletionService` for any previously completed upload tasks; publish a
    `PersistedNotification` for each result (success or failure).
 6. Build object key using `buildBlockObjectKey(blockNumber)`.
-7. Increment `inFlightCount` and submit `SingleBlockStoreTask` to the `CompletionService`.
+7. Submit `SingleBlockStoreTask` to the `CompletionService`.
 
 Inside `SingleBlockStoreTask.call()`:
 - Record `uploadStartNs = System.nanoTime()`.
@@ -190,18 +190,21 @@ Inside `SingleBlockStoreTask.call()`:
 
 ### Shutdown drain (`stop`)
 
-`stop()` calls `drainInFlightTasks()` followed by a final non-blocking `drainCompletedTasks()`:
+`stop()` unregisters from block notifications, then shuts down the virtual-thread executor
+and waits up to `uploadTimeoutSeconds` for in-flight uploads to complete:
 
-- `drainInFlightTasks()` — polls with a deadline of `uploadTimeoutSeconds` from now, draining
-  and publishing results until `inFlightCount` reaches zero or the deadline expires.
-- `drainCompletedTasks()` — a final non-blocking sweep that collects any tasks that landed
-  between the deadline check and `close()`.
+- `virtualThreadExecutor.shutdown()` — stops accepting new tasks (none expected since
+  notification handling was unregistered above).
+- `virtualThreadExecutor.awaitTermination(uploadTimeoutSeconds, SECONDS)` — blocks until all
+  submitted tasks finish or the timeout elapses.
+- A final non-blocking `drainCompletedTasks()` sweep publishes results for any tasks that
+  completed during the wait.
 
 After draining, `s3Client.close()` is called and the reference cleared.
 
 ### Publishing results (`publishResult`)
 
-`publishResult` decrements `inFlightCount` and:
+`publishResult`:
 1. Returns immediately (log WARNING) if the future was cancelled.
 2. Calls `future.get()` to retrieve the `UploadResult`.
 3. Publishes `PersistedNotification(blockNumber, succeeded, 0, blockSource)`.
@@ -284,7 +287,7 @@ sequenceDiagram
 ```mermaid
 classDiagram
     class S3UploadClient {
-        <<abstract>>
+        <<interface>>
         +uploadFile(objectKey, storageClass, content, contentType) throws UploadException IOException
         +close()
     }
@@ -303,7 +306,6 @@ classDiagram
         -config: ExpandedCloudStorageConfig
         -completionService: CompletionService
         -virtualThreadExecutor: ExecutorService
-        -inFlightCount: AtomicInteger
         -metricsHolder: MetricsHolder
         +init(context, serviceBuilder)
         +start()
@@ -311,7 +313,6 @@ classDiagram
         +handleVerification(notification)
         +buildBlockObjectKey(blockNumber) String
         ~drainCompletedTasks()
-        -drainInFlightTasks()
         -publishResult(future)
     }
     class SingleBlockStoreTask {
@@ -330,7 +331,7 @@ classDiagram
         +uploadDurationNs: long
         +succeeded() boolean
     }
-    S3UploadClient <|-- BuckyS3UploadClient
+    S3UploadClient <|.. BuckyS3UploadClient
     BuckyS3UploadClient ..> UploadException : throws
     ExpandedCloudStoragePlugin --> S3UploadClient
     ExpandedCloudStoragePlugin --> SingleBlockStoreTask : submits

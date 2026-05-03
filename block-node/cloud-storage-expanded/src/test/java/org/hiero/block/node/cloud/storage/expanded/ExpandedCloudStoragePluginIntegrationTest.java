@@ -59,6 +59,8 @@ class ExpandedCloudStoragePluginIntegrationTest
             ZonedDateTime.of(2025, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC).toInstant();
     private static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
     private static final String BUCKET_NAME = "test-expanded-blocks";
+    // TODO: this version must match s3MockVersion in hiero-dependency-versions/build.gradle.kts;
+    //  there is no runtime mechanism to share it across test classpath boundaries.
     private static final String S3MOCK_VERSION = "4.11.0";
     private static final String ACCESS_KEY = "test-access-key";
     private static final String SECRET_KEY = "test-secret-key";

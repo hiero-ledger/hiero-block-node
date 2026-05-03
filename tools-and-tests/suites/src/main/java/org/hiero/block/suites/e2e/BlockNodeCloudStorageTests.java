@@ -76,6 +76,8 @@ class BlockNodeCloudStorageTests {
     private static final String REGION = "us-east-1";
     private static final String ACCESS_KEY = "e2e-access-key";
     private static final String SECRET_KEY = "e2e-secret-key";
+    // TODO: this version must match s3MockVersion in hiero-dependency-versions/build.gradle.kts;
+    //  there is no runtime mechanism to share it across test classpath boundaries.
     private static final String S3MOCK_VERSION = "4.11.0";
     private static final Duration AWAIT_TIMEOUT = Duration.ofSeconds(30);
     private static final long S3_POLL_TIMEOUT = 15_000L;
