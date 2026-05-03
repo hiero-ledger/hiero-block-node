@@ -294,22 +294,22 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// normal shutdown. {@link ExecutionException} wraps an unexpected unchecked failure
     /// inside the task; the failure counter is incremented and the cause is logged.
     private void processCompletedFuture(final Future<SingleBlockStoreTask.UploadResult> completed) {
-        if (completed.isCancelled()) {
+        if (!completed.isCancelled()) {
+            try {
+                final SingleBlockStoreTask.UploadResult result = completed.get();
+                pendingPublish.put(result.blockNumber(), result);
+            } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.log(WARNING, "Interrupted while collecting upload result.", e);
+            } catch (final ExecutionException e) {
+                // SingleBlockStoreTask.call() catches all known exceptions internally and returns
+                // an UploadResult. An ExecutionException here means an unexpected RuntimeException
+                // escaped the task — count it as a failure and log the root cause.
+                metricsHolder.uploadFailuresTotal().increment();
+                LOGGER.log(WARNING, "Unexpected exception in upload task", e.getCause());
+            }
+        } else {
             LOGGER.log(TRACE, "Upload task was cancelled during shutdown.");
-            return;
-        }
-        try {
-            final SingleBlockStoreTask.UploadResult result = completed.get();
-            pendingPublish.put(result.blockNumber(), result);
-        } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOGGER.log(WARNING, "Interrupted while collecting upload result.", e);
-        } catch (final ExecutionException e) {
-            // SingleBlockStoreTask.call() catches all known exceptions internally and returns
-            // an UploadResult. An ExecutionException here means an unexpected RuntimeException
-            // escaped the task — count it as a failure and log the root cause.
-            metricsHolder.uploadFailuresTotal().increment();
-            LOGGER.log(WARNING, "Unexpected exception in upload task", e.getCause());
         }
     }
 
