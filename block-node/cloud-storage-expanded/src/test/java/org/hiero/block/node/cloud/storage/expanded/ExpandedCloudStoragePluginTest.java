@@ -590,6 +590,47 @@ class ExpandedCloudStoragePluginTest
     }
 
     @Test
+    @DisplayName("Unchecked exception escaping upload task increments failure counter and sends no PersistedNotification")
+    void uncheckedExceptionInTaskIncrementsFailureCounter() throws InterruptedException {
+        final CountDownLatch exceptionThrown = new CountDownLatch(1);
+        final S3UploadClient throwingClient = new S3UploadClient() {
+            @Override
+            public void uploadFile(
+                    final String objectKey,
+                    final String storageClass,
+                    final Iterator<byte[]> contentIterable,
+                    final String contentType) {
+                exceptionThrown.countDown();
+                throw new RuntimeException("Simulated unexpected task failure");
+            }
+
+            @Override
+            public void close() {}
+        };
+        start(
+                new ExpandedCloudStoragePlugin(throwingClient),
+                new SimpleInMemoryHistoricalBlockFacility(),
+                Map.of(
+                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
+                        "cloud.storage.expanded.bucketName", "test-bucket",
+                        "cloud.storage.expanded.regionName", "us-east-1"));
+
+        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
+        // Wait for the virtual thread to throw, then give it a moment to fully complete.
+        assertTrue(exceptionThrown.await(5, TimeUnit.SECONDS), "Upload task must have thrown within 5s");
+        Thread.sleep(20);
+        plugin.drainCompletedTasks();
+
+        assertTrue(
+                blockMessaging.getSentPersistedNotifications().isEmpty(),
+                "No PersistedNotification expected when an unchecked exception escapes the task");
+        assertEquals(
+                1L,
+                getMetricValue(ExpandedCloudStoragePlugin.METRIC_EXPANDED_CLOUD_STORAGE_TOTAL_UPLOAD_FAILURES),
+                "uploadFailuresTotal must be incremented for the escaped RuntimeException");
+    }
+
+    @Test
     @DisplayName("stop() publishes all pending PersistedNotifications before closing the S3 client")
     void stopDrainsNotificationsBeforeClose() throws InterruptedException {
         final CountDownLatch uploadStarted = new CountDownLatch(1);

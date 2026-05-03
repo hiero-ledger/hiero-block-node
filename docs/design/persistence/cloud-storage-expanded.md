@@ -125,7 +125,8 @@ bucky's exception hierarchy. Always wraps the original cause for diagnostics.
 ### `SingleBlockStoreTask`
 
 `Callable<UploadResult>` submitted per block to the `CompletionService`. Responsible for:
-1. Serialising the block to Protobuf bytes (`BlockUnparsed.PROTOBUF.toBytes(block)`).
+1. Serialising the block to Protobuf bytes via `BlockUnparsed.PROTOBUF.write(block, streamingData)`
+   written into a `ByteArrayOutputStream`.
 2. Compressing to ZSTD (`CompressionType.ZSTD.compress(...)`).
 3. Uploading via `S3UploadClient.uploadFile()` directly, relying on S3 SDK connection/socket timeouts.
 
@@ -158,8 +159,9 @@ Implements `BlockNodePlugin` and `BlockNotificationHandler`. Listens for
 per verified block to a `CompletionService` backed by a virtual-thread executor.
 
 The notification handler is always registered during `init()`. If `start()` fails to create
-the S3 client (blank endpoint URL, bad credentials, unreachable endpoint), `completionService`
-remains `null` and all `handleVerification` calls are no-ops for the duration of the process.
+the S3 client (blank endpoint URL, bad credentials, unreachable endpoint), `s3Client` remains
+`null` and all `handleVerification` calls are no-ops for the duration of the process
+(`completionService` is always created regardless).
 
 ## Design
 
@@ -172,11 +174,11 @@ file storage.
 
 ### Upload flow (`handleVerification`)
 
-1. **Guard**: return immediately if `s3Client == null` or `completionService == null` (plugin
-   inactive due to S3 client creation failure).
+1. **Guard**: log TRACE and return if `s3Client == null` (plugin inactive — S3 client failed to
+   initialise).
 2. **Guard**: `notification.success() == false` → skip (log TRACE).
-3. **Guard**: `notification.blockNumber() < 0` → skip (log TRACE).
-4. **Guard**: `notification.block() == null` → skip (log WARNING).
+3. **Guard**: `notification.blockNumber() < 0` → skip (log INFO).
+4. **Guard**: `notification.block() == null` → skip (log INFO).
 5. **Drain**: poll `CompletionService` for any previously completed upload tasks; publish a
    `PersistedNotification` for each result (success or failure).
 6. Build object key using `buildBlockObjectKey(blockNumber)`.
@@ -202,15 +204,22 @@ and waits up to `uploadTimeoutSeconds` for in-flight uploads to complete:
 
 After draining, `s3Client.close()` is called and the reference cleared.
 
-### Publishing results (`publishResult`)
+### Processing and publishing results
 
-`publishResult`:
-1. Returns immediately (log WARNING) if the future was cancelled.
-2. Calls `future.get()` to retrieve the `UploadResult`.
-3. Publishes `PersistedNotification(blockNumber, succeeded, 0, blockSource)`.
-4. Increments `uploadsTotal` or `uploadFailuresTotal` depending on `result.succeeded()`.
-5. Always increments `uploadBytesTotal` by `result.bytesUploaded()` (zero on failure).
-6. Always increments `uploadLatencyNs` by `result.uploadDurationNs()`.
+Results flow through two methods:
+
+**`processCompletedFuture(future)`** — called per drained future:
+1. If the future was cancelled (expected during shutdown): logs TRACE and skips.
+2. Otherwise calls `future.get()` and stages the `UploadResult` in `pendingPublish` keyed by
+   block number.
+3. On `ExecutionException` (unexpected `RuntimeException` escaped the task): increments
+   `uploadFailuresTotal` and logs WARNING. No `PersistedNotification` is sent for this case.
+
+**`publishResult(result)`** — called per staged result in ascending block-number order:
+1. Publishes `PersistedNotification(blockNumber, succeeded, 0, blockSource)`.
+2. On failure: increments `uploadFailuresTotal`, logs INFO.
+3. On success: increments `uploadsTotal` and `uploadBytesTotal` by `bytesUploaded`.
+4. Always increments `uploadLatencyNs` by `uploadDurationNs`.
 
 ### Object key format
 
@@ -245,8 +254,8 @@ long seg5 = blockNumber                      % 1_000L;
 If `cloud.storage.expanded.endpointUrl` is blank or the S3 client fails to initialise at
 startup (e.g. invalid credentials, unreachable endpoint), `BuckyS3UploadClient`'s
 constructor throws `UploadException`. The plugin catches this in `start()`, logs a WARNING,
-and remains inactive for the duration of the process — `completionService` stays `null` and
-all `handleVerification` calls are no-ops.
+and `s3Client` remains `null` — all `handleVerification` calls are no-ops for the duration
+of the process. `completionService` and `metricsHolder` are still created normally.
 
 **Intent**: once per-plugin health checks are supported, a misconfigured plugin should be
 marked **UNHEALTHY** and surfaced appropriately rather than silently degrading.
@@ -266,7 +275,7 @@ sequenceDiagram
     participant Store as S3-Compatible Store
 
     MF->>ECS: handleVerification(VerificationNotification)
-    ECS->>ECS: check s3Client != null && completionService != null
+    ECS->>ECS: check s3Client != null
     ECS->>ECS: check success() && blockNumber >= 0 && block != null
     ECS->>CS: drain completed tasks → publish PersistedNotifications
     ECS->>CS: submit(SingleBlockStoreTask)
@@ -305,6 +314,7 @@ classDiagram
         -config: ExpandedCloudStorageConfig
         -completionService: CompletionService
         -virtualThreadExecutor: ExecutorService
+        -pendingPublish: ConcurrentSkipListMap
         -metricsHolder: MetricsHolder
         +init(context, serviceBuilder)
         +start()
@@ -312,7 +322,8 @@ classDiagram
         +handleVerification(notification)
         +buildBlockObjectKey(blockNumber) String
         ~drainCompletedTasks()
-        -publishResult(future)
+        -processCompletedFuture(future)
+        -publishResult(result)
     }
     class SingleBlockStoreTask {
         -blockNumber: long
@@ -423,3 +434,5 @@ crash the node.
     and failed uploads.
 12. **stop() drains before close**: in-flight uploads complete and publish
     `PersistedNotification` before `stop()` calls `s3Client.close()`.
+13. **ExecutionException isolation**: unchecked exception escaping `SingleBlockStoreTask.call()`
+    increments `uploadFailuresTotal`, sends no `PersistedNotification`, and does not propagate.
