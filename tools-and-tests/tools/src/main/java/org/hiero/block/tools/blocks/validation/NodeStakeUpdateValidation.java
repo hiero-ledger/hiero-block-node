@@ -18,8 +18,10 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor.PreprocessedData;
 import org.hiero.block.tools.days.model.NodeStakeRegistry;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine.Help.Ansi;
 
 /**
@@ -63,9 +65,39 @@ public final class NodeStakeUpdateValidation implements BlockValidation {
 
     @Override
     public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
+        validate(block, blockNumber, (Instant) null, null);
+    }
+
+    @Override
+    public void validate(final BlockUnparsed block, final long blockNumber, final PreprocessedData preprocessed)
+            throws ValidationException {
+        validate(
+                block,
+                blockNumber,
+                preprocessed != null ? preprocessed.blockInstant() : null,
+                preprocessed != null ? preprocessed.recordFileBytes() : null);
+    }
+
+    /**
+     * Validates with optional pre-extracted block instant and record file bytes.
+     *
+     * @param block the shallow-parsed block
+     * @param blockNumber the block number
+     * @param preExtractedInstant pre-extracted block timestamp, or null to extract here
+     * @param preExtractedRecordFileBytes pre-extracted RecordFile bytes, or null to extract here
+     * @throws ValidationException if validation fails
+     */
+    public void validate(
+            final BlockUnparsed block,
+            final long blockNumber,
+            final @Nullable Instant preExtractedInstant,
+            final @Nullable Bytes preExtractedRecordFileBytes)
+            throws ValidationException {
         try {
-            final Instant blockInstant = extractBlockInstant(block);
-            final Bytes recordFileBytes = extractRecordFileBytes(block);
+            final Instant blockInstant =
+                    (preExtractedInstant != null) ? preExtractedInstant : extractBlockInstant(block);
+            final Bytes recordFileBytes =
+                    (preExtractedRecordFileBytes != null) ? preExtractedRecordFileBytes : extractRecordFileBytes(block);
             if (recordFileBytes == null || recordFileBytes.length() == 0 || blockInstant == null) {
                 return;
             }

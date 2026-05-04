@@ -1,15 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.tss;
 
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.List;
-import java.util.Objects;
-import org.hiero.block.api.RosterEntry;
-import org.hiero.block.api.TssData;
-import org.hiero.block.api.TssRoster;
-import org.hiero.block.common.utils.StringUtilities;
-import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -21,8 +14,6 @@ import org.hiero.block.node.spi.ServiceBuilder;
 ///  - `RosterBootstrapTssConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
 public class RosterBootstrapTssPlugin implements BlockNodePlugin {
-    /// The application state facility, for updating application state.
-    private ApplicationStateFacility applicationStateFacility;
 
     /// {@inheritDoc}
     @NonNull
@@ -34,81 +25,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     /// {@inheritDoc}
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
-        this.applicationStateFacility = Objects.requireNonNull(context.applicationStateFacility());
-        RosterBootstrapTssConfig rosterBootstrapTssConfig =
-                context.configuration().getConfigData(RosterBootstrapTssConfig.class);
-
-        // process the config data
-        processTssDataConfiguration(rosterBootstrapTssConfig);
 
         // todo: query peer BNs for their TssData, if there is no config data, or nothing in the context
-    }
-
-    /// process the `RosterBootstrapTssConfig`
-    ///
-    /// if the config data is valid, create the TssData from the config data and send it to the
-    /// ApplicationStateFacility
-    ///
-    /// @param rosterBootstrapTssConfig The `RosterBootstrapTssConfig` containing the TssData information
-    private void processTssDataConfiguration(RosterBootstrapTssConfig rosterBootstrapTssConfig) {
-        // get the TssData from the config
-        String ledgerId64 = rosterBootstrapTssConfig.ledgerId();
-        String wrapsVerificationKey64 = rosterBootstrapTssConfig.wrapsVerificationKey();
-        String schnorrPublicKey64 = rosterBootstrapTssConfig.schnorrPublicKey();
-        long nodeId = rosterBootstrapTssConfig.nodeId();
-        long weight = rosterBootstrapTssConfig.weight();
-        long validFromBlock = rosterBootstrapTssConfig.validFromBlock();
-        long rosterValidFromBlock = rosterBootstrapTssConfig.rosterValidFromBlock();
-
-        if (StringUtilities.isBlank(ledgerId64)
-                || StringUtilities.isBlank(wrapsVerificationKey64)
-                || StringUtilities.isBlank(schnorrPublicKey64)) {
-            return;
-        }
-
-        TssData tssData = buildTssData(
-                ledgerId64,
-                wrapsVerificationKey64,
-                nodeId,
-                weight,
-                schnorrPublicKey64,
-                validFromBlock,
-                rosterValidFromBlock);
-        applicationStateFacility.updateTssData(tssData);
-    }
-
-    /// build a `TssData` object from individual fields from the `RosterBootstrapTssConfig`
-    ///
-    /// @param ledgerId64 The ledgerId base64 String
-    /// @param wrapsVerificationKey64 The wrapsVerificationKey base64 string
-    /// @param nodeId The node id
-    /// @param weight The weight
-    /// @param schnorrPublicKey64 The schnorrPublicKey base64 string
-    /// @param validFromBlock The block from which this TssData is valid
-    /// @param rosterValidFromBlock The block from which this TssRoster is valid
-    /// @return a `TssData` object
-    private TssData buildTssData(
-            String ledgerId64,
-            String wrapsVerificationKey64,
-            long nodeId,
-            long weight,
-            String schnorrPublicKey64,
-            long validFromBlock,
-            long rosterValidFromBlock) {
-        RosterEntry rosterEntry = RosterEntry.newBuilder()
-                .nodeId(nodeId)
-                .weight(weight)
-                .schnorrPublicKey(Bytes.fromBase64(schnorrPublicKey64))
-                .build();
-        TssRoster tssRoster = TssRoster.newBuilder()
-                .rosterEntries(rosterEntry)
-                .validFromBlock(rosterValidFromBlock)
-                .build();
-        return TssData.newBuilder()
-                .ledgerId(Bytes.fromBase64(ledgerId64))
-                .wrapsVerificationKey(Bytes.fromBase64(wrapsVerificationKey64))
-                .currentRoster(tssRoster)
-                .validFromBlock(validFromBlock)
-                .build();
     }
 }

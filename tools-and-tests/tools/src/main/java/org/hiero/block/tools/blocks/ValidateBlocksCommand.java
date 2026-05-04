@@ -14,9 +14,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -43,6 +45,8 @@ import org.hiero.block.tools.blocks.validation.HbarSupplyValidation;
 import org.hiero.block.tools.blocks.validation.HistoricalBlockTreeValidation;
 import org.hiero.block.tools.blocks.validation.JumpstartValidation;
 import org.hiero.block.tools.blocks.validation.NodeStakeUpdateValidation;
+import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor;
+import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor.PreprocessedData;
 import org.hiero.block.tools.blocks.validation.RequiredItemsValidation;
 import org.hiero.block.tools.blocks.validation.SignatureBlockStats;
 import org.hiero.block.tools.blocks.validation.SignatureStatsCollector;
@@ -91,6 +95,10 @@ public class ValidateBlocksCommand implements Runnable {
     /** Read buffer size for ZipInputStream — tunes sequential HDD I/O. */
     private static final int ZIP_READ_BUFFER = 1 << 20; // 1 MiB
 
+    /** Sentinel for blocks that were skipped (e.g. corrupt zip mid-stream). */
+    private static final PreValidatedBlock SKIPPED_BLOCK =
+            new PreValidatedBlock(null, -1, null, null, null, null, null);
+
     /** Number of zip files skipped because their central directory was corrupt. */
     private final AtomicLong corruptZipCount = new AtomicLong(0);
 
@@ -121,7 +129,7 @@ public class ValidateBlocksCommand implements Runnable {
     @Option(
             names = {"--prefetch"},
             description = "Number of blocks to buffer ahead for decompression (default: ${DEFAULT-VALUE})")
-    private int prefetch = 64;
+    private int prefetch = 256;
 
     @Option(
             names = {"--skip-signatures"},
@@ -652,10 +660,7 @@ public class ValidateBlocksCommand implements Runnable {
                                     byte[] raw = Files.readAllBytes(path);
                                     BlockUnparsed block =
                                             BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                                    return err != null
-                                            ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
-                                            : new PreValidatedBlock(block, bNum, null, null);
+                                    return buildPreValidatedBlock(block, bNum, parallelValidations);
                                 }));
                                 i++;
                             } else {
@@ -684,8 +689,7 @@ public class ValidateBlocksCommand implements Runnable {
                                             "@|yellow Warning:|@ error streaming zip (blocks skipped): "
                                                     + zipPath.getFileName() + " — " + e.getMessage()));
                                     for (int k = i; k < runEnd; k++) {
-                                        blockQueue.put(CompletableFuture.completedFuture(
-                                                new PreValidatedBlock(null, -1, null, null)));
+                                        blockQueue.put(CompletableFuture.completedFuture(SKIPPED_BLOCK));
                                     }
                                 }
                                 i = runEnd;
@@ -713,6 +717,17 @@ public class ValidateBlocksCommand implements Runnable {
         long failedBlockNumber = -1;
         long skippedBlockCount = 0;
 
+        // Timing accumulators (only populated when --verbose is set)
+        final long[] totalQueueTakeNanosRef = {0};
+        final long[] totalFutureGetNanosRef = {0};
+        final long[] totalCommitNanosRef = {0};
+        final Map<String, long[]> perValidationNanos = verbose ? new HashMap<>() : null;
+        if (verbose) {
+            for (BlockValidation v : sequentialValidations) {
+                perValidationNanos.put(v.name(), new long[] {0});
+            }
+        }
+
         try (final SignatureStatsCollector statsCollector = new SignatureStatsCollector(statsCsvPath)) {
             try {
                 long lastCheckpointSaveMs = System.currentTimeMillis();
@@ -721,10 +736,14 @@ public class ValidateBlocksCommand implements Runnable {
                 while (true) {
 
                     try {
+                        long t0 = verbose ? System.nanoTime() : 0;
                         Future<PreValidatedBlock> future = blockQueue.take();
                         if (future == endOfStream) break;
+                        if (verbose) totalQueueTakeNanosRef[0] += System.nanoTime() - t0;
 
+                        long t1 = verbose ? System.nanoTime() : 0;
                         PreValidatedBlock preValidated = future.get();
+                        if (verbose) totalFutureGetNanosRef[0] += System.nanoTime() - t1;
                         if (preValidated.block() == null) {
                             skippedBlockCount++;
                             continue; // block skipped (corrupt zip mid-stream)
@@ -763,10 +782,17 @@ public class ValidateBlocksCommand implements Runnable {
                         BlockUnparsed block = preValidated.block();
                         long blockNum = preValidated.blockNumber();
 
-                        // Phase 1: validate sequential (stateful) validations only
+                        // Phase 1: validate sequential (stateful) validations only,
+                        // passing pre-computed data to avoid redundant work on the main thread
+                        final PreprocessedData ppd = new PreprocessedData(
+                                preValidated.blockHash(), preValidated.blockInstant(), preValidated.recordFileBytes());
                         for (BlockValidation v : sequentialValidations) {
                             try {
-                                v.validate(block, blockNum);
+                                long vStart = verbose ? System.nanoTime() : 0;
+                                v.validate(block, blockNum, ppd);
+                                if (verbose) {
+                                    perValidationNanos.get(v.name())[0] += System.nanoTime() - vStart;
+                                }
                             } catch (ValidationException e) {
                                 failedValidationName = v.name();
                                 failureMessage = e.getMessage();
@@ -811,6 +837,7 @@ public class ValidateBlocksCommand implements Runnable {
 
                         // Phase 2: commit all validations (under lock to prevent shutdown hook
                         // from saving a partially-committed state)
+                        long commitStart = verbose ? System.nanoTime() : 0;
                         synchronized (commitLock) {
                             for (BlockValidation v : validations) {
                                 v.commitState(block, blockNum);
@@ -820,6 +847,7 @@ public class ValidateBlocksCommand implements Runnable {
                             blocksValidated++;
                             blocksValidatedRef[0] = blocksValidated;
                         }
+                        if (verbose) totalCommitNanosRef[0] += System.nanoTime() - commitStart;
 
                         // Collect signature stats from the validation
                         if (signatureValidation != null) {
@@ -1012,6 +1040,29 @@ public class ValidateBlocksCommand implements Runnable {
 
         long elapsedSeconds = (System.nanoTime() - startNanos) / 1_000_000_000L;
         System.out.println(Ansi.AUTO.string("@|yellow Time elapsed:|@ " + elapsedSeconds + " seconds"));
+
+        // Print timing breakdown when --verbose is enabled
+        if (verbose && blocksValidated > 0) {
+            System.out.println();
+            System.out.println(Ansi.AUTO.string("@|bold,cyan TIMING BREAKDOWN|@"));
+            System.out.printf(
+                    "  Queue take:          %,d ms (%.1f us/block)%n",
+                    totalQueueTakeNanosRef[0] / 1_000_000L, totalQueueTakeNanosRef[0] / 1000.0 / blocksValidated);
+            System.out.printf(
+                    "  Future get:          %,d ms (%.1f us/block)%n",
+                    totalFutureGetNanosRef[0] / 1_000_000L, totalFutureGetNanosRef[0] / 1000.0 / blocksValidated);
+            for (BlockValidation v : sequentialValidations) {
+                long[] nanos = perValidationNanos.get(v.name());
+                if (nanos != null) {
+                    System.out.printf(
+                            "  %-22s %,d ms (%.1f us/block)%n",
+                            v.name() + ":", nanos[0] / 1_000_000L, nanos[0] / 1000.0 / blocksValidated);
+                }
+            }
+            System.out.printf(
+                    "  Commit:              %,d ms (%.1f us/block)%n",
+                    totalCommitNanosRef[0] / 1_000_000L, totalCommitNanosRef[0] / 1000.0 / blocksValidated);
+        }
     }
 
     /**
@@ -1088,10 +1139,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final byte[] raw = zis.readAllBytes();
                 blockQueue.put(decompPool.submit(() -> {
                     BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                    return err != null
-                            ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
-                            : new PreValidatedBlock(block, bNum, null, null);
+                    return buildPreValidatedBlock(block, bNum, parallelValidations);
                 }));
             }
         } catch (IOException streamErr) {
@@ -1115,10 +1163,7 @@ public class ValidateBlocksCommand implements Runnable {
                     }
                     blockQueue.put(decompPool.submit(() -> {
                         BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                        Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                        return err != null
-                                ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
-                                : new PreValidatedBlock(block, bNum, null, null);
+                        return buildPreValidatedBlock(block, bNum, parallelValidations);
                     }));
                 }
             }
@@ -1150,10 +1195,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
                     BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                    return err != null
-                            ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
-                            : new PreValidatedBlock(block, bNum, null, null);
+                    return buildPreValidatedBlock(block, bNum, parallelValidations);
                 }));
             }
         }
@@ -1182,10 +1224,7 @@ public class ValidateBlocksCommand implements Runnable {
                 final long bNum = BlockZipsUtilities.extractBlockNumber(fileName);
                 blockQueue.put(decompPool.submit(() -> {
                     BlockUnparsed block = BlockZipsUtilities.decompressAndPartialParse(raw, isZstd, isGz);
-                    Object[] err = runParallelValidations(parallelValidations, block, bNum);
-                    return err != null
-                            ? new PreValidatedBlock(block, bNum, (String) err[0], (Exception) err[1])
-                            : new PreValidatedBlock(block, bNum, null, null);
+                    return buildPreValidatedBlock(block, bNum, parallelValidations);
                 }));
             }
         }
@@ -1209,5 +1248,22 @@ public class ValidateBlocksCommand implements Runnable {
             }
         }
         return null;
+    }
+
+    /**
+     * Runs parallel validations and preprocessing, then wraps the results into a {@link PreValidatedBlock}.
+     */
+    private static PreValidatedBlock buildPreValidatedBlock(
+            final BlockUnparsed block, final long blockNumber, final List<BlockValidation> parallelValidations) {
+        Object[] err = runParallelValidations(parallelValidations, block, blockNumber);
+        PreprocessedData ppd = ParallelBlockPreprocessor.preprocess(block);
+        return new PreValidatedBlock(
+                block,
+                blockNumber,
+                err != null ? (String) err[0] : null,
+                err != null ? (Exception) err[1] : null,
+                ppd.blockHash(),
+                ppd.blockInstant(),
+                ppd.recordFileBytes());
     }
 }
