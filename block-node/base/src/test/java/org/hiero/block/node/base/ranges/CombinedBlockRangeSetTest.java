@@ -53,17 +53,37 @@ class CombinedBlockRangeSetTest {
     @Test
     @DisplayName("contains(start, end) returns true if any underlying set contains the range")
     void testContainsRange() {
-        final BlockRangeSet set1 = mock(BlockRangeSet.class);
-        final BlockRangeSet set2 = mock(BlockRangeSet.class);
-        when(set1.contains(10L, 20L)).thenReturn(false);
-        when(set2.contains(10L, 20L)).thenReturn(true);
-
+        final BlockRangeSet set1 = new ConcurrentLongRangeSet();
+        final BlockRangeSet set2 = new ConcurrentLongRangeSet(10L, 20L);
         final CombinedBlockRangeSet combinedSet = new CombinedBlockRangeSet(set1, set2);
         assertTrue(combinedSet.contains(10L, 20L));
+        assertFalse(combinedSet.contains(0L, 9L));
+        assertFalse(combinedSet.contains(0L, 20L));
         assertFalse(combinedSet.contains(30L, 40L));
+    }
 
-        verify(set1).contains(10L, 20L);
-        verify(set2).contains(10L, 20L);
+    @Test
+    @DisplayName("contains(start, end) returns true if range contained between multiple sets")
+    void testContainsRangeMultipleSets() {
+        final BlockRangeSet set1 = new ConcurrentLongRangeSet(10L, 15L);
+        final BlockRangeSet set2 = new ConcurrentLongRangeSet(16L, 20L);
+        final CombinedBlockRangeSet combinedSet = new CombinedBlockRangeSet(set1, set2);
+        assertTrue(combinedSet.contains(10L, 20L));
+        assertFalse(combinedSet.contains(0L, 9L));
+        assertFalse(combinedSet.contains(0L, 20L));
+        assertFalse(combinedSet.contains(30L, 40L));
+    }
+
+    @Test
+    @DisplayName("contains(start, end) returns true if range contained between multiple sets that overlap")
+    void testContainsRangeMultipleSetsOverlap() {
+        final BlockRangeSet set1 = new ConcurrentLongRangeSet(10L, 18L);
+        final BlockRangeSet set2 = new ConcurrentLongRangeSet(15L, 20L);
+        final CombinedBlockRangeSet combinedSet = new CombinedBlockRangeSet(set1, set2);
+        assertTrue(combinedSet.contains(10L, 20L));
+        assertFalse(combinedSet.contains(0L, 9L));
+        assertFalse(combinedSet.contains(0L, 20L));
+        assertFalse(combinedSet.contains(30L, 40L));
     }
 
     @Test
