@@ -285,6 +285,8 @@ public class BackfillFetcher implements PriorityHealthBasedStrategy.NodeHealthPr
                         maxRetries,
                         e.toString(),
                         cause);
+                // Evict the client to force a fresh connection on the next attempt
+                nodeClientMap.remove(nodeConfig);
                 if (attempt == maxRetries) {
                     markFailure(nodeConfig);
                     // Log exception details on final failure for debugging

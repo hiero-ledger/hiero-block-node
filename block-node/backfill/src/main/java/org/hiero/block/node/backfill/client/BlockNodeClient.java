@@ -152,6 +152,7 @@ public class BlockNodeClient {
                 .tls(tls)
                 .protocolConfigs(List.of(buildHttp2Config(tuning), buildGrpcConfig(pollWaitMs, tuning)))
                 .connectTimeout(Duration.ofMillis(connectTimeoutMs))
+                .readTimeout(Duration.ofMillis(readTimeoutMs))
                 .keepAlive(true)
                 .build();
 
