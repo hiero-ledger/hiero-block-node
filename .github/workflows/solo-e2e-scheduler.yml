@@ -356,7 +356,7 @@ jobs:
           egress-policy: audit
 
       - name: Send Slack notification (success)
-        uses: slackapi/slack-github-action@03ea5433c137af7c0495bc0cad1af10403fc800c # v3.0.2
+        uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
         continue-on-error: true
         with:
           webhook: ${{ secrets.SLACK_BLOCK_NODE_TEST_STATUS_REPORTS_WEBHOOK }}
@@ -431,7 +431,7 @@ jobs:
           egress-policy: audit
 
       - name: Send Slack notification (failure)
-        uses: slackapi/slack-github-action@03ea5433c137af7c0495bc0cad1af10403fc800c # v3.0.2
+        uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
         continue-on-error: true
         with:
           webhook: ${{ secrets.SLACK_BLOCK_NODE_TEST_STATUS_REPORTS_WEBHOOK }}
