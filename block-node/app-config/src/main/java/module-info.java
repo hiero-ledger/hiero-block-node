@@ -9,6 +9,7 @@ module org.hiero.block.node.app.config {
             org.hiero.block.node.stream.publisher;
     // export the node-wide configuration to everything.
     exports org.hiero.block.node.app.config.node;
+    exports org.hiero.block.node.app.config.state;
 
     requires transitive com.swirlds.config.api;
     requires com.swirlds.base;

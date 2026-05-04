@@ -41,6 +41,7 @@ import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
 import org.hiero.block.node.app.config.node.NodeConfig;
+import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
 import org.hiero.block.node.spi.ApplicationStateFacility;
@@ -156,6 +157,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         allConfigDataTypes.add(ServerConfig.class);
         allConfigDataTypes.add(WebServerHttp2Config.class);
         allConfigDataTypes.add(NodeConfig.class);
+        allConfigDataTypes.add(ApplicationStateConfig.class);
         loadedPlugins.forEach(plugin -> allConfigDataTypes.addAll(plugin.configDataTypes()));
         // Init BlockNode Configuration
         String appProperties = getClass().getClassLoader().getResource(APPLICATION_TEST_PROPERTIES) != null
@@ -399,13 +401,14 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .createVirtualThreadScheduledExecutor(
                         1, "ApplicationStateScanner", BlockNodeApp::uncaughtExceptionHandler);
 
-        NodeConfig nodeConfig = blockNodeContext.configuration().getConfigData(NodeConfig.class);
+        ApplicationStateConfig appStateConfig =
+                blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
 
         // Schedule periodic gap detection task using autonomous executor
         applicationStateExecutor.scheduleAtFixedRate(
                 this::checkForApplicationStateUpdates,
-                nodeConfig.appStateUpdateInitialDelay(),
-                nodeConfig.appStateUpdateScanInterval(),
+                appStateConfig.updateInitialDelay(),
+                appStateConfig.updateScanInterval(),
                 TimeUnit.MILLISECONDS);
     }
 
@@ -475,8 +478,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * @param tssData The TssData to persist
      */
     private void persistTssData(TssData tssData) {
-        final Path appStateDataFilePath =
-                blockNodeContext.configuration().getConfigData(NodeConfig.class).appStateDataFilePath();
+        final Path appStateDataFilePath = blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .dataFilePath();
         try {
             Files.createDirectories(appStateDataFilePath.getParent());
             Bytes serialized = TssData.JSON.toBytes(tssData);
@@ -499,7 +504,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     private void loadApplicationState(Configuration configuration) {
         final Path tssDataJsonPath =
-                configuration.getConfigData(NodeConfig.class).appStateDataFilePath();
+                configuration.getConfigData(ApplicationStateConfig.class).dataFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
                 TssData tssData = TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
