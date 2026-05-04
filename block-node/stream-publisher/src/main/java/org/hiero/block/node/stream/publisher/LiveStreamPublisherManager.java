@@ -240,12 +240,18 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     public void blockIsEnding(final long blockNumber, final long handlerId) {
         // @todo(2344) we can further improve this
         LOGGER.log(INFO, "Handler {0} is ending mid-block {1}", handlerId, blockNumber);
-        final Deque<BlockItemSetUnparsed> deque = queueByBlockMap.remove(blockNumber);
         // Remove from the active resend set, if it's present
         activeResendBlocks.remove(blockNumber);
         // Remove this block from the ACCEPT winner tracking in all cases;
         // if the handler dropped mid-block there is no stall to detect here.
         activeStreamHandlerByBlock.remove(blockNumber);
+        // If stall detection already scheduled this block for resend its sentinel
+        // queue entry must remain in queueByBlockMap so the forwarder holds its
+        // position instead of gap-skipping to a later block.
+        if (blocksToResend.contains(blockNumber)) {
+            return;
+        }
+        final Deque<BlockItemSetUnparsed> deque = queueByBlockMap.remove(blockNumber);
         if (deque != null) {
             if (blockNumber > lastPersistedBlockNumber.get() && blockNumber < nextUnstreamedBlockNumber.get()) {
                 final String message = "Block {0} will be resent due to handler {1} ending mid block";
@@ -411,9 +417,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// - The last [BlockItemSetUnparsed] batch in the queue does **not** end
     ///   with a `BlockProof` item, which would indicate the proof arrived but
     ///   the block is not yet completed (this should be quite rare).
-    /// - The block number is **not** present in current blocks being resent.
-    ///   Blocks being actively resent would otherwise always be removed,
-    ///   resulting in broken blocks and handler failures.
+    /// - The block number is **not** present in either active or scheduled resend
+    ///   sets. Entries in either set are protected: `activeResendBlocks` covers
+    ///   the window while a publisher is actively streaming the resend, and
+    ///   `blocksToResend` covers the earlier window while the resend is scheduled
+    ///   but not yet accepted. Removing either would discard data or a sentinel
+    ///   queue entry that the forwarder depends on to hold its position.
     ///
     /// Entries that fail either check are left in the map so that in-flight
     /// complete blocks are not lost before they can be forwarded to the
@@ -433,7 +442,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             for (final Long candidate : keysBeforeBlock) {
                 if (!(blockProofs.containsKey(candidate)
                         || hasBlockProof(queueByBlockMap.get(candidate))
-                        || activeResendBlocks.contains(candidate))) {
+                        || activeResendBlocks.contains(candidate)
+                        || blocksToResend.contains(candidate))) {
                     queueByBlockMap.remove(candidate);
                     // possibly remove a just collected block proof
                     blockProofs.remove(candidate);
@@ -499,7 +509,9 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// signature gathering.
     ///
     /// For each stalled block found:
-    /// - Its queue and proof entries are removed so the forwarder can advance.
+    /// - Its queue is cleared (key retained as a sentinel) so the forwarder holds
+    ///   position rather than gap-skipping to a later block.
+    /// - Its proof entry is removed.
     /// - Its block number is added to blocksToResend.
     /// - The owning handler receives EndStream(TIMEOUT) and is shut down.
     /// - The stall-timeout metric is incremented.
@@ -532,10 +544,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                         handlerId,
                         candidateBlock,
                         completedBlockNumber);
-                queueByBlockMap.remove(candidateBlock);
+                final Deque<BlockItemSetUnparsed> stalledQueue = queueByBlockMap.get(candidateBlock);
+                if (stalledQueue != null) {
+                    stalledQueue.clear();
+                }
                 blockProofs.remove(candidateBlock);
                 blocksToResend.add(candidateBlock);
-                activeResendBlocks.add(candidateBlock);
                 if (stalledHandler != null) {
                     stalledHandler.endStreamWithCode(TIMEOUT, true);
                 }
@@ -674,7 +688,10 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (blocksToResend.contains(blockNumber)) {
             // If we expect a block to be resent, we must check if this publisher is currently publishing that block
             if (blocksToResend.remove(blockNumber)) {
-                // Only one publisher can enter here and start publishing the expected block to be resent
+                // Only one publisher can enter here and start publishing the expected block to be resent.
+                // The block moves from scheduled (blocksToResend) to active (activeResendBlocks) here;
+                // no block should ever be present in both sets at the same time.
+                activeResendBlocks.add(blockNumber);
                 return BlockAction.ACCEPT;
             } else {
                 return BlockAction.SKIP;
@@ -950,13 +967,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // continue.
                 result = publisherLastForwardedBlockNumber;
             } else {
-                // If the block the forwarder was on was stalled and is awaiting
-                // re-delivery, hold position rather than gap-skipping to a later
-                // block. blocksToResend covers the window before a publisher
-                // accepts the resend; activeResendBlocks covers the window from
-                // acceptance until endOfBlock completes.
-                if (publisherManager.blocksToResend.contains(publisherLastForwardedBlockNumber)
-                        || publisherManager.activeResendBlocks.contains(publisherLastForwardedBlockNumber)) {
+                // If a publisher has accepted the header for the stalled block and is
+                // actively re-streaming it, hold position rather than gap-skipping to a
+                // later block. The sentinel queue entry handles the earlier window
+                // (stall fires → publisher accepts the header); this check covers the
+                // narrower window where the queue entry has been removed (e.g. the
+                // resending publisher dropped mid-block) but activeResendBlocks still
+                // reflects that a publisher was in progress.
+                if (publisherManager.activeResendBlocks.contains(publisherLastForwardedBlockNumber)) {
                     result = publisherLastForwardedBlockNumber;
                 } else {
                     final Entry<Long, Deque<BlockItemSetUnparsed>> firstEntry =
