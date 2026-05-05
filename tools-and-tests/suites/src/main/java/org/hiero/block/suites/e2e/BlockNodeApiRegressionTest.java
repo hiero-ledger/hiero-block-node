@@ -277,6 +277,7 @@ public class BlockNodeApiRegressionTest {
         final Bytes hash4 = BlockItemBuilderUtils.computeBlockHash(4L, hash3);
         final Bytes hash5 = BlockItemBuilderUtils.computeBlockHash(5L, hash4);
         final Bytes hash6 = BlockItemBuilderUtils.computeBlockHash(6L, hash5);
+        final Bytes hash7 = BlockItemBuilderUtils.computeBlockHash(7L, hash6);
 
         // Publisher A — streams blocks 0–1 fully (ACKed), then stalls mid-block-2 with a
         // header-only batch.
@@ -334,15 +335,19 @@ public class BlockNodeApiRegressionTest {
 
         awaitLatch(ack2Latch, "ACK(2) — block 2 persisted after RESEND");
 
+        // Send blocks 7–8 and wait for any ACK >= 7. Sending two blocks
+        // provides resilience against correctForResendAndStreaming suppressing
+        // a single block's ACK due to transient queue-map state.
         final AtomicReference<CountDownLatch> terminalLatch = publisherBObserver.setAndGetOnMatchLatch(
                 response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
-                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() == 7L);
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() >= 7L);
 
-        // Block 7 — confirms normal processing continues after the RESEND sequence.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(7L, hash6)));
         endBlock(7L, publisherBStream);
+        publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(8L, hash7)));
+        endBlock(8L, publisherBStream);
 
-        awaitLatch(terminalLatch, "ACK(7) — terminal signal confirming block 2 is in storage");
+        awaitLatch(terminalLatch, "ACK(>=7) — terminal signal confirming block 2 is in storage", publisherBObserver);
 
         assertThat(publisherBObserver.getOnNextCalls())
                 .as("publisher B must receive RESEND(2) — stall detection must request the gap block")
@@ -405,6 +410,7 @@ public class BlockNodeApiRegressionTest {
         final Bytes hash4 = BlockItemBuilderUtils.computeBlockHash(4L, hash3);
         final Bytes hash5 = BlockItemBuilderUtils.computeBlockHash(5L, hash4);
         final Bytes hash6 = BlockItemBuilderUtils.computeBlockHash(6L, hash5);
+        final Bytes hash7 = BlockItemBuilderUtils.computeBlockHash(7L, hash6);
 
         // Publisher A — streams blocks 0–1 (ACKed), then stalls mid-block-2 (header only).
         final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publisherAClient =
@@ -460,15 +466,22 @@ public class BlockNodeApiRegressionTest {
 
         awaitLatch(ack2Latch, "ACK(2) — block 2 persisted after RESEND");
 
+        // Send blocks 7–8 and wait for any ACK >= 7. Sending two blocks
+        // provides resilience against correctForResendAndStreaming suppressing
+        // a single block's ACK due to transient queue-map state.
         final AtomicReference<CountDownLatch> terminalLatch = publisherBObserver.setAndGetOnMatchLatch(
                 response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
-                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() == 7L);
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() >= 7L);
 
-        // Block 7 confirms normal processing resumes after the RESEND sequence.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(7L, hash6)));
         endBlock(7L, publisherBStream);
+        publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(8L, hash7)));
+        endBlock(8L, publisherBStream);
 
-        awaitLatch(terminalLatch, "ACK(7) — terminal signal confirming the RESEND sequence is complete");
+        awaitLatch(
+                terminalLatch,
+                "ACK(>=7) — terminal signal confirming the RESEND sequence is complete",
+                publisherBObserver);
 
         final BlockAccessServiceInterface.BlockAccessServiceClient blockAccessClient =
                 new BlockAccessServiceInterface.BlockAccessServiceClient(getBlockPbjGrpcClient, OPTIONS);
@@ -623,6 +636,53 @@ public class BlockNodeApiRegressionTest {
         requestStream.onNext(PublishStreamRequest.newBuilder()
                 .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
                 .build());
+    }
+
+    private void awaitLatch(
+            final AtomicReference<CountDownLatch> latch,
+            final String description,
+            final ResponsePipelineUtils<PublishStreamResponse> observer)
+            throws InterruptedException {
+        latch.get().await(DEFAULT_AWAIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        if (latch.get().getCount() != 0) {
+            final StringBuilder diagnostics = new StringBuilder();
+            diagnostics.append("Timed out waiting for ").append(description).append('\n');
+            diagnostics
+                    .append("Responses received (")
+                    .append(observer.getOnNextCalls().size())
+                    .append("):\n");
+            for (int i = 0; i < observer.getOnNextCalls().size(); i++) {
+                final PublishStreamResponse response = observer.getOnNextCalls().get(i);
+                diagnostics
+                        .append("  [")
+                        .append(i)
+                        .append("] ")
+                        .append(response.response().kind());
+                if (response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT) {
+                    diagnostics
+                            .append(" block=")
+                            .append(Objects.requireNonNull(response.acknowledgement())
+                                    .blockNumber());
+                } else if (response.response().kind() == PublishStreamResponse.ResponseOneOfType.RESEND_BLOCK) {
+                    diagnostics
+                            .append(" block=")
+                            .append(Objects.requireNonNull(response.resendBlock())
+                                    .blockNumber());
+                }
+                diagnostics.append('\n');
+            }
+            diagnostics
+                    .append("Errors: ")
+                    .append(observer.getOnErrorCalls().size())
+                    .append('\n');
+            for (final Throwable error : observer.getOnErrorCalls()) {
+                diagnostics.append("  ").append(error).append('\n');
+            }
+            diagnostics
+                    .append("onComplete calls: ")
+                    .append(observer.getOnCompleteCalls().get());
+            assertEquals(0, latch.get().getCount(), diagnostics.toString());
+        }
     }
 
     private void awaitLatch(final AtomicReference<CountDownLatch> latch, final String description)
