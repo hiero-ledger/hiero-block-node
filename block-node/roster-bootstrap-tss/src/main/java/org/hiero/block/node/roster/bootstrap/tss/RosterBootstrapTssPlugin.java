@@ -129,7 +129,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         queryPeerExecutor = context.threadPoolManager()
                 .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
 
-        // Schedule periodic gap detection task using autonomous executor
+        // Schedule periodic checking of bn peers for their TssData
         queryPeerExecutor.scheduleAtFixedRate(
                 this::queryPeerTssData,
                 rosterBootstrapTssConfig.queryPeerInitialDelay(),
