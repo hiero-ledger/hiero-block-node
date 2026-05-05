@@ -307,17 +307,23 @@ public class BlockNodeApiRegressionTest {
         final Pipeline<? super PublishStreamRequest> publisherBStream =
                 publisherBClient.publishBlockStream(publisherBObserver);
 
-        // Synchronization probe: publisher B sends block 2 and waits for
-        // SKIP_BLOCK. This round-trip guarantees the server has processed
-        // publisher A's block 2 header (advancing nextUnstreamedBlockNumber
-        // to 3) before publisher B sends blocks 3-6. Without this, on slow
-        // CI machines publisher B's blocks can arrive before publisher A's
-        // header is processed, causing NODE_BEHIND_PUBLISHER instead of the
-        // expected stall-detection path.
-        final AtomicReference<CountDownLatch> probeLatch = publisherBObserver.setAndGetOnNextLatch(1);
-        publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
-        endBlock(2L, publisherBStream);
-        awaitLatch(probeLatch, "SKIP_BLOCK(2) — sync probe confirming publisher A holds block 2");
+        // Synchronization: retry block 3 until it gets a non-BEHIND
+        // response. NODE_BEHIND_PUBLISHER means publisher A's block 2 header
+        // hasn't been processed yet (nextUnstreamedBlockNumber < 3). The
+        // handler resets after each BEHIND, so retrying is safe. Once block 3
+        // gets through, publisher A's block 2 header must have been accepted.
+        boolean block3Accepted = false;
+        while (!block3Accepted) {
+            final int responsesBefore = publisherBObserver.getOnNextCalls().size();
+            final AtomicReference<CountDownLatch> probeLatch = publisherBObserver.setAndGetOnNextLatch(1);
+            publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(3L, hash2)));
+            endBlock(3L, publisherBStream);
+            awaitLatch(probeLatch, "response for block 3 sync probe");
+            final PublishStreamResponse probeResponse =
+                    publisherBObserver.getOnNextCalls().get(responsesBefore);
+            block3Accepted =
+                    probeResponse.response().kind() != PublishStreamResponse.ResponseOneOfType.NODE_BEHIND_PUBLISHER;
+        }
 
         // Set latch for RESEND_BLOCK before sending so it cannot be missed.
         // Stall threshold is MaxFutureBlocksBeforeStalled=3: stall fires when
@@ -325,9 +331,8 @@ public class BlockNodeApiRegressionTest {
         final AtomicReference<CountDownLatch> resendLatch = publisherBObserver.setAndGetOnMatchLatch(
                 response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.RESEND_BLOCK);
 
-        // Blocks 3–6: stall fires when endOfBlock(6) is processed (6 > 2+3).
-        publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(3L, hash2)));
-        endBlock(3L, publisherBStream);
+        // Blocks 4–6: stall fires when endOfBlock(6) is processed (6 > 2+3).
+        // Block 3 was already sent in the sync probe above.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(4L, hash3)));
         endBlock(4L, publisherBStream);
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(5L, hash4)));
@@ -449,17 +454,23 @@ public class BlockNodeApiRegressionTest {
         final Pipeline<? super PublishStreamRequest> publisherBStream =
                 publisherBClient.publishBlockStream(publisherBObserver);
 
-        // Synchronization probe: publisher B sends block 2 and waits for
-        // SKIP_BLOCK. This round-trip guarantees the server has processed
-        // publisher A's block 2 header (advancing nextUnstreamedBlockNumber
-        // to 3) before publisher B sends blocks 3-6. Without this, on slow
-        // CI machines publisher B's blocks can arrive before publisher A's
-        // header is processed, causing NODE_BEHIND_PUBLISHER instead of the
-        // expected stall-detection path.
-        final AtomicReference<CountDownLatch> probeLatch = publisherBObserver.setAndGetOnNextLatch(1);
-        publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
-        endBlock(2L, publisherBStream);
-        awaitLatch(probeLatch, "SKIP_BLOCK(2) — sync probe confirming publisher A holds block 2");
+        // Synchronization: retry block 3 until it gets a non-BEHIND
+        // response. NODE_BEHIND_PUBLISHER means publisher A's block 2 header
+        // hasn't been processed yet (nextUnstreamedBlockNumber < 3). The
+        // handler resets after each BEHIND, so retrying is safe. Once block 3
+        // gets through, publisher A's block 2 header must have been accepted.
+        boolean block3Accepted = false;
+        while (!block3Accepted) {
+            final int responsesBefore = publisherBObserver.getOnNextCalls().size();
+            final AtomicReference<CountDownLatch> probeLatch = publisherBObserver.setAndGetOnNextLatch(1);
+            publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(3L, hash2)));
+            endBlock(3L, publisherBStream);
+            awaitLatch(probeLatch, "response for block 3 sync probe");
+            final PublishStreamResponse probeResponse =
+                    publisherBObserver.getOnNextCalls().get(responsesBefore);
+            block3Accepted =
+                    probeResponse.response().kind() != PublishStreamResponse.ResponseOneOfType.NODE_BEHIND_PUBLISHER;
+        }
 
         // Set latch for RESEND_BLOCK before sending so it cannot be missed.
         // Stall threshold is MaxFutureBlocksBeforeStalled=3: stall fires when
@@ -467,8 +478,8 @@ public class BlockNodeApiRegressionTest {
         final AtomicReference<CountDownLatch> resendLatch = publisherBObserver.setAndGetOnMatchLatch(
                 response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.RESEND_BLOCK);
 
-        publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(3L, hash2)));
-        endBlock(3L, publisherBStream);
+        // Blocks 4–6: stall fires when endOfBlock(6) is processed (6 > 2+3).
+        // Block 3 was already sent in the sync probe above.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(4L, hash3)));
         endBlock(4L, publisherBStream);
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(5L, hash4)));
