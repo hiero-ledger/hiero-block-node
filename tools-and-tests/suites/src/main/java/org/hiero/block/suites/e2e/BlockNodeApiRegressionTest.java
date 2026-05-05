@@ -469,7 +469,9 @@ public class BlockNodeApiRegressionTest {
         // Blocks 2–6 must all be in storage — the stall-RESEND sequence must leave no gaps.
         for (long blockNum = 2L; blockNum <= 6L; blockNum++) {
             assertThat(blockAccessClient
-                            .getBlock(BlockRequest.newBuilder().blockNumber(blockNum).build())
+                            .getBlock(BlockRequest.newBuilder()
+                                    .blockNumber(blockNum)
+                                    .build())
                             .status())
                     .as("block %d must be in storage — stall RESEND sequence must leave no gaps", blockNum)
                     .isEqualTo(BlockResponse.Code.SUCCESS);
