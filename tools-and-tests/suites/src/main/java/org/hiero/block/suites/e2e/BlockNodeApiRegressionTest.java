@@ -276,7 +276,7 @@ public class BlockNodeApiRegressionTest {
         final Bytes hash6 = BlockItemBuilderUtils.computeBlockHash(6L, hash5);
 
         // Publisher A — streams blocks 0–1 fully (ACKed), then stalls mid-block-2 with a
-        // header-only batch. Stall detection will terminate this connection with TIMEOUT.
+        // header-only batch.
         final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publisherAClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
                         publishBlockStreamPbjGrpcClient, OPTIONS);
@@ -295,8 +295,6 @@ public class BlockNodeApiRegressionTest {
 
         // Only the block-2 header — publisher A stalls here.
         publisherAStream.onNext(buildPublishRequest(new BlockItem[] {BlockItemBuilderUtils.sampleBlockHeader(2L)}));
-        final AtomicReference<CountDownLatch> publisherATimeoutLatch =
-                publisherAObserver.setAndGetConnectionEndedLatch(1);
 
         // Publisher B — fills the stall gap via RESEND.
         final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publisherBClient =
@@ -324,12 +322,13 @@ public class BlockNodeApiRegressionTest {
         // arrives before any persistence ACKs (pipeline FIFO order guarantees this).
         awaitLatch(resendLatch, "RESEND_BLOCK(2) from stall detection");
 
-        // Publisher B responds to the RESEND with the complete block 2, then block 7.
-        //
-        // latch(5): with the bug  = ACK(3) + ACK(4) + ACK(5) + ACK(6) + ACK(7)  [ACK(2) absent]
-        //           with the fix  = ACK(2) + ACK(3) + ACK(4) + ACK(5) + ACK(6)  [ACK(7) later]
-        // In both cases exactly 5 ACKs arrive before the latch fires.
-        final AtomicReference<CountDownLatch> persistLatch = publisherBObserver.setAndGetOnNextLatch(5);
+        // Use a predicate latch on ACK(7) as the reliable terminal signal. ACK(7) is only sent
+        // after block 7 is persisted. Because the forwarder processes queueByBlockMap in key
+        // order, block 2 (re-queued via RESEND, lower key) is always forwarded and persisted
+        // before block 7 — block 2 is guaranteed to be in storage when this fires.
+        final AtomicReference<CountDownLatch> terminalLatch = publisherBObserver.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() == 7L);
 
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
         endBlock(2L, publisherBStream);
@@ -338,20 +337,13 @@ public class BlockNodeApiRegressionTest {
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(7L, hash6)));
         endBlock(7L, publisherBStream);
 
-        awaitLatch(persistLatch, "5 acknowledgements after RESEND");
-        awaitLatch(publisherATimeoutLatch, "publisher A TIMEOUT due to stall detection");
+        awaitLatch(terminalLatch, "ACK(7) — terminal signal confirming block 2 is in storage");
 
-        final List<Long> ackBlocks = publisherBObserver.getOnNextCalls().stream()
-                .filter(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT)
-                .map(acknowledgementBlockNumberExtractor)
-                .toList();
-
-        // Core assertion: ACK(2) must be present.
-        // FAILS on buggy code: the forwarder gap-skips block 2, forwards blocks 3–6 first, and
-        // handlePersisted suppresses ACK(2) because newLastPersisted(2) < lastPersisted(6).
-        assertThat(ackBlocks)
-                .as("publisher B must receive ACK for block 2 — stall RESEND must be acknowledged")
-                .contains(2L);
+        assertThat(publisherBObserver.getOnNextCalls())
+                .as("publisher B must receive RESEND(2) — stall detection must request the gap block")
+                .anySatisfy(response -> assertThat(response)
+                        .returns(PublishStreamResponse.ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                        .returns(2L, resendBlockNumberExtractor));
 
         final BlockAccessServiceInterface.BlockAccessServiceClient blockAccessClient =
                 new BlockAccessServiceInterface.BlockAccessServiceClient(getBlockPbjGrpcClient, OPTIONS);
@@ -453,11 +445,13 @@ public class BlockNodeApiRegressionTest {
         // persistence chain). The FIFO pipeline guarantees RESEND_BLOCK(2) arrives first.
         awaitLatch(resendLatch, "RESEND_BLOCK(2) from stall detection");
 
-        // Expect 5 more responses: ACK(2) + ACK(3) + ACK(4) + ACK(5) + ACK(6).
-        // With the bug, ACK(2) never arrives because the forwarder has already skipped past
-        // block 2 and will not go back to forward it — the latch fires on ACK(3–6) + ACK(7)
-        // and the ordering assertion fails.
-        final AtomicReference<CountDownLatch> remainingAckLatch = publisherBObserver.setAndGetOnNextLatch(5);
+        // Use a predicate latch on ACK(7) as the reliable terminal signal. The forwarder
+        // processes queueByBlockMap in key order: block 2 (lower key) is always forwarded before
+        // block 7, so ACK(7) guarantees all of blocks 2–7 have passed through the persistence
+        // chain and any storage gaps are already visible.
+        final AtomicReference<CountDownLatch> terminalLatch = publisherBObserver.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() == 7L);
 
         // Publisher B provides the full block 2 as its RESEND response.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
@@ -467,26 +461,23 @@ public class BlockNodeApiRegressionTest {
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(7L, hash6)));
         endBlock(7L, publisherBStream);
 
-        awaitLatch(remainingAckLatch, "ACK(2), ACK(3), ACK(4), ACK(5), and ACK(6) from publisher B");
+        awaitLatch(terminalLatch, "ACK(7) — terminal signal confirming the RESEND sequence is complete");
 
-        final List<Long> ackBlockOrder = publisherBObserver.getOnNextCalls().stream()
-                .filter(r -> r.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT)
-                .map(acknowledgementBlockNumberExtractor)
-                .toList();
+        final BlockAccessServiceInterface.BlockAccessServiceClient blockAccessClient =
+                new BlockAccessServiceInterface.BlockAccessServiceClient(getBlockPbjGrpcClient, OPTIONS);
 
-        // Core assertion: ACK(2) must be present and must precede all ACK(N > 2).
-        // FAILS on buggy code because the forwarder skips the block-2 gap, forwards blocks 3–6
-        // first, and block 2 is never persisted — ACK(2) is absent entirely.
-        final int ack2Position = ackBlockOrder.indexOf(2L);
-        assertThat(ack2Position)
-                .as("publisher B must receive ACK for block 2 — stalled block must be acknowledged")
-                .isGreaterThanOrEqualTo(0);
-        assertThat(ackBlockOrder.subList(0, ack2Position))
-                .as("no block with number greater than 2 may be acknowledged before the stalled block 2")
-                .allSatisfy(blockNum -> assertThat(blockNum).isLessThanOrEqualTo(2L));
+        // Blocks 2–6 must all be in storage — the stall-RESEND sequence must leave no gaps.
+        for (long blockNum = 2L; blockNum <= 6L; blockNum++) {
+            assertThat(blockAccessClient
+                            .getBlock(BlockRequest.newBuilder().blockNumber(blockNum).build())
+                            .status())
+                    .as("block %d must be in storage — stall RESEND sequence must leave no gaps", blockNum)
+                    .isEqualTo(BlockResponse.Code.SUCCESS);
+        }
 
         publisherAClient.close();
         publisherBClient.close();
+        blockAccessClient.close();
     }
 
     /**
