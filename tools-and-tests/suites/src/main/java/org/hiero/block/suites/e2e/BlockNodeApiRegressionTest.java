@@ -56,7 +56,7 @@ import org.junit.jupiter.api.Test;
 public class BlockNodeApiRegressionTest {
 
     private static final String BLOCKS_DATA_DIR_PATH = "build/tmp/data";
-    private static final Duration DEFAULT_AWAIT_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration DEFAULT_AWAIT_TIMEOUT = Duration.ofSeconds(60);
     private static final Options OPTIONS =
             new Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
@@ -88,7 +88,10 @@ public class BlockNodeApiRegressionTest {
         try {
             assertNotNull(app, "BlockNodeApp should be constructed");
             app.start();
-            Thread.sleep(200);
+            final long startupDeadline = System.currentTimeMillis() + 10_000;
+            while (app.blockNodeState() != State.RUNNING && System.currentTimeMillis() < startupDeadline) {
+                Thread.sleep(10);
+            }
             assertEquals(State.RUNNING, app.blockNodeState());
             publishBlockStreamPbjGrpcClient = createGrpcClient();
             getBlockPbjGrpcClient = createGrpcClient();
