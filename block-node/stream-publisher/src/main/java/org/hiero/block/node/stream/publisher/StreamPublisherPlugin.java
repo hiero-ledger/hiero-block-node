@@ -127,7 +127,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
                 (BlockStreamPublishServiceMethod) method;
 
         final int maxMessageSize =
-                context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes() - 16384;
+                context.configuration().getConfigData(ServerConfig.class).maxMessageSizeBytes();
 
         final String rawCorrelationId = options.metadata().getOrDefault("hiero-correlation-id", "");
         final String correlationId = truncateCorrelationId(rawCorrelationId);

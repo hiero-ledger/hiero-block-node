@@ -12,7 +12,7 @@ import org.hiero.block.node.base.Loggable;
  *
  * <p>ServerConfig will have settings for the server.
  *
- * @param maxMessageSizeBytes the http2 max message/frame size in bytes
+ * @param maxMessageSizeBytes the PBJ max message size in bytes
  * @param socketSendBufferSizeBytes the socket send buffer size in bytes
  * @param socketReceiveBufferSizeBytes the socket receive buffer size in bytes
  * @param port the port the server will listen on
@@ -27,12 +27,14 @@ import org.hiero.block.node.base.Loggable;
 // spotless:off
 @ConfigData("server")
 public record ServerConfig(
-        @Loggable @ConfigProperty(defaultValue = "37_748_736") @Min(262_144) @Max(37_748_736) int maxMessageSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "131_072") @Min(32768) @Max(Integer.MAX_VALUE)
-                int socketSendBufferSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "131_072") @Min(32768) @Max(Integer.MAX_VALUE)
-                int socketReceiveBufferSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "40840") @Min(1024) @Max(65_535) int port,
+        @Loggable @ConfigProperty(defaultValue = "131_072_000")
+            @Min(1_048_576) @Max(1_610_612_736) int maxMessageSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "131_072")
+            @Min(32768) @Max(Integer.MAX_VALUE) int socketSendBufferSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "131_072")
+            @Min(32768) @Max(Integer.MAX_VALUE) int socketReceiveBufferSizeBytes,
+        @Loggable @ConfigProperty(defaultValue = "40840")
+            @Min(1024) @Max(65_535) int port,
         @Loggable @ConfigProperty(defaultValue = "500") int shutdownDelayMillis,
         @Loggable @ConfigProperty(defaultValue = "1000") int maxTcpConnections,
         @Loggable @ConfigProperty(defaultValue = "5") int idleConnectionPeriodMinutes,
