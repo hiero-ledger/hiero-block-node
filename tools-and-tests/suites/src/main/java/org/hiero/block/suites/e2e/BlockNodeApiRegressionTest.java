@@ -310,15 +310,19 @@ public class BlockNodeApiRegressionTest {
         // Synchronization: retry block 3 until it gets a non-BEHIND
         // response. NODE_BEHIND_PUBLISHER means publisher A's block 2 header
         // hasn't been processed yet (nextUnstreamedBlockNumber < 3). The
-        // handler resets after each BEHIND, so retrying is safe. Once block 3
-        // gets through, publisher A's block 2 header must have been accepted.
+        // handler resets after each BEHIND, so retrying is safe. ACCEPT sends
+        // no immediate response (ACK is stuck behind stalled block 2 in the
+        // forwarder), so a short timeout with no response means ACCEPT.
         boolean block3Accepted = false;
         while (!block3Accepted) {
             final int responsesBefore = publisherBObserver.getOnNextCalls().size();
             final AtomicReference<CountDownLatch> probeLatch = publisherBObserver.setAndGetOnNextLatch(1);
             publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(3L, hash2)));
             endBlock(3L, publisherBStream);
-            awaitLatch(probeLatch, "response for block 3 sync probe");
+            final boolean responded = probeLatch.get().await(500, TimeUnit.MILLISECONDS);
+            if (!responded) {
+                break;
+            }
             final PublishStreamResponse probeResponse =
                     publisherBObserver.getOnNextCalls().get(responsesBefore);
             block3Accepted =
@@ -457,15 +461,19 @@ public class BlockNodeApiRegressionTest {
         // Synchronization: retry block 3 until it gets a non-BEHIND
         // response. NODE_BEHIND_PUBLISHER means publisher A's block 2 header
         // hasn't been processed yet (nextUnstreamedBlockNumber < 3). The
-        // handler resets after each BEHIND, so retrying is safe. Once block 3
-        // gets through, publisher A's block 2 header must have been accepted.
+        // handler resets after each BEHIND, so retrying is safe. ACCEPT sends
+        // no immediate response (ACK is stuck behind stalled block 2 in the
+        // forwarder), so a short timeout with no response means ACCEPT.
         boolean block3Accepted = false;
         while (!block3Accepted) {
             final int responsesBefore = publisherBObserver.getOnNextCalls().size();
             final AtomicReference<CountDownLatch> probeLatch = publisherBObserver.setAndGetOnNextLatch(1);
             publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(3L, hash2)));
             endBlock(3L, publisherBStream);
-            awaitLatch(probeLatch, "response for block 3 sync probe");
+            final boolean responded = probeLatch.get().await(500, TimeUnit.MILLISECONDS);
+            if (!responded) {
+                break;
+            }
             final PublishStreamResponse probeResponse =
                     publisherBObserver.getOnNextCalls().get(responsesBefore);
             block3Accepted =
