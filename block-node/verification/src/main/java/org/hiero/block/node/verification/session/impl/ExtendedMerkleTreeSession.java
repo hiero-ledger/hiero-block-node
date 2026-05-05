@@ -2,11 +2,18 @@
 package org.hiero.block.node.verification.session.impl;
 
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
+import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNode;
+import static org.hiero.block.common.hasher.HashingUtilities.hashInternalNodeSingleChild;
+import static org.hiero.block.common.hasher.HashingUtilities.hashLeaf;
 import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf;
 
 import com.hedera.cryptography.tss.TSS;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.MerklePath;
+import com.hedera.hapi.block.stream.SiblingNode;
+import com.hedera.hapi.block.stream.StateProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.transaction.SignedTransaction;
@@ -169,15 +176,30 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // while we don't have state management, use the start of block state root hash from the footer
         Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
 
-        // for now, we only support TSS based signature proofs, we expect only 1 of these.
-        // @todo(2019) extend to support other proof types as well
-        BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
-        if (tssBasedProof != null) {
-            return getVerificationResult(
-                    tssBasedProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
+        try {
+            // Try direct TSS proof first (most common case)
+            BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
+            if (tssBasedProof != null) {
+                return getVerificationResult(
+                        tssBasedProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
+            }
+
+            // Try indirect (state) proof — used when TSS signing was delayed
+            BlockProof stateBasedProof = getSingle(blockProofs, BlockProof::hasBlockStateProof);
+            if (stateBasedProof != null) {
+                return getStateProofVerificationResult(
+                        stateBasedProof,
+                        previousBlockHashToUse,
+                        rootOfAllPreviousBlockHashes,
+                        startOfBlockStateRootHash);
+            }
+        } catch (final IllegalStateException e) {
+            LOGGER.log(WARNING, "Block [{0}] has malformed proof structure: %s".formatted(e.getMessage()), e);
+            return new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
 
-        // was not able to finalize verification yet
+        // No supported proof type found
         return null;
     }
 
@@ -236,6 +258,188 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     }
 
     /**
+     * Verifies a block using an indirect (state) proof. A state proof proves that the target
+     * block's root hash is embedded in a later directly-signed block's merkle tree, forming
+     * a chain: target block hash -> merkle siblings -> signed block root -> TSS signature.
+     *
+     * @param blockProof the block proof containing a state proof
+     * @param previousBlockHash the previous block hash
+     * @param rootOfAllPreviousBlockHashes the root hash of all previous block hashes
+     * @param startOfBlockStateRootHash the start of block state root hash
+     * @return VerificationNotification indicating the result of the verification
+     */
+    protected VerificationNotification getStateProofVerificationResult(
+            BlockProof blockProof,
+            Bytes previousBlockHash,
+            Bytes rootOfAllPreviousBlockHashes,
+            Bytes startOfBlockStateRootHash) {
+
+        final Bytes blockRootHash = HashingUtilities.computeFinalBlockHash(
+                blockHeader.blockTimestamp(),
+                previousBlockHash,
+                rootOfAllPreviousBlockHashes,
+                startOfBlockStateRootHash,
+                inputTreeHasher,
+                outputTreeHasher,
+                consensusHeaderHasher,
+                stateChangesHasher,
+                traceDataHasher);
+
+        final boolean verified = verifyStateProof(blockRootHash, blockProof.blockStateProof());
+
+        return new VerificationNotification(
+                verified,
+                verified ? null : FailureType.BAD_BLOCK_PROOF,
+                blockNumber,
+                blockRootHash,
+                verified ? new BlockUnparsed(blockItems) : null,
+                blockSource);
+    }
+
+    /**
+     * Walks the merkle path chain in a state proof to reconstruct the directly-signed block's
+     * root hash, then verifies the TSS signature on that root.
+     *
+     * <p>A valid block state proof contains 3 paths:
+     * <ul>
+     *   <li>Path 0: timestamp leaf of the signed block</li>
+     *   <li>Path 1: sibling hashes from the target block through all `gap` (i.e. not directly signed) blocks to the signed block</li>
+     *   <li>Path 2: terminal (empty)</li>
+     * </ul>
+     *
+     * <p>Path 1's siblings are laid out as groups:
+     * <ul>
+     *   <li>Per gap block (4 siblings): prevBlockRootsHash (right), depth5Node2 (right), depth4Node2 (right), <i>already-hashed</i> timestamp (left)</li>
+     *   <li>Final signed block (3 siblings): prevBlockRootsHash (right), depth5Node2 (right), depth4Node2 (right)
+     * </ul>
+     *
+     * @param blockRootHash the computed root hash of the target block
+     * @param stateProof the state proof to verify
+     * @return true if the proof chain and TSS signature are valid
+     */
+    protected boolean verifyStateProof(@NonNull Bytes blockRootHash, @NonNull StateProof stateProof) {
+        List<MerklePath> paths = stateProof.paths();
+        if (paths.size() != 3) {
+            LOGGER.log(WARNING, "Block {0} state proof has {1} paths, expected 3", blockNumber, paths.size());
+            return false;
+        }
+
+        MerklePath timestampPath = paths.get(0);
+        MerklePath siblingPath = paths.get(1);
+        MerklePath terminalPath = paths.get(2);
+
+        if (!terminalPath.siblings().isEmpty() || terminalPath.hasTimestampLeaf()) {
+            LOGGER.log(WARNING, "Block {0} state proof path 2 (terminal) is unexpectedly non-empty", blockNumber);
+            return false;
+        }
+
+        if (!timestampPath.hasTimestampLeaf()) {
+            LOGGER.log(WARNING, "Block {0} state proof path 0 (timestamp) is missing timestamp leaf", blockNumber);
+            return false;
+        }
+        if (!stateProof.hasSignedBlockProof()) {
+            LOGGER.log(WARNING, "Block {0} state proof is missing signed block proof", blockNumber);
+            return false;
+        }
+
+        List<SiblingNode> siblings = siblingPath.siblings();
+        int totalSiblings = siblings.size();
+        // Must have at least 3 (signed block siblings) and remainder must be groups of 4 (gap blocks)
+        if (totalSiblings < 3 || (totalSiblings - 3) % 4 != 0) {
+            LOGGER.log(
+                    WARNING,
+                    "Block {0} state proof sibling count {1} is invalid (need >= 3, remainder must be multiple of 4)",
+                    blockNumber,
+                    totalSiblings);
+            return false;
+        }
+        // Starting hash must be present and non-empty to avoid propagating incorrect hashes
+        if (!siblingPath.hasHash() || siblingPath.hash().length() == 0) {
+            LOGGER.log(
+                    WARNING, "Block {0} state proof path 1 (sibling) has missing or empty starting hash", blockNumber);
+            return false;
+        }
+        for (SiblingNode sibling : siblings) {
+            if (sibling.hash().length() == 0) {
+                LOGGER.log(WARNING, "Block {0} state proof contains a sibling node with an empty hash", blockNumber);
+                return false;
+            }
+        }
+
+        // siblingPath.hash() is the previous block's (T-1) root hash. Walking the siblings in groups
+        // first reconstructs the target block T's root hash, then each subsequent gap block's root hash,
+        // until we reach the signed block. After the first iteration, current equals T's reconstructed
+        // root hash — verify it matches the independently computed blockRootHash to ensure block content integrity.
+        byte[] current = siblingPath.hash().toByteArray();
+        int index = 0;
+        boolean firstIteration = true;
+
+        // Process gap blocks (including the target block itself) — each contributes 4 siblings
+        while (totalSiblings - index > 3) {
+            SiblingNode prevBlockRootsHash = siblings.get(index);
+            SiblingNode depth5Node2Sibling = siblings.get(index + 1);
+            SiblingNode depth4Node2Sibling = siblings.get(index + 2);
+            SiblingNode hashedTimestampSibling = siblings.get(index + 3);
+
+            byte[] depth5Node1 = combineSibling(current, prevBlockRootsHash);
+            byte[] depth4Node1 = combineSibling(depth5Node1, depth5Node2Sibling);
+            byte[] depth3Node1 = combineSibling(depth4Node1, depth4Node2Sibling);
+            byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
+            // The timestamp sibling hash is already hashLeaf(rawTimestamp) — a 48-byte node value.
+            // Combine as depth2Node1 (left) with depth2Node2 (right) to reconstruct the gap block root.
+            current = hashInternalNode(hashedTimestampSibling.hash().toByteArray(), depth2Node2);
+
+            if (firstIteration) {
+                // current now holds the reconstructed target block root hash; verify it matches
+                // the hash computed from the actual block content we received.
+                final Bytes reconstructed = Bytes.wrap(current);
+                if (!blockRootHash.equals(reconstructed)) {
+                    LOGGER.log(
+                            WARNING,
+                            "Block {0} state proof integrity check failed: hash reconstructed from path 1 siblings"
+                                    + " [{1}] does not match block root hash computed from block content [{2}]",
+                            blockNumber,
+                            reconstructed,
+                            blockRootHash);
+                    return false;
+                }
+                firstIteration = false;
+            }
+
+            index += 4;
+        }
+
+        // Process the signed block's 3 siblings
+        byte[] depth5Node1 = combineSibling(current, siblings.get(index));
+        byte[] depth4Node1 = combineSibling(depth5Node1, siblings.get(index + 1));
+        byte[] depth3Node1 = combineSibling(depth4Node1, siblings.get(index + 2));
+
+        // Reconstruct the signed block's root hash using Path 0's raw timestamp bytes
+        byte[] depth2Node2 = hashInternalNodeSingleChild(depth3Node1);
+        byte[] hashedTimestampLeaf = hashLeaf(timestampPath.timestampLeaf().toByteArray());
+        byte[] signedBlockRoot = hashInternalNode(hashedTimestampLeaf, depth2Node2);
+
+        // Verify TSS signature on the signed block's root hash
+        return verifySignature(
+                Bytes.wrap(signedBlockRoot), stateProof.signedBlockProof().blockSignature());
+    }
+
+    /**
+     * Combines the current hash with a sibling node, respecting the sibling's position.
+     *
+     * @param current the current hash being walked up the tree
+     * @param sibling the sibling node with position and hash
+     * @return the parent hash
+     */
+    private static byte[] combineSibling(byte[] current, SiblingNode sibling) {
+        if (sibling.isLeft()) {
+            return hashInternalNode(sibling.hash().toByteArray(), current);
+        } else {
+            return hashInternalNode(current, sibling.hash().toByteArray());
+        }
+    }
+
+    /**
      * Extracts a {@link LedgerIdPublicationTransactionBody} from a signed transaction, if present.
      * Pure parsing — no side effects.
      *
@@ -265,14 +469,13 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         return body.ledgerIdPublicationOrThrow();
     }
 
-    public static <T> T getSingle(List<T> list, Predicate<T> predicate) {
+    /** Returns the single element matching the predicate, or null if none match. */
+    private <T> T getSingle(List<T> list, Predicate<T> predicate) {
         List<T> filtered = list.stream().filter(predicate).toList();
-
-        if (filtered.size() != 1) {
-            throw new IllegalStateException(String.format(
-                    "Expected exactly 1 element matching predicate [%s], but found %d.", predicate, filtered.size()));
+        if (filtered.size() > 1) {
+            throw new IllegalStateException(
+                    "Expected at most 1 element matching predicate, but found " + filtered.size());
         }
-
-        return filtered.get(0);
+        return filtered.isEmpty() ? null : filtered.get(0);
     }
 }

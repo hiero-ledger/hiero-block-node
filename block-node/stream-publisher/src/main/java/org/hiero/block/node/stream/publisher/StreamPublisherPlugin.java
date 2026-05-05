@@ -89,6 +89,8 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
     public static final MetricKey<LongGauge> METRIC_PUBLISHER_LATEST_BLOCK_NUMBER_ACKNOWLEDGED = MetricKey.of(
                     "publisher_latest_block_number_acknowledged", LongGauge.class)
             .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_STALL_TIMEOUTS_SENT =
+            MetricKey.of("publisher_stall_timeouts_sent", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /// The logger for this class.
     private static final System.Logger LOGGER = System.getLogger(StreamPublisherPlugin.class.getName());
