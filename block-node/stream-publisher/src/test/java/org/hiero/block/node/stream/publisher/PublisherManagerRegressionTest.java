@@ -7,8 +7,6 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.s
 
 import com.swirlds.config.api.Configuration;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.LockSupport;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
