@@ -67,6 +67,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private static final int DATA_READY_WAIT_MICROSECONDS = 5000;
     private static final String STALL_DETECTED_LOG_MESSAGE =
             "[{0}] Stall detected: handler {1} has not completed block {2}, another handler completed block {3}";
+    private static final String BLOCK_ABANDONED_LOG_MESSAGE =
+            "[{0}] Replacement persistence detected: handler {1} has not completed block {2}, but a different source persisted the same block {3}";
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
@@ -538,11 +540,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// Checks whether any currently accepted block is stalled relative to the
     /// block that just completed. A handler is considered stalled when it holds
     /// ACCEPT for block N, has not yet called endOfBlock(N), and another handler
-    /// has just called endOfBlock(M) where M > N + 2.
+    /// has just called endOfBlock(M) where M > N + `K`.
     ///
-    /// The +2 threshold respects the protocol requirement that a publisher may
-    /// reasonably require up to 2 block times to complete a block due to
-    /// signature gathering.
+    /// The +`K` threshold respects the protocol requirement that a publisher may
+    /// reasonably require up to `K` block times to complete a block due to
+    /// signature gathering. The exact value, `K`, is configured.
     ///
     /// For each stalled block found:
     /// - Its queue and proof entries are removed so the forwarder can advance.
@@ -561,29 +563,47 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         for (final Map.Entry<Long, Long> entry : activeStreamHandlerByBlock.entrySet()) {
             final long candidateBlock = entry.getKey();
             final long handlerId = entry.getValue();
-            if (completedBlockNumber > candidateBlock + maxBlocksBeforeStalled
+            // Discard the block entirely if we just completed that exact block
+            // via another channel but do not discard _completed_ blocks.
+            // Include the CAS check here so we don't do this in multiple threads
+            if (completedBlockNumber == candidateBlock
+                    && !endBlocksReceived.contains(candidateBlock)
+                    && activeStreamHandlerByBlock.remove(candidateBlock, handlerId)) {
+                endStalledBlock(completedBlockNumber, handlerId, candidateBlock, BLOCK_ABANDONED_LOG_MESSAGE);
+                // Do not resend in this case.
+            } else if (completedBlockNumber > candidateBlock + maxBlocksBeforeStalled
                     && !endBlocksReceived.contains(candidateBlock)
                     && !isResendingLive(candidateBlock)
                     && activeStreamHandlerByBlock.remove(candidateBlock, handlerId)) {
                 // This thread won the CAS — execute the stall action.
-                PublisherHandler stalledHandler = handlers.get(handlerId);
-                String correlationId = stalledHandler != null ? stalledHandler.getCorrelationId() : "";
-                LOGGER.log(
-                        DEBUG,
-                        STALL_DETECTED_LOG_MESSAGE,
-                        correlationId,
-                        handlerId,
-                        candidateBlock,
-                        completedBlockNumber);
-                queueByBlockMap.remove(candidateBlock);
-                blockProofs.remove(candidateBlock);
+                endStalledBlock(completedBlockNumber, handlerId, candidateBlock, STALL_DETECTED_LOG_MESSAGE);
                 blocksToResend.add(candidateBlock);
-                if (stalledHandler != null) {
-                    stalledHandler.endStreamWithCode(TIMEOUT, true);
-                }
-                metrics.stallTimeoutsSent().increment();
             }
         }
+    }
+
+    /// Given a known-stalled block, log a stall, remove the block from queues
+    /// and tracking, end the stream for the responsible handler, and
+    /// increment a metric.
+    ///
+    /// @param completedBlock The block that was _completed_ and resulted
+    ///     in detecting the stall.
+    /// @param handlerId the Handler that is stalled
+    /// @param stalledBlock the block that is stalled
+    /// @param logMessage a log message to send, this message will be logged
+    ///     with correlation ID, handler ID, stalled block, and completed block,
+    ///     in that order.
+    private void endStalledBlock(
+            final long completedBlock, final long handlerId, final long stalledBlock, final String logMessage) {
+        PublisherHandler stalledHandler = handlers.get(handlerId);
+        String correlationId = stalledHandler != null ? stalledHandler.getCorrelationId() : "";
+        LOGGER.log(DEBUG, logMessage, correlationId, handlerId, stalledBlock, completedBlock);
+        queueByBlockMap.remove(stalledBlock);
+        blockProofs.remove(stalledBlock);
+        if (stalledHandler != null) {
+            stalledHandler.endStreamWithCode(TIMEOUT, true);
+        }
+        metrics.stallTimeoutsSent().increment();
     }
 
     /// Check if the candidate block is being resent and is newer than the last

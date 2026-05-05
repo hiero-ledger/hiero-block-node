@@ -203,14 +203,6 @@ class PublisherManagerRegressionTest {
                 .returns(ResponseOneOfType.SKIP_BLOCK, response -> response.response()
                         .kind());
 
-        // Backfill persists block 5, This must not advance last persisted (because block 5 is actively streaming).
-        // clearObsoleteQueueItems(5) uses headMap(5) which does NOT
-        // include block 5 — the stalled queue stays in the map.
-        final SimpleBlockRangeSet backfilledBlocks = new SimpleBlockRangeSet();
-        backfilledBlocks.add(0L, stalledBlock);
-        historicalBlockFacility.setTemporaryAvailableBlocks(backfilledBlocks);
-        toTest.handlePersisted(new PersistedNotification(stalledBlock, true, 0, BlockSource.BACKFILL));
-
         // Handler 2 sends a complete block 6.
         responsePipeline2.clear();
         final long nextLiveBlock = stalledBlock + 1;
@@ -218,21 +210,21 @@ class PublisherManagerRegressionTest {
         publisherHandler2.onNext(nextBlock.asPublishStreamRequestUnparsed());
         endThisBlock(publisherHandler2, nextLiveBlock);
 
+        // Backfill persists block 5, This must not advance last persisted (because block 5 is actively streaming).
+        // clearObsoleteQueueItems(5) uses headMap(5) which does NOT
+        // include block 5 — the stalled queue stays in the map.
+        // Except that persisted block == stalled block, so the stalled block is abandoned.
+        // This clears the blockage and block 6 will now proceed.
+        final SimpleBlockRangeSet backfilledBlocks = new SimpleBlockRangeSet();
+        backfilledBlocks.add(0L, stalledBlock);
+        historicalBlockFacility.setTemporaryAvailableBlocks(backfilledBlocks);
+        toTest.handlePersisted(new PersistedNotification(stalledBlock, true, 0, BlockSource.BACKFILL));
+
         // Run the forwarder. If the stalled block 5's queue is still
         // in queueByBlockMap, determineCurrentBlockNumber() returns 5
         // and the forwarder never reaches block 6.
         threadPoolManager.executor().executeAsync(1_000L, false);
 
-        // Block 6 must _not_ have been forwarded to the messaging facility (it is behind the stalled block 5).
-        assertThat(messagingFacility.getSentBlockItems())
-                .as("block %d must not be forwarded to messaging after backfill unblocked the pipeline", nextLiveBlock)
-                .noneMatch(items -> items.blockNumber() == nextLiveBlock);
-        // simulate backfill for the next 2 blocks.
-        for (int i = 7; i < 10; ++i) {
-            toTest.handlePersisted(new PersistedNotification(i, true, 0, BlockSource.BACKFILL));
-        }
-        // Give some time for the notifications to take effect
-        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(500L));
         assertThat(messagingFacility.getSentBlockItems())
                 .as(
                         "block %d must be forwarded to messaging after backfill unblocked the pipeline via stall detection",
