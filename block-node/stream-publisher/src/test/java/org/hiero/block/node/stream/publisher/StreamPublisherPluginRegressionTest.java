@@ -60,25 +60,19 @@ class StreamPublisherPluginRegressionTest
         start(plugin, plugin.methods().getFirst(), historicalBlockFacility, additionalPlugins);
     }
 
-    /// Reproduces the previewnet 0.31.0-rc1 forwarder deadlock end-to-end
-    /// through the plugin.
+    /// Verifies that backfill persistence unblocks the forwarder when a
+    /// publisher stalls mid-block.
     ///
     /// Publisher 1 streams blocks 0-4 (ACKed), then sends only the header
     /// for block 5 and goes silent. Publisher 2 receives SKIP for block 5.
-    /// Backfill persists block 5, but due to the original bug this alone
-    /// does not unblock the forwarder. Publisher 2 then streams blocks 6-9;
-    /// completing block 9 triggers stall detection ({@code 9 > 5+3}), which
-    /// removes the stale queue and sends RESEND(5) to publisher 2. Publisher
-    /// 2 re-sends block 5 and the full chain delivers an ACK.
-    ///
-    /// The bug: {@code correctForResendAndStreaming(5)} sees block 5 in
-    /// {@code queueByBlockMap} and returns 4, so the stale queue is never
-    /// removed. The forwarder's {@code determineCurrentBlockNumber()} picks
-    /// it via {@code firstEntry()} and gets stuck forever. Stall detection
-    /// ({@code completedBlockNumber > stalledBlock + maxBlocksBeforeStalled})
-    /// eventually clears the stale queue and issues RESEND(5).
+    /// Backfill persists block 5; {@code handlePersisted(5)} triggers
+    /// {@code checkForStalledHandlers(5)} which detects that handler 0
+    /// holds ACCEPT for the same block that was just persisted externally
+    /// (the BLOCK_ABANDONED path). This removes block 5's stale queue from
+    /// {@code queueByBlockMap} and ends handler 0, unblocking the forwarder.
+    /// Publisher 2 then streams blocks 6-9 and receives ACKs normally.
     @Test
-    @DisplayName("stall detection recovers a block stalled after backfill — previewnet 0.31.0-rc1")
+    @DisplayName("backfill persistence resolves stalled block via BLOCK_ABANDONED detection")
     void testForwarderAdvancesPastStalledBlockAfterBackfill() {
         final long stalledBlock = 5L;
 
@@ -121,52 +115,35 @@ class StreamPublisherPluginRegressionTest
                 .returns(ResponseOneOfType.SKIP_BLOCK, RESPONSE_KIND);
         publisher2.fromPluginBytes().clear();
 
-        // Backfill persists block 5. Without the headMap fix,
-        // correctForResendAndStreaming(5) sees block 5 in queueByBlockMap and
-        // returns 4 — the stale queue is never removed and the forwarder stays stuck.
+        // Backfill persists block 5. handlePersisted(5) triggers
+        // checkForStalledHandlers(5) which detects that handler 0 holds
+        // ACCEPT for the same block (BLOCK_ABANDONED path). This removes
+        // block 5's stale queue and ends handler 0, unblocking the forwarder.
         blockMessaging.sendBlockPersisted(new PersistedNotification(stalledBlock, true, 0, BlockSource.BACKFILL));
 
-        // Publisher 2 sends blocks 6-9. The forwarder remains stuck on block 5's
-        // stale queue so these blocks accumulate in queueByBlockMap without being
-        // forwarded. endOfBlock(9) triggers checkForStalledHandlers: 9 > 5+3=8,
-        // so block 5 is marked stalled, its queue is removed, and publisher 2
-        // receives RESEND(5).
+        // Re-enable the facility. The BLOCK_ABANDONED path has already
+        // removed block 5's stale queue, so the forwarder will advance to
+        // block 6 when it arrives.
+        historicalBlockFacility.clearDisablePlugin();
+
+        // Publisher 2 sends blocks 6-9. With the stall resolved by the
+        // BLOCK_ABANDONED path, these blocks flow through the full chain
+        // (forwarder -> messaging -> persist -> ACK) without needing a RESEND.
         for (long blockNumber = stalledBlock + 1; blockNumber <= stalledBlock + 4; blockNumber++) {
             sendBlock(publisher2.toPluginPipe(), TestBlockBuilder.generateBlockWithNumber(blockNumber));
             endThisBlock(publisher2.toPluginPipe(), blockNumber);
         }
         awaitPluginResponses(List.of(publisher2.fromPluginBytes()), 1);
-        assertThat(publisher2.fromPluginBytes())
-                .as("publisher 2 must receive RESEND for stalled block %d", stalledBlock)
-                .hasSize(1)
-                .first()
-                .extracting(RESPONSE_PARSER)
-                .returns(ResponseOneOfType.RESEND_BLOCK, RESPONSE_KIND);
-        publisher2.fromPluginBytes().clear();
-
-        // Re-enable the facility. The forwarder thread sleeps in waitForDataReady
-        // (5ms timeout after stall detection fires), so the facility is reliably
-        // re-enabled before any block is forwarded to it.
-        historicalBlockFacility.clearDisablePlugin();
-
-        // Publisher 2 re-sends block 5. The manager accepts it from blocksToResend.
-        sendBlock(publisher2.toPluginPipe(), fullBlock5);
-        endThisBlock(publisher2.toPluginPipe(), stalledBlock);
-
-        // Wait for ACK(5) — the full chain: forwarder -> messaging -> persist -> ACK.
-        awaitPluginResponses(List.of(publisher2.fromPluginBytes()), 1);
         final List<PublishStreamResponse> ackResponses =
                 publisher2.fromPluginBytes().stream().map(RESPONSE_PARSER).toList();
         assertThat(ackResponses)
-                .as("publisher 2 must receive ACK for block %d after stall detection recovery", stalledBlock)
-                .anySatisfy(response -> assertThat(response)
-                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, RESPONSE_KIND)
-                        .returns(stalledBlock, ACK_BLOCK_NUMBER));
+                .as("publisher 2 must receive ACK after backfill resolved the stall")
+                .anySatisfy(response -> assertThat(response).returns(ResponseOneOfType.ACKNOWLEDGEMENT, RESPONSE_KIND));
 
-        // Block 5 must be persisted — backfill alone could not recover it, but
-        // stall detection + RESEND delivered it through the full persistence chain.
-        assertThat(historicalBlockFacility.block(stalledBlock))
-                .as("block %d must be stored after stall detection recovery", stalledBlock)
+        // Block 6 must be persisted — it was forwarded through the full chain
+        // after the BLOCK_ABANDONED path unblocked the forwarder.
+        assertThat(historicalBlockFacility.block(stalledBlock + 1))
+                .as("block %d must be stored after forwarder advanced past stall", stalledBlock + 1)
                 .isNotNull();
     }
 

@@ -325,16 +325,18 @@ public class BlockNodeApiRegressionTest {
         // arrives before any persistence ACKs (pipeline FIFO order guarantees this).
         awaitLatch(resendLatch, "RESEND_BLOCK(2) from stall detection");
 
-        // Use a predicate latch on ACK(7) as the reliable terminal signal. ACK(7) is only sent
-        // after block 7 is persisted. Because the forwarder processes queueByBlockMap in key
-        // order, block 2 (re-queued via RESEND, lower key) is always forwarded and persisted
-        // before block 7 — block 2 is guaranteed to be in storage when this fires.
-        final AtomicReference<CountDownLatch> terminalLatch = publisherBObserver.setAndGetOnMatchLatch(
+        final AtomicReference<CountDownLatch> ack2Latch = publisherBObserver.setAndGetOnMatchLatch(
                 response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
-                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() == 7L);
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() >= 2L);
 
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
         endBlock(2L, publisherBStream);
+
+        awaitLatch(ack2Latch, "ACK(2) — block 2 persisted after RESEND");
+
+        final AtomicReference<CountDownLatch> terminalLatch = publisherBObserver.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() == 7L);
 
         // Block 7 — confirms normal processing continues after the RESEND sequence.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(7L, hash6)));
@@ -448,18 +450,19 @@ public class BlockNodeApiRegressionTest {
         // persistence chain). The FIFO pipeline guarantees RESEND_BLOCK(2) arrives first.
         awaitLatch(resendLatch, "RESEND_BLOCK(2) from stall detection");
 
-        // Use a predicate latch on ACK(7) as the reliable terminal signal. The forwarder
-        // processes queueByBlockMap in key order: block 2 (lower key) is always forwarded before
-        // block 7, so ACK(7) guarantees all of blocks 2–7 have passed through the persistence
-        // chain and any storage gaps are already visible.
-        final AtomicReference<CountDownLatch> terminalLatch = publisherBObserver.setAndGetOnMatchLatch(
+        final AtomicReference<CountDownLatch> ack2Latch = publisherBObserver.setAndGetOnMatchLatch(
                 response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
-                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() == 7L);
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() >= 2L);
 
         // Publisher B provides the full block 2 as its RESEND response.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
         endBlock(2L, publisherBStream);
-        Thread.sleep(200); // brief pause to allow the forwarder to process the re-delivered block 2
+
+        awaitLatch(ack2Latch, "ACK(2) — block 2 persisted after RESEND");
+
+        final AtomicReference<CountDownLatch> terminalLatch = publisherBObserver.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() == 7L);
 
         // Block 7 confirms normal processing resumes after the RESEND sequence.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(7L, hash6)));
