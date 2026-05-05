@@ -3,6 +3,7 @@ package org.hiero.block.node.cloud.storage.archive;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.TRACE;
+import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.bucky.S3Client;
 import com.hedera.bucky.S3Client.PartInfo;
@@ -234,7 +235,7 @@ class StartupRecoveryTask implements Callable<RecoveryResult> {
                     break;
                 } catch (NumberFormatException e) {
                     // Should not happen, but if it does, log it and continue scanning
-                    LOGGER.log(DEBUG, "Invalid block number in part %d of key %s".formatted(i, key), e);
+                    LOGGER.log(WARNING, "Invalid block number in part %d of key %s".formatted(i, key), e);
                 }
             }
         }
