@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.stream.publisher;
 
+import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.endThisBlock;
 
@@ -60,19 +61,22 @@ class StreamPublisherPluginRegressionTest
         start(plugin, plugin.methods().getFirst(), historicalBlockFacility, additionalPlugins);
     }
 
-    /// Verifies that backfill persistence unblocks the forwarder when a
-    /// publisher stalls mid-block.
+    /// Reproduces the previewnet 0.31.0-rc1 forwarder deadlock end-to-end
+    /// through the plugin.
     ///
     /// Publisher 1 streams blocks 0-4 (ACKed), then sends only the header
     /// for block 5 and goes silent. Publisher 2 receives SKIP for block 5.
-    /// Backfill persists block 5; {@code handlePersisted(5)} triggers
-    /// {@code checkForStalledHandlers(5)} which detects that handler 0
-    /// holds ACCEPT for the same block that was just persisted externally
-    /// (the BLOCK_ABANDONED path). This removes block 5's stale queue from
-    /// {@code queueByBlockMap} and ends handler 0, unblocking the forwarder.
-    /// Publisher 2 then streams blocks 6-9 and receives ACKs normally.
+    /// Backfill persists block 5 via [PersistedNotification]. Publisher 2
+    /// then streams block 6. The full chain must deliver an ACK for block 6.
+    ///
+    /// The bug: {@code clearObsoleteQueueItems(5)} uses
+    /// {@code headMap(5)} (strictly less than), so block 5's incomplete
+    /// queue is never removed. The forwarder's
+    /// {@code determineCurrentBlockNumber()} picks it via
+    /// {@code firstEntry()} and gets stuck forever — block 6 never
+    /// reaches messaging.
     @Test
-    @DisplayName("backfill persistence resolves stalled block via BLOCK_ABANDONED detection")
+    @DisplayName("forwarder delivers block N+1 after backfill persists stalled block N — previewnet 0.31.0-rc1")
     void testForwarderAdvancesPastStalledBlockAfterBackfill() {
         final long stalledBlock = 5L;
 
@@ -92,10 +96,10 @@ class StreamPublisherPluginRegressionTest
             fromPluginBytes.clear();
         }
 
-        // Disable the historical facility while block 5 stalls. The forwarder
-        // sends block 5's partial header to messaging; disabling the facility
-        // prevents that orphaned partial block from crashing the facility when
-        // the forwarder later switches to block 6.
+        // Disable the historical facility while block 5 stalls. The
+        // forwarder will send block 5's partial header to messaging, but
+        // the facility ignores it — preventing an orphaned partial block
+        // that would crash when block 6 arrives later.
         historicalBlockFacility.setDisablePlugin();
 
         // Publisher 1 sends only the header for block 5, then goes silent.
@@ -115,36 +119,46 @@ class StreamPublisherPluginRegressionTest
                 .returns(ResponseOneOfType.SKIP_BLOCK, RESPONSE_KIND);
         publisher2.fromPluginBytes().clear();
 
-        // Backfill persists block 5. handlePersisted(5) triggers
-        // checkForStalledHandlers(5) which detects that handler 0 holds
-        // ACCEPT for the same block (BLOCK_ABANDONED path). This removes
-        // block 5's stale queue and ends handler 0, unblocking the forwarder.
+        // Simulate LIVE_TAIL greedy backfill persisting block 5 from a peer.
         blockMessaging.sendBlockPersisted(new PersistedNotification(stalledBlock, true, 0, BlockSource.BACKFILL));
 
-        // Re-enable the facility. The BLOCK_ABANDONED path has already
-        // removed block 5's stale queue, so the forwarder will advance to
-        // block 6 when it arrives.
+        // Re-enable the historical facility now that block 5's stalled
+        // queue has been cleared by the headMap fix.
         historicalBlockFacility.clearDisablePlugin();
 
-        // Publisher 2 sends blocks 6-9. With the stall resolved by the
-        // BLOCK_ABANDONED path, these blocks flow through the full chain
-        // (forwarder -> messaging -> persist -> ACK) without needing a RESEND.
-        for (long blockNumber = stalledBlock + 1; blockNumber <= stalledBlock + 4; blockNumber++) {
-            sendBlock(publisher2.toPluginPipe(), TestBlockBuilder.generateBlockWithNumber(blockNumber));
-            endThisBlock(publisher2.toPluginPipe(), blockNumber);
-        }
-        awaitPluginResponses(List.of(publisher2.fromPluginBytes()), 1);
-        final List<PublishStreamResponse> ackResponses =
-                publisher2.fromPluginBytes().stream().map(RESPONSE_PARSER).toList();
-        assertThat(ackResponses)
-                .as("publisher 2 must receive ACK after backfill resolved the stall")
-                .anySatisfy(response -> assertThat(response).returns(ResponseOneOfType.ACKNOWLEDGEMENT, RESPONSE_KIND));
+        // Publisher 2 streams block 6.
+        final long nextLiveBlock = stalledBlock + 1;
+        final TestBlock block6 = TestBlockBuilder.generateBlockWithNumber(nextLiveBlock);
+        sendBlock(publisher2.toPluginPipe(), block6);
+        endThisBlock(publisher2.toPluginPipe(), nextLiveBlock);
 
-        // Block 6 must be persisted — it was forwarded through the full chain
-        // after the BLOCK_ABANDONED path unblocked the forwarder.
-        assertThat(historicalBlockFacility.block(stalledBlock + 1))
-                .as("block %d must be stored after forwarder advanced past stall", stalledBlock + 1)
-                .isNotNull();
+        // Publisher 2 streams block 7 — the manager ACCEPTs it (decision
+        // layer works), but the forwarder is stuck on block 5's stalled
+        // queue so neither block 6 nor 7 will ever be forwarded or ACKed.
+        final long block7Number = nextLiveBlock + 1;
+        final TestBlock block7 = TestBlockBuilder.generateBlockWithNumber(block7Number);
+        sendBlock(publisher2.toPluginPipe(), block7);
+        endThisBlock(publisher2.toPluginPipe(), block7Number);
+
+        // Wait long enough for any async processing to complete.
+        parkNanos(500_000_000L);
+
+        // Publisher 2 must receive ACK for blocks 6 and 7 — the full chain:
+        // forwarder -> messaging -> historical facility -> persist -> ACK.
+        // The bug: forwarder is stuck on block 5's incomplete queue, so
+        // blocks 6 and 7 are silently dropped — no ACK is ever sent.
+        final List<PublishStreamResponse> publisher2Responses =
+                publisher2.fromPluginBytes().stream().map(RESPONSE_PARSER).toList();
+        assertThat(publisher2Responses)
+                .as("publisher 2 must receive ACK for block %d", nextLiveBlock)
+                .anySatisfy(response -> assertThat(response)
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, RESPONSE_KIND)
+                        .returns(nextLiveBlock, ACK_BLOCK_NUMBER));
+        assertThat(publisher2Responses)
+                .as("publisher 2 must receive ACK for block %d", block7Number)
+                .anySatisfy(response -> assertThat(response)
+                        .returns(ResponseOneOfType.ACKNOWLEDGEMENT, RESPONSE_KIND)
+                        .returns(block7Number, ACK_BLOCK_NUMBER));
     }
 
     private static void sendBlock(
