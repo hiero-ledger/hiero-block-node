@@ -34,10 +34,10 @@ We achieve this by having a Verification Service Plugin.
 Due to the asynchronous nature of the Block Node and the way blocks are received
 from different sources, strict ordering of block reception CANNOT be guaranteed.
 It is therefore a requirement of the Verification Service Plugin to ensure that
-the strict order of blocks that pass verification is maintained. This guarantee
-ensures that it is not possible for any given block to be left unprocessed
-donwstream. This essentially achieves a contiguous, in order data stream that
-downstream plugins can process safely.
+the strong ordering of messages for blocks that pass verification is maintained.
+This guarantee ensures that it is not possible for any given block to be left
+unprocessed donwstream. This essentially achieves a contiguous, in order data
+stream that downstream plugins can process safely.
 
 ## Goals
 
@@ -55,24 +55,27 @@ downstream plugins can process safely.
 <dl>
 <dt>Publisher</dt><dd>A type of data source that is able to publish
 (i.e. stream) blocks as raw data to the Block Node.</dd>
-<dt>Consensus Node (CN)</dt><dd>A type of Publisher. A node that produces and
-streams blocks.</dd>
+<dt>Consensus Node (CN)</dt><dd>A type of Publisher. Consensus Nodes execute the
+Hashgraph consensus algorithm, and execute the transactions that reach
+consensus. The output of transaction execution is the Block Stream.</dd>
 <dt>Block Items</dt><dd>The block data pieces (header, events, transactions,
 transaction result, state changes, proof) that make up a block.</dd>
-<dt>Block Hash</dt><dd>A cryptographic hash representing the block's
-integrity.</dd>
-<dt>Signature</dt><dd>The cryptographic signature on the block hash, created by
-the network aggregation of "share" private keys, as described in the TSS
-design.</dd>
-<dt>Public Key</dt><dd>The public key (a.k.a. Ledger ID) of the network that
-signed the block.</dd>
+<dt>Block Root Hash</dt><dd>A SHA2-384 hash at the root of the block merkle tree
+as defined in HIP-1424.</dd>
+<dt>Signature</dt><dd>A cryptographic operation on the Block Root Hash. The
+exact operation depends on signature type and algorithm, but may include a
+TSS/hinTS algorithm as defined in HIP-1200, a collection of RSA signatures, a
+collection of Schnorr signatures, or a (future) TSS signature defined for
+post-quantum cryptography.</dd>
+<dt>Public Key</dt><dd>The public key (which is algorithm-dependent) that a node
+or network will use to sign events and block proofs.</dd>
 <dt>Empty-tree Hash</dt><dd>The hash returned by a streaming Merkle tree hasher
 when no leaves were added (i.e. an empty subtree). Since HAPI v0.72 this is
 SHA-384(0x00), matching the CN convention.</dd>
 <dt>Block Verification</dt><dd>The process of verifying the integrity of a block
 by computing its hash and verifying its signature.</dd>
-<dt>Verification Session</dt><dd>A session that deals with the
-verification of a single block.</dd>
+<dt>Verification Session</dt><dd>A session that completes the verification of a
+single block.</dd>
 <dt>Verification Result</dt><dd>The result of a block verification
 session.</dd>
 <dt>Verification Notification</dt><dd>A message sent to the internal messaging
@@ -80,7 +83,7 @@ system that conveys verification session results and other data.</dd>
 <dt>Session Handler</dt><dd>A component that handles completed verification
 sessions. It is responsible for the correct post-processing of a completed
 session. This includes making updates to internal state, preserving and ensuring
-strict and correct order of messages sent downstream, handle failures and
+a strong and correct order of messages sent downstream, handle failures and
 more.</dd>
 </dl>
 
@@ -95,7 +98,7 @@ individual block items, or a whole block all at once.
 - When a block is received, a verification session is started. Sessions run
 asynchronously. Sessions always produce an end result.
 - Completed sessions are handled by a session handler and appropriate action(s)
-are taken to ensure we comply with the strict ordering guarantee, but also
+are taken to ensure we comply with a strong ordering requirement, but also
 to preserve historic hashes, update in-memory state, metrics and more.
 - The session handler uses the internal messaging system to communicate the
 result of a verification session. It utilizes a detailed
@@ -122,7 +125,8 @@ based on the block's HAPI proto version:
 ### ExtendedMerkleTreeSession
 
 A type of VerificationSession, the full block verification implementation, used
-for HAPI v0.72.0 and above.
+for HAPI v0.72.0 and above when a TssSignature block proof (or TSS signed
+StateProof block proof) is to be verified.
 
 Maintains five `StreamingTreeHasher` instances — one per block-item
 category — that incrementally compute subtree roots as items arrive:
@@ -147,7 +151,7 @@ convention introduced in HAPI v0.72.
 
 A type of VerificationSession, a temporary placeholder that unconditionally
 returns a success notification with a zeroed hash. It will be removed; HAPI
-versions prior to 0.72 are not supported in production.
+versions prior to 0.76 are not supported in production.
 
 ### AllBlocksHasherHandler
 
@@ -155,20 +159,27 @@ Maintains a persistent, streaming Merkle tree over the hashes of all
 previously verified blocks. Its root hash is included in each block's hash
 computation.
 
-On startup, it either loads a saved snapshot from disk or rebuilds from the
-block store. Rebuilding from block store is expensive, however, so it could be
-configured that this step can be omitted, at which point the handler degrades
-gracefully (`isAvailable()` returns `false`) and verification falls back to the
-root hash provided in the block footer. A new snapshot is persisted to
-disk every N number of blocks, which is configurable. If initialization fails,
-the handler degrades gracefully (`isAvailable()` returns `false`) and
+The Application State Facility (a component that manages state that has to be
+persistent and accessible across registered plugins) manages the All Blocks
+Hasher instance and its state. On startup, the Verification Service Plugin
+queries the Application State Facility to get the last data stored. Then, the
+Verification Service Plugin will update the Application State Facility all new
+data (block number and block root hash) for all blocks that are received and
+verified. The Application State Facility is responsible for gathering these
+values and maintaining the All Blocks Hasher instance. Based on a configurable
+interval (measured in N number of blocks), the Application State Facility will
+persist the All Blocks Hasher instance to disk, thus making it persistent.
+
+If initialization fails on startup, the handler degrades gracefully and
 verification falls back to the root hash provided in the block footer.
 
 ## Design
 
 ### Core Design Workflow
 
-1. The Verification Service Plugin receives data from multiple sources. At the
+1. The Verification Service Plugin receives data from multiple sources.
+   The plugin is source-agnostic. It verifies every block according to the same
+   rules and only includes the source in the result notification. At the
    moment, we have two distinct sources:
    1. **Publisher** - blocks arrive as a stream of individual items
    2. **Backfill** - blocks are received via backfill and are provided to the
@@ -204,7 +215,8 @@ block are considered informational.
 Failure types include:
 
 - **BAD_BLOCK_PROOF**: If the computed hash does not match the hash signed by
-  the network, the block is considered unverified.
+  the network, or the signature cannot be verified as correct, the block is
+  considered unverified.
 - **UNABLE_TO_PARSE**: If a block is received, but parsing fails, the block is
   considered unverified.
 - **MISSING_MANDATORY_ITEM**: If a mandatory item for a block is missing,
