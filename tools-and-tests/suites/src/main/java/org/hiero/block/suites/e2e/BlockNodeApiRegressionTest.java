@@ -459,6 +459,7 @@ public class BlockNodeApiRegressionTest {
         // Publisher B provides the full block 2 as its RESEND response.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
         endBlock(2L, publisherBStream);
+        Thread.sleep(200); // brief pause to allow the forwarder to process the re-delivered block 2
 
         // Block 7 confirms normal processing resumes after the RESEND sequence.
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(7L, hash6)));
