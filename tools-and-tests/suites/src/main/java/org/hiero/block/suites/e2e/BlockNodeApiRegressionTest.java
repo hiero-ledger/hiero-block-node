@@ -307,10 +307,23 @@ public class BlockNodeApiRegressionTest {
         final Pipeline<? super PublishStreamRequest> publisherBStream =
                 publisherBClient.publishBlockStream(publisherBObserver);
 
-        // Set latch(1) before sending so RESEND_BLOCK(2) cannot be missed.
+        // Synchronization probe: publisher B sends block 2 and waits for
+        // SKIP_BLOCK. This round-trip guarantees the server has processed
+        // publisher A's block 2 header (advancing nextUnstreamedBlockNumber
+        // to 3) before publisher B sends blocks 3-6. Without this, on slow
+        // CI machines publisher B's blocks can arrive before publisher A's
+        // header is processed, causing NODE_BEHIND_PUBLISHER instead of the
+        // expected stall-detection path.
+        final AtomicReference<CountDownLatch> probeLatch = publisherBObserver.setAndGetOnNextLatch(1);
+        publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
+        endBlock(2L, publisherBStream);
+        awaitLatch(probeLatch, "SKIP_BLOCK(2) — sync probe confirming publisher A holds block 2");
+
+        // Set latch for RESEND_BLOCK before sending so it cannot be missed.
         // Stall threshold is MaxFutureBlocksBeforeStalled=3: stall fires when
         // completedBlock > stalledBlock + 3, i.e. block 6 > 2 + 3.
-        final AtomicReference<CountDownLatch> resendLatch = publisherBObserver.setAndGetOnNextLatch(1);
+        final AtomicReference<CountDownLatch> resendLatch = publisherBObserver.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.RESEND_BLOCK);
 
         // Blocks 3–6: stall fires when endOfBlock(6) is processed (6 > 2+3).
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(3L, hash2)));
@@ -322,9 +335,7 @@ public class BlockNodeApiRegressionTest {
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(6L, hash5)));
         endBlock(6L, publisherBStream);
 
-        // RESEND_BLOCK(2) is sent synchronously in the handler thread during endOfBlock(6) and
-        // arrives before any persistence ACKs (pipeline FIFO order guarantees this).
-        awaitLatch(resendLatch, "RESEND_BLOCK(2) from stall detection");
+        awaitLatch(resendLatch, "RESEND_BLOCK(2) from stall detection", publisherBObserver);
 
         final AtomicReference<CountDownLatch> ack2Latch = publisherBObserver.setAndGetOnMatchLatch(
                 response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
@@ -431,15 +442,30 @@ public class BlockNodeApiRegressionTest {
         // Publisher A stalls here — only the block-2 header is sent, no proof.
         publisherAStream.onNext(buildPublishRequest(new BlockItem[] {BlockItemBuilderUtils.sampleBlockHeader(2L)}));
 
-        // Publisher B — streams blocks 3–6 to trigger stall detection (threshold=3: 6 > 2+3).
-        // Set latch(1) before sending so no response is missed.
+        // Publisher B — triggers stall detection via blocks 3–6.
         final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publisherBClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
         final ResponsePipelineUtils<PublishStreamResponse> publisherBObserver = new ResponsePipelineUtils<>();
         final Pipeline<? super PublishStreamRequest> publisherBStream =
                 publisherBClient.publishBlockStream(publisherBObserver);
 
-        final AtomicReference<CountDownLatch> resendLatch = publisherBObserver.setAndGetOnNextLatch(1);
+        // Synchronization probe: publisher B sends block 2 and waits for
+        // SKIP_BLOCK. This round-trip guarantees the server has processed
+        // publisher A's block 2 header (advancing nextUnstreamedBlockNumber
+        // to 3) before publisher B sends blocks 3-6. Without this, on slow
+        // CI machines publisher B's blocks can arrive before publisher A's
+        // header is processed, causing NODE_BEHIND_PUBLISHER instead of the
+        // expected stall-detection path.
+        final AtomicReference<CountDownLatch> probeLatch = publisherBObserver.setAndGetOnNextLatch(1);
+        publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1)));
+        endBlock(2L, publisherBStream);
+        awaitLatch(probeLatch, "SKIP_BLOCK(2) — sync probe confirming publisher A holds block 2");
+
+        // Set latch for RESEND_BLOCK before sending so it cannot be missed.
+        // Stall threshold is MaxFutureBlocksBeforeStalled=3: stall fires when
+        // completedBlock > stalledBlock + 3, i.e. block 6 > 2 + 3.
+        final AtomicReference<CountDownLatch> resendLatch = publisherBObserver.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.RESEND_BLOCK);
 
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(3L, hash2)));
         endBlock(3L, publisherBStream);
@@ -450,11 +476,7 @@ public class BlockNodeApiRegressionTest {
         publisherBStream.onNext(buildPublishRequest(BlockItemBuilderUtils.createSimpleBlockWithNumber(6L, hash5)));
         endBlock(6L, publisherBStream);
 
-        // Wait until stall fires. RESEND_BLOCK(2) is sent synchronously in the handler thread
-        // as part of endOfBlock(6) processing and is enqueued into the response pipeline before
-        // any persistence ACKs (which travel through the asynchronous forwarder → disruptor →
-        // persistence chain). The FIFO pipeline guarantees RESEND_BLOCK(2) arrives first.
-        awaitLatch(resendLatch, "RESEND_BLOCK(2) from stall detection");
+        awaitLatch(resendLatch, "RESEND_BLOCK(2) from stall detection", publisherBObserver);
 
         final AtomicReference<CountDownLatch> ack2Latch = publisherBObserver.setAndGetOnMatchLatch(
                 response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
@@ -668,6 +690,16 @@ public class BlockNodeApiRegressionTest {
                             .append(" block=")
                             .append(Objects.requireNonNull(response.resendBlock())
                                     .blockNumber());
+                } else if (response.response().kind()
+                        == PublishStreamResponse.ResponseOneOfType.NODE_BEHIND_PUBLISHER) {
+                    diagnostics
+                            .append(" lastPersisted=")
+                            .append(Objects.requireNonNull(response.nodeBehindPublisher())
+                                    .blockNumber());
+                } else if (response.response().kind() == PublishStreamResponse.ResponseOneOfType.SKIP_BLOCK) {
+                    diagnostics
+                            .append(" block=")
+                            .append(Objects.requireNonNull(response.skipBlock()).blockNumber());
                 }
                 diagnostics.append('\n');
             }
