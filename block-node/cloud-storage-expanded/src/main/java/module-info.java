@@ -14,10 +14,10 @@ module org.hiero.block.node.cloud.storage.expanded {
     requires transitive org.hiero.block.node.spi;
     requires com.hedera.bucky;
     requires com.hedera.pbj.runtime;
-    requires org.hiero.block.common;
     requires org.hiero.block.node.base;
-    requires org.hiero.block.protobuf.pbj;
+    requires transitive org.hiero.block.protobuf.pbj;
     requires com.github.spotbugs.annotations;
+    requires transitive org.hiero.metrics;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             ExpandedCloudStoragePlugin;

@@ -16,8 +16,9 @@ mainModuleInfo {
 testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
-    requires("org.testcontainers")
     requires("s3mock.testcontainers")
     requires("java.logging")
     requires("java.net.http")
+    runtimeOnly("org.hiero.metrics")
+    runtimeOnly("org.testcontainers")
 }
