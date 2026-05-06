@@ -34,4 +34,5 @@ mainModuleInfo {
 testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("org.mockito")
 }

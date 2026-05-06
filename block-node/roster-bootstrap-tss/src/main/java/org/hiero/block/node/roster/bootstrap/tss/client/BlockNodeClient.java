@@ -113,7 +113,6 @@ public class BlockNodeClient {
     private final PbjGrpcClientConfig grpcConfig;
     private final WebClient webClient;
     private final int globalTimeoutMs;
-    private BlockStreamSubscribeUnparsedClient blockStreamSubscribeUnparsedClient;
     private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
     private boolean nodeReachable;
 
@@ -199,16 +198,11 @@ public class BlockNodeClient {
         try {
             PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
             blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(pbjGrpcClient, OPTIONS);
-            blockStreamSubscribeUnparsedClient = new BlockStreamSubscribeUnparsedClient(pbjGrpcClient, globalTimeoutMs);
             nodeReachable = true;
         } catch (IllegalArgumentException | IllegalStateException | UncheckedIOException ex) {
             LOGGER.log(Level.WARNING, "Failed to initialize gRPC client: %s".formatted(ex.getMessage()), ex);
             nodeReachable = false;
         }
-    }
-
-    public BlockStreamSubscribeUnparsedClient getBlockstreamSubscribeUnparsedClient() {
-        return blockStreamSubscribeUnparsedClient;
     }
 
     public BlockNodeServiceInterface.BlockNodeServiceClient getBlockNodeServiceClient() {

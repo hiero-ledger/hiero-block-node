@@ -11,9 +11,10 @@ module org.hiero.block.node.roster.bootstrap.tss {
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
+    requires transitive org.hiero.block.protobuf.pbj;
+    requires transitive org.hiero.metrics;
     requires com.hedera.pbj.grpc.client.helidon;
     requires org.hiero.block.node.base;
-    requires org.hiero.block.protobuf.pbj;
     requires io.helidon.common.tls;
     requires io.helidon.webclient.api;
     requires io.helidon.webclient.grpc;

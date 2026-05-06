@@ -13,16 +13,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.roster.boostrap.tss.BlockNodeSource;
 import org.hiero.block.node.roster.boostrap.tss.BlockNodeSourceConfig;
-import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.ObservableGauge;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// A block node plugin that tries to get the latest TssData and makes it available to the `BlockNodeApp` and
 /// to the `ServerStatusServicePlugin`
@@ -31,6 +35,13 @@ import org.hiero.block.node.spi.ServiceBuilder;
 ///  - `RosterBootstrapTssConfig` TssData fields (ledgerId, wrapsVerificationKey, etc)
 ///  - (todo) Peer BlockNodes Queries other peer BlockNodes periodically for TssData
 public class RosterBootstrapTssPlugin implements BlockNodePlugin {
+    public static final MetricKey<ObservableGauge> METRIC_TSS_DATA_PEERS =
+            MetricKey.of("tss_data_peers", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_TSS_DATA_ERRORS =
+            MetricKey.of("tss_data_errors", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_TSS_DATA_REQUESTS =
+            MetricKey.of("tss_data_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
+
     /** The logger for this class. */
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
@@ -44,12 +55,12 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     private ScheduledExecutorService queryPeerExecutor;
     /** The config information for the RosterBootstrapTssConfig*/
     private RosterBootstrapTssConfig rosterBootstrapTssConfig;
-    /**
-     * Map of BlockNodeSourceConfig to BlockNodeClient instances.
-     * This allows us to reuse clients for the same node configuration.
-     * Package-private for testing.
-     */
-    final ConcurrentHashMap<BlockNodeSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
+    // Metrics holder containing all backfill metrics
+    private MetricsHolder metricsHolder;
+    // The class that fetches the TssData
+    private TssDataFetcher tssDataFetcher;
+    // State touched by multiple threads
+    private final AtomicLong currentBlockNodePeers = new AtomicLong(0);
 
     /// {@inheritDoc}
     @NonNull
@@ -64,6 +75,8 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         this.applicationStateFacility = Objects.requireNonNull(context.applicationStateFacility());
         rosterBootstrapTssConfig = context.configuration().getConfigData(RosterBootstrapTssConfig.class);
         this.blockNodeContext = context;
+
+        init_metrics();
 
         // Validate block node sources configuration
         final String sourcesPath = rosterBootstrapTssConfig.blockNodeSourcesPath();
@@ -88,6 +101,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
                 LOGGER.log(INFO, "Loaded peer BN source node: {0}", node);
             }
             hasBNSourcesPath = true;
+            tssDataFetcher = new TssDataFetcher(blockNodeSources, rosterBootstrapTssConfig, metricsHolder);
         } catch (ParseException | IOException e) {
             final String parseFailedMsg =
                     "Failed to parse block node sources from path: [%s], TssBootstrapPlugin will not query any peers: %s"
@@ -147,6 +161,47 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
 
     /// queries peer BlockNodes for their TssData
     private void queryPeerTssData() {
-        // todo: add in the code to query the peers
+        List<TssData> tssDataList = tssDataFetcher.getTssData();
+        for (TssData tssData : tssDataList) {
+            applicationStateFacility.updateTssData(tssData);
+        }
+    }
+
+    /**
+     * Initializes the metrics for the backfill process.
+     */
+    private void init_metrics() {
+        metricsHolder = MetricsHolder.createMetrics(blockNodeContext.metricRegistry(), currentBlockNodePeers);
+    }
+
+    /**
+     * Holder for all backfill-related metrics.
+     * This record groups all metrics used by the backfill plugin and its components,
+     * allowing them to be passed as a single parameter.
+     */
+    public record MetricsHolder(LongCounter.Measurement tssDataRequests, LongCounter.Measurement tssDataErrors) {
+
+        /**
+         * Factory method to create a MetricsHolder with all metrics registered.
+         *
+         * @param metricRegistry the metrics registry instance to register metrics with
+         * @return a new MetricsHolder with all metrics created
+         */
+        public static MetricsHolder createMetrics(
+                @NonNull final MetricRegistry metricRegistry, @NonNull final AtomicLong currentBlockNodePeers) {
+            metricRegistry.register(ObservableGauge.builder(METRIC_TSS_DATA_PEERS)
+                    .setDescription("Current number of block node peers")
+                    .observe(() -> Math.max(currentBlockNodePeers.get(), 0)));
+
+            return new MetricsHolder(
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_TSS_DATA_REQUESTS)
+                                    .setDescription("Number of TssData requests."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_TSS_DATA_ERRORS)
+                                    .setDescription("Number of TssData request errors."))
+                            .getOrCreateNotLabeled());
+        }
     }
 }
