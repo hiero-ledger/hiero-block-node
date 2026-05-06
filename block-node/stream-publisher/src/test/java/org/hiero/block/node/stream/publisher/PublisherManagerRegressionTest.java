@@ -302,80 +302,112 @@ class PublisherManagerRegressionTest {
 
     /// Reproduces the production stale-resend bug observed on release 0.33.0-rc3.
     ///
-    /// In production, a TOCTOU race between {@link LiveStreamPublisherManager#blockIsEnding(long, long)}
-    /// and a concurrent BACKFILL-sourced {@link LiveStreamPublisherManager#handlePersisted} call
-    /// leaves a block number in {@code blocksToResend} after {@code lastPersistedBlockNumber}
-    /// has already advanced past it. From that point on, every fresh publisher's first
-    /// {@code endOfBlock} returns {@code RESEND(<stale block>)} and the publisher disconnects
-    /// with EndStream(TOO_FAR_BEHIND).
+    /// {@code blockIsEnding} runs:
+    /// <pre>
+    ///     queueByBlockMap.remove(N)
+    ///     ...
+    ///     if (N &gt; lastPersistedBlockNumber.get() &amp;&amp; N &lt; nextUnstreamedBlockNumber.get()) {
+    ///         &lt;&lt; race window &gt;&gt;
+    ///         blocksToResend.add(N)
+    ///     }
+    /// </pre>
+    /// A concurrent BACKFILL-sourced {@code handlePersisted} can advance
+    /// {@code lastPersistedBlockNumber} past N during the race window, leaving an entry
+    /// in {@code blocksToResend} that is at or below {@code lastPersistedBlockNumber}.
+    /// From that point on, every fresh publisher's first {@code endOfBlock} returns
+    /// {@code RESEND(N)} and the publisher disconnects with TOO_FAR_BEHIND.
     ///
-    /// We can't easily drive the race deterministically in a unit test, but the fix —
-    /// pruning stale entries during {@code handlePersisted} — has an observable invariant
-    /// that we can test with real publish-API operations:
+    /// The fix is a post-add re-check inside the
+    /// {@link LiveStreamPublisherManager#compareAndAddBlockToResend(long)} helper: after
+    /// {@code blocksToResend.add}, re-read {@code lastPersistedBlockNumber}; if it has
+    /// crossed our value, remove the entry because it is stale.
     ///
-    /// 1. A publisher sends only the header for block N then issues EndStream(RESET). The
-    ///    real {@code blockIsEnding(N)} path adds N to {@code blocksToResend}.
-    /// 2. Backfill persists block {@code N + buffer + delta} (well past the prune buffer).
-    /// 3. With the fix, {@code handlePersisted} prunes the now-stale entry for N before
-    ///    {@code correctForResendAndStreaming} can clamp the ack. {@code lastPersistedBlockNumber}
-    ///    advances and a fresh publisher's header for N is treated as
-    ///    {@code END_DUPLICATE} — not {@code ACCEPT} as if N were still expected.
+    /// To deterministically drive the race, we instantiate an anonymous test subclass that
+    /// overrides {@code compareAndAddBlockToResend} to invoke
+    /// {@code handlePersisted(BACKFILL)} just before delegating to {@code super}. The
+    /// override fires the concurrent persistence at exactly the moment the production code
+    /// is about to perform the add — equivalent to the actual race interleaving but
+    /// deterministic. Production stays untouched: there is no test seam in the production
+    /// class, just a normal protected helper that happens to be overrideable.
     ///
-    /// Without the fix the entry is never pruned, {@code lastPersistedBlockNumber} is
-    /// clamped at {@code N - 1}, and {@code getActionForBlock(N, ...)} pulls N out of
-    /// {@code blocksToResend} and returns {@code ACCEPT} — exactly the production symptom
-    /// where the BN keeps demanding the stale block from any publisher that connects.
-    ///
-    /// Note: the seed step uses only the publish API ({@code sendHeaderOnly} +
-    /// {@code EndStream}), so the entry is added by the same production code path
+    /// The seed step still uses only the publish API ({@code sendHeaderOnly} +
+    /// {@code EndStream}). The entry is added by the same production code path
     /// ({@code PublisherHandler.handleEndStream} → {@code LiveStreamPublisherManager.blockIsEnding})
-    /// the bug actually exercises — no internal state injection.
+    /// the bug actually exercises.
     @Test
-    @DisplayName("handlePersisted must prune resend entries beyond the prune buffer")
-    void testStaleResendEntryPrunedWhenPersistenceMovesPastBuffer() {
-        // 1. Persist blocks up to 4 so the manager will accept a header for block 5
-        //    (nextUnstreamedBlockNumber == 5). Without this, sendHeaderOnly(5) returns
+    @DisplayName("blockIsEnding undoes a stale resend entry when lastPersisted races past during the add window")
+    void testBlockIsEndingPostAddRecheckUndoesStaleEntry() {
+        // Independent manager instance — anonymous subclass that overrides the protected
+        // compareAndAddBlockToResend helper to inject the race window. The injection runs
+        // BEFORE the super-call so the production add + re-check still execute end-to-end.
+        final long backfilledBlock = 200L;
+        final java.util.concurrent.atomic.AtomicBoolean raceFired =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        final BlockNodeContext raceContext =
+                generateContext(historicalBlockFacility, threadPoolManager, messagingFacility);
+        final LiveStreamPublisherManager raceManager = new LiveStreamPublisherManager(raceContext, managerMetrics) {
+            @Override
+            protected void compareAndAddBlockToResend(final long blockNumber) {
+                // Fire only on the first invocation. Avoids re-entry through any indirect
+                // call path (e.g. handlePersisted itself triggering another add site).
+                if (raceFired.compareAndSet(false, true)) {
+                    handlePersisted(new PersistedNotification(backfilledBlock, true, 0, BlockSource.BACKFILL));
+                }
+                super.compareAndAddBlockToResend(blockNumber);
+            }
+        };
+        raceContext
+                .blockMessaging()
+                .registerBlockNotificationHandler(raceManager, false, LiveStreamPublisherManager.class.getSimpleName());
+        final TestResponsePipeline<PublishStreamResponse> racePipeline = new TestResponsePipeline<>();
+        final PublisherHandler raceHandler = raceManager.addHandler(racePipeline, sharedHandlerMetrics, null);
+        final long raceHandlerId = 0L;
+
+        // 1. Persist blocks up to 4 so the manager accepts a header for block 5
+        //    (nextUnstreamedBlockNumber == 5). Without this, sendHeaderOnly(5) is rejected
         //    SEND_BEHIND and the handler never enters mid-block state.
         final long lastPersistedBeforeStall = 4L;
         final SimpleBlockRangeSet preStallBlocks = new SimpleBlockRangeSet();
         preStallBlocks.add(0L, lastPersistedBeforeStall);
         historicalBlockFacility.setTemporaryAvailableBlocks(preStallBlocks);
-        toTest.handlePersisted(new PersistedNotification(lastPersistedBeforeStall, true, 0, BlockSource.UNKNOWN));
+        raceManager.handlePersisted(new PersistedNotification(lastPersistedBeforeStall, true, 0, BlockSource.UNKNOWN));
+
+        // Make backfill range available so the race injection's handlePersisted has
+        // matching storage state.
+        final SimpleBlockRangeSet backfilledRange = new SimpleBlockRangeSet();
+        backfilledRange.add(0L, backfilledBlock);
+        historicalBlockFacility.setTemporaryAvailableBlocks(backfilledRange);
 
         // 2. Publisher A sends a header for block 5 then EndStream(RESET) mid-block.
-        //    handleEndStream invokes publisherManager.blockIsEnding(5, …), which adds 5
-        //    to blocksToResend through the same code path the production bug exercises.
-        //    No internal state is injected — we drive the same publish API that production uses.
+        //    blockIsEnding(5) fires, calls compareAndAddBlockToResend(5), the override
+        //    advances lastPersisted to 200, then super performs the add + re-check.
+        //    Re-check sees lastPersisted=200 >= 5 and removes the now-stale entry.
         final long staleResendBlock = 5L;
-        sendHeaderOnly(publisherHandler, staleResendBlock);
+        sendHeaderOnly(raceHandler, staleResendBlock);
 
         final EndStream endStream = EndStream.newBuilder()
                 .endCode(EndStream.Code.RESET)
                 .earliestBlockNumber(0L)
                 .latestBlockNumber(staleResendBlock)
                 .build();
-        publisherHandler.onNext(
+        raceHandler.onNext(
                 PublishStreamRequestUnparsed.newBuilder().endStream(endStream).build());
 
-        // 3. Backfill persists a block far past the configured prune buffer (default 100).
-        //    handlePersisted's prune step must drop blocksToResend entries <= 200 - 100 = 100,
-        //    which includes block 5.
-        final long backfilledBlock = 200L;
-        final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
-        availableBlocks.add(0L, backfilledBlock);
-        historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
-        toTest.handlePersisted(new PersistedNotification(backfilledBlock, true, 0, BlockSource.BACKFILL));
+        // 3. The race must have actually fired — otherwise the test isn't meaningful.
+        assertThat(raceFired.get())
+                .as("race-window override must have fired during blockIsEnding(5)")
+                .isTrue();
 
-        // 4. A fresh publisher header for the previously-stale block must be treated as
-        //    END_DUPLICATE — not ACCEPT pulled out of blocksToResend, which would prove
-        //    the entry was never pruned. (END_DUPLICATE comes from blockNumber <= lastPersisted,
-        //    which only happens if both prune and ack-advancement succeeded.)
-        final BlockAction action = toTest.getActionForBlock(staleResendBlock, null, publisherHandlerId);
+        // 4. A fresh publisher header for the previously-stale block must see END_DUPLICATE
+        //    (5 <= lastPersisted=200). ACCEPT would mean the stale entry remained in
+        //    blocksToResend — i.e. the post-add re-check is missing or broken.
+        final BlockAction action = raceManager.getActionForBlock(staleResendBlock, null, raceHandlerId);
         assertThat(action)
                 .describedAs(
-                        "block %d is already persisted (lastPersisted should be %d). The handler must see "
-                                + "END_DUPLICATE — not ACCEPT — which would only happen if the stale entry "
-                                + "had been pruned from blocksToResend by handlePersisted",
+                        "block %d is already persisted (lastPersisted=%d). The handler must see END_DUPLICATE; "
+                                + "ACCEPT here would mean the stale entry left by the race remained in "
+                                + "blocksToResend — i.e. the post-add re-check is missing or broken",
                         staleResendBlock, backfilledBlock)
                 .isEqualTo(BlockAction.END_DUPLICATE);
     }
