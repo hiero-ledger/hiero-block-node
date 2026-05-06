@@ -124,6 +124,12 @@ class RsaRosterBootstrapPluginTest
                                     "roster.bootstrap.mirrorNodeConnectTimeoutSeconds", "1",
                                     "roster.bootstrap.mirrorNodeReadTimeoutSeconds", "1")));
         }
+
+        // TODO: Add tests for blank-key filtering, 0x-prefix stripping, and pagination using
+        //  an embedded HTTP server (e.g. com.sun.net.httpserver.HttpServer or WireMock).
+        //  The blank-key filter and 0x-strip logic in fetchFromMirrorNode() is verified at the
+        //  MirrorNodeNodesResponse parsing layer; the relative-nextLink resolution is fixed in
+        //  RsaRosterBootstrapPlugin.fetchFromMirrorNode() and covered by MirrorNodeNodesResponseTest.
     }
 
     // -------------------------------------------------------------------------
