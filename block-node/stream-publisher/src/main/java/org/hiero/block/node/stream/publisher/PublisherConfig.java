@@ -3,6 +3,7 @@ package org.hiero.block.node.stream.publisher;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
+import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
@@ -17,6 +18,7 @@ import org.hiero.block.node.base.Loggable;
 public record PublisherConfig(
         // spotless:off
         @Loggable @ConfigProperty(defaultValue = "9_223_372_036_854_775_807") @Min(100_000L) long batchForwardLimit,
-        @Loggable @ConfigProperty(defaultValue = "300") @Min(0L) long publisherUnavailabilityTimeout) {
+        @Loggable @ConfigProperty(defaultValue = "300") @Min(0L) long publisherUnavailabilityTimeout,
+        @Loggable @ConfigProperty(defaultValue = "3") @Min(3) @Max(50) int MaxFutureBlocksBeforeStalled) {
         // spotless:on
 }

@@ -4,6 +4,7 @@ package org.hiero.block.tools.blocks.validation;
 import java.io.IOException;
 import java.nio.file.Path;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor.PreprocessedData;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 
 /**
@@ -72,6 +73,22 @@ public interface BlockValidation {
      * @throws ValidationException if the block fails this validation
      */
     void validate(BlockUnparsed block, long blockNumber) throws ValidationException;
+
+    /**
+     * Validate a single block with optional pre-computed data from parallel preprocessing.
+     * The default implementation ignores the preprocessed data and delegates to
+     * {@link #validate(BlockUnparsed, long)}. Implementations that can benefit from
+     * pre-computed block hashes, block instants, or record file bytes should override.
+     *
+     * @param block the block to validate
+     * @param blockNumber the block number
+     * @param preprocessed pre-computed data from the parallel pool, or null
+     * @throws ValidationException if the block fails this validation
+     */
+    default void validate(BlockUnparsed block, long blockNumber, PreprocessedData preprocessed)
+            throws ValidationException {
+        validate(block, blockNumber);
+    }
 
     /**
      * Commit any staged state changes after ALL validations pass for a block. Called only

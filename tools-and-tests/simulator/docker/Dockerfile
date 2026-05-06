@@ -8,7 +8,7 @@ ARG BN_WORKDIR="/opt/hiero/block-node"
 ENV BN_WORKDIR=${BN_WORKDIR}
 RUN groupadd --gid $GID $UNAME
 RUN useradd --no-user-group --create-home --uid $UID --gid $GID --shell /bin/bash hedera
-RUN apt-get update && apt-get install -y --no-install-recommends curl=8.5.0-2ubuntu10.8 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends curl=8.5.0-2ubuntu10.9 && rm -rf /var/lib/apt/lists/*
 WORKDIR ${BN_WORKDIR}
 
 # Copy the distribution and resources

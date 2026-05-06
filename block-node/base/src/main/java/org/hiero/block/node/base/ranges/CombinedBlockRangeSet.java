@@ -3,6 +3,7 @@ package org.hiero.block.node.base.ranges;
 
 import static org.hiero.block.node.spi.BlockNodePlugin.UNKNOWN_BLOCK_NUMBER;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Arrays;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
@@ -48,12 +49,7 @@ public class CombinedBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public boolean contains(long start, long end) {
-        for (BlockRangeSet set : blockRangeSets) {
-            if (set.contains(start, end)) {
-                return true;
-            }
-        }
-        return false;
+        return reduceRanges().contains(start, end);
     }
 
     /**
@@ -97,10 +93,7 @@ public class CombinedBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public LongStream stream() {
-        return new ConcurrentLongRangeSet(Arrays.stream(blockRangeSets)
-                        .flatMap(BlockRangeSet::streamRanges)
-                        .toArray(LongRange[]::new))
-                .stream();
+        return reduceRanges().stream();
     }
 
     /**
@@ -108,9 +101,13 @@ public class CombinedBlockRangeSet implements BlockRangeSet {
      */
     @Override
     public Stream<LongRange> streamRanges() {
+        return reduceRanges().streamRanges();
+    }
+
+    @NonNull
+    private ConcurrentLongRangeSet reduceRanges() {
         return new ConcurrentLongRangeSet(Arrays.stream(blockRangeSets)
-                        .flatMap(BlockRangeSet::streamRanges)
-                        .toArray(LongRange[]::new))
-                .streamRanges();
+                .flatMap(BlockRangeSet::streamRanges)
+                .toArray(LongRange[]::new));
     }
 }

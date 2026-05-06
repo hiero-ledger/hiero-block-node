@@ -16,6 +16,7 @@ import java.util.Arrays;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.tools.blocks.HasherStateFiles;
+import org.hiero.block.tools.blocks.validation.ParallelBlockPreprocessor.PreprocessedData;
 import org.hiero.block.tools.records.model.parsed.ValidationException;
 import org.jspecify.annotations.Nullable;
 
@@ -51,6 +52,25 @@ public final class BlockChainValidation implements BlockValidation {
 
     @Override
     public void validate(final BlockUnparsed block, final long blockNumber) throws ValidationException {
+        validate(block, blockNumber, (byte[]) null);
+    }
+
+    @Override
+    public void validate(final BlockUnparsed block, final long blockNumber, final PreprocessedData preprocessed)
+            throws ValidationException {
+        validate(block, blockNumber, preprocessed != null ? preprocessed.blockHash() : null);
+    }
+
+    /**
+     * Validates the block chain with an optional pre-computed block hash.
+     *
+     * @param block the shallow-parsed block
+     * @param blockNumber the block number
+     * @param preComputedHash pre-computed hash from parallel preprocessing, or null to compute here
+     * @throws ValidationException if the chain is broken
+     */
+    public void validate(final BlockUnparsed block, final long blockNumber, final byte @Nullable [] preComputedHash)
+            throws ValidationException {
         // Find the footer and selectively parse it
         BlockFooter footer = null;
         try {
@@ -82,8 +102,8 @@ public final class BlockChainValidation implements BlockValidation {
                         + " - First block should have empty-tree previous hash. readHash= " + simpleHash(readHash));
             }
         }
-        // Stage the block hash for commit
-        stagedBlockHash = hashBlock(block);
+        // Stage the block hash for commit — use pre-computed hash if available
+        stagedBlockHash = (preComputedHash != null) ? preComputedHash : hashBlock(block);
     }
 
     @Override
