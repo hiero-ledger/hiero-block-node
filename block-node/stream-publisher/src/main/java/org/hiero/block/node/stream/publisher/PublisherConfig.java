@@ -25,6 +25,6 @@ public record PublisherConfig(
         @Loggable @ConfigProperty(defaultValue = "9_223_372_036_854_775_807") @Min(100_000L) long batchForwardLimit,
         @Loggable @ConfigProperty(defaultValue = "300") @Min(0L) long publisherUnavailabilityTimeout,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(3) @Max(50) int MaxFutureBlocksBeforeStalled,
-        @Loggable @ConfigProperty(defaultValue = "100") @Min(0L) long staleResendPruneBuffer) {
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(0L) @Max(200L) long staleResendPruneBuffer) {
         // spotless:on
 }
