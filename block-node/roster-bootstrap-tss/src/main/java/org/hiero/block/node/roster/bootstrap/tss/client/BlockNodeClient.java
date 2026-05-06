@@ -118,14 +118,12 @@ public class BlockNodeClient {
     /// Constructs a BlockNodeClient using the provided configuration.
     ///
     /// @param blockNodeConfig the configuration for the block node, including address and port
-    /// @param globalTimeoutMs the global gRPC timeout in ms (fallback when tuning values are 0), also used for
     /// latch await
     /// @param enableTls whether to enable TLS for connections
     /// @param maxIncomingBufferSize the maximum incoming buffer size in bytes for gRPC message reception
     /// @param tuning optional tuning for timeouts and HTTP/2 settings
     public BlockNodeClient(
             @NonNull BlockNodeSourceConfig blockNodeConfig,
-            int globalTimeoutMs,
             boolean enableTls,
             int maxIncomingBufferSize,
             @Nullable GrpcWebClientTuning tuning) {

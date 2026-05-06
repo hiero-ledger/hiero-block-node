@@ -77,9 +77,7 @@ public class TssDataFetcher {
             LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
         }
         return nodeClientMap.computeIfAbsent(
-                node,
-                n -> new BlockNodeClient(
-                        n, globalGrpcTimeoutMs, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
+                node, n -> new BlockNodeClient(n, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
     }
 
     /// Perform a serverStatusDetail call per configured node and capture the TssData.
