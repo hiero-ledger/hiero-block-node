@@ -160,7 +160,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                         .build();
                 addresses.add(addr);
             }
-            nextUrl = response.nextLink();
+            // Mirror Node may return a relative path; resolve it against the configured base URL.
+            final String rawNext = response.nextLink();
+            nextUrl = (rawNext == null)
+                    ? null
+                    : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
         }
 
         if (addresses.isEmpty()) {
@@ -203,10 +207,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                     throw new IOException("HTTP " + response.statusCode() + " from " + url);
                 }
                 return response.body();
-            } catch (IOException | InterruptedException e) {
-                if (e instanceof InterruptedException) {
-                    Thread.currentThread().interrupt();
-                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                lastCause = ie;
+            } catch (IOException e) {
                 lastCause = e;
             }
         }
