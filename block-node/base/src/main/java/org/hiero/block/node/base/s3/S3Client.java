@@ -287,7 +287,8 @@ public final class S3Client implements AutoCloseable {
             @NonNull final String objectKey,
             @NonNull final String storageClass,
             @NonNull final Iterator<byte[]> contentIterable,
-            @NonNull final String contentType)
+            @NonNull final String contentType,
+            @NonNull final Runnable partUploadedCallback)
             throws S3ResponseException, IOException {
         // start the multipart upload
         final String uploadId = createMultipartUpload(objectKey, storageClass, contentType);
@@ -310,6 +311,8 @@ public final class S3Client implements AutoCloseable {
                     remainingContent -= length;
                     // we now have a full chunk so need to upload the chunk to S3
                     eTags.add(multipartUploadPart(objectKey, uploadId, eTags.size() + 1, chunk));
+                    // notify that a part was uploaded
+                    partUploadedCallback.run();
                     // reset the offset in the chunk
                     offsetInChunk = 0;
                 } else {
@@ -327,6 +330,8 @@ public final class S3Client implements AutoCloseable {
             System.arraycopy(chunk, 0, lastChunk, 0, offsetInChunk);
             // we have a partial chunk so need to upload it to S3
             eTags.add(multipartUploadPart(objectKey, uploadId, eTags.size() + 1, lastChunk));
+            // notify that a part was uploaded
+            partUploadedCallback.run();
         }
         // Complete the multipart upload
         completeMultipartUpload(objectKey, uploadId, eTags);
