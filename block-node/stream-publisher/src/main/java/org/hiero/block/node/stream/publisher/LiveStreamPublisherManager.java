@@ -83,6 +83,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ReentrantLock dataReadyLock;
     private final long earliestManagedBlock;
     private final int maxBlocksBeforeStalled;
+    private final long staleResendPruneBuffer;
     private final ScheduledExecutorService scheduledExecutor;
     private volatile ScheduledFuture<Boolean> publisherUnavailabilityTimeoutFuture;
 
@@ -134,6 +135,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 threadManager.createVirtualThreadScheduledExecutor(1, null, this::uncaughtScheduledExecutorException);
         publisherConfig = serverContext.configuration().getConfigData(PublisherConfig.class);
         maxBlocksBeforeStalled = publisherConfig.MaxFutureBlocksBeforeStalled();
+        staleResendPruneBuffer = publisherConfig.staleResendPruneBuffer();
         publisherUnavailabilityTimeoutFuture = schedulePublisherUnavailabilityTimeout();
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
@@ -377,6 +379,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 // Persistence success (as from backfill) can also detect stalled handlers...
                 checkForStalledHandlers(blockNumber);
                 if (blockNumber > lastPersistedBlockNumber.get()) {
+                    // Drop stale resend entries that no publisher could realistically still
+                    // supply. Without this, an entry left behind by a TOCTOU race between
+                    // blockIsEnding and a concurrent BACKFILL handlePersisted would clamp
+                    // every future ack via correctForResendAndStreaming and force every
+                    // fresh publisher to receive RESEND for an already-persisted block —
+                    // killing the connection with TOO_FAR_BEHIND. The buffer keeps recent
+                    // (still-fillable) entries intact.
+                    pruneStaleResendEntries(blockNumber);
                     // Ensure we don't acknowledge past known gaps
                     final long blockToAcknowledge = correctForResendAndStreaming(blockNumber);
                     clearObsoleteQueueItems(blockToAcknowledge);
@@ -698,6 +708,25 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
                 }
             }
         }
+    }
+
+    /// Removes any entry in {@link #blocksToResend} whose block number is more than
+    /// {@link #staleResendPruneBuffer} behind {@code proposedPersistedBlock}. Such entries
+    /// cannot be filled by any current publisher (they would respond TOO_FAR_BEHIND and
+    /// disconnect), so leaving them in the set would force every subsequent {@code endOfBlock}
+    /// to ask publishers to resend a block they cannot supply.
+    ///
+    /// Entries within the buffer are intentionally preserved — they may still be fillable
+    /// by a publisher that happens to have the recent history.
+    private void pruneStaleResendEntries(final long proposedPersistedBlock) {
+        final long staleCutoff = proposedPersistedBlock - staleResendPruneBuffer;
+        if (staleCutoff < 0) {
+            return;
+        }
+        // headSet(toElement, true) is the inclusive prefix view; clearing it drops every
+        // entry <= staleCutoff in one shot. The view is backed by the set, so
+        // ConcurrentSkipListSet's weakly-consistent semantics apply.
+        blocksToResend.headSet(staleCutoff, true).clear();
     }
 
     /// This method will return the next block number for the next block that must be resent.
