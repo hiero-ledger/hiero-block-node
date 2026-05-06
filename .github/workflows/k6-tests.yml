@@ -20,7 +20,7 @@ permissions:
 
 env:
   GRADLE_EXEC: ionice -c 2 -n 2 nice -n 19 ./gradlew --no-daemon
-  SOLO_VERSION: "0.68.0"
+  SOLO_VERSION: "0.72.0"
 
 jobs:
   k6-tests:
