@@ -558,8 +558,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     private void persistNodeAddressBook(NodeAddressBook nodeAddressBook) {
-        final Path filePath =
-                blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class).rsaBootstrapFilePath();
+        final Path filePath = blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .rsaBootstrapFilePath();
         try {
             Files.createDirectories(filePath.getParent());
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");

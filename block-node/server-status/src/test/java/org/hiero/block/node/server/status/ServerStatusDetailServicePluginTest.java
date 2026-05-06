@@ -190,7 +190,8 @@ public class ServerStatusDetailServicePluginTest
                 book);
         plugin.onContextUpdate(ctxWithBook);
 
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(ServerStatusRequest.newBuilder().build()));
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
+                ServerStatusRequest.newBuilder().build()));
         assertEquals(1, fromPluginBytes.size());
 
         final ServerStatusDetailResponse response =
@@ -213,7 +214,8 @@ public class ServerStatusDetailServicePluginTest
     @DisplayName("Should omit NodeAddressBook from response when context carries null")
     void shouldOmitNodeAddressBookWhenNotLoaded() throws ParseException {
         // Default context started with null nodeAddressBook — verify field absent in wire response
-        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(ServerStatusRequest.newBuilder().build()));
+        toPluginPipe.onNext(ServerStatusRequest.PROTOBUF.toBytes(
+                ServerStatusRequest.newBuilder().build()));
         assertEquals(1, fromPluginBytes.size());
 
         final ServerStatusDetailResponse response =
