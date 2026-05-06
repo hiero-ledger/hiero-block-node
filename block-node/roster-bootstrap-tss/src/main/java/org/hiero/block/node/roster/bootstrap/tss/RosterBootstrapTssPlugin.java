@@ -42,7 +42,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     public static final MetricKey<LongCounter> METRIC_TSS_DATA_REQUESTS =
             MetricKey.of("tss_data_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
 
-    /** The logger for this class. */
+    /// The logger for this class.
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
 
     /// The block node context, for access to core facilities.
@@ -51,9 +51,9 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     private ApplicationStateFacility applicationStateFacility;
 
     private boolean hasBNSourcesPath = false;
-    /** The ScheduledExecutorService used by the RosterBootstrapPlugin to query peer BNs for TssData */
+    /// The ScheduledExecutorService used by the RosterBootstrapPlugin to query peer BNs for TssData
     private ScheduledExecutorService queryPeerExecutor;
-    /** The config information for the RosterBootstrapTssConfig*/
+    /// The config information for the RosterBootstrapTssConfig
     private RosterBootstrapTssConfig rosterBootstrapTssConfig;
     // Metrics holder containing all backfill metrics
     private MetricsHolder metricsHolder;
@@ -110,24 +110,18 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         }
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    /// {@inheritDoc}
     @Override
     public void stop() {
         if (queryPeerExecutor != null) queryPeerExecutor.shutdown();
     }
 
-    /**
-     * UncaughtExceptionHandler for logging uncaught exceptions
-     */
+    /// UncaughtExceptionHandler for logging uncaught exceptions
     private void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
         LOGGER.log(WARNING, "Uncaught exception in RosterBootstrapTssPlugin thread: " + thread.getName(), throwable);
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    /// {@inheritDoc}
     @Override
     public void start() {
         /// Don't start the querying thread if there are no peers defined.
@@ -167,26 +161,20 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         }
     }
 
-    /**
-     * Initializes the metrics for the backfill process.
-     */
+    /// Initializes the metrics for the backfill process.
     private void initMetrics() {
         metricsHolder = MetricsHolder.createMetrics(blockNodeContext.metricRegistry(), currentBlockNodePeers);
     }
 
-    /**
-     * Holder for all backfill-related metrics.
-     * This record groups all metrics used by the backfill plugin and its components,
-     * allowing them to be passed as a single parameter.
-     */
+    /// Holder for all backfill-related metrics.
+    /// This record groups all metrics used by the backfill plugin and its components,
+    /// allowing them to be passed as a single parameter.
     public record MetricsHolder(LongCounter.Measurement tssDataRequests, LongCounter.Measurement tssDataErrors) {
 
-        /**
-         * Factory method to create a MetricsHolder with all metrics registered.
-         *
-         * @param metricRegistry the metrics registry instance to register metrics with
-         * @return a new MetricsHolder with all metrics created
-         */
+        /// Factory method to create a MetricsHolder with all metrics registered.
+        ///
+        /// @param metricRegistry the metrics registry instance to register metrics with
+        /// @return a new MetricsHolder with all metrics created
         public static MetricsHolder createMetrics(
                 @NonNull final MetricRegistry metricRegistry, @NonNull final AtomicLong currentBlockNodePeers) {
             metricRegistry.register(ObservableGauge.builder(METRIC_TSS_DATA_PEERS)

@@ -16,41 +16,35 @@ import org.hiero.block.node.roster.boostrap.tss.BlockNodeSource;
 import org.hiero.block.node.roster.boostrap.tss.BlockNodeSourceConfig;
 import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
 
-/**
- * Client for fetching TssData from block nodes using gRPC.
- * This client handles fetching TssData from select nodes.
- * <p>
- * The client is initialized with a path to a block node preference file, which contains
- * a list of block nodes with their addresses, ports, and priorities.
- */
+/// Client for fetching TssData from block nodes using gRPC.
+/// This client handles fetching TssData from select nodes.
+///
+/// The client is initialized with a path to a block node preference file, which contains
+/// a list of block nodes with their addresses, ports, and priorities.
 public class TssDataFetcher {
     private static final System.Logger LOGGER = System.getLogger(TssDataFetcher.class.getName());
 
-    /** Source of block node configurations. */
+    /// Source of block node configurations.
     private final BlockNodeSource blockNodeSource;
 
-    /** Global timeout in milliseconds for gRPC calls to block nodes (used as fallback). */
+    /// Global timeout in milliseconds for gRPC calls to block nodes (used as fallback).
     private final int globalGrpcTimeoutMs;
-    /** Enable TLS for secure connections to block nodes. */
+    /// Enable TLS for secure connections to block nodes.
     private final boolean enableTls;
-    /** Maximum incoming buffer size in bytes for the gRPC client. */
+    /// Maximum incoming buffer size in bytes for the gRPC client.
     private final int maxIncomingBufferSize;
 
     private final RosterBootstrapTssPlugin.MetricsHolder metrics;
 
-    /**
-     * Map of BlockNodeSourceConfig to BlockNodeClient instances.
-     * This allows us to reuse clients for the same node configuration.
-     * Package-private for testing.
-     */
+    /// Map of BlockNodeSourceConfig to BlockNodeClient instances.
+    /// This allows us to reuse clients for the same node configuration.
+    /// Package-private for testing.
     final ConcurrentHashMap<BlockNodeSourceConfig, BlockNodeClient> nodeClientMap = new ConcurrentHashMap<>();
 
-    /**
-     * Constructor for the fetcher responsible for retrieving TssData from peer block nodes.
-     *
-     * @param blockNodeSource the blocknode source configuration
-     * @param config the blocknode configuration containing retry, timeout, and other settings
-     */
+    /// Constructor for the fetcher responsible for retrieving TssData from peer block nodes.
+    ///
+    /// @param blockNodeSource the blocknode source configuration
+    /// @param config the blocknode configuration containing retry, timeout, and other settings
     public TssDataFetcher(
             BlockNodeSource blockNodeSource,
             RosterBootstrapTssConfig config,
@@ -65,18 +59,16 @@ public class TssDataFetcher {
         }
     }
 
-    /**
-     * Returns a BlockNodeClient for the given BlockNodeSourceConfig.
-     * If a client for the node already exists, it returns that client.
-     * Otherwise, it creates a new client and stores it in the map.
-     * <p>
-     * Per-node gRPC tuning (timeouts, HTTP/2 settings, buffer sizes) is passed
-     * to the client. When tuning values are 0 or not specified, the global
-     * timeout from BlockNodeConfiguration is used as fallback.
-     *
-     * @param node the BlockNodeSourceConfig to get the client for
-     * @return a BlockNodeClient for the specified node
-     */
+    /// Returns a BlockNodeClient for the given BlockNodeSourceConfig.
+    /// If a client for the node already exists, it returns that client.
+    /// Otherwise, it creates a new client and stores it in the map.
+    ///
+    /// Per-node gRPC tuning (timeouts, HTTP/2 settings, buffer sizes) is passed
+    /// to the client. When tuning values are 0 or not specified, the global
+    /// timeout from BlockNodeConfiguration is used as fallback.
+    ///
+    /// @param node the BlockNodeSourceConfig to get the client for
+    /// @return a BlockNodeClient for the specified node
     protected BlockNodeClient getNodeClient(BlockNodeSourceConfig node) {
         // Check if existing client is unreachable and remove it to allow recreation
         BlockNodeClient existingClient = nodeClientMap.get(node);
@@ -90,11 +82,9 @@ public class TssDataFetcher {
                         n, globalGrpcTimeoutMs, enableTls, maxIncomingBufferSize, n.grpcWebclientTuning()));
     }
 
-    /**
-     * Perform a serverStatusDetail call per configured node and capture the TssData.
-     *
-     * @return List of the TssData from each of the Nodes
-     */
+    /// Perform a serverStatusDetail call per configured node and capture the TssData.
+    ///
+    /// @return List of the TssData from each of the Nodes
     public List<TssData> getTssData() {
         List<TssData> tssDataList = new ArrayList<>();
 
