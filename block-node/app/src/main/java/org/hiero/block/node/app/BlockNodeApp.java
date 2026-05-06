@@ -430,6 +430,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // ==== LOAD APPLICATION STATE =================================================================================
         loadApplicationState(blockNodeContext.configuration());
 
+        // Flush any state loaded from disk (TssData queue + pending address book) into blockNodeContext
+        // synchronously now, so plugins see the correct context when startPlugins() is called next.
+        checkForApplicationStateUpdates();
+
         // Create thread executors via threadPoolManager.
         applicationStateExecutor = blockNodeContext
                 .threadPoolManager()
@@ -439,7 +443,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         ApplicationStateConfig appStateConfig =
                 blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
 
-        // Schedule periodic gap detection task using autonomous executor
+        // Schedule periodic check for live updates from running plugins.
         applicationStateExecutor.scheduleAtFixedRate(
                 this::checkForApplicationStateUpdates,
                 appStateConfig.updateInitialDelay(),
@@ -448,26 +452,29 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     private void checkForApplicationStateUpdates() {
-        boolean updated = false;
+        boolean tssUpdated = false;
         TssData tssData = tssDataUpdates.poll();
         while (tssData != null) {
             // Because we only update TssData for the most recent blockNumber,
             // |= will let us know if any TssData were updated.
-            updated |= updateBlockNodeContext(tssData, null);
+            tssUpdated |= updateBlockNodeContext(tssData, null);
             tssData = tssDataUpdates.poll();
         }
 
         // Consume any address book cached at startup (one-shot).
+        boolean addressBookUpdated = false;
         final NodeAddressBook addressBook = pendingAddressBook.getAndSet(null);
         if (addressBook != null) {
-            updated |= updateBlockNodeContext(null, addressBook);
+            addressBookUpdated = updateBlockNodeContext(null, addressBook);
         }
 
-        if (updated) {
+        if (tssUpdated || addressBookUpdated) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
             LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
-            persistTssData(blockNodeContext.tssData());
-            LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
+            if (tssUpdated) {
+                persistTssData(blockNodeContext.tssData());
+                LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
+            }
         }
     }
 
