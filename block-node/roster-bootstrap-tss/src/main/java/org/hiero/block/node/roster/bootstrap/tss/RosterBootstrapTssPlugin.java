@@ -76,7 +76,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         rosterBootstrapTssConfig = context.configuration().getConfigData(RosterBootstrapTssConfig.class);
         this.blockNodeContext = context;
 
-        init_metrics();
+        initMetrics();
 
         // Validate block node sources configuration
         final String sourcesPath = rosterBootstrapTssConfig.blockNodeSourcesPath();
@@ -170,7 +170,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     /**
      * Initializes the metrics for the backfill process.
      */
-    private void init_metrics() {
+    private void initMetrics() {
         metricsHolder = MetricsHolder.createMetrics(blockNodeContext.metricRegistry(), currentBlockNodePeers);
     }
 

@@ -16,9 +16,7 @@ import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
-import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
-import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.roster.boostrap.tss.BlockNodeSource;
 import org.hiero.block.node.roster.boostrap.tss.BlockNodeSourceConfig;
 import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
@@ -44,10 +42,6 @@ class TssDataFetcherTest {
                 .port(port)
                 .priority(priority)
                 .build();
-    }
-
-    private static BlockUnparsed createTestBlock(long blockNumber) {
-        return TestBlockBuilder.generateBlockWithNumber(blockNumber).blockUnparsed();
     }
 
     private static TssDataFetcher newClient(BlockNodeSourceConfig... nodes) throws Exception {

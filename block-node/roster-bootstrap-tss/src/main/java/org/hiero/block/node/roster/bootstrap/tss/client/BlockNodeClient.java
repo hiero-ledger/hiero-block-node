@@ -112,7 +112,6 @@ public class BlockNodeClient {
 
     private final PbjGrpcClientConfig grpcConfig;
     private final WebClient webClient;
-    private final int globalTimeoutMs;
     private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
     private boolean nodeReachable;
 
@@ -132,7 +131,6 @@ public class BlockNodeClient {
             int maxIncomingBufferSize,
             @Nullable GrpcWebClientTuning tuning) {
 
-        this.globalTimeoutMs = globalTimeoutMs;
         int connectTimeoutMs = CONNECT_TIMEOUT.getValidOrDefault(tuning);
         int readTimeoutMs = READ_TIMEOUT.getValidOrDefault(tuning);
         int pollWaitMs = POLL_WAIT_TIME.getValidOrDefault(tuning);
