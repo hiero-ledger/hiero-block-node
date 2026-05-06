@@ -25,6 +25,9 @@ public interface ApplicationStateFacility {
      * @param nodeAddressBook The NodeAddressBook to be stored in the BlockNodeContext.
      */
     default void updateAddressBook(NodeAddressBook nodeAddressBook) {
-        // do nothing by default
+        System.getLogger(ApplicationStateFacility.class.getName())
+                .log(
+                        System.Logger.Level.WARNING,
+                        "updateAddressBook called on no-op default implementation — address book update was ignored");
     }
 }

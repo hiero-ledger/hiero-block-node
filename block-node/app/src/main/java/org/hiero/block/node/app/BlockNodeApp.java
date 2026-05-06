@@ -386,31 +386,15 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
-     * Allow plugins to update the NodeAddressBook for this BlockNodeApp. Updates the context
-     * immediately, notifies all plugins via {@code onContextUpdate}, and persists the book to the
-     * bootstrap file for future restarts.
+     * Allow plugins to update the NodeAddressBook for this BlockNodeApp. The book is queued for
+     * processing on the next {@code checkForApplicationStateUpdates} scan tick, which rebuilds the
+     * context, notifies all plugins via {@code onContextUpdate}, and persists the book to disk.
      *
      * @param nodeAddressBook the NodeAddressBook to store in BlockNodeContext
      */
     @Override
     public void updateAddressBook(NodeAddressBook nodeAddressBook) {
-        blockNodeContext = new BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                blockNodeContext.tssData(),
-                nodeAddressBook);
-        loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
-        LOGGER.log(
-                INFO,
-                "ApplicationStateFacility called plugin.onContextUpdate for all plugins (nodeAddressBook update)");
-        persistNodeAddressBook(nodeAddressBook);
+        if (nodeAddressBook != null) pendingAddressBook.set(nodeAddressBook);
     }
 
     /**
@@ -474,6 +458,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             if (tssUpdated) {
                 persistTssData(blockNodeContext.tssData());
                 LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
+            }
+            if (addressBookUpdated) {
+                persistNodeAddressBook(blockNodeContext.nodeAddressBook());
+                LOGGER.log(INFO, "ApplicationStateFacility persisted NodeAddressBook");
             }
         }
     }
@@ -630,7 +618,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      * @param source human-readable source name for error messages
      * @throws IllegalStateException if the book is empty or has no usable entries
      */
-    private static void validateAddressBook(final NodeAddressBook book, final String source) {
+    static void validateAddressBook(final NodeAddressBook book, final String source) {
         if (book.nodeAddress().isEmpty()) {
             throw new IllegalStateException(
                     "RSA address book from " + source + " contains no entries — cannot verify WRB proofs");
