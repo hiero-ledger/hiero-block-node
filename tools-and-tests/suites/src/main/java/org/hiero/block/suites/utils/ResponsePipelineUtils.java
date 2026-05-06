@@ -9,6 +9,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
 /**
  * A simple test implementation of the {@link Pipeline} interface. It keeps
@@ -26,6 +27,9 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
     private AtomicReference<CountDownLatch> onCompleteLatch = new AtomicReference<>();
     // Fires on either onComplete or onError — use when connection closure is the signal, not a specific response type
     private AtomicReference<CountDownLatch> connectionEndedLatch = new AtomicReference<>();
+    // Fires when any received item satisfies matchPredicate — use when a specific response is the terminal signal
+    private volatile Predicate<R> matchPredicate;
+    private final AtomicReference<CountDownLatch> matchLatch = new AtomicReference<>();
 
     @Override
     public void clientEndStreamReceived() {
@@ -37,6 +41,13 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
         onNextCalls.add(Objects.requireNonNull(item));
         if (onNextLatch.get() != null) {
             onNextLatch.get().countDown();
+        }
+        final Predicate<R> pred = matchPredicate;
+        if (pred != null && pred.test(item)) {
+            final CountDownLatch latch = matchLatch.get();
+            if (latch != null) {
+                latch.countDown();
+            }
         }
     }
 
@@ -97,6 +108,14 @@ public class ResponsePipelineUtils<R> implements Pipeline<R> {
     public AtomicReference<CountDownLatch> setAndGetConnectionEndedLatch(int count) {
         connectionEndedLatch.set(new CountDownLatch(count));
         return connectionEndedLatch;
+    }
+
+    // Fires when the first item satisfying predicate is received.
+    // Set before sending items to avoid races.
+    public AtomicReference<CountDownLatch> setAndGetOnMatchLatch(final Predicate<R> predicate) {
+        matchLatch.set(new CountDownLatch(1));
+        matchPredicate = predicate;
+        return matchLatch;
     }
 
     /**

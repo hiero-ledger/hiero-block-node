@@ -67,6 +67,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private static final int DATA_READY_WAIT_MICROSECONDS = 5000;
     private static final String STALL_DETECTED_LOG_MESSAGE =
             "[{0}] Stall detected: handler {1} has not completed block {2}, another handler completed block {3}";
+    private static final String BLOCK_ABANDONED_LOG_MESSAGE =
+            "[{0}] Replacement persistence detected: handler {1} has not completed block {2}, but a different source persisted the same block {3}";
     private final System.Logger LOGGER = System.getLogger(LiveStreamPublisherManager.class.getName());
     private final MetricsHolder metrics;
     private final BlockNodeContext serverContext;
@@ -75,6 +77,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final ConcurrentNavigableMap<Long, PublisherHandler> handlers;
     private final AtomicLong nextHandlerId;
     private final ConcurrentNavigableMap<Long, Deque<BlockItemSetUnparsed>> queueByBlockMap;
+    // @todo Replace this with a metric, once metric values can be read.
     private final AtomicLong blocksClosedComplete;
     private final Condition dataReadyLatch;
     private final ReentrantLock dataReadyLock;
@@ -241,7 +244,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // @todo(2344) we can further improve this
         LOGGER.log(INFO, "Handler {0} is ending mid-block {1}", handlerId, blockNumber);
         final Deque<BlockItemSetUnparsed> deque = queueByBlockMap.remove(blockNumber);
-        // Remove from the active resend set, if it's present
+        // Remove from the active resend set, if it's present (it should not be)
         activeResendBlocks.remove(blockNumber);
         // Remove this block from the ACCEPT winner tracking in all cases;
         // if the handler dropped mid-block there is no stall to detect here.
@@ -368,34 +371,78 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     @Override
     public void handlePersisted(@NonNull final PersistedNotification notification) {
         if (notification != null) {
-            final long newLastPersistedBlock = notification.blockNumber();
+            final long blockNumber = notification.blockNumber();
             if (notification.succeeded()) {
-                // If we are currently streaming any blocks < newLastPersistedBlock, then do not send acknowledgement
-                // There was a test, isBeforeEarliestActiveBlock(newLastPersistedBlock) here
-                // but this must be removed for now.
                 // @todo(#1841) reconsider this conditional in light of other changes.
-                if (newLastPersistedBlock > lastPersistedBlockNumber.get()) {
-                    // Update internal manager state before sending acknowledgement
-                    lastPersistedBlockNumber.set(newLastPersistedBlock);
-                    ensureNextGreaterThanPersisted(newLastPersistedBlock);
-                    clearObsoleteQueueItems(newLastPersistedBlock);
-                    handlers.values().parallelStream().unordered().forEach(handler -> {
-                        // _Important_, we only need the last persisted block number
-                        // all previous blocks are implicitly acknowledged.
-                        handler.sendAcknowledgement(newLastPersistedBlock);
-                    });
-                    metrics.latestBlockNumberAcknowledged.set(newLastPersistedBlock);
+                // Persistence success (as from backfill) can also detect stalled handlers...
+                checkForStalledHandlers(blockNumber);
+                if (blockNumber > lastPersistedBlockNumber.get()) {
+                    // Ensure we don't acknowledge past known gaps
+                    final long blockToAcknowledge = correctForResendAndStreaming(blockNumber);
+                    clearObsoleteQueueItems(blockToAcknowledge);
+                    // Don't update values or notify publishers if the block to be
+                    // acknowledged isn't greater than previous acknowledgement(s).
+                    if (blockToAcknowledge >= 0 && blockToAcknowledge > lastPersistedBlockNumber.get()) {
+                        // Update internal manager state before sending acknowledgement
+                        lastPersistedBlockNumber.set(blockToAcknowledge);
+                        handlers.values().parallelStream().unordered().forEach(handler -> {
+                            // _Important_, we only need the last persisted block number
+                            // all previous blocks are implicitly acknowledged.
+                            handler.sendAcknowledgement(lastPersistedBlockNumber.get());
+                        });
+                        metrics.latestBlockNumberAcknowledged.set(blockToAcknowledge);
+                    }
+                    // This needs to advance regardless, because we must handle that
+                    // backfill might be _ahead_ of the current blocks...
+                    // @todo We still need to work out a better way to handle this.
+                    //    We might need to look for and add any gaps created by
+                    //    this method call to the blocks to resend set.
+                    ensureNextGreaterThanPersisted(blockNumber);
                 }
             } else {
-                queueByBlockMap.clear();
-                final long blockNumber = notification.blockNumber();
-                // @todo(2198): We may have an extremely rare race condition here
-                nextUnstreamedBlockNumber.set(blockNumber);
+                if (blockNumber <= lastPersistedBlockNumber.get()) {
+                    // @todo(2198): We may have an extremely rare race condition here
+                    nextUnstreamedBlockNumber.set(blockNumber);
+                }
+                // Make sure to schedule resend for this failed persistence
+                // This is actually unnecessary, _for now_, add back in when
+                // we no longer end all handlers.
+                // blocksToResend.add(blockNumber);
+                // Notify the handlers that persistence failed.
                 handlers.values().parallelStream()
                         .unordered()
                         .forEach((handler) -> handler.endStreamWithCode(Code.PERSISTENCE_FAILED, false));
+                queueByBlockMap.clear();
             }
         }
+    }
+
+    /// Given a proposed block to acknowledge, adjust it to take into account any
+    /// blocks waiting to resend or currently resending, and any other necessary
+    /// conditions.
+    /// These adjustments ensure that we do not accidentally acknowledge a block
+    /// due to out-of-order persistence when there are earlier blocks that this
+    /// plugin _knows_ are not yet verified and persisted.
+    ///
+    /// @param blockNumber The block number that we are expecting to acknowledge.
+    ///
+    /// @return an adjusted (lower only) block number to actually acknowledge.
+    ///     This value is adjusted lower than any blocks we know are not yet
+    ///     stored successfully (including resends, active streams, etc...).
+    ///
+    private long correctForResendAndStreaming(final long blockNumber) {
+        // get the lowest block number resending or scheduled to resend
+        // Use block number + 1 as a default if something isn't set, because we'll reduce by one later.
+        final long defaultValue = blockNumber + 1;
+        final long earliestInFlight = queueByBlockMap.isEmpty() ? defaultValue : queueByBlockMap.firstKey();
+        final long activeResend = activeResendBlocks.isEmpty() ? defaultValue : activeResendBlocks.first();
+        final long scheduledResend = blocksToResend.isEmpty() ? defaultValue : blocksToResend.first();
+        final long earliestResend = Math.min(activeResend, scheduledResend);
+        final long earliestKnownGap = Math.min(earliestInFlight, earliestResend);
+        // Ensure we don't acknowledge blocks at or after the earliest block we
+        // still have not persisted. Note, this is not perfect, it cannot account
+        // for pre-existing gaps earlier than the last known persisted block.
+        return (earliestKnownGap <= blockNumber) ? earliestKnownGap - 1 : blockNumber;
     }
 
     /// Removes queue entries for blocks that are incomplete and
@@ -431,11 +478,14 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
             final NavigableSet<Long> keysBeforeBlock = new TreeSet<>();
             keysBeforeBlock.addAll(queueByBlockMap.headMap(blockNumber, true).keySet());
             for (final Long candidate : keysBeforeBlock) {
-                if (!(blockProofs.containsKey(candidate) || hasBlockProof(queueByBlockMap.get(candidate)))) {
+                if (!(blockProofs.containsKey(candidate)
+                        || hasBlockProof(queueByBlockMap.get(candidate))
+                        || isResendingLive(candidate))) {
                     queueByBlockMap.remove(candidate);
                     // possibly remove a just collected block proof
                     blockProofs.remove(candidate);
                     // remove from stall-detection tracking; this block is now obsolete
+                    // This should not actually be needed, but it's here for a rare corner case
                     activeStreamHandlerByBlock.remove(candidate);
                 }
             }
@@ -490,11 +540,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     /// Checks whether any currently accepted block is stalled relative to the
     /// block that just completed. A handler is considered stalled when it holds
     /// ACCEPT for block N, has not yet called endOfBlock(N), and another handler
-    /// has just called endOfBlock(M) where M > N + 2.
+    /// has just called endOfBlock(M) where M > N + `K`.
     ///
-    /// The +2 threshold respects the protocol requirement that a publisher may
-    /// reasonably require up to 2 block times to complete a block due to
-    /// signature gathering.
+    /// The +`K` threshold respects the protocol requirement that a publisher may
+    /// reasonably require up to `K` block times to complete a block due to
+    /// signature gathering. The exact value, `K`, is configured.
     ///
     /// For each stalled block found:
     /// - Its queue and proof entries are removed so the forwarder can advance.
@@ -513,32 +563,47 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         for (final Map.Entry<Long, Long> entry : activeStreamHandlerByBlock.entrySet()) {
             final long candidateBlock = entry.getKey();
             final long handlerId = entry.getValue();
-            if (completedBlockNumber > candidateBlock + maxBlocksBeforeStalled
+            // Discard the block entirely if we just completed that exact block
+            // via another channel but do not discard _completed_ blocks.
+            // Include the CAS check here so we don't do this in multiple threads
+            if (completedBlockNumber == candidateBlock
+                    && !endBlocksReceived.contains(candidateBlock)
+                    && activeStreamHandlerByBlock.remove(candidateBlock, handlerId)) {
+                endStalledBlock(completedBlockNumber, handlerId, candidateBlock, BLOCK_ABANDONED_LOG_MESSAGE);
+                // Do not resend in this case.
+            } else if (completedBlockNumber > candidateBlock + maxBlocksBeforeStalled
                     && !endBlocksReceived.contains(candidateBlock)
                     && !isResendingLive(candidateBlock)
                     && activeStreamHandlerByBlock.remove(candidateBlock, handlerId)) {
                 // This thread won the CAS — execute the stall action.
-                // @todo: Add CorrelationID _for the handler that is stalled_
-                //        (not the thread that called this method).
-                //     This requires making correlation ID accessible in Handler.
-                PublisherHandler stalledHandler = handlers.get(handlerId);
-                String correlationId = stalledHandler != null ? stalledHandler.getCorrelationId() : "";
-                LOGGER.log(
-                        DEBUG,
-                        STALL_DETECTED_LOG_MESSAGE,
-                        correlationId,
-                        handlerId,
-                        candidateBlock,
-                        completedBlockNumber);
-                queueByBlockMap.remove(candidateBlock);
-                blockProofs.remove(candidateBlock);
+                endStalledBlock(completedBlockNumber, handlerId, candidateBlock, STALL_DETECTED_LOG_MESSAGE);
                 blocksToResend.add(candidateBlock);
-                if (stalledHandler != null) {
-                    stalledHandler.endStreamWithCode(TIMEOUT, true);
-                }
-                metrics.stallTimeoutsSent().increment();
             }
         }
+    }
+
+    /// Given a known-stalled block, log a stall, remove the block from queues
+    /// and tracking, end the stream for the responsible handler, and
+    /// increment a metric.
+    ///
+    /// @param completedBlock The block that was _completed_ and resulted
+    ///     in detecting the stall.
+    /// @param handlerId the Handler that is stalled
+    /// @param stalledBlock the block that is stalled
+    /// @param logMessage a log message to send, this message will be logged
+    ///     with correlation ID, handler ID, stalled block, and completed block,
+    ///     in that order.
+    private void endStalledBlock(
+            final long completedBlock, final long handlerId, final long stalledBlock, final String logMessage) {
+        PublisherHandler stalledHandler = handlers.get(handlerId);
+        String correlationId = stalledHandler != null ? stalledHandler.getCorrelationId() : "";
+        LOGGER.log(DEBUG, logMessage, correlationId, handlerId, stalledBlock, completedBlock);
+        queueByBlockMap.remove(stalledBlock);
+        blockProofs.remove(stalledBlock);
+        if (stalledHandler != null) {
+            stalledHandler.endStreamWithCode(TIMEOUT, true);
+        }
+        metrics.stallTimeoutsSent().increment();
     }
 
     /// Check if the candidate block is being resent and is newer than the last
@@ -553,18 +618,6 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     ///
     private boolean isResendingLive(final long candidateBlock) {
         return activeResendBlocks.contains(candidateBlock) && candidateBlock > lastPersistedBlockNumber.get();
-    }
-
-    /// Determine if the given block number is before the earliest active block.
-    /// @param blockNumber to check
-    /// @return `true` if, and only if, there are no blocks currently streaming or `blockNumber` is strictly less
-    ///     than the earliest block currently waiting to be sent to messaging
-    private boolean isBeforeEarliestActiveBlock(final long blockNumber) {
-        try {
-            return queueByBlockMap.isEmpty() || blockNumber < queueByBlockMap.firstKey();
-        } catch (final NoSuchElementException e) {
-            return true;
-        }
     }
 
     /// todo(1420) add documentation
