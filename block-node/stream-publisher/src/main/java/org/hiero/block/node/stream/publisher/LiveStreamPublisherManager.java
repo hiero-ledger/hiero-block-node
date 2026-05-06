@@ -726,7 +726,22 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         // headSet(toElement, true) is the inclusive prefix view; clearing it drops every
         // entry <= staleCutoff in one shot. The view is backed by the set, so
         // ConcurrentSkipListSet's weakly-consistent semantics apply.
-        blocksToResend.headSet(staleCutoff, true).clear();
+        final NavigableSet<Long> staleEntries = blocksToResend.headSet(staleCutoff, true);
+        if (!staleEntries.isEmpty()) {
+            // Snapshot before clear so the log message is meaningful. Pruning here is
+            // an abnormal recovery path — under healthy operation no entry should ever
+            // sit in blocksToResend long enough to fall this far behind lastPersistedBlockNumber.
+            // Surfacing the dropped block numbers helps operators correlate with upstream
+            // publisher / backfill timing issues.
+            final List<Long> droppedSnapshot = new ArrayList<>(staleEntries);
+            staleEntries.clear();
+            LOGGER.log(
+                    WARNING,
+                    "Pruned stale resend entries beyond {0}-block buffer: dropped={1} (lastPersistedBlockNumber advancing to {2}). These blocks can no longer be supplied by any live publisher and the gap is owned by backfill.",
+                    staleResendPruneBuffer,
+                    droppedSnapshot,
+                    proposedPersistedBlock);
+        }
     }
 
     /// This method will return the next block number for the next block that must be resent.
