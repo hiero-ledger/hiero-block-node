@@ -1332,7 +1332,7 @@ public class LiveSequential implements Runnable {
                                         .getCurrentAddressBook()
                                         .nodeAddress()
                                         .size()
-                                / 3
+                                / 2
                         + 1;
                 if (!hasRecord || sigFiles < minSigs) {
                     break;
@@ -1471,13 +1471,13 @@ public class LiveSequential implements Runnable {
             return resetPrefetchAndRetry(state, nextBlockNumber);
         }
 
-        // Verify sufficient signature files (need at least ceil(N/3) for stake-weighted validation)
+        // Verify sufficient signature files (need majority N/2 + 1 to prevent partition ambiguity)
         long sigCount = inMemoryFiles.stream()
                 .filter(f -> f.path().getFileName().toString().contains("_sig"))
                 .count();
         long maxExpectedSigs =
                 addressBookRegistry.getCurrentAddressBook().nodeAddress().size();
-        long minSigs = (maxExpectedSigs / 3) + 1;
+        long minSigs = (maxExpectedSigs / 2) + 1;
         if (sigCount < minSigs) {
             System.out.println("[live-sequential] Insufficient signatures for block " + nextBlockNumber + " ("
                     + sigCount + "/" + maxExpectedSigs + ", need " + minSigs + "), waiting for GCS uploads...");
@@ -1509,8 +1509,8 @@ public class LiveSequential implements Runnable {
             return false;
         }
 
-        // If we already have enough signatures for stake-weighted validation, proceed immediately
-        long minSigs = (maxExpectedSigs / 3) + 1;
+        // If we already have enough signatures for majority validation, proceed immediately
+        long minSigs = (maxExpectedSigs / 2) + 1;
         if (sigCount >= minSigs) {
             System.out.printf(
                     "[live-sequential] Block %d has sufficient signatures (%d/%d, need %d), proceeding%n",
