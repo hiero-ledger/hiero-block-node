@@ -36,10 +36,10 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility.State;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockitoAnnotations;
 
 /**
@@ -50,6 +50,9 @@ class BlockNodeAppTest {
     BlockNodePlugin plugin2;
     BlockProviderPlugin providerPlugin1;
     BlockProviderPlugin providerPlugin2;
+
+    @TempDir
+    Path tempDir;
 
     private BlockNodeApp blockNodeApp;
     private TestBlockMessagingFacility mockBlockMessagingFacility;
@@ -72,6 +75,7 @@ class BlockNodeAppTest {
 
     @BeforeEach
     void setUp() throws IOException, ClassNotFoundException, InstantiationException, IllegalAccessException {
+        System.setProperty("block.node.appStateDataFilePath", tempDir.resolve("app-state-data.bin").toString());
         MockitoAnnotations.openMocks(this);
         // minimal plugin mocks
         plugin1 = createMockedPlugin(1, BlockNodePlugin.class);
@@ -103,14 +107,6 @@ class BlockNodeAppTest {
         blockNodeApp = spy(new BlockNodeApp(serviceLoaderFunction, false));
     }
 
-    @AfterEach
-    void cleanup() {
-        try {
-            Files.deleteIfExists(Path.of("build/tmp/data/block/node/app-state-data.bin"));
-        } catch (Exception e) {
-            // ignore the exception
-        }
-    }
 
     @Test
     @DisplayName("Test BlockNodeApp Initialization")
