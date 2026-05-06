@@ -23,7 +23,7 @@ dependencies.constraints {
     api("com.google.auto.service:auto-service-annotations:1.1.1") {
         because("com.google.auto.service")
     }
-    api("com.google.code.gson:gson") { because("com.google.gson") }
+    api("com.google.code.gson:gson:2.12.1") { because("com.google.gson") }
     api("com.google.guava:guava:33.6.0-jre") { because("com.google.common") }
     api("com.google.protobuf:protobuf-java-util:$protobufVersion") {
         because("com.google.protobuf.util")
