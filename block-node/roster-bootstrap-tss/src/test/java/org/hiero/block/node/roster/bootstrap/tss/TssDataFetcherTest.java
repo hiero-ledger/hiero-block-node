@@ -45,15 +45,14 @@ class TssDataFetcherTest {
     private static TssDataFetcher newClient(BlockNodeSourceConfig... nodes) throws Exception {
         final BlockNodeSource source =
                 BlockNodeSource.newBuilder().nodes(List.of(nodes)).build();
-        return new TssDataFetcher(source, createTestConfig(0), createTestMetricsHolder());
+        return new TssDataFetcher(source, createTestConfig(), createTestMetricsHolder());
     }
 
-    private static RosterBootstrapTssConfig createTestConfig(int grpcOverallTimeout) {
+    private static RosterBootstrapTssConfig createTestConfig() {
         return new RosterBootstrapTssConfig(
                 "", // blockNodeSourcesPath
                 500, // queryPeerInterval
                 1_000, // queryPeerInitialDelay
-                grpcOverallTimeout,
                 104_857_600, // maxIncomingBufferSize (100 MB default)
                 false // enableTLS
                 );
@@ -130,7 +129,7 @@ class TssDataFetcherTest {
             BlockNodeSourceConfig nodeConfig, RosterBootstrapTssPlugin.MetricsHolder metrics, BlockNodeClient client)
             throws Exception {
         final BlockNodeSource source = createSource(nodeConfig);
-        final RosterBootstrapTssConfig config = createTestConfig(1000);
+        final RosterBootstrapTssConfig config = createTestConfig();
         return new TssDataFetcher(source, config, metrics) {
             @Override
             protected BlockNodeClient getNodeClient(BlockNodeSourceConfig ignored) {

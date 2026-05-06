@@ -27,8 +27,6 @@ public class TssDataFetcher {
     /// Source of block node configurations.
     private final BlockNodeSource blockNodeSource;
 
-    /// Global timeout in milliseconds for gRPC calls to block nodes (used as fallback).
-    private final int globalGrpcTimeoutMs;
     /// Enable TLS for secure connections to block nodes.
     private final boolean enableTls;
     /// Maximum incoming buffer size in bytes for the gRPC client.
@@ -50,7 +48,6 @@ public class TssDataFetcher {
             RosterBootstrapTssConfig config,
             @NonNull RosterBootstrapTssPlugin.MetricsHolder metrics) {
         this.blockNodeSource = blockNodeSource;
-        this.globalGrpcTimeoutMs = config.grpcOverallTimeout();
         this.enableTls = config.enableTLS();
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();
         this.metrics = metrics;
