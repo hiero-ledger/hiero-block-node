@@ -68,12 +68,6 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// Max Mirror Node fetch retries before fail-fast.
     private static final int MAX_RETRIES = 3;
 
-    /// Source from which the address book was loaded at startup.
-    private enum BookSource {
-        FILE,
-        MIRROR_NODE
-    }
-
     private volatile BlockNodeContext context;
     private BootstrapRosterConfig config;
     private ApplicationStateFacility applicationStateFacility;
@@ -117,13 +111,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     public void start() {
         final long startMs = System.currentTimeMillis();
         NodeAddressBook book = context.nodeAddressBook();
-        final BookSource source;
+        String addressBookSource = "File";
 
-        if (book != null) {
-            // Bootstrap file was loaded by BlockNodeApp.loadApplicationState() which runs in
-            // startApplicationStateFacility() before startPlugins() and calls onContextUpdate().
-            source = BookSource.FILE;
-        } else {
+        if (book == null) {
+            // No bootstrap file was loaded by BlockNodeApp.loadApplicationState()
             if (DEFAULT_MIRROR_NODE_URL.equals(config.mirrorNodeBaseUrl())) {
                 LOGGER.log(
                         WARNING,
@@ -135,16 +126,16 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             book = fetchFromMirrorNode();
             // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
             applicationStateFacility.updateAddressBook(book);
-            source = BookSource.MIRROR_NODE;
+            addressBookSource = "Mirror Node";
         }
 
         rosterEntriesLoaded = book.nodeAddress().size();
         rosterLoadDurationMs = System.currentTimeMillis() - startMs;
         LOGGER.log(
                 INFO,
-                "RSA roster available: {0} entries from {1} in {2}ms",
+                "RSA roster available: {0} entries obtained from {1} loaded in {2}ms",
                 rosterEntriesLoaded,
-                source,
+                addressBookSource,
                 rosterLoadDurationMs);
     }
 
