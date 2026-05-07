@@ -9,15 +9,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -130,6 +135,141 @@ class RsaRosterBootstrapPluginTest
         //  The blank-key filter and 0x-strip logic in fetchFromMirrorNode() is verified at the
         //  MirrorNodeNodesResponse parsing layer; the relative-nextLink resolution is fixed in
         //  RsaRosterBootstrapPlugin.fetchFromMirrorNode() and covered by MirrorNodeNodesResponseTest.
+    }
+
+    // -------------------------------------------------------------------------
+    // Mirror Node success paths — embedded HTTP server
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Mirror Node success paths (embedded HTTP server)")
+    class MirrorNodeEmbeddedServer {
+
+        private HttpServer server;
+        private int port;
+
+        @BeforeEach
+        void startServer() throws IOException {
+            server = HttpServer.create(new InetSocketAddress(0), 0);
+            port = server.getAddress().getPort();
+            server.start();
+        }
+
+        @AfterEach
+        void stopServer() {
+            if (server != null) {
+                server.stop(0);
+            }
+        }
+
+        private Map<String, String> serverConfig() {
+            return Map.of(
+                    "roster.bootstrap.mirrorNodeBaseUrl",
+                    "http://localhost:" + port,
+                    "roster.bootstrap.mirrorNodeConnectTimeoutSeconds",
+                    "5",
+                    "roster.bootstrap.mirrorNodeReadTimeoutSeconds",
+                    "5");
+        }
+
+        private void registerStaticHandler(final String path, final int statusCode, final String body) {
+            server.createContext(path, exchange -> {
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(statusCode, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+            });
+        }
+
+        @Test
+        @DisplayName("Single-page response loads all nodes into the address book")
+        void singlePageLoadsAllNodes() {
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\"},{\"node_id\":2,\"public_key\":\"ddeeff\"}],\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
+            assertNotNull(book);
+            assertEquals(2, book.nodeAddress().size());
+            assertEquals(1L, book.nodeAddress().get(0).nodeId());
+            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("Paginated response collects nodes from all pages")
+        void paginatedResponseCollectsAllNodes() {
+            final AtomicInteger callCount = new AtomicInteger(0);
+            server.createContext("/api/v1/network/nodes", exchange -> {
+                final String body = callCount.getAndIncrement() == 0
+                        ? "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\"}],\"links\":{\"next\":\"/api/v1/network/nodes?page=2\"}}"
+                        : "{\"nodes\":[{\"node_id\":2,\"public_key\":\"ddeeff\"}],\"links\":{\"next\":null}}";
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+            });
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
+            assertNotNull(book);
+            assertEquals(2, book.nodeAddress().size());
+            assertEquals(1L, book.nodeAddress().get(0).nodeId());
+            assertEquals(2L, book.nodeAddress().get(1).nodeId());
+        }
+
+        @Test
+        @DisplayName("Nodes with blank or null public_key are skipped; 0x prefix is stripped")
+        void blankKeySkippedAndOxPrefixStripped() {
+            registerStaticHandler(
+                    "/api/v1/network/nodes",
+                    200,
+                    "{\"nodes\":["
+                            + "{\"node_id\":1,\"public_key\":\"\"},"
+                            + "{\"node_id\":2,\"public_key\":\"0xaabbcc\"},"
+                            + "{\"node_id\":3,\"public_key\":null}"
+                            + "],\"links\":{\"next\":null}}");
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
+            assertNotNull(book);
+            assertEquals(1, book.nodeAddress().size());
+            assertEquals(2L, book.nodeAddress().get(0).nodeId());
+            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+        }
+
+        @Test
+        @DisplayName("HTTP 500 triggers retry and succeeds on the next attempt")
+        void http500TriggersRetryThenSucceeds() {
+            final AtomicInteger callCount = new AtomicInteger(0);
+            server.createContext("/api/v1/network/nodes", exchange -> {
+                if (callCount.getAndIncrement() == 0) {
+                    exchange.sendResponseHeaders(500, -1);
+                } else {
+                    final byte[] bytes =
+                            "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\"}],\"links\":{\"next\":null}}"
+                                    .getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (var out = exchange.getResponseBody()) {
+                        out.write(bytes);
+                    }
+                }
+                exchange.close();
+            });
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
+            assertNotNull(book);
+            assertEquals(1, book.nodeAddress().size());
+            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+        }
     }
 
     // -------------------------------------------------------------------------

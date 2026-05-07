@@ -14,4 +14,5 @@ testModuleInfo {
     requires("org.junit.jupiter.params")
     requires("org.mockito")
     requires("org.hiero.block.node.app.test.fixtures")
+    requires("jdk.httpserver")
 }
