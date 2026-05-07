@@ -240,7 +240,7 @@ public abstract class PluginTestBase<
         activeHistoricalBlockFacility.start();
         plugin.start();
     }
-    
+
     /**
      * Teardown after each.
      */

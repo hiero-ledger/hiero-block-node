@@ -1055,7 +1055,8 @@ class CloudStorageArchivePluginTest {
                     null,
                     testThreadPoolManager,
                     BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT);
+                    TssData.DEFAULT,
+                    null);
             final CloudStorageArchivePlugin failingPlugin = new CloudStorageArchivePlugin();
             failingPlugin.init(failingContext, null);
             // start() submits the recovery task to the shared BlockingExecutor.
