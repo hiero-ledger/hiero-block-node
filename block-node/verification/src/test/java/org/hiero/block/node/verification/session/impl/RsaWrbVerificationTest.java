@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
@@ -33,13 +34,16 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Unit tests for the RSA `SignedRecordFileProof` verification path in
  * `ExtendedMerkleTreeSession`.
  *
  * <p>Tests use synthetic blocks and in-process RSA key pairs — no real testnet blocks are required.
- * Six nodes are used so the supermajority threshold (`2 * ceil(6/3) + 1 = 5`) is testable with
+ * Six nodes are used so the supermajority threshold (`floor(2*6/3) + 1 = 5`) is testable with
  * both passing (5 or 6 valid sigs) and failing (4 valid sigs) scenarios.
  *
  * <p>The raw `RecordFileItem` proto is assembled manually using protobuf wire format so that
@@ -47,8 +51,14 @@ import org.junit.jupiter.api.Test;
  */
 class RsaWrbVerificationTest {
 
-    /** Number of test nodes — threshold is `2 * ceil(6/3) + 1 = 5`. */
+    /** Number of test nodes — threshold is `floor(2*6/3) + 1 = 5`. */
     private static final int ROSTER_SIZE = 6;
+
+    /**
+     * Extended key pool size for the parametrised threshold tests.
+     * Covers all roster sizes tested in `supermajorityThreshold_exactlyMet_acceptedOneLess_rejected`.
+     */
+    private static final int MAX_KEY_POOL = 9;
 
     /** Supermajority threshold for 6 nodes. */
     private static final int THRESHOLD = 5;
@@ -66,11 +76,21 @@ class RsaWrbVerificationTest {
      */
     private static final byte[] RECORD_STREAM_FILE_BYTES = "test-record-stream-file-v6-content".getBytes();
 
-    /** RSA public keys indexed by node_id (0 .. ROSTER_SIZE-1). */
+    /** RSA public keys indexed by node_id (0 .. ROSTER_SIZE-1). Used by the existing 6-node tests. */
     private static final Map<Long, PublicKey> KEY_MAP = new HashMap<>();
 
-    /** RSA private keys indexed by node_id (0 .. ROSTER_SIZE-1). */
+    /** RSA private keys indexed by node_id (0 .. ROSTER_SIZE-1). Used by the existing 6-node tests. */
     private static final Map<Long, PrivateKey> PRIVATE_KEY_MAP = new HashMap<>();
+
+    /**
+     * Extended public key pool covering node_ids 0 .. MAX_KEY_POOL-1.
+     * Used exclusively by the parametrised threshold test so it can build rosters of varying sizes
+     * without affecting the existing 6-node test fixtures.
+     */
+    private static final Map<Long, PublicKey> EXTENDED_KEY_MAP = new HashMap<>();
+
+    /** Extended private key pool paired with `EXTENDED_KEY_MAP`. */
+    private static final Map<Long, PrivateKey> EXTENDED_PRIVATE_KEY_MAP = new HashMap<>();
 
     /** Serialized `RecordFileItem` proto with field 2 = `RECORD_STREAM_FILE_BYTES`. */
     private static Bytes recordFileItemBytes;
@@ -83,10 +103,17 @@ class RsaWrbVerificationTest {
         // 1024-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(1024);
+        // Generate the 6-node pool used by the fixed-roster tests.
         for (long nodeId = 0; nodeId < ROSTER_SIZE; nodeId++) {
             final KeyPair kp = kpg.generateKeyPair();
             KEY_MAP.put(nodeId, kp.getPublic());
             PRIVATE_KEY_MAP.put(nodeId, kp.getPrivate());
+        }
+        // Generate the extended pool (MAX_KEY_POOL nodes) for the parametrised threshold tests.
+        for (long nodeId = 0; nodeId < MAX_KEY_POOL; nodeId++) {
+            final KeyPair kp = kpg.generateKeyPair();
+            EXTENDED_KEY_MAP.put(nodeId, kp.getPublic());
+            EXTENDED_PRIVATE_KEY_MAP.put(nodeId, kp.getPrivate());
         }
 
         // Build a minimal RecordFileItem proto: field 2 (tag=18, wire=LEN) = RECORD_STREAM_FILE_BYTES
@@ -161,13 +188,24 @@ class RsaWrbVerificationTest {
         return session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
     }
 
-    /** Signs with the given node IDs and returns a `RecordFileSignature` list. */
+    /** Signs with the given node IDs (from the 6-node pool) and returns a `RecordFileSignature` list. */
     private static List<RecordFileSignature> signaturesFor(final long... nodeIds) throws Exception {
         final List<RecordFileSignature> sigs = new ArrayList<>();
         for (final long nodeId : nodeIds) {
             sigs.add(new RecordFileSignature(Bytes.wrap(sign(nodeId)), nodeId));
         }
         return sigs;
+    }
+
+    /**
+     * Signs `signedPayload` with the extended pool private key for `nodeId` and returns a
+     * `RecordFileSignature`. Used only by the parametrised threshold test.
+     */
+    private static RecordFileSignature extendedSignature(final long nodeId) throws Exception {
+        final Signature engine = Signature.getInstance("SHA384withRSA");
+        engine.initSign(EXTENDED_PRIVATE_KEY_MAP.get(nodeId));
+        engine.update(signedPayload);
+        return new RecordFileSignature(Bytes.wrap(engine.sign()), nodeId);
     }
 
     // ---- Tests -------------------------------------------------------------------------------
@@ -283,14 +321,14 @@ class RsaWrbVerificationTest {
         // Here we simulate by simply omitting node 5 from the map (as if buildKeyMap had skipped it).
         // 5 valid sigs from nodes 0..4 still meet the threshold of 5 for a 5-node roster.
         final Map<Long, PublicKey> reducedMap = new HashMap<>(KEY_MAP);
-        reducedMap.remove(5L); // 5-node roster now — threshold = 2*ceil(5/3)+1 = 2*2+1 = 5
+        reducedMap.remove(5L); // 5-node roster now — threshold = floor(2*5/3)+1 = 3+1 = 4
 
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
         final VerificationNotification result = runVerification(reducedMap, sigs);
 
         assertNotNull(result);
-        // threshold for 5 nodes = 5; exactly 5 valid sigs → accepted
-        assertTrue(result.success(), "5 valid sigs out of 5-node roster meets the threshold");
+        // threshold for 5 nodes = 4; 5 valid sigs ≥ 4 → accepted
+        assertTrue(result.success(), "5 valid sigs out of 5-node roster meets the threshold of 4");
     }
 
     @Test
@@ -390,5 +428,56 @@ class RsaWrbVerificationTest {
 
         assertNotNull(result);
         assertTrue(result.success(), "Field-2 bytes must be correctly extracted even when field-1 precedes them");
+    }
+
+    /**
+     * Verifies that the supermajority threshold `floor(2 * rosterSize / 3) + 1` is correctly
+     * implemented for roster sizes that are not multiples of 3.
+     *
+     * <p>The former formula `2 * ceil(rosterSize / 3) + 1` only agreed with `floor(2n/3) + 1`
+     * when `rosterSize` was a multiple of 3. For example, with 7 nodes it produced threshold=7
+     * (unanimous, impossible with any offline node) instead of the correct threshold=5.
+     */
+    @ParameterizedTest(name = "rosterSize={0} → threshold={1}")
+    @MethodSource("thresholdCases")
+    @DisplayName("supermajority threshold floor(2n/3)+1 is correct across roster sizes")
+    void supermajorityThreshold_exactlyMet_acceptedOneLess_rejected(final int rosterSize, final int expectedThreshold)
+            throws Exception {
+        // Build a key map from the extended pool so existing 6-node KEY_MAP is unaffected.
+        final Map<Long, PublicKey> keyMap = new HashMap<>();
+        for (long id = 0; id < rosterSize; id++) {
+            keyMap.put(id, EXTENDED_KEY_MAP.get(id));
+        }
+
+        // Exactly threshold valid sigs → must be accepted
+        final List<RecordFileSignature> atThreshold = new ArrayList<>();
+        for (long id = 0; id < expectedThreshold; id++) {
+            atThreshold.add(extendedSignature(id));
+        }
+        assertTrue(
+                runVerification(keyMap, atThreshold).success(),
+                "rosterSize=" + rosterSize + ": " + expectedThreshold + " sigs (= threshold) must be accepted");
+
+        // One below threshold → must be rejected
+        final List<RecordFileSignature> oneLess = new ArrayList<>();
+        for (long id = 0; id < expectedThreshold - 1; id++) {
+            oneLess.add(extendedSignature(id));
+        }
+        assertFalse(
+                runVerification(keyMap, oneLess).success(),
+                "rosterSize=" + rosterSize + ": " + (expectedThreshold - 1) + " sigs (threshold-1) must be rejected");
+    }
+
+    static Stream<Arguments> thresholdCases() {
+        // floor(2*n/3) + 1 for each roster size
+        return Stream.of(
+                Arguments.of(3, 3), // floor(6/3)  + 1 = 3
+                Arguments.of(4, 3), // floor(8/3)  + 1 = 3
+                Arguments.of(5, 4), // floor(10/3) + 1 = 4
+                Arguments.of(6, 5), // floor(12/3) + 1 = 5
+                Arguments.of(7, 5), // floor(14/3) + 1 = 5
+                Arguments.of(8, 6), // floor(16/3) + 1 = 6
+                Arguments.of(9, 7) //  floor(18/3) + 1 = 7
+                );
     }
 }
