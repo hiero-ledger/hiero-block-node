@@ -111,7 +111,14 @@ class BlockNodeAppTest {
         try {
             Files.deleteIfExists(Path.of("build/tmp/data/block/node/app-state-data.bin"));
         } catch (Exception e) {
-            // ignore the exception
+            // ignore
+        }
+        // Remove the RSA file written by addressBookPersistenceRoundTrip so subsequent tests
+        // start with a null address book rather than inheriting persisted state.
+        try {
+            Files.deleteIfExists(Path.of("build/resources/test/data/config/rsa-bootstrap-roster.pb"));
+        } catch (Exception e) {
+            // ignore
         }
     }
 
@@ -435,6 +442,88 @@ class BlockNodeAppTest {
                         NodeAddress.newBuilder().nodeId(0).rsaPubKey("deadbeef").build())
                 .build();
         assertDoesNotThrow(() -> BlockNodeApp.validateAddressBook(valid, "test-valid"));
+    }
+
+    /**
+     * updateAddressBook with null input is a no-op — context stays unchanged.
+     */
+    @Test
+    @DisplayName("updateAddressBook with null input is a no-op")
+    void updateAddressBookNullIsNoOp() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        app.startApplicationStateFacility();
+        final NodeAddressBook before = app.blockNodeContext.nodeAddressBook();
+
+        app.updateAddressBook(null);
+
+        assertEquals(before, app.blockNodeContext.nodeAddressBook(), "null update must not change the address book");
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * updateAddressBook with an empty or all-blank-key book is rejected; context stays unchanged.
+     */
+    @Test
+    @DisplayName("updateAddressBook rejects invalid books and leaves context unchanged")
+    void updateAddressBookInvalidBookIsRejected() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        app.startApplicationStateFacility();
+
+        final NodeAddressBook emptyBook = NodeAddressBook.newBuilder().build();
+        app.updateAddressBook(emptyBook);
+        assertNull(app.blockNodeContext.nodeAddressBook(), "Empty book must be rejected");
+
+        final NodeAddressBook allBlank = NodeAddressBook.newBuilder()
+                .nodeAddress(NodeAddress.newBuilder().nodeId(0).rsaPubKey("").build())
+                .build();
+        app.updateAddressBook(allBlank);
+        assertNull(app.blockNodeContext.nodeAddressBook(), "All-blank-key book must be rejected");
+
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * When the RSA bootstrap file does not exist the address book is null after startup.
+     */
+    @Test
+    @DisplayName("loadApplicationState with missing RSA file leaves address book null")
+    void loadApplicationStateMissingRsaFileAddressBookNull() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final Path rsaPath = app.blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .rsaBootstrapFilePath();
+        Files.deleteIfExists(rsaPath);
+
+        app.startApplicationStateFacility();
+
+        assertNull(app.blockNodeContext.nodeAddressBook(), "Missing RSA file must leave address book null");
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * When the RSA bootstrap file exists but is corrupt, startApplicationStateFacility throws.
+     */
+    @Test
+    @DisplayName("loadApplicationState with corrupt RSA file throws IllegalStateException")
+    void loadApplicationStateCorruptRsaFileThrows() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final Path rsaPath = app.blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .rsaBootstrapFilePath();
+        Files.createDirectories(rsaPath.getParent());
+        Files.write(rsaPath, new byte[] {(byte) 0xFF, (byte) 0xFE, 0x00});
+
+        assertThrows(
+                IllegalStateException.class,
+                app::startApplicationStateFacility,
+                "Corrupt RSA file must throw IllegalStateException");
+        app.stopApplicationStateFacility();
     }
 
     /**

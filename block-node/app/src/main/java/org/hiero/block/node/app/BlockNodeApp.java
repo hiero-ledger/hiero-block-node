@@ -25,6 +25,7 @@ import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -85,8 +86,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private final HistoricalBlockFacilityImpl historicalBlockFacility;
     /** Should the shutdown() method exit the JVM. */
     private final boolean shouldExitJvmOnShutdown;
-    /** The block node context. Package so accessible for testing. */
-    BlockNodeContext blockNodeContext;
+    /** The block node context. Volatile: written by the scheduled scanner thread, read by plugin threads. */
+    volatile BlockNodeContext blockNodeContext;
     /** list of all loaded plugins. Package so accessible for testing. */
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
 
@@ -386,15 +387,23 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
-     * Allow plugins to update the NodeAddressBook for this BlockNodeApp. The book is queued for
-     * processing on the next {@code checkForApplicationStateUpdates} scan tick, which rebuilds the
-     * context, notifies all plugins via {@code onContextUpdate}, and persists the book to disk.
+     * Allow plugins to update the NodeAddressBook for this BlockNodeApp. The address book is staged
+     * in a last-write-wins reference; if {@code updateAddressBook} is called more than once before
+     * the next {@code checkForApplicationStateUpdates} scan tick, only the most recent book is used.
+     * Null, empty, or all-blank-key books are silently rejected.
      *
      * @param nodeAddressBook the NodeAddressBook to store in BlockNodeContext
      */
     @Override
     public void updateAddressBook(NodeAddressBook nodeAddressBook) {
-        if (nodeAddressBook != null) pendingAddressBook.set(nodeAddressBook);
+        if (nodeAddressBook == null) return;
+        try {
+            validateAddressBook(nodeAddressBook, "runtime update");
+        } catch (IllegalStateException e) {
+            LOGGER.log(WARNING, "Rejecting invalid address book update: {0}", e.getMessage());
+            return;
+        }
+        pendingAddressBook.set(nodeAddressBook);
     }
 
     /**
@@ -555,7 +564,15 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
             final Bytes encoded = NodeAddressBook.PROTOBUF.toBytes(nodeAddressBook);
             Files.write(tmp, encoded.toByteArray());
-            Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            try {
+                Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                LOGGER.log(
+                        WARNING,
+                        "Atomic move not supported on this filesystem for {0}; falling back to non-atomic replace",
+                        filePath);
+                Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING);
+            }
             LOGGER.log(INFO, "Persisted RSA address book to file: {0}", filePath);
         } catch (IOException e) {
             LOGGER.log(

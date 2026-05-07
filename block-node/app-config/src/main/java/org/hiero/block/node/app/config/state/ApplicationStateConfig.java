@@ -16,7 +16,7 @@ import org.hiero.block.node.base.Loggable;
  * @param dataFilePath path where application state, like TSS data (ledger ID, address book, WRAPS VK),
  *     are persisted across restarts as a serialized {@code TssData}.
  * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (binary protobuf {@code NodeAddressBook}).
- *     Must match {@code roster.bootstrap.filePath} when that property is customised by the operator.
+ *     Configured via {@code app.state.rsaBootstrapFilePath}.
  *     Defaults to {@code /opt/hiero/block-node/node/rsa-bootstrap-roster.pb}.
  * @param updateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
  *     checking to see if there are any {@code TssData} updates to process.
