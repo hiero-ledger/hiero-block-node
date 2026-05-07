@@ -635,22 +635,33 @@ class ExpandedCloudStoragePluginTest
     @DisplayName(
             "PersistedNotifications are published in ascending block-number order when results are drained together")
     void notificationsPublishedInAscendingBlockOrder() throws InterruptedException {
-        final CountDownLatch bothUploaded = new CountDownLatch(2);
-        final S3UploadClient countingClient = new S3UploadClient() {
+        // Two-latch barrier: hold each upload INSIDE uploadFile until both tasks are
+        // simultaneously in-flight. This prevents block 7's task from completing before
+        // block 2 is submitted — if block 7 finishes first, handleVerification(2)'s
+        // internal drainCompletedTasks() would publish block 7 ahead of block 2.
+        final CountDownLatch uploadsStarted = new CountDownLatch(2);
+        final CountDownLatch releaseUploads = new CountDownLatch(1);
+        final S3UploadClient barrierClient = new S3UploadClient() {
             @Override
             public void uploadFile(
                     final String objectKey,
                     final String storageClass,
                     final Iterator<byte[]> contentIterable,
-                    final String contentType) {
-                bothUploaded.countDown();
+                    final String contentType)
+                    throws UploadException {
+                uploadsStarted.countDown();
+                try {
+                    releaseUploads.await(5, TimeUnit.SECONDS);
+                } catch (final InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
 
             @Override
             public void close() {}
         };
         start(
-                new ExpandedCloudStoragePlugin(countingClient),
+                new ExpandedCloudStoragePlugin(barrierClient),
                 new SimpleInMemoryHistoricalBlockFacility(),
                 Map.of(
                         "cloud.storage.expanded.endpointUrl", "http://fake:9000",
@@ -661,11 +672,18 @@ class ExpandedCloudStoragePluginTest
         plugin.handleVerification(verifiedNotification(7L, testBlock(7).blockUnparsed()));
         plugin.handleVerification(verifiedNotification(2L, testBlock(2).blockUnparsed()));
 
-        // Wait for both uploads to complete, then do a single drain pass so both results
-        // are staged in the ConcurrentSkipListMap before any notification is published.
-        assertTrue(bothUploaded.await(5, TimeUnit.SECONDS), "Both uploads must complete within 5s");
-        Thread.sleep(50); // let virtual threads return UploadResult to CompletionService
-        plugin.drainCompletedTasks();
+        // Wait until BOTH uploads are blocked inside uploadFile. At this point neither
+        // task has completed, so the drainCompletedTasks() inside handleVerification(2)
+        // found nothing to publish — the ordering property is now testable.
+        assertTrue(uploadsStarted.await(5, TimeUnit.SECONDS), "Both uploads must start within 5s");
+
+        // Release both uploads simultaneously. Both tasks complete (build UploadResult,
+        // queue future) within nanoseconds of each other. awaitNotifications polls with
+        // drainCompletedTasks() until both PersistedNotifications arrive; since both
+        // futures land in the CompletionService at nearly the same moment, a single drain
+        // pass will typically see both and publish them in ascending block-number order.
+        releaseUploads.countDown();
+        awaitNotifications(2);
 
         final List<PersistedNotification> notifications = blockMessaging.getSentPersistedNotifications();
         assertEquals(2, notifications.size(), "Both blocks must produce PersistedNotifications");
