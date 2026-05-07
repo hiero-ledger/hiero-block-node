@@ -80,7 +80,7 @@ class RsaWrbVerificationTest {
 
     @BeforeAll
     static void generateKeysAndPayload() throws Exception {
-        // Generate 1024-bit RSA key pairs for all test nodes
+        // 1024-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(1024);
         for (long nodeId = 0; nodeId < ROSTER_SIZE; nodeId++) {
@@ -126,8 +126,8 @@ class RsaWrbVerificationTest {
      * @return list of unparsed block items ready to pass to `processBlockItems`
      */
     private static List<BlockItemUnparsed> buildWrbBlock(final List<RecordFileSignature> signatures) {
-        final BlockHeader header = new BlockHeader(
-                HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+        final BlockHeader header =
+                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
         final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(BLOCK_NUMBER)
@@ -137,9 +137,8 @@ class RsaWrbVerificationTest {
         final BlockItemUnparsed headerItem = BlockItemUnparsed.newBuilder()
                 .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
                 .build();
-        final BlockItemUnparsed recordFileItem = BlockItemUnparsed.newBuilder()
-                .recordFile(recordFileItemBytes)
-                .build();
+        final BlockItemUnparsed recordFileItem =
+                BlockItemUnparsed.newBuilder().recordFile(recordFileItemBytes).build();
         final BlockItemUnparsed footerItem = BlockItemUnparsed.newBuilder()
                 .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
                 .build();
@@ -244,7 +243,8 @@ class RsaWrbVerificationTest {
         final VerificationNotification result = runVerification(keyMap, sigs);
 
         assertNotNull(result);
-        assertTrue(result.success(),
+        assertTrue(
+                result.success(),
                 "Sig from unknown node should be skipped; valid sigs from known nodes still meet threshold");
     }
 
@@ -294,6 +294,56 @@ class RsaWrbVerificationTest {
     }
 
     @Test
+    @DisplayName("duplicate node_id in proof is counted only once toward the threshold")
+    void duplicateNodeId_countedOnlyOnce() throws Exception {
+        // threshold = 5; send 4 distinct valid signatures + 1 duplicate of node 0 = still only 4 valid
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L);
+        sigs.add(new RecordFileSignature(Bytes.wrap(sign(0L)), 0L)); // duplicate node 0
+        final VerificationNotification result = runVerification(KEY_MAP, sigs);
+
+        assertNotNull(result);
+        assertFalse(
+                result.success(),
+                "Duplicate signature from node 0 must not count twice — validCount stays at 4, below threshold 5");
+    }
+
+    @Test
+    @DisplayName("unsupported proof version (V5) is rejected")
+    void unsupportedVersion_rejected() throws Exception {
+        final List<BlockItemUnparsed> items;
+        {
+            final BlockHeader header = new BlockHeader(
+                    HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+            final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+            // Version 5 — only V6 is supported in Phase 2a
+            final BlockProof proof = BlockProof.newBuilder()
+                    .block(BLOCK_NUMBER)
+                    .signedRecordFileProof(new SignedRecordFileProof(5, signaturesFor(0L, 1L, 2L, 3L, 4L)))
+                    .build();
+            items = List.of(
+                    BlockItemUnparsed.newBuilder()
+                            .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                            .build(),
+                    BlockItemUnparsed.newBuilder()
+                            .recordFile(recordFileItemBytes)
+                            .build(),
+                    BlockItemUnparsed.newBuilder()
+                            .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                            .build(),
+                    BlockItemUnparsed.newBuilder()
+                            .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                            .build());
+        }
+        final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
+        final VerificationNotification result =
+                session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
+
+        assertNotNull(result);
+        assertFalse(result.success(), "SignedRecordFileProof version 5 must be rejected — only V6 is supported");
+    }
+
+    @Test
     @DisplayName("RSA V6: extractRecordStreamFileBytes correctly isolates field-2 bytes")
     void recordStreamFileBytesExtractedCorrectly_signatureVerifies() throws Exception {
         // Add a field-1 entry before field-2 in the proto bytes to confirm the parser skips correctly.
@@ -339,7 +389,6 @@ class RsaWrbVerificationTest {
                 session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
 
         assertNotNull(result);
-        assertTrue(result.success(),
-                "Field-2 bytes must be correctly extracted even when field-1 precedes them");
+        assertTrue(result.success(), "Field-2 bytes must be correctly extracted even when field-1 precedes them");
     }
 }

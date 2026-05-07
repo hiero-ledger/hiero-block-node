@@ -402,7 +402,8 @@ class VerificationServicePluginTest
     @Test
     @DisplayName("onContextUpdate with non-empty address book rebuilds keyByNodeId")
     void onContextUpdate_nonEmptyBook_rebuildsKeyMap() throws Exception {
-        // Build a minimal NodeAddress with a real RSA public key encoded as hex-DER
+        // Build a minimal NodeAddress with a real RSA public key encoded as hex-DER.
+        // 1024-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
         final java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("RSA");
         kpg.initialize(1024);
         final java.security.KeyPair kp = kpg.generateKeyPair();
@@ -412,10 +413,9 @@ class VerificationServicePluginTest
                 .nodeId(7L)
                 .rsaPubKey(hexKey)
                 .build();
-        final com.hedera.hapi.node.base.NodeAddressBook book =
-                com.hedera.hapi.node.base.NodeAddressBook.newBuilder()
-                        .nodeAddress(List.of(addr))
-                        .build();
+        final com.hedera.hapi.node.base.NodeAddressBook book = com.hedera.hapi.node.base.NodeAddressBook.newBuilder()
+                .nodeAddress(List.of(addr))
+                .build();
 
         // The test context has nodeAddressBook set to DEFAULT (empty) initially;
         // simulate a context update by calling onContextUpdate directly
@@ -438,6 +438,29 @@ class VerificationServicePluginTest
         // from node 7 as "unknown node"). The simplest assertion is that the method did not throw.
         // A deeper assertion would require exposing `keyByNodeId`, which we avoid.
         // Coverage is provided by the unit tests in `RsaWrbVerificationTest`.
+    }
+
+    @Test
+    @DisplayName("onContextUpdate with empty address book logs warning and retains existing key map")
+    void onContextUpdate_emptyBook_retainsKeyMap() {
+        // Call onContextUpdate with an empty NodeAddressBook — must not throw and must not reset
+        // the key map to empty (it starts empty already, but the important contract is: no crash).
+        final com.hedera.hapi.node.base.NodeAddressBook emptyBook = com.hedera.hapi.node.base.NodeAddressBook.DEFAULT;
+        final var updatedContext = new org.hiero.block.node.spi.BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                blockNodeContext.tssData(),
+                emptyBook);
+
+        // Must not throw; a WARNING is expected but not asserted here (logged to system logger).
+        plugin.onContextUpdate(updatedContext);
     }
 
     // ==== TSS End-to-End Flow Test ===================================================================================

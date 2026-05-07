@@ -50,8 +50,8 @@ class ExtendedMerkleTreeSessionTest {
                 BlockHeader.PROTOBUF.parse(blockItems.getFirst().blockHeaderOrThrow());
         long blockNumber = blockHeader.number();
 
-        ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
+        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
 
         BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber, true, true);
         VerificationNotification blockNotification = session.processBlockItems(blockItemsMessage);
@@ -92,8 +92,8 @@ class ExtendedMerkleTreeSessionTest {
         long blockNumber = BlockHeader.PROTOBUF
                 .parse(items.getFirst().blockHeaderOrThrow())
                 .number();
-        ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
+        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
         VerificationNotification notification =
                 session.processBlockItems(new BlockItems(items, blockNumber, true, true));
         assertTrue(
@@ -117,7 +117,8 @@ class ExtendedMerkleTreeSessionTest {
     @Test
     @DisplayName("should reject a malformed 10-byte signature as too short for VK prefix")
     void shouldRejectMalformedShortSignature() {
-        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(0L, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
+        ExtendedMerkleTreeSession session =
+                new ExtendedMerkleTreeSession(0L, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
         Bytes hash = Bytes.wrap(new byte[48]);
         Bytes shortSignature = Bytes.wrap(new byte[10]);
         assertFalse(session.verifySignature(hash, shortSignature), "A 10-byte signature must be rejected as too short");
@@ -127,7 +128,8 @@ class ExtendedMerkleTreeSessionTest {
     @DisplayName("should reject a zero-filled 2920-byte garbage TssWraps signature when no ledger ID")
     void shouldRejectGarbageTssWrapsSignature() {
         // No ledgerId provided, so verifySignature returns false before calling TSS.verifyTSS()
-        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(0L, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
+        ExtendedMerkleTreeSession session =
+                new ExtendedMerkleTreeSession(0L, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
         Bytes hash = Bytes.wrap(new byte[48]);
         Bytes garbageSignature = Bytes.wrap(new byte[2920]);
         assertFalse(
@@ -158,8 +160,8 @@ class ExtendedMerkleTreeSessionTest {
         List<BlockItemUnparsed> items = new ArrayList<>(originalItems);
         items.add(tssProofItem);
 
-        ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
+        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
         VerificationNotification notification =
                 session.processBlockItems(new BlockItems(items, blockNumber, true, true));
 
@@ -174,8 +176,8 @@ class ExtendedMerkleTreeSessionTest {
         long blockNumber = BlockHeader.PROTOBUF
                 .parse(items.getFirst().blockHeaderOrThrow())
                 .number();
-        ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), null, null, null);
+        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                blockNumber, BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), null, null, null);
         session.processBlockItems(new BlockItems(items, blockNumber, true, true));
         return session;
     }

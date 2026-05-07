@@ -41,8 +41,8 @@ class TestVerificationHapiVersions {
         long blockNumber = BlockHeader.PROTOBUF
                 .parse(items.getFirst().blockHeaderOrThrow())
                 .number();
-        ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(blockNumber, BlockSource.UNKNOWN, null, null, null, Map.of(), null, null, null);
+        ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                blockNumber, BlockSource.UNKNOWN, null, null, null, Map.of(), null, null, null);
         session.processBlockItems(new BlockItems(items, blockNumber, true, true));
     }
 
