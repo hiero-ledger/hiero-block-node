@@ -29,14 +29,14 @@ All block history is stored locally on the server. The NVMe holds recent/live
 blocks and live state; the bulk disk holds the long-term compressed block
 archive.
 
-|     Component     |                   Minimum Specification                   |
-|-------------------|-----------------------------------------------------------|
-| CPU               | 24 cores / 48 threads, 2024 or newer (PCIe 4+), ≥ 2.0 GHz |
-| RAM               | 256 GB                                                    |
-| Fast NVMe Disk    | 8 TB NVMe SSD (recent blocks + live state)                |
-| Bulk Storage Disk | 100 TB HDD or equivalent (compressed block archive)       |
-| Network           | 2 × 10 Gbps NICs                                          |
-| OS                | Linux (Ubuntu 24.04 LTS or Debian 13.4 LTS recommended)   |
+|     Component     |                   Minimum Specification                                      |
+|-------------------|------------------------------------------------------------------------------|
+| CPU               | 24 cores / 48 threads, single socket, ≥ 2.0 GHz base clock, Geekbench 6 single-core ≥ 1500, Passmark single-threaded ≥ 2800 |
+| RAM               | 256 GB                                                                       |
+| Fast NVMe Disk | 7.5 TB NVMe SSD (recent blocks + live state; 7.5TB usable, see note on enterprise sizing and OS disk)    |
+| Bulk Storage Disk | 100 TB HDD or equivalent (compressed block archive)                          |
+| Network           | 2 × 10 Gbps NICs                                                             |
+| OS                | Linux (Ubuntu 24.04 LTS or Debian 13.4 LTS recommended)                      |
 
 ### 2. Remote Full History (RFH)
 
@@ -44,13 +44,13 @@ Block history is stored remotely (e.g. cloud object store). The NVMe holds
 recent/live blocks and live state only; historical data is offloaded to object
 storage.
 
-|   Component    |                   Minimum Specification                   |
-|----------------|-----------------------------------------------------------|
-| CPU            | 24 cores / 48 threads, 2024 or newer (PCIe 4+), ≥ 2.0 GHz |
-| RAM            | 256 GB                                                    |
-| Fast NVMe Disk | 8 TB NVMe SSD (recent blocks + live state)                |
-| Network        | 2 × 10 Gbps NICs                                          |
-| OS             | Linux (Ubuntu 24.04 LTS or Debian 13.4 LTS recommended)   |
+|   Component    |                   Minimum Specification                                      |
+|----------------|------------------------------------------------------------------------------|
+| CPU            | 24 cores / 48 threads, single socket, ≥ 2.0 GHz base clock, Geekbench 6 single-core ≥ 1500, Passmark single-threaded ≥ 2800 |
+| RAM            | 256 GB                                                                       |
+| Fast NVMe Disk | 7.5 TB NVMe SSD (recent blocks + live state; 7.5TB usable, see note on enterprise sizing and OS disk)    |
+| Network        | 2 × 10 Gbps NICs                                                             |
+| OS             | Linux (Ubuntu 24.04 LTS or Debian 13.4 LTS recommended)                      |
 
 #### Recommendations
 
@@ -64,9 +64,23 @@ storage.
   dedicated instances. LFH configurations require significant storage capacity
   and are typically sourced from bare metal providers or purchased outright for
   self hosting or colocation.
-* OS disk requirements are minimal; the OS disk sees little activity after
-  start-up and does not require explicit sizing beyond standard OS installation
-  needs and at least 10 GB for OCI image storage.
+* **Enterprise NVMe sizing**: Enterprise-grade drives marketed as "8 TB" are
+  commonly shipped at lower usable capacities (e.g. 7.84 TB, 7.68 TB, or
+  6.4 TB) due to overprovisioning for endurance. These capacities are
+  acceptable provided the application's usable space requirement is met: 7.5 TB.
+* **OS disk**: A **separate dedicated drive for the OS is strongly recommended** so
+  that the OS does not compete with the application for NVMe space and disk I/O. This
+  is not always possible due to port and drive slot limitations on some server models, but it should be
+  prioritized when possible.
+  If no separate OS drive is available and the OS must share the Fast NVMe:
+  * A minimum of **at least the application's working set** of NVMe space must
+    remain available to the block node at all times; do not allow the OS
+    partition to grow unbounded, and allow at least 10 GB for OCI image storage.
+  * Logs and other ephemeral OS data should be **eagerly reclaimed** (e.g. via
+    aggressive log rotation) to avoid crowding out application I/O.
+  * Scheduled maintenance tasks (log rotation, `tmpwatch`, `journald` vacuum,
+    etc.) should **not** be configured to run at or near UTC midnight, when
+    block-node I/O activity is typically elevated.
 
 ---
 
@@ -223,10 +237,14 @@ uncompressed stream. All figures use the raw (uncompressed) wire size.
 * **Clock speed**: Base CPU clock speed must be ≥ 2.0 GHz. Higher clock speeds
   reduce per-block processing latency, which is important for keeping up with
   mainnet block production rates.
+* **CPU socket configuration**: Only single-socket configurations have been
+  tested. Dual-socket configurations are not recommended until explicitly
+  validated; operators using dual-socket hardware do so at their own risk and
+  should expect potential NUMA-related performance issues.
 * **PCIe generation**: PCIe 4.0 or higher is required to sustain the combined
   NVMe and network maximum throughput targets above. PCIe 3.0 configurations may
   be bandwidth-limited.
-* **CPU vintage**: A 2024 or newer CPU is recommended to benefit from improved
-  single-thread IPC and PCIe 4+ support.
-* **OS disk**: Minimal sizing is sufficient; the OS disk sees negligible I/O
-  after initial start-up. Allow at least 10 GB for OCI image storage.
+* **OS disk**: A separate dedicated OS drive is strongly recommended. If the OS
+  shares the Fast NVMe disk, ensure sufficient capacity remains reserved for the
+  application, reclaim ephemeral data aggressively, and avoid scheduling
+  maintenance tasks at UTC midnight. Allow at least 10 GB for OCI image storage.
