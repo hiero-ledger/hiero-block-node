@@ -708,10 +708,3 @@ fi
 ```
 
 ---
-
-## Support
-
-For issues or questions:
-- **GitHub Issues**: https://github.com/hiero-ledger/hiero-block-node/issues
-- **Discord**: Hiero developer community
-- **Logs**: Always include relevant log excerpts and command arguments when reporting issues
