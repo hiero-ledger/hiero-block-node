@@ -184,7 +184,8 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT);
+                    TssData.DEFAULT,
+                    com.hedera.hapi.node.base.NodeAddressBook.DEFAULT);
             final CloudStorageArchivePlugin plugin = new CloudStorageArchivePlugin();
             assertThatNoException().isThrownBy(() -> plugin.init(testContext, null));
         }
@@ -211,7 +212,8 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT);
+                    TssData.DEFAULT,
+                    com.hedera.hapi.node.base.NodeAddressBook.DEFAULT);
             new CloudStorageArchivePlugin().init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isZero();
         }
@@ -272,7 +274,8 @@ class CloudStorageArchivePluginTest {
                     null,
                     null,
                     BlockNodeVersions.DEFAULT,
-                    TssData.DEFAULT);
+                    TssData.DEFAULT,
+                    com.hedera.hapi.node.base.NodeAddressBook.DEFAULT);
             new CloudStorageArchivePlugin().init(testContext, null);
             assertThat(messaging.getBlockNotificationHandlerCount()).isOne();
         }

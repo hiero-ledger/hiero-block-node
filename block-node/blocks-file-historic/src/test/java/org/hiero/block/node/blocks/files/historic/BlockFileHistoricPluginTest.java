@@ -204,6 +204,7 @@ class BlockFileHistoricPluginTest {
                             new BlockingExecutor(new LinkedBlockingQueue<>()),
                             new ScheduledBlockingExecutor(new LinkedBlockingQueue<>())),
                     BlockNodeVersions.DEFAULT,
+                    null,
                     null);
             // call
             final BlockFileHistoricPlugin toTest = new BlockFileHistoricPlugin();

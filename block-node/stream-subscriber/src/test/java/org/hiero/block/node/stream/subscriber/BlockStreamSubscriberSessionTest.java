@@ -1437,6 +1437,7 @@ class BlockStreamSubscriberSessionTest {
                 null,
                 null,
                 BlockNodeVersions.DEFAULT,
+                null,
                 null);
     }
 

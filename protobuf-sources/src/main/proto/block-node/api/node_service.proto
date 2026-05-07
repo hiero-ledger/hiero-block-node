@@ -47,6 +47,12 @@ message ServerStatusDetailResponse {
      * Ledger Id, wraps validation key, and TssRoster information
      */
     TssData tss_data = 3;
+
+    /**
+     * RSA Node Address Book Data from the block node server.
+     * Node Id, rsa public key information
+     */
+    proto.NodeAddressBook node_address_book = 4;
 }
 
 /**
@@ -182,7 +188,7 @@ message BlockRange {
  * TSS information<br/>
  * `TssData` contains the Ledger Id, wraps validation key, and TssRoster information
  *  It is returned by the serverStatusDetail service
- * 
+ *
  * All fields in this message SHALL be filled in, or none.
  */
 message TssData {

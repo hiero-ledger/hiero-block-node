@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.grpc.GrpcException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
@@ -55,6 +56,11 @@ public class BlockNodePluginTest {
         public void updateTssData(TssData tssData) {
             // do nothing
         }
+
+        @Override
+        public void updateAddressBook(NodeAddressBook nodeAddressBook) {
+            // do nothing
+        }
     }
 
     @Test
@@ -75,6 +81,11 @@ public class BlockNodePluginTest {
         @Override
         public void updateTssData(TssData tssData) {
             this.tssData = tssData;
+        }
+
+        @Override
+        public void updateAddressBook(NodeAddressBook nodeAddressBook) {
+            // do nothing
         }
     }
 
@@ -168,7 +179,8 @@ public class BlockNodePluginTest {
             }
         });
 
-        BlockNodeContext context = new BlockNodeContext(null, null, null, null, null, null, null, null, null, null);
+        BlockNodeContext context =
+                new BlockNodeContext(null, null, null, null, null, null, null, null, null, null, null);
 
         plugin.onContextUpdate(context);
 

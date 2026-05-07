@@ -11,8 +11,10 @@ import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -25,6 +27,7 @@ import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -89,6 +92,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /** Create a ConcurrentLinkedQueue to hold TssData updates */
     private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
+
+    /** Pending address book loaded at startup; consumed by the first checkForApplicationStateUpdates run. */
+    private final AtomicReference<NodeAddressBook> pendingAddressBook = new AtomicReference<>();
 
     /** The ScheduledExecutorService used by the ApplicationStateFacility to check for TssData updates */
     private ScheduledExecutorService applicationStateExecutor;
@@ -196,6 +202,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 serviceLoader,
                 threadPoolManager,
                 versionInfo(loadedPlugins),
+                null,
                 null);
         // ==== CREATE ROUTING BUILDERS ================================================================================
         // Create HTTP & GRPC routing builders
@@ -379,6 +386,18 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
+     * Allow plugins to update the NodeAddressBook for this BlockNodeApp. The book is queued for
+     * processing on the next {@code checkForApplicationStateUpdates} scan tick, which rebuilds the
+     * context, notifies all plugins via {@code onContextUpdate}, and persists the book to disk.
+     *
+     * @param nodeAddressBook the NodeAddressBook to store in BlockNodeContext
+     */
+    @Override
+    public void updateAddressBook(NodeAddressBook nodeAddressBook) {
+        if (nodeAddressBook != null) pendingAddressBook.set(nodeAddressBook);
+    }
+
+    /**
      * UncaughtExceptionHandler for logging uncaught exceptions
      */
     static void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
@@ -395,6 +414,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         // ==== LOAD APPLICATION STATE =================================================================================
         loadApplicationState(blockNodeContext.configuration());
 
+        // Flush any state loaded from disk (TssData queue + pending address book) into blockNodeContext
+        // synchronously now, so plugins see the correct context when startPlugins() is called next.
+        checkForApplicationStateUpdates();
+
         // Create thread executors via threadPoolManager.
         applicationStateExecutor = blockNodeContext
                 .threadPoolManager()
@@ -404,7 +427,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         ApplicationStateConfig appStateConfig =
                 blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
 
-        // Schedule periodic gap detection task using autonomous executor
+        // Schedule periodic check for live updates from running plugins.
         applicationStateExecutor.scheduleAtFixedRate(
                 this::checkForApplicationStateUpdates,
                 appStateConfig.updateInitialDelay(),
@@ -413,20 +436,33 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     private void checkForApplicationStateUpdates() {
-        boolean updated = false;
+        boolean tssUpdated = false;
         TssData tssData = tssDataUpdates.poll();
         while (tssData != null) {
             // Because we only update TssData for the most recent blockNumber,
             // |= will let us know if any TssData were updated.
-            updated |= updateBlockNodeContext(tssData);
+            tssUpdated |= updateBlockNodeContext(tssData, null);
             tssData = tssDataUpdates.poll();
         }
 
-        if (updated) {
+        // Consume any address book cached at startup (one-shot).
+        boolean addressBookUpdated = false;
+        final NodeAddressBook addressBook = pendingAddressBook.getAndSet(null);
+        if (addressBook != null) {
+            addressBookUpdated = updateBlockNodeContext(null, addressBook);
+        }
+
+        if (tssUpdated || addressBookUpdated) {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
             LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
-            persistTssData(blockNodeContext.tssData());
-            LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
+            if (tssUpdated) {
+                persistTssData(blockNodeContext.tssData());
+                LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
+            }
+            if (addressBookUpdated) {
+                persistNodeAddressBook(blockNodeContext.nodeAddressBook());
+                LOGGER.log(INFO, "ApplicationStateFacility persisted NodeAddressBook");
+            }
         }
     }
 
@@ -445,15 +481,29 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
-     * Update the BlockNodeContext with the new TssData if the validFromBlock is greater than that of the context
+     * Update the BlockNodeContext if either the provided TssData or NodeAddressBook is valid.
+     * TssData is considered valid if it is non-null and its {@code validFromBlock} is greater than
+     * the current context value. NodeAddressBook is considered valid if it is non-null.
      *
-     * @param tssData The TssData to update
-     * @return A boolean indicating if the BlockNodeContext was updated.
+     * @param tssData     the TssData to consider; may be null
+     * @param addressBook the NodeAddressBook to consider; may be null
+     * @return {@code true} if the BlockNodeContext was updated
      */
-    private boolean updateBlockNodeContext(TssData tssData) {
+    private boolean updateBlockNodeContext(TssData tssData, NodeAddressBook addressBook) {
+        TssData newTss = blockNodeContext.tssData();
+        NodeAddressBook newBook = blockNodeContext.nodeAddressBook();
         boolean updated = false;
-        if (blockNodeContext.tssData() == null
-                || blockNodeContext.tssData().validFromBlock() < tssData.validFromBlock()) {
+
+        if (tssData != null && (newTss == null || newTss.validFromBlock() < tssData.validFromBlock())) {
+            newTss = tssData;
+            updated = true;
+        }
+        if (addressBook != null) {
+            newBook = addressBook;
+            updated = true;
+        }
+
+        if (updated) {
             blockNodeContext = new BlockNodeContext(
                     blockNodeContext.configuration(),
                     blockNodeContext.metricRegistry(),
@@ -464,16 +514,16 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                     blockNodeContext.serviceLoader(),
                     blockNodeContext.threadPoolManager(),
                     blockNodeContext.blockNodeVersions(),
-                    tssData);
+                    newTss,
+                    newBook);
             LOGGER.log(INFO, "BlockNodeContext updated");
-            updated = true;
         }
         return updated;
     }
 
     /**
      * Persist the TssData
-     * Persists the TssData to the file path specified in the NodeConfig class.
+     * Persists the TssData to the file path specified in the ApplicationStateConfig class.
      *
      * @param tssData The TssData to persist
      */
@@ -495,16 +545,38 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         }
     }
 
+    private void persistNodeAddressBook(NodeAddressBook nodeAddressBook) {
+        final Path filePath = blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .rsaBootstrapFilePath();
+        try {
+            Files.createDirectories(filePath.getParent());
+            final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
+            final Bytes encoded = NodeAddressBook.PROTOBUF.toBytes(nodeAddressBook);
+            Files.write(tmp, encoded.toByteArray());
+            Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            LOGGER.log(INFO, "Persisted RSA address book to file: {0}", filePath);
+        } catch (IOException e) {
+            LOGGER.log(
+                    WARNING,
+                    "Failed to persist RSA address book to {0}: {1} — will re-fetch on next startup",
+                    filePath,
+                    e.getMessage());
+        }
+    }
+
     /**
-     * Loads the ApplicationState
+     * Loads all ApplicationState from file paths specified in the ApplicationStateConfig class.
+     * Must be called after the BlockNodeContext is created and all plugins have been init'd.
      *
-     * Loads the ApplicationState from file path(s) specified in the NodeConfig class.
-     *
-     * This must be called after the blockNode context is created
+     * @param configuration the current configuration
      */
-    private void loadApplicationState(Configuration configuration) {
-        final Path tssDataJsonPath =
-                configuration.getConfigData(ApplicationStateConfig.class).dataFilePath();
+    private void loadApplicationState(final Configuration configuration) {
+        final ApplicationStateConfig appStateConfig = configuration.getConfigData(ApplicationStateConfig.class);
+
+        // Load TssData (JSON format) — queued for processing on the next scanner tick.
+        final Path tssDataJsonPath = appStateConfig.dataFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
                 TssData tssData = TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
@@ -513,6 +585,50 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             } catch (ParseException | IOException e) {
                 LOGGER.log(ERROR, "Failed to read Application State Data file: " + tssDataJsonPath, e);
             }
+        }
+
+        // Load RSA NodeAddressBook — cached for processing on the next scanner tick.
+        final Path rsaFilePath = appStateConfig.rsaBootstrapFilePath();
+        if (Files.exists(rsaFilePath)) {
+            try {
+                final byte[] raw = Files.readAllBytes(rsaFilePath);
+                final NodeAddressBook book = NodeAddressBook.PROTOBUF.parse(BufferedData.wrap(raw));
+                validateAddressBook(book, rsaFilePath.toString());
+                pendingAddressBook.set(book);
+                LOGGER.log(
+                        INFO,
+                        "Loaded RSA address book from file: {0} ({1} entries)",
+                        rsaFilePath,
+                        book.nodeAddress().size());
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to read RSA bootstrap file: " + rsaFilePath, e);
+            } catch (ParseException e) {
+                throw new IllegalStateException(
+                        "Corrupt RSA bootstrap file at " + rsaFilePath
+                                + " — delete and restart to re-fetch from Mirror Node",
+                        e);
+            }
+        }
+    }
+
+    /**
+     * Validates that the NodeAddressBook has at least one entry with a non-blank RSA_PubKey.
+     *
+     * @param book the address book to validate
+     * @param source human-readable source name for error messages
+     * @throws IllegalStateException if the book is empty or has no usable entries
+     */
+    static void validateAddressBook(final NodeAddressBook book, final String source) {
+        if (book.nodeAddress().isEmpty()) {
+            throw new IllegalStateException(
+                    "RSA address book from " + source + " contains no entries — cannot verify WRB proofs");
+        }
+        final long usable = book.nodeAddress().stream()
+                .filter(a -> !a.rsaPubKey().isBlank())
+                .count();
+        if (usable == 0) {
+            throw new IllegalStateException("RSA address book from " + source + " has "
+                    + book.nodeAddress().size() + " entries but none have a non-blank RSA_PubKey");
         }
     }
 }

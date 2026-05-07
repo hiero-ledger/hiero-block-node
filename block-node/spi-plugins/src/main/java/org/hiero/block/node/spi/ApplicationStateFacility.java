@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi;
 
+import com.hedera.hapi.node.base.NodeAddressBook;
 import org.hiero.block.api.TssData;
 
 /**
@@ -15,4 +16,13 @@ public interface ApplicationStateFacility {
      * @param tssData - The TssData to be updated on the `BlockNodeContext`
      * */
     void updateTssData(TssData tssData);
+
+    /**
+     * Used by plugins to update the consensus node NodeAddressBook for this application,
+     * i.e. {@code RsaRosterBootstrapPlugin}. The update will be forwarded to all plugins using
+     * {@link BlockNodePlugin#onContextUpdate(BlockNodeContext)}.
+     *
+     * @param nodeAddressBook The NodeAddressBook to be stored in the BlockNodeContext.
+     */
+    void updateAddressBook(NodeAddressBook nodeAddressBook);
 }

@@ -71,7 +71,17 @@ class ZipBlockArchiveTest {
         // we need this test context because we need the health facility to be
         // available for the tests to run
         testContext = new BlockNodeContext(
-                null, null, new TestHealthFacility(), null, null, null, null, null, BlockNodeVersions.DEFAULT, null);
+                null,
+                null,
+                new TestHealthFacility(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                BlockNodeVersions.DEFAULT,
+                null,
+                null);
         // the instance under test
         toTest = new ZipBlockArchive(testContext, testConfig);
     }

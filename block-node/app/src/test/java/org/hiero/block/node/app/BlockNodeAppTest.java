@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
@@ -13,6 +14,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hedera.hapi.node.base.NodeAddress;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -396,6 +399,116 @@ class BlockNodeAppTest {
         blockNodeApp2.stopApplicationStateFacility();
         // stop the ApplicationStateFacility manually as shutdown() is not being called
         blockNodeApp.stopApplicationStateFacility();
+    }
+
+    /**
+     * validateAddressBook rejects books with no entries or only blank RSA keys.
+     */
+    @Test
+    @DisplayName("validateAddressBook rejects empty book and all-blank RSA keys")
+    void validateAddressBookRejectsInvalidBooks() {
+        // empty node list
+        assertThrows(
+                IllegalStateException.class,
+                () -> BlockNodeApp.validateAddressBook(
+                        NodeAddressBook.newBuilder().build(), "test-empty"),
+                "Empty address book must throw");
+
+        // all entries have blank rsaPubKey
+        final NodeAddressBook allBlank = NodeAddressBook.newBuilder()
+                .nodeAddress(NodeAddress.newBuilder().nodeId(0).rsaPubKey("").build())
+                .build();
+        assertThrows(
+                IllegalStateException.class,
+                () -> BlockNodeApp.validateAddressBook(allBlank, "test-all-blank"),
+                "Book with only blank RSA keys must throw");
+    }
+
+    /**
+     * validateAddressBook accepts a book with at least one non-blank RSA key.
+     */
+    @Test
+    @DisplayName("validateAddressBook accepts book with at least one non-blank RSA key")
+    void validateAddressBookAcceptsValidBook() {
+        final NodeAddressBook valid = NodeAddressBook.newBuilder()
+                .nodeAddress(
+                        NodeAddress.newBuilder().nodeId(0).rsaPubKey("deadbeef").build())
+                .build();
+        assertDoesNotThrow(() -> BlockNodeApp.validateAddressBook(valid, "test-valid"));
+    }
+
+    /**
+     * updateAddressBook queues the book for the scanner and context is updated on the next tick.
+     */
+    @Test
+    @DisplayName("updateAddressBook queues book; scanner picks it up and notifies plugins")
+    void updateAddressBookQueuesForScanner() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final TestPlugin testPlugin = new TestPlugin();
+        app.startApplicationStateFacility();
+        app.loadedPlugins.add(testPlugin);
+
+        final int updatesBeforeCall = testPlugin.contextUpdated;
+
+        final NodeAddressBook book = NodeAddressBook.newBuilder()
+                .nodeAddress(
+                        NodeAddress.newBuilder().nodeId(1).rsaPubKey("aabbcc").build())
+                .build();
+        app.updateAddressBook(book);
+
+        // let the scanner process the pending address book
+        Thread.sleep(1_000);
+
+        assertEquals(
+                updatesBeforeCall + 1,
+                testPlugin.contextUpdated,
+                "onContextUpdate must be called once for the address book update");
+        assertNotNull(app.blockNodeContext.nodeAddressBook());
+        assertEquals(1, app.blockNodeContext.nodeAddressBook().nodeAddress().size());
+        assertEquals(
+                "aabbcc",
+                app.blockNodeContext.nodeAddressBook().nodeAddress().getFirst().rsaPubKey());
+
+        app.stopApplicationStateFacility();
+    }
+
+    /**
+     * Address book persisted by updateAddressBook is reloaded by a fresh BlockNodeApp.
+     */
+    @Test
+    @DisplayName("address book is persisted and reloaded on next startup")
+    void addressBookPersistenceRoundTrip() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+        final Path rsaPath = app.blockNodeContext
+                .configuration()
+                .getConfigData(org.hiero.block.node.app.config.state.ApplicationStateConfig.class)
+                .rsaBootstrapFilePath();
+
+        app.startApplicationStateFacility();
+
+        final NodeAddressBook book = NodeAddressBook.newBuilder()
+                .nodeAddress(
+                        NodeAddress.newBuilder().nodeId(7).rsaPubKey("cafebabe").build())
+                .build();
+        app.updateAddressBook(book);
+        // let scanner process and persist
+        Thread.sleep(1_000);
+        app.stopApplicationStateFacility();
+
+        assertTrue(Files.exists(rsaPath), "RSA file must exist after persistence");
+
+        // second app loads from persisted file
+        final BlockNodeApp app2 = new BlockNodeApp(serviceLoaderFunction, false);
+        app2.startApplicationStateFacility();
+
+        final NodeAddressBook loaded = app2.blockNodeContext.nodeAddressBook();
+        assertNotNull(loaded, "Persisted address book must be loaded on restart");
+        assertEquals(1, loaded.nodeAddress().size());
+        assertEquals("cafebabe", loaded.nodeAddress().getFirst().rsaPubKey());
+
+        app2.stopApplicationStateFacility();
     }
 
     /// build a `TssData` object from individual fields from the `TssBootstrapConfig`

@@ -1910,7 +1910,7 @@ class LiveStreamPublisherManagerTest {
                         .returns(block0.number(), acknowledgementBlockNumberExtractor);
                 // Now clear the pipeline so we can assert the duplicate below
                 responsePipeline.getOnNextCalls().clear();
-                // Now start streaming block 0 which is not expected (by the manager) to be resent
+                // Now start streaming block 0 which is expected (by the manager) to be resent
                 publisherHandler.onNext(requestBlock0);
                 // Give some time for the message forwarder to forward the items
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(500L));
@@ -2623,6 +2623,7 @@ class LiveStreamPublisherManagerTest {
                 serviceLoader,
                 threadPoolManager,
                 BlockNodeVersions.DEFAULT,
+                null,
                 null);
     }
 
