@@ -136,13 +136,12 @@ public abstract class PluginTestBase<
     /**
      * Initialise the test context and call {@code plugin.init()} without starting the plugin.
      *
-     * <p>Use this together with {@link #simulatePreloadedAddressBook} and {@link #doStart} when a
-     * test needs to simulate {@code BlockNodeApp} loading the RSA bootstrap file between
+     * <p>Use this together with {@link #doStart} when a
+     * test needs to simulate {@code BlockNodeApp} loading application state files between
      * {@code plugin.init()} and {@code plugin.start()}:
      *
      * <pre>{@code
      * doInit(plugin, historicalFacility, null, null, Map.of());
-     * simulatePreloadedAddressBook(addressBook);   // exercises onContextUpdate
      * doStart();
      * }</pre>
      *
@@ -186,7 +185,7 @@ public abstract class PluginTestBase<
                 MetricRegistry.builder().setMetricsExporter(testMetricsExporter).build();
         // mock health facility
         final HealthFacility healthFacility = new TestHealthFacility();
-        // create block node context with no address book — simulatePreloadedAddressBook() populates it
+        // create block node context with no address book
         blockNodeContext = new BlockNodeContext(
                 configuration,
                 metricsRegistry,
@@ -235,27 +234,13 @@ public abstract class PluginTestBase<
 
     /**
      * Start the historical block facility and the plugin under test. Call this after
-     * {@link #doInit} (and optionally {@link #simulatePreloadedAddressBook}).
+     * {@link #doInit}.
      */
     protected void doStart() {
         activeHistoricalBlockFacility.start();
         plugin.start();
     }
-
-    /**
-     * Simulates {@code BlockNodeApp.loadApplicationState()} loading the RSA bootstrap file between
-     * {@code plugin.init()} and {@code plugin.start()}.
-     *
-     * <p>Updates {@code blockNodeContext} with the given address book and calls
-     * {@code plugin.onContextUpdate()} so the plugin's cached context reference reflects the book
-     * before {@link #doStart()} is called.
-     *
-     * @param book the pre-loaded address book to inject
-     */
-    public void simulatePreloadedAddressBook(@NonNull final NodeAddressBook book) {
-        updateAddressBook(book);
-    }
-
+    
     /**
      * Teardown after each.
      */
