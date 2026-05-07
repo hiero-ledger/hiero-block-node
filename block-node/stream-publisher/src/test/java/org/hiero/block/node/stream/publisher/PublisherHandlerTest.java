@@ -749,24 +749,23 @@ class PublisherHandlerTest {
                 final PublishStreamRequestUnparsed request = PublishStreamRequestUnparsed.newBuilder()
                         .blockItems(block.asItemSetUnparsed())
                         .build();
-                // Train the manager to return RESEND for the block number
-                manager.setBlockActionForBlock(BlockAction.RESEND);
+                // Tell the manager to return ACCEPT for the block number
+                manager.setBlockActionForBlock(BlockAction.ACCEPT);
                 // Train the manager to return the expected latest block number
                 final long latestBlockNumber = 10L; // Example latest block number
                 manager.setLatestBlockNumber(latestBlockNumber);
                 // Call
                 toTest.onNext(request);
-                // Test that we can still end the block when a resend is expected
-                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
+                // RESEND is only ever sent in response to end-of-block.
+                manager.setBlockActionForEndOfBlock(BlockAction.RESEND, block.number());
                 endThisBlock(toTest, block.number());
                 // Assert sent responses
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
-                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                        .returns(Code.ERROR, endStreamResponseCodeExtractor)
-                        .returns(latestBlockNumber, endStreamBlockNumberExtractor);
-                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
+                        .returns(ResponseOneOfType.RESEND_BLOCK, responseKindExtractor)
+                        .returns(block.number(), resendBlockNumberExtractor);
+                assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 // Assert no other responses sent
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
@@ -877,9 +876,6 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
-                // ensure that we can still end blocks when duplicate is expected
-                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
-                endThisBlock(toTest, block.number());
                 // Assert single response is DUPLICATE_BLOCK with block number latest known and onComplete is called
                 // (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
@@ -1110,9 +1106,6 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
-                // test that we can still end a block when error is encountered
-                manager.setBlockActionForEndOfBlock(BlockAction.ACCEPT, block.number());
-                endThisBlock(toTest, block.number());
                 // Assert single response is ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
