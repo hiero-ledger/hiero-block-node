@@ -400,7 +400,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      *    - Skip if `node_id` not in `rsaKeyByNodeId` (increment roster-mismatch counter).
      *    - Skip if signature bytes are all zeros.
      *    - Verify with `SHA384withRSA`; count valid signatures.
-     * 5. Accept if `validCount >= 2 * ceil(rosterSize / 3) + 1` (supermajority threshold).
+     * 5. Accept if `validCount >= floor(2 * rosterSize / 3) + 1` (supermajority threshold).
      *
      * <p>This method never throws; all error conditions return a `success=false` notification.
      *
@@ -527,8 +527,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             rsaRosterMismatchTotal.increment(mismatchCount);
         }
 
-        // Supermajority threshold: 2 * ceil(rosterSize / 3) + 1
-        final int threshold = 2 * ((rosterSize + 2) / 3) + 1;
+        // Supermajority threshold: floor(2 * rosterSize / 3) + 1
+        // Java integer division truncates toward zero (= floor for positive values), so
+        // `2 * rosterSize / 3` is exact floor division — no rounding adjustment needed.
+        // Note: the former expression `2 * ((rosterSize + 2) / 3) + 1` computed 2*ceil(n/3)+1,
+        // which only agrees with floor(2n/3)+1 when rosterSize is a multiple of 3.
+        final int threshold = 2 * rosterSize / 3 + 1;
         final boolean accepted = validCount >= threshold;
 
         if (accepted) {
