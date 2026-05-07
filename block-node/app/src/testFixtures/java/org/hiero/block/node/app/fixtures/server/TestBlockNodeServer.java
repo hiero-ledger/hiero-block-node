@@ -26,6 +26,7 @@ import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 
@@ -189,8 +190,17 @@ public class TestBlockNodeServer {
     private static class TrivialBlockNodeServerInterface implements BlockNodeServiceInterface {
         private final HistoricalBlockFacility historicalBlockFacility;
 
+        private TssData tssData = TssData.DEFAULT;
+
         public TrivialBlockNodeServerInterface(final HistoricalBlockFacility historicalFacility) {
             historicalBlockFacility = historicalFacility;
+        }
+
+        /**
+         * Set the TssData for this test block node server
+         */
+        public void setTssData(TssData tssData) {
+            this.tssData = tssData;
         }
 
         @Override
@@ -209,7 +219,7 @@ public class TestBlockNodeServer {
         @Override
         @NonNull
         public ServerStatusDetailResponse serverStatusDetail(@NonNull ServerStatusRequest request) {
-            return ServerStatusDetailResponse.DEFAULT;
+            return ServerStatusDetailResponse.newBuilder().tssData(tssData).build();
         }
     }
 }

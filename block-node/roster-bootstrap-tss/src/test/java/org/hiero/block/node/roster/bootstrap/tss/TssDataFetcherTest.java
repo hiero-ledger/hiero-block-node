@@ -152,7 +152,7 @@ class TssDataFetcherTest {
     /// @param validFromBlock The block from which this TssData is valid
     /// @param rosterValidFromBlock The block from which this TssRoster is valid
     /// @return a `TssData` object
-    private TssData buildTssData(
+    static TssData buildTssData(
             Bytes ledgerId,
             Bytes wrapsVerificationKey,
             long nodeId,
