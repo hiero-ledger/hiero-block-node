@@ -163,15 +163,16 @@ The Application State Facility (a component that manages state that has to be
 persistent and accessible across registered plugins) manages the All Blocks
 Hasher instance and its state. On startup, the Verification Service Plugin
 queries the Application State Facility to get the last data stored. Then, the
-Verification Service Plugin will update the Application State Facility all new
-data (block number and block root hash) for all blocks that are received and
-verified. The Application State Facility is responsible for gathering these
-values and maintaining the All Blocks Hasher instance. Based on a configurable
-interval (measured in N number of blocks), the Application State Facility will
-persist the All Blocks Hasher instance to disk, thus making it persistent.
+Verification Service Plugin will update the Application State Facility with new
+data (block number and block root hash) for each block that is received and
+verified successfully. The Application State Facility is responsible for
+delivering this data to the All Blocks Hasher instance. Based on a configurable
+interval (measured in number of blocks), the Application State Facility will
+persist the All Blocks Hasher state to disk, thus making it persistent.
 
-If initialization fails on startup, the handler degrades gracefully and
-verification falls back to the root hash provided in the block footer.
+If all blocks hasher data is not available to the verification plugin, the
+handlers and verifiers automatically use the hash data provided in the block
+footer.
 
 ## Design
 
@@ -193,24 +194,25 @@ verification falls back to the root hash provided in the block footer.
 3. The session handler, which also runs asynchronously, will continuously check
    for completed sessions and then process the results thereof. The handler is
    responsible for ordering correctly the messages sent downstream, keeping a
-   configurable sized buffer of sessions running - cancelling sessions if need
+   configurable sized buffer of completed results - cancelling sessions if need
    be, keeping metrics up to date, making updates to the all blocks hasher. The
    handler must be resilient and handle failures gracefully, ensuring an
-   uninterrupted flow of messages.
+   uninterrupted flow of results.
 
 ### Verification Failure Types
 
-Each time a session fails, it will return a meaningful result. The session
-handler will then process this result and take appropriate action(s), and then
-send a message downstream, using the internal messaging system. Those messages
-will be of type `VerificationNotification`. In case of failure, a failure type
-will be provided. Subscribers to the internal messaging system will be able to
-handle these messages and take appropriate action(s).
+Each time a session completes, it will return a meaningful result, whether
+success or failure. The session handler will then process this result, take
+appropriate action(s), and then send a notification, using the internal
+messaging system. Those notifications will be of type
+`VerificationNotification`. In case of failure, a failure type will be provided.
+Subscribers to the internal messaging system will be able to handle these
+messages and take appropriate action(s).
 
 Failure types could be standard or informational. The purpose of the
-verification service plugin is to successfully pass verification on every block.
-If we take block N and pass verification on it, subsequent failures on the same
-block are considered informational.
+verification service plugin is to successfully complete verification on every
+block. If we complete verification on a block with a success result, subsequent
+failures on the same block are considered informational.
 
 Failure types include:
 
