@@ -14,7 +14,6 @@ import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.buffer.BufferedData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -562,7 +561,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         try {
             Files.createDirectories(filePath.getParent());
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
-            final Bytes encoded = NodeAddressBook.PROTOBUF.toBytes(nodeAddressBook);
+            final Bytes encoded = NodeAddressBook.JSON.toBytes(nodeAddressBook);
             Files.write(tmp, encoded.toByteArray());
             try {
                 Files.move(tmp, filePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
@@ -604,12 +603,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             }
         }
 
-        // Load RSA NodeAddressBook — cached for processing on the next scanner tick.
+        // Load RSA NodeAddressBook (JSON format) — cached for processing on the next scanner tick.
         final Path rsaFilePath = appStateConfig.rsaBootstrapFilePath();
         if (Files.exists(rsaFilePath)) {
             try {
                 final byte[] raw = Files.readAllBytes(rsaFilePath);
-                final NodeAddressBook book = NodeAddressBook.PROTOBUF.parse(BufferedData.wrap(raw));
+                final NodeAddressBook book = NodeAddressBook.JSON.parse(Bytes.wrap(raw));
                 validateAddressBook(book, rsaFilePath.toString());
                 pendingAddressBook.set(book);
                 LOGGER.log(

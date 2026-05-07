@@ -116,7 +116,7 @@ class BlockNodeAppTest {
         // Remove the RSA file written by addressBookPersistenceRoundTrip so subsequent tests
         // start with a null address book rather than inheriting persisted state.
         try {
-            Files.deleteIfExists(Path.of("build/resources/test/data/config/rsa-bootstrap-roster.pb"));
+            Files.deleteIfExists(Path.of("build/resources/test/data/config/rsa-bootstrap-roster.json"));
         } catch (Exception e) {
             // ignore
         }

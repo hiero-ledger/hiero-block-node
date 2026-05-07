@@ -15,19 +15,24 @@ import org.hiero.block.node.base.Loggable;
  *
  * @param dataFilePath path where application state, like TSS data (ledger ID, address book, WRAPS VK),
  *     are persisted across restarts as a serialized {@code TssData}.
- * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (binary protobuf {@code NodeAddressBook}).
+ * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (JSON-encoded {@code NodeAddressBook}).
  *     Configured via {@code app.state.rsaBootstrapFilePath}.
- *     Defaults to {@code /opt/hiero/block-node/node/rsa-bootstrap-roster.pb}.
+ *     Defaults to {@code /opt/hiero/block-node/node/rsa-bootstrap-roster.json}.
  * @param updateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
  *     checking to see if there are any {@code TssData} updates to process.
  * @param updateInitialDelay The amount of milliseconds that the {@code ApplicationStateFacility} waits before
  *     starting the scan interval.
  */
-// spotless:off
 @ConfigData("app.state")
 public record ApplicationStateConfig(
-       @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/app-state-data.bin") Path dataFilePath,
-       @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/rsa-bootstrap-roster.pb") Path rsaBootstrapFilePath,
-        @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long updateScanInterval,
-        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int updateInitialDelay) {}
-// spotless:on
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/app-state-data.bin")
+        Path dataFilePath,
+
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/rsa-bootstrap-roster.json")
+        Path rsaBootstrapFilePath,
+
+        @Loggable @ConfigProperty(defaultValue = "500") @Min(100)
+        long updateScanInterval,
+
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(100)
+        int updateInitialDelay) {}
