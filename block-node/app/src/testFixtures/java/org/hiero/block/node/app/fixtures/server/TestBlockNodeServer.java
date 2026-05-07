@@ -31,7 +31,6 @@ import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
@@ -215,7 +214,6 @@ public class TestBlockNodeServer {
         @Override
         @NonNull
         public ServerStatusDetailResponse serverStatusDetail(@NonNull ServerStatusRequest request) {
-            BlockRangeSet blockRangeSet = historicalBlockFacility.availableBlocks();
             List<BlockRange> blockRanges = new ArrayList<>();
 
             BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
