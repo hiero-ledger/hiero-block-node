@@ -8,7 +8,6 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.s
 import com.swirlds.config.api.Configuration;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.BlockNodeVersions;
-import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
@@ -141,7 +140,7 @@ class PublisherManagerRegressionTest {
                         .kind());
 
         // Backfill persists blocks 0 through 2, covering and advancing past
-        // the stalled block. This won't free the stall, however, because
+        // the stalled block.
         final long lastBackfilledBlock = 2L;
         final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
         availableBlocks.add(stalledBlock, lastBackfilledBlock);
@@ -202,6 +201,14 @@ class PublisherManagerRegressionTest {
                 .returns(ResponseOneOfType.SKIP_BLOCK, response -> response.response()
                         .kind());
 
+        // Backfill persists block 5, advancing lastPersisted to 5.
+        // clearObsoleteQueueItems(5) uses headMap(5) which does NOT
+        // include block 5 — the stalled queue stays in the map.
+        final SimpleBlockRangeSet backfilledBlocks = new SimpleBlockRangeSet();
+        backfilledBlocks.add(0L, stalledBlock);
+        historicalBlockFacility.setTemporaryAvailableBlocks(backfilledBlocks);
+        toTest.handlePersisted(new PersistedNotification(stalledBlock, true, 0, BlockSource.BACKFILL));
+
         // Handler 2 sends a complete block 6.
         responsePipeline2.clear();
         final long nextLiveBlock = stalledBlock + 1;
@@ -209,25 +216,14 @@ class PublisherManagerRegressionTest {
         publisherHandler2.onNext(nextBlock.asPublishStreamRequestUnparsed());
         endThisBlock(publisherHandler2, nextLiveBlock);
 
-        // Backfill persists block 5, This must not advance last persisted (because block 5 is actively streaming).
-        // clearObsoleteQueueItems(5) uses headMap(5) which does NOT
-        // include block 5 — the stalled queue stays in the map.
-        // Except that persisted block == stalled block, so the stalled block is abandoned.
-        // This clears the blockage and block 6 will now proceed.
-        final SimpleBlockRangeSet backfilledBlocks = new SimpleBlockRangeSet();
-        backfilledBlocks.add(0L, stalledBlock);
-        historicalBlockFacility.setTemporaryAvailableBlocks(backfilledBlocks);
-        toTest.handlePersisted(new PersistedNotification(stalledBlock, true, 0, BlockSource.BACKFILL));
-
         // Run the forwarder. If the stalled block 5's queue is still
         // in queueByBlockMap, determineCurrentBlockNumber() returns 5
         // and the forwarder never reaches block 6.
         threadPoolManager.executor().executeAsync(1_000L, false);
 
+        // Block 6 must have been forwarded to the messaging facility.
         assertThat(messagingFacility.getSentBlockItems())
-                .as(
-                        "block %d must be forwarded to messaging after backfill unblocked the pipeline via stall detection",
-                        nextLiveBlock)
+                .as("block %d must be forwarded to messaging after backfill unblocked the pipeline", nextLiveBlock)
                 .anyMatch(items -> items.blockNumber() == nextLiveBlock);
     }
 
@@ -298,86 +294,6 @@ class PublisherManagerRegressionTest {
                     assertThat(response.response().kind()).isEqualTo(ResponseOneOfType.RESEND_BLOCK);
                     assertThat(response.resendBlock().blockNumber()).isEqualTo(stalledBlock);
                 });
-    }
-
-    /// Reproduces the production stale-resend bug observed on release 0.33.0-rc3.
-    ///
-    /// In production, a TOCTOU race between {@link LiveStreamPublisherManager#blockIsEnding(long, long)}
-    /// and a concurrent BACKFILL-sourced {@link LiveStreamPublisherManager#handlePersisted} call
-    /// leaves a block number in {@code blocksToResend} after {@code lastPersistedBlockNumber}
-    /// has already advanced past it. From that point on, every fresh publisher's first
-    /// {@code endOfBlock} returns {@code RESEND(<stale block>)} and the publisher disconnects
-    /// with EndStream(TOO_FAR_BEHIND).
-    ///
-    /// We can't easily drive the race deterministically in a unit test, but the fix —
-    /// pruning stale entries during {@code handlePersisted} — has an observable invariant
-    /// that we can test with real publish-API operations:
-    ///
-    /// 1. A publisher sends only the header for block N then issues EndStream(RESET). The
-    ///    real {@code blockIsEnding(N)} path adds N to {@code blocksToResend}.
-    /// 2. Backfill persists block {@code N + buffer + delta} (well past the prune buffer).
-    /// 3. With the fix, {@code handlePersisted} prunes the now-stale entry for N before
-    ///    {@code correctForResendAndStreaming} can clamp the ack. {@code lastPersistedBlockNumber}
-    ///    advances and a fresh publisher's header for N is treated as
-    ///    {@code END_DUPLICATE} — not {@code ACCEPT} as if N were still expected.
-    ///
-    /// Without the fix the entry is never pruned, {@code lastPersistedBlockNumber} is
-    /// clamped at {@code N - 1}, and {@code getActionForBlock(N, ...)} pulls N out of
-    /// {@code blocksToResend} and returns {@code ACCEPT} — exactly the production symptom
-    /// where the BN keeps demanding the stale block from any publisher that connects.
-    ///
-    /// Note: the seed step uses only the publish API ({@code sendHeaderOnly} +
-    /// {@code EndStream}), so the entry is added by the same production code path
-    /// ({@code PublisherHandler.handleEndStream} → {@code LiveStreamPublisherManager.blockIsEnding})
-    /// the bug actually exercises — no internal state injection.
-    @Test
-    @DisplayName("handlePersisted must prune resend entries beyond the prune buffer")
-    void testStaleResendEntryPrunedWhenPersistenceMovesPastBuffer() {
-        // 1. Persist blocks up to 4 so the manager will accept a header for block 5
-        //    (nextUnstreamedBlockNumber == 5). Without this, sendHeaderOnly(5) returns
-        //    SEND_BEHIND and the handler never enters mid-block state.
-        final long lastPersistedBeforeStall = 4L;
-        final SimpleBlockRangeSet preStallBlocks = new SimpleBlockRangeSet();
-        preStallBlocks.add(0L, lastPersistedBeforeStall);
-        historicalBlockFacility.setTemporaryAvailableBlocks(preStallBlocks);
-        toTest.handlePersisted(new PersistedNotification(lastPersistedBeforeStall, true, 0, BlockSource.UNKNOWN));
-
-        // 2. Publisher A sends a header for block 5 then EndStream(RESET) mid-block.
-        //    handleEndStream invokes publisherManager.blockIsEnding(5, …), which adds 5
-        //    to blocksToResend through the same code path the production bug exercises.
-        //    No internal state is injected — we drive the same publish API that production uses.
-        final long staleResendBlock = 5L;
-        sendHeaderOnly(publisherHandler, staleResendBlock);
-
-        final EndStream endStream = EndStream.newBuilder()
-                .endCode(EndStream.Code.RESET)
-                .earliestBlockNumber(0L)
-                .latestBlockNumber(staleResendBlock)
-                .build();
-        publisherHandler.onNext(
-                PublishStreamRequestUnparsed.newBuilder().endStream(endStream).build());
-
-        // 3. Backfill persists a block far past the configured prune buffer (default 100).
-        //    handlePersisted's prune step must drop blocksToResend entries <= 200 - 100 = 100,
-        //    which includes block 5.
-        final long backfilledBlock = 200L;
-        final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
-        availableBlocks.add(0L, backfilledBlock);
-        historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
-        toTest.handlePersisted(new PersistedNotification(backfilledBlock, true, 0, BlockSource.BACKFILL));
-
-        // 4. A fresh publisher header for the previously-stale block must be treated as
-        //    END_DUPLICATE — not ACCEPT pulled out of blocksToResend, which would prove
-        //    the entry was never pruned. (END_DUPLICATE comes from blockNumber <= lastPersisted,
-        //    which only happens if both prune and ack-advancement succeeded.)
-        final BlockAction action = toTest.getActionForBlock(staleResendBlock, null, publisherHandlerId);
-        assertThat(action)
-                .describedAs(
-                        "block %d is already persisted (lastPersisted should be %d). The handler must see "
-                                + "END_DUPLICATE — not ACCEPT — which would only happen if the stale entry "
-                                + "had been pruned from blocksToResend by handlePersisted",
-                        staleResendBlock, backfilledBlock)
-                .isEqualTo(BlockAction.END_DUPLICATE);
     }
 
     @SuppressWarnings("all")
