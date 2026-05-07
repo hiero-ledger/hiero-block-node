@@ -66,7 +66,7 @@ public class RosterBootstrapTssPluginTest
 
     @Test
     @DisplayName("request TssData from a peer bn ")
-    void requestTssDataFromPeerBN() {
+    void requestTssDataFromPeerBN() throws IOException {
         final TestBlockNodeServer server1 = new TestBlockNodeServer(0, new SimpleInMemoryHistoricalBlockFacility());
         testBlockNodeServers.add(server1);
         String blockNodeSourcesPath = testTempDir + "/blocknode-sources.json";
@@ -82,7 +82,7 @@ public class RosterBootstrapTssPluginTest
                 blockNodeSourcesPath);
 
         // Config Override
-        Map<String, String> configOverride = RosterBootstrapTssConfigBuilder.NewBuilder()
+        Map<String, String> configOverride = RosterBootstrapTssConfigBuilder.newBuilder()
                 .blockNodeSourcesPath(blockNodeSourcesPath)
                 .queryPeerInterval(10000)
                 .queryPeerInitialDelay(500)
@@ -108,14 +108,10 @@ public class RosterBootstrapTssPluginTest
         assertEquals(1, contextUpdated[0]);
     }
 
-    private void createTestBlockNodeSourcesFile(BlockNodeSource blockNodeSource, String configPath) {
+    private void createTestBlockNodeSourcesFile(BlockNodeSource blockNodeSource, String configPath) throws IOException {
         String jsonString = BlockNodeSource.JSON.toJSON(blockNodeSource);
         // Write the JSON string to the specified file path
-        try {
-            java.nio.file.Files.write(java.nio.file.Paths.get(configPath), jsonString.getBytes());
-        } catch (java.io.IOException e) {
-            throw new RuntimeException("Failed to write config to file: " + configPath, e);
-        }
+        java.nio.file.Files.write(java.nio.file.Paths.get(configPath), jsonString.getBytes());
     }
 
     /// Builder for creating backfill configuration maps for testing.
@@ -131,7 +127,7 @@ public class RosterBootstrapTssPluginTest
             // private to force use of NewBuilder()
         }
 
-        public static RosterBootstrapTssConfigBuilder NewBuilder() {
+        public static RosterBootstrapTssConfigBuilder newBuilder() {
             return new RosterBootstrapTssConfigBuilder();
         }
 
@@ -173,16 +169,6 @@ public class RosterBootstrapTssPluginTest
                     "roster.bootstrap.tss.enableTLS", String.valueOf(enableTLS)));
 
             return rosterBootstrapTssConfig;
-        }
-
-        /// Builds a RosterBootstrapTssConfig record for use in unit tests.
-        public RosterBootstrapTssConfig buildRecord() {
-            return new RosterBootstrapTssConfig(
-                    blockNodeSourcesPath != null ? blockNodeSourcesPath : "",
-                    queryPeerInterval,
-                    queryPeerInitialDelay,
-                    maxIncomingBufferSize,
-                    enableTLS);
         }
     }
 }
