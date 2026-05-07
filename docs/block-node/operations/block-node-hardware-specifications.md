@@ -33,7 +33,7 @@ archive.
 |-------------------|------------------------------------------------------------------------------|
 | CPU               | 24 cores / 48 threads, single socket, ≥ 2.0 GHz base clock, Geekbench 6 single-core ≥ 1500, Passmark single-threaded ≥ 2800 |
 | RAM               | 256 GB                                                                       |
-| Fast NVMe Disk | 7.5 TB NVMe SSD (recent blocks + live state; 7.5TB usable, see note on enterprise sizing and OS disk)    |
+| Fast NVMe Disk    | 7.5 TB NVMe SSD (recent blocks + live state; 7.5TB usable, see note on enterprise sizing and OS disk)    |
 | Bulk Storage Disk | 100 TB HDD or equivalent (compressed block archive)                          |
 | Network           | 2 × 10 Gbps NICs                                                             |
 | OS                | Linux (Ubuntu 24.04 LTS or Debian 13.4 LTS recommended)                      |
