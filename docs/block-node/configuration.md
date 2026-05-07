@@ -172,10 +172,11 @@ Currently, no specific options.
 
 ### Publisher Plugin Configuration
 
-| ENV Variable                              | Description                                                                                                                                 |                   Default |
-|:------------------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------|--------------------------:|
-| PRODUCER_BATCH_FORWARD_LIMIT              | Max number of blocks to forward in a batch. Must be ≥ 100,000.                                                                              | 9,223,372,036,854,775,807 |
-| PRODUCER_PUBLISHER_UNAVAILABILITY_TIMEOUT | The time in seconds to wait when we have no active publishers before sending a publisher unavailability timeout status update. Must be ≥ 0. |                       300 |
+| ENV Variable                              | Description                                                                                                                                                                                                                                                                                                                                           |                   Default |
+|:------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------:|
+| PRODUCER_BATCH_FORWARD_LIMIT              | Max number of blocks to forward in a batch. Must be ≥ 100,000.                                                                                                                                                                                                                                                                                        | 9,223,372,036,854,775,807 |
+| PRODUCER_PUBLISHER_UNAVAILABILITY_TIMEOUT | The time in seconds to wait when we have no active publishers before sending a publisher unavailability timeout status update. Must be ≥ 0.                                                                                                                                                                                                           |                       300 |
+| PRODUCER_STALE_RESEND_PRUNE_BUFFER        | Number of blocks behind `lastPersistedBlockNumber` that a `blocksToResend` entry may sit before `handlePersisted` prunes it. Entries within the buffer are still considered fillable by a publisher; entries older than the buffer are dropped (the gap is owned by backfill at that point). Set to ~CN block-history depth. Must be 0 ≤ value ≤ 200. |                       100 |
 
 ### Subscriber Plugin Configuration
 

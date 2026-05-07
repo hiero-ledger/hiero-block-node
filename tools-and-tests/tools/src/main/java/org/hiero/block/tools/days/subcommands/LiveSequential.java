@@ -138,7 +138,7 @@ public class LiveSequential implements Runnable {
     /** How close to wall-clock time a block must be to count as "live edge". */
     private static final Duration LIVE_EDGE_THRESHOLD = Duration.ofMinutes(5);
     /** Maximum time to wait for all signatures at the live edge before proceeding with what we have. */
-    private static final Duration MAX_SIG_WAIT = Duration.ofMinutes(2);
+    private static final Duration MAX_SIG_WAIT = Duration.ofMinutes(5);
 
     /** Maximum number of 15-minute retries when waiting for GCS listings for a new day. */
     private static final int MAX_LISTING_WAIT_ATTEMPTS = 10;
@@ -585,7 +585,7 @@ public class LiveSequential implements Runnable {
                 loadOrRefreshListings(blockDay, blockTime, netConfig, state);
 
                 // Step 4: Fill the prefetch window
-                fillPrefetchWindow(nextBlockNumber, netConfig, downloadManager, state);
+                fillPrefetchWindow(nextBlockNumber, netConfig, downloadManager, state, addressBookRegistry);
 
                 // Step 5: Get downloads for current block (from window or fresh)
                 BlockDownloadInfo downloads =
@@ -1306,7 +1306,8 @@ public class LiveSequential implements Runnable {
             long nextBlockNumber,
             NetworkConfig netConfig,
             ConcurrentDownloadManagerVirtualThreadsV3 downloadManager,
-            DownloadLoopState state) {
+            DownloadLoopState state,
+            AddressBookRegistry addressBookRegistry) {
         while (state.prefetchWindow.size() < PREFETCH_WINDOW) {
             long target = state.nextPrefetchBlock;
             if (target < nextBlockNumber) {
@@ -1327,7 +1328,13 @@ public class LiveSequential implements Runnable {
                 long sigFiles = group.stream()
                         .filter(f -> f.type() == ListingRecordFile.Type.RECORD_SIG)
                         .count();
-                if (!hasRecord || sigFiles < 3) {
+                long minSigs = addressBookRegistry
+                                        .getCurrentAddressBook()
+                                        .nodeAddress()
+                                        .size()
+                                / 2
+                        + 1;
+                if (!hasRecord || sigFiles < minSigs) {
                     break;
                 }
                 List<ListingRecordFile> ordered = resolveOrderedFiles(group);
@@ -1464,15 +1471,16 @@ public class LiveSequential implements Runnable {
             return resetPrefetchAndRetry(state, nextBlockNumber);
         }
 
-        // Verify sufficient signature files (need at least 3/N for consensus)
+        // Verify sufficient signature files (need majority N/2 + 1 to prevent partition ambiguity)
         long sigCount = inMemoryFiles.stream()
                 .filter(f -> f.path().getFileName().toString().contains("_sig"))
                 .count();
         long maxExpectedSigs =
                 addressBookRegistry.getCurrentAddressBook().nodeAddress().size();
-        if (sigCount < 3) {
+        long minSigs = (maxExpectedSigs / 2) + 1;
+        if (sigCount < minSigs) {
             System.out.println("[live-sequential] Insufficient signatures for block " + nextBlockNumber + " ("
-                    + sigCount + "/" + maxExpectedSigs + "), waiting for GCS uploads...");
+                    + sigCount + "/" + maxExpectedSigs + ", need " + minSigs + "), waiting for GCS uploads...");
             refreshAndReloadListings(blockDay, blockTime, netConfig, state);
             return resetPrefetchAndRetry(state, nextBlockNumber);
         }
@@ -1498,6 +1506,15 @@ public class LiveSequential implements Runnable {
         Instant blockInstantUtc = blockTime.atZone(ZoneOffset.UTC).toInstant();
         boolean isLiveEdge = Duration.between(blockInstantUtc, Instant.now()).compareTo(LIVE_EDGE_THRESHOLD) < 0;
         if (!isLiveEdge) {
+            return false;
+        }
+
+        // If we already have enough signatures for majority validation, proceed immediately
+        long minSigs = (maxExpectedSigs / 2) + 1;
+        if (sigCount >= minSigs) {
+            System.out.printf(
+                    "[live-sequential] Block %d has sufficient signatures (%d/%d, need %d), proceeding%n",
+                    nextBlockNumber, sigCount, maxExpectedSigs, minSigs);
             return false;
         }
 
