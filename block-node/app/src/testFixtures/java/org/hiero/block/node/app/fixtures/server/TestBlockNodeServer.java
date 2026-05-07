@@ -19,7 +19,9 @@ import java.util.List;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockNodeServiceInterface;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
+import org.hiero.block.api.RosterEntry;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
@@ -27,8 +29,11 @@ import org.hiero.block.api.SubscribeStreamRequest;
 import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.api.SubscribeStreamResponse.Code;
 import org.hiero.block.api.TssData;
+import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 public class TestBlockNodeServer {
     private final WebServer webServer;
@@ -190,17 +195,8 @@ public class TestBlockNodeServer {
     private static class TrivialBlockNodeServerInterface implements BlockNodeServiceInterface {
         private final HistoricalBlockFacility historicalBlockFacility;
 
-        private TssData tssData = TssData.DEFAULT;
-
         public TrivialBlockNodeServerInterface(final HistoricalBlockFacility historicalFacility) {
             historicalBlockFacility = historicalFacility;
-        }
-
-        /**
-         * Set the TssData for this test block node server
-         */
-        public void setTssData(TssData tssData) {
-            this.tssData = tssData;
         }
 
         @Override
@@ -219,7 +215,67 @@ public class TestBlockNodeServer {
         @Override
         @NonNull
         public ServerStatusDetailResponse serverStatusDetail(@NonNull ServerStatusRequest request) {
-            return ServerStatusDetailResponse.newBuilder().tssData(tssData).build();
+            BlockRangeSet blockRangeSet = historicalBlockFacility.availableBlocks();
+            List<BlockRange> blockRanges = new ArrayList<>();
+
+            BlockRange.Builder blockRangeBuilder = BlockRange.newBuilder();
+
+            for (LongRange longRange :
+                    historicalBlockFacility.availableBlocks().streamRanges().toList()) {
+                blockRanges.add(blockRangeBuilder
+                        .rangeStart(longRange.start())
+                        .rangeEnd(longRange.end())
+                        .build());
+            }
+
+            // Todo: add TssData flexibility to TestBlockNodeServer to allow tests to pass in TssData to hand back to
+            // tests
+            return ServerStatusDetailResponse.newBuilder()
+                    .availableRanges(blockRangeBuilder.build())
+                    .tssData(buildTssData(
+                            Bytes.fromHex("01010101"),
+                            Bytes.fromHex("02020202"),
+                            11,
+                            22,
+                            Bytes.fromHex("03030303"),
+                            250,
+                            50))
+                    .build();
+        }
+
+        /// build a `TssData` object from individual fields from the `TssBootstrapConfig`
+        ///
+        /// @param ledgerId The ledgerId Bytes
+        /// @param wrapsVerificationKey The wrapsVerificationKey Bytes
+        /// @param nodeId The node id
+        /// @param weight The weight
+        /// @param schnorrPublicKey The schnorrPublicKey Bytes
+        /// @param validFromBlock The block from which this TssData is valid
+        /// @param rosterValidFromBlock The block from which this TssRoster is valid
+        /// @return a `TssData` object
+        private TssData buildTssData(
+                Bytes ledgerId,
+                Bytes wrapsVerificationKey,
+                long nodeId,
+                long weight,
+                Bytes schnorrPublicKey,
+                long validFromBlock,
+                long rosterValidFromBlock) {
+            RosterEntry rosterEntry = RosterEntry.newBuilder()
+                    .nodeId(nodeId)
+                    .weight(weight)
+                    .schnorrPublicKey(schnorrPublicKey)
+                    .build();
+            TssRoster tssRoster = TssRoster.newBuilder()
+                    .rosterEntries(rosterEntry)
+                    .validFromBlock(rosterValidFromBlock)
+                    .build();
+            return TssData.newBuilder()
+                    .ledgerId(ledgerId)
+                    .wrapsVerificationKey(wrapsVerificationKey)
+                    .currentRoster(tssRoster)
+                    .validFromBlock(validFromBlock)
+                    .build();
         }
     }
 }

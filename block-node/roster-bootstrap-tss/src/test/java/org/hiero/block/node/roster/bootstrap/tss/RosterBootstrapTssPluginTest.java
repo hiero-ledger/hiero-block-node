@@ -3,7 +3,9 @@ package org.hiero.block.node.roster.bootstrap.tss;
 
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -11,6 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
+import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
@@ -91,12 +94,14 @@ public class RosterBootstrapTssPluginTest
                 .build();
 
         final int[] contextUpdated = {0};
+        final TssData[] tssData = {null};
 
         RosterBootstrapTssPlugin plugin = new RosterBootstrapTssPlugin() {
 
             @Override
             public void onContextUpdate(BlockNodeContext context) {
                 contextUpdated[0]++;
+                tssData[0] = context.tssData();
             }
         };
 
@@ -106,6 +111,14 @@ public class RosterBootstrapTssPluginTest
         parkNanos(1_000_000_000L);
 
         assertEquals(1, contextUpdated[0]);
+        assertNotNull(tssData[0]);
+
+        /// These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData to
+        /// hand back to testers. Using the values that are passed back to make sure the statusDetails api is
+        // being
+        /// called. Todo: add TssData flexibility to {@link TestBlockNodeServer}
+        assertEquals(Bytes.fromHex("01010101"), tssData[0].ledgerId());
+        assertEquals(Bytes.fromHex("02020202"), tssData[0].wrapsVerificationKey());
     }
 
     private void createTestBlockNodeSourcesFile(BlockNodeSource blockNodeSource, String configPath) throws IOException {
