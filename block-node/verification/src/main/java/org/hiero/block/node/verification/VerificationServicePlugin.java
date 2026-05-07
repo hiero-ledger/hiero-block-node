@@ -175,8 +175,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                 .getOrCreateNotLabeled();
         rsaRosterMismatchTotal = metricRegistry
                 .register(LongCounter.builder(METRIC_RSA_ROSTER_MISMATCH)
-                        .setDescription(
-                                "RSA signatures from node_id values absent from the loaded address book"))
+                        .setDescription("RSA signatures from node_id values absent from the loaded address book"))
                 .getOrCreateNotLabeled();
     }
 
@@ -240,17 +239,23 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     /**
      * {@inheritDoc}
      *
-     * <p>Called when the `NodeAddressBook` is updated by `RsaRosterBootstrapPlugin`. Rebuilds the
-     * `node_id → PublicKey` map used by subsequent WRB verification sessions. A volatile write
-     * ensures visibility to the block-handler thread without a lock.
+     * <p>Called by the framework whenever `BlockNodeApp.updateAddressBook()` fires — typically once
+     * at startup by `RsaRosterBootstrapPlugin`. Rebuilds the `node_id → PublicKey` map used by
+     * subsequent WRB verification sessions. A volatile write ensures visibility to the
+     * block-handler thread without a lock.
      */
     @Override
     public void onContextUpdate(final BlockNodeContext updatedContext) {
         final NodeAddressBook book = updatedContext.nodeAddressBook();
-        if (!book.nodeAddress().isEmpty()) {
-            keyByNodeId = RsaKeyDecoder.buildKeyMap(book);
-            LOGGER.log(INFO, "RSA key map updated: {0} nodes loaded from address book", keyByNodeId.size());
+        if (book == null || book.nodeAddress().isEmpty()) {
+            LOGGER.log(
+                    WARNING,
+                    "onContextUpdate called with a null or empty NodeAddressBook — RSA key map not updated."
+                            + " WRB blocks will fail verification until a valid address book is delivered.");
+            return;
         }
+        keyByNodeId = RsaKeyDecoder.buildKeyMap(book);
+        LOGGER.log(INFO, "RSA key map updated: {0} nodes loaded from address book", keyByNodeId.size());
     }
 
     /**

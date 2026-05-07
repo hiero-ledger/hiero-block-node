@@ -44,8 +44,17 @@ public final class HapiVersionSessionFactory {
             final Bytes previousBlockHash,
             final Bytes allPreviousBlocksRootHash,
             @Nullable final Bytes ledgerId) {
-        return createSession(blockNumber, blockSource, hapiVersion, previousBlockHash,
-                allPreviousBlocksRootHash, ledgerId, Map.of(), null, null, null);
+        return createSession(
+                blockNumber,
+                blockSource,
+                hapiVersion,
+                previousBlockHash,
+                allPreviousBlocksRootHash,
+                ledgerId,
+                Map.of(),
+                null,
+                null,
+                null);
     }
 
     /**
@@ -86,8 +95,15 @@ public final class HapiVersionSessionFactory {
 
         if (isGreaterThanOrEqual(hapiVersion, V_0_72_0)) {
             return new ExtendedMerkleTreeSession(
-                    blockNumber, blockSource, previousBlockHash, allPreviousBlocksRootHash, ledgerId,
-                    rsaKeyByNodeId, rsaVerificationSuccessTotal, rsaVerificationFailureTotal, rsaRosterMismatchTotal);
+                    blockNumber,
+                    blockSource,
+                    previousBlockHash,
+                    allPreviousBlocksRootHash,
+                    ledgerId,
+                    rsaKeyByNodeId,
+                    rsaVerificationSuccessTotal,
+                    rsaVerificationFailureTotal,
+                    rsaRosterMismatchTotal);
         }
 
         // TODO, before going live we should remove the Dummy Implementation.

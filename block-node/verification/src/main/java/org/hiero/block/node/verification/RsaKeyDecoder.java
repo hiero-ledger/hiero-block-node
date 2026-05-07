@@ -62,8 +62,7 @@ public final class RsaKeyDecoder {
                 // RSA must be available in every JVM — this is a JVM misconfiguration
                 throw new IllegalStateException("RSA KeyFactory not available", e);
             } catch (InvalidKeySpecException | IllegalArgumentException e) {
-                LOGGER.log(WARNING, "Malformed RSA_PubKey for node {0} — skipped: {1}",
-                        addr.nodeId(), e.getMessage());
+                LOGGER.log(WARNING, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e.getMessage());
             }
         }
         return Collections.unmodifiableMap(map);

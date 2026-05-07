@@ -36,9 +36,11 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.SignatureException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Predicate;
 import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.common.hasher.NaiveStreamingTreeHasher;
@@ -72,6 +74,18 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         }
     });
 
+    /**
+     * Reusable `SHA-384` digest per thread — avoids per-call `MessageDigest.getInstance()` cost.
+     * `MessageDigest` is stateful, so a `ThreadLocal` is required; each use calls `reset()` first.
+     */
+    private static final ThreadLocal<MessageDigest> SHA_384 = ThreadLocal.withInitial(() -> {
+        try {
+            return MessageDigest.getInstance("SHA-384");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-384 not available in JVM", e);
+        }
+    });
+
     private final long blockNumber;
     // Stream Hashers
     /** The tree hasher for input hashes. */
@@ -95,11 +109,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      */
     private final Map<Long, PublicKey> rsaKeyByNodeId;
     /**
-     * Raw bytes of the `RecordFileItem` proto captured during block item processing.
-     * Required to compute the V6 signed payload: `SHA-384(int32(6) || record_file_contents)`.
+     * Raw serialized bytes of the outer `RecordFileItem` proto message, captured during block item
+     * processing. Field 2 of this proto holds the `record_file_contents` bytes required to compute
+     * the V6 signed payload: `SHA-384(int32(6) || record_file_contents)`.
      * Null until a `RECORD_FILE` block item is encountered.
      */
-    private Bytes rawRecordFileItemBytes;
+    private Bytes rawRecordFileItemProtoBytes;
     /** Metric for successful RSA WRB proof verifications; nullable — null when metrics not configured. */
     @Nullable
     private final LongCounter.Measurement rsaVerificationSuccessTotal;
@@ -204,7 +219,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 case TRACE_DATA -> traceDataHasher.addLeaf(getBlockItemHash(item));
                 // WRB record file — captured for RSA payload computation and hashed as output
                 case RECORD_FILE -> {
-                    this.rawRecordFileItemBytes = item.recordFileOrThrow();
+                    this.rawRecordFileItemProtoBytes = item.recordFileOrThrow();
                     outputTreeHasher.addLeaf(getBlockItemHash(item));
                 }
                 // save footer for later
@@ -367,7 +382,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * @param predicate the match condition
      * @return first matching element, or `null`
      */
-    public static <T> T getFirst(final List<T> list, final Predicate<T> predicate) {
+    private static <T> T getFirst(final List<T> list, final Predicate<T> predicate) {
         return list.stream().filter(predicate).findFirst().orElse(null);
     }
 
@@ -421,14 +436,17 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                             + " Ensure RsaRosterBootstrapPlugin started successfully.",
                     blockNumber);
             if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
-            return new VerificationNotification(false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
+            return new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
 
         // Guard: RECORD_FILE item must be present in the block
-        if (rawRecordFileItemBytes == null) {
-            LOGGER.log(ERROR, "No RECORD_FILE item found in WRB block {0} — cannot compute signed payload", blockNumber);
+        if (rawRecordFileItemProtoBytes == null) {
+            LOGGER.log(
+                    ERROR, "No RECORD_FILE item found in WRB block {0} — cannot compute signed payload", blockNumber);
             if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
-            return new VerificationNotification(false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
+            return new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
 
         final SignedRecordFileProof proof = blockProof.signedRecordFileProofOrThrow();
@@ -442,31 +460,44 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     version,
                     blockNumber);
             if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
-            return new VerificationNotification(false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
+            return new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
 
         // Extract the raw RecordStreamFile bytes from the RecordFileItem proto (field 2)
-        final Bytes rawRecordStreamFileBytes = extractRecordStreamFileBytes(rawRecordFileItemBytes);
+        final Bytes rawRecordStreamFileBytes = extractRecordStreamFileBytes(rawRecordFileItemProtoBytes);
         if (rawRecordStreamFileBytes.length() == 0) {
             LOGGER.log(ERROR, "Failed to extract record_file_contents from RECORD_FILE item in block {0}", blockNumber);
             if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
-            return new VerificationNotification(false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
+            return new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
 
         // V6 payload: SHA-384(int32(6) || rawRecordStreamFileBytes)
         final byte[] signedPayload = computeV6SignedPayload(rawRecordStreamFileBytes);
 
-        // Verify each signature and count valid ones
+        // Verify each signature and count valid ones.
+        // Track which node_id values have already contributed a valid signature to prevent
+        // a duplicate entry in the proof from inflating validCount.
         final int rosterSize = rsaKeyByNodeId.size();
         int validCount = 0;
         int mismatchCount = 0;
+        final Set<Long> validatedNodes = new HashSet<>();
 
         for (final RecordFileSignature sig : proof.recordFileSignatures()) {
             final long nodeId = sig.nodeId();
             final PublicKey publicKey = rsaKeyByNodeId.get(nodeId);
             if (publicKey == null) {
                 mismatchCount++;
-                LOGGER.log(DEBUG, "Signature from node {0} not in address book (block {1}) — skipped", nodeId, blockNumber);
+                LOGGER.log(
+                        DEBUG,
+                        "Signature from node {0} not in address book (block {1}) — skipped",
+                        nodeId,
+                        blockNumber);
+                continue;
+            }
+            if (validatedNodes.contains(nodeId)) {
+                LOGGER.log(DEBUG, "Duplicate signature from node {0} in block {1} — skipped", nodeId, blockNumber);
                 continue;
             }
             final byte[] sigBytes = sig.signaturesBytes().toByteArray();
@@ -480,6 +511,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 engine.update(signedPayload);
                 if (engine.verify(sigBytes)) {
                     validCount++;
+                    validatedNodes.add(nodeId);
                 }
             } catch (final InvalidKeyException | SignatureException e) {
                 LOGGER.log(
@@ -556,16 +588,18 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 // Skip any other field by wire type
                 switch (wireType) {
                     case 0 -> input.readVarLong(false); // VARINT: consume value
-                    case 1 -> input.skip(8);            // I64: skip 8 bytes
-                    case 2 -> {                         // LEN: skip length + content
+                    case 1 -> input.skip(8); // I64: skip 8 bytes
+                    case 2 -> { // LEN: skip length + content
                         final int l = input.readVarInt(false);
                         input.skip(l);
                     }
-                    case 5 -> input.skip(4);            // I32: skip 4 bytes
-                    default -> { return Bytes.EMPTY; }  // Unknown wire type — bail out
+                    case 5 -> input.skip(4); // I32: skip 4 bytes
+                    default -> {
+                        return Bytes.EMPTY;
+                    } // Unknown wire type — bail out
                 }
             }
-        } catch (final Exception e) {
+        } catch (final RuntimeException e) {
             // Treat any parse error as a missing field
             return Bytes.EMPTY;
         }
@@ -583,14 +617,11 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * @return 48-byte SHA-384 digest
      */
     private static byte[] computeV6SignedPayload(final Bytes rawRecordStreamFileBytes) {
-        try {
-            final MessageDigest digest = MessageDigest.getInstance("SHA-384");
-            digest.update(new byte[] {0, 0, 0, 6}); // int32(6) big-endian
-            rawRecordStreamFileBytes.writeTo(digest);
-            return digest.digest();
-        } catch (final NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-384 not available in JVM", e);
-        }
+        final MessageDigest digest = SHA_384.get();
+        digest.reset();
+        digest.update(new byte[] {0, 0, 0, 6}); // int32(6) big-endian
+        rawRecordStreamFileBytes.writeTo(digest);
+        return digest.digest();
     }
 
     /**
