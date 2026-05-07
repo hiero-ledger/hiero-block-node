@@ -245,6 +245,48 @@ class RsaRosterBootstrapPluginTest
         }
 
         @Test
+        @DisplayName("Only active entries (timestamp.to=null) are collected; superseded entries stop pagination")
+        void mixedActiveAndHistoricalEntriesOnlyLoadsActive() {
+            // Single handler serves page 1 on first call and records subsequent calls.
+            // Page 1 contains two active entries followed by one superseded (historical) entry.
+            // The plugin must stop at the historical entry and never request page 2.
+            final AtomicInteger callCount = new AtomicInteger(0);
+            server.createContext("/api/v1/network/nodes", exchange -> {
+                final int call = callCount.getAndIncrement();
+                final String body;
+                if (call == 0) {
+                    // Page 1: two active (to=null), then one historical (to!=null) — signals end of active entries.
+                    body = "{\"nodes\":["
+                            + "{\"node_id\":0,\"public_key\":\"aabbcc\",\"timestamp\":{\"from\":\"1000.0\",\"to\":null}},"
+                            + "{\"node_id\":1,\"public_key\":\"ddeeff\",\"timestamp\":{\"from\":\"900.0\",\"to\":null}},"
+                            + "{\"node_id\":0,\"public_key\":\"oldkey\",\"timestamp\":{\"from\":\"800.0\",\"to\":\"900.0\"}}"
+                            + "],\"links\":{\"next\":\"/api/v1/network/nodes?page=2\"}}";
+                } else {
+                    // Page 2 — should never be fetched.
+                    body = "{\"nodes\":[],\"links\":{\"next\":null}}";
+                }
+                final byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                try (var out = exchange.getResponseBody()) {
+                    out.write(bytes);
+                }
+                exchange.close();
+            });
+
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            final NodeAddressBook book = blockNodeContext.nodeAddressBook();
+            assertNotNull(book);
+            // Only the two active entries (node 0 and node 1) should be present.
+            assertEquals(2, book.nodeAddress().size());
+            assertEquals(0L, book.nodeAddress().get(0).nodeId());
+            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+            assertEquals(1L, book.nodeAddress().get(1).nodeId());
+            assertEquals("ddeeff", book.nodeAddress().get(1).rsaPubKey());
+            assertEquals(1, callCount.get(), "Page 2 must not be fetched after a superseded entry stops iteration");
+        }
+
+        @Test
         @DisplayName("HTTP 500 triggers retry and succeeds on the next attempt")
         void http500TriggersRetryThenSucceeds() {
             final AtomicInteger callCount = new AtomicInteger(0);

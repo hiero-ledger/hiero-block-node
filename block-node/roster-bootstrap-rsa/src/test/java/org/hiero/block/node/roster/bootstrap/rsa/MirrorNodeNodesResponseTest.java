@@ -2,6 +2,7 @@
 package org.hiero.block.node.roster.bootstrap.rsa;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.util.List;
@@ -128,5 +129,52 @@ class MirrorNodeNodesResponseTest {
                 """;
         final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.parse(json);
         assertEquals("/api/v1/network/nodes?limit=100&node.id=gt:5", response.nextLink());
+    }
+
+    @Test
+    @DisplayName(
+            "Active entry (timestamp.to=null) has timestamp with null to; historical (to non-null) has non-null to")
+    void parsesTimestampFields() {
+        final String json = """
+                {
+                  "nodes": [
+                    {
+                      "node_id": 0,
+                      "public_key": "aabb",
+                      "timestamp": { "from": "1000000000.000000000", "to": null }
+                    },
+                    {
+                      "node_id": 1,
+                      "public_key": "ccdd",
+                      "timestamp": { "from": "900000000.000000000", "to": "1000000000.000000000" }
+                    }
+                  ],
+                  "links": { "next": null }
+                }
+                """;
+        final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.parse(json);
+        assertEquals(2, response.nodes().size());
+
+        final MirrorNodeNodesResponse.NodeEntry active = response.nodes().get(0);
+        assertNotNull(active.timestamp());
+        assertEquals("1000000000.000000000", active.timestamp().from());
+        assertNull(active.timestamp().to(), "Active entry must have null to");
+
+        final MirrorNodeNodesResponse.NodeEntry historical = response.nodes().get(1);
+        assertNotNull(historical.timestamp());
+        assertEquals("1000000000.000000000", historical.timestamp().to());
+    }
+
+    @Test
+    @DisplayName("Missing timestamp field yields null timestamp on NodeEntry")
+    void parsesAbsentTimestamp() {
+        final String json = """
+                {
+                  "nodes": [ { "node_id": 0, "public_key": "aabb" } ],
+                  "links": { "next": null }
+                }
+                """;
+        final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.parse(json);
+        assertNull(response.nodes().get(0).timestamp(), "Absent timestamp field must be null");
     }
 }
