@@ -42,10 +42,20 @@ import org.hiero.metrics.core.MetricRegistry;
 ///    notifies all plugins via `onContextUpdate`.
 /// 3. If neither source succeeds: log `ERROR` and throw to trigger BN fail-fast.
 ///
+/// **Async-delivery note:** When the Mirror Node fetch path is taken, `updateAddressBook()`
+/// queues the book in `BlockNodeApp`'s pending state and returns before the context is
+/// updated. The address book becomes available to other plugins only after the
+/// `applicationStateExecutor` fires its next scan tick and calls `onContextUpdate`.
+/// Any plugin that relies on `context.nodeAddressBook()` must implement `onContextUpdate`
+/// and guard on `null` during its own `start()` execution.
+///
 /// See `docs/design/wrb-streaming/bootstrap-roster-plugin.md` for the full design.
 public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     private static final System.Logger LOGGER = System.getLogger(RsaRosterBootstrapPlugin.class.getName());
+
+    /// Default testnet Mirror Node base URL (value of `mirrorNodeBaseUrl` config default).
+    private static final String DEFAULT_MIRROR_NODE_URL = "https://testnet-public.mirrornode.hedera.com";
 
     /// `blocknode:roster_entries_loaded` — number of `NodeAddress` entries loaded at startup.
     static final MetricKey<ObservableGauge> METRIC_ROSTER_ENTRIES_LOADED =
@@ -58,7 +68,13 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// Max Mirror Node fetch retries before fail-fast.
     private static final int MAX_RETRIES = 3;
 
-    private BlockNodeContext context;
+    /// Source from which the address book was loaded at startup.
+    private enum BookSource {
+        FILE,
+        MIRROR_NODE
+    }
+
+    private volatile BlockNodeContext context;
     private BootstrapRosterConfig config;
     private ApplicationStateFacility applicationStateFacility;
 
@@ -101,18 +117,25 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     public void start() {
         final long startMs = System.currentTimeMillis();
         NodeAddressBook book = context.nodeAddressBook();
-        final String source;
+        final BookSource source;
 
         if (book != null) {
             // Bootstrap file was loaded by BlockNodeApp.loadApplicationState() which runs in
             // startApplicationStateFacility() before startPlugins() and calls onContextUpdate().
-            source = "file";
+            source = BookSource.FILE;
         } else {
+            if (DEFAULT_MIRROR_NODE_URL.equals(config.mirrorNodeBaseUrl())) {
+                LOGGER.log(
+                        WARNING,
+                        "roster.bootstrap.mirrorNodeBaseUrl is using the default testnet URL."
+                                + " Mainnet operators must override this config property to avoid"
+                                + " bootstrapping from testnet node keys.");
+            }
             LOGGER.log(INFO, "RSA bootstrap file not found, querying Mirror Node at {0}", config.mirrorNodeBaseUrl());
             book = fetchFromMirrorNode();
             // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
             applicationStateFacility.updateAddressBook(book);
-            source = "mirror_node";
+            source = BookSource.MIRROR_NODE;
         }
 
         rosterEntriesLoaded = book.nodeAddress().size();
@@ -135,54 +158,58 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// @throws IllegalStateException if the Mirror Node is unreachable after retries or returns
     ///     no usable entries
     private NodeAddressBook fetchFromMirrorNode() {
-        final HttpClient client = HttpClient.newBuilder()
+        try (final HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
-                .build();
+                .build()) {
 
-        final List<NodeAddress> addresses = new ArrayList<>();
-        String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize()
-                + "&order=asc";
+            final List<NodeAddress> addresses = new ArrayList<>();
+            String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize()
+                    + "&order=asc";
 
-        while (nextUrl != null) {
-            final String body = fetchWithRetry(client, nextUrl);
-            final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.parse(body);
-            for (final MirrorNodeNodesResponse.NodeEntry entry : response.nodes()) {
-                if (entry.publicKey() == null || entry.publicKey().isBlank()) {
-                    LOGGER.log(WARNING, "Mirror Node: node {0} has no public_key — skipped", entry.nodeId());
-                    continue;
+            while (nextUrl != null) {
+                final MirrorNodeNodesResponse response = fetchAndParseWithRetry(client, nextUrl);
+                for (final MirrorNodeNodesResponse.NodeEntry entry : response.nodes()) {
+                    if (entry.publicKey() == null || entry.publicKey().isBlank()) {
+                        LOGGER.log(WARNING, "Mirror Node: node {0} has no public_key — skipped", entry.nodeId());
+                        continue;
+                    }
+                    // Strip optional 0x prefix
+                    final String hexKey = entry.publicKey().startsWith("0x")
+                            ? entry.publicKey().substring(2)
+                            : entry.publicKey();
+                    final NodeAddress addr = NodeAddress.newBuilder()
+                            .nodeId(entry.nodeId())
+                            .rsaPubKey(hexKey)
+                            .build();
+                    addresses.add(addr);
                 }
-                // Strip optional 0x prefix
-                final String hexKey =
-                        entry.publicKey().startsWith("0x") ? entry.publicKey().substring(2) : entry.publicKey();
-                final NodeAddress addr = NodeAddress.newBuilder()
-                        .nodeId(entry.nodeId())
-                        .rsaPubKey(hexKey)
-                        .build();
-                addresses.add(addr);
+                // Mirror Node may return a relative path; resolve it against the configured base URL.
+                final String rawNext = response.nextLink();
+                nextUrl = (rawNext == null)
+                        ? null
+                        : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
             }
-            // Mirror Node may return a relative path; resolve it against the configured base URL.
-            final String rawNext = response.nextLink();
-            nextUrl = (rawNext == null)
-                    ? null
-                    : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
-        }
 
-        if (addresses.isEmpty()) {
-            throw new IllegalStateException(
-                    "Mirror Node returned zero nodes with a non-blank public_key from " + config.mirrorNodeBaseUrl()
-                            + ". Provide rsa-bootstrap-roster.pb or ensure Mirror Node is reachable.");
-        }
+            if (addresses.isEmpty()) {
+                throw new IllegalStateException(
+                        "Mirror Node returned zero nodes with a non-blank public_key from " + config.mirrorNodeBaseUrl()
+                                + ". Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable.");
+            }
 
-        return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
+            return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
+        }
     }
 
-    /// Performs a single HTTP GET with exponential-backoff retries.
+    /// Performs a single HTTP GET with exponential-backoff retries. The response body is
+    /// parsed into a `MirrorNodeNodesResponse` inside the retry loop so that malformed JSON
+    /// (e.g. an HTML error page returned as HTTP 200) is treated as a retryable failure
+    /// rather than crashing the plugin immediately.
     ///
     /// @param client the HTTP client to use
-    /// @param url the URL to fetch
-    /// @return the response body as a string
+    /// @param url the URL to fetch and parse
+    /// @return the parsed Mirror Node response
     /// @throws IllegalStateException if all retries are exhausted
-    private String fetchWithRetry(final HttpClient client, final String url) {
+    private MirrorNodeNodesResponse fetchAndParseWithRetry(final HttpClient client, final String url) {
         long delayMs = 1_000L;
         Exception lastCause = null;
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -206,18 +233,18 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 if (response.statusCode() != 200) {
                     throw new IOException("HTTP " + response.statusCode() + " from " + url);
                 }
-                return response.body();
+                return MirrorNodeNodesResponse.parse(response.body());
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 lastCause = ie;
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 lastCause = e;
             }
         }
         LOGGER.log(
                 ERROR,
                 "RSA address book could not be created — Mirror Node API unavailable after {0} attempts at {1}."
-                        + " BN cannot verify WRB proofs. Provide rsa-bootstrap-roster.pb or ensure Mirror Node is reachable.",
+                        + " BN cannot verify WRB proofs. Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable.",
                 MAX_RETRIES,
                 config.mirrorNodeBaseUrl());
         throw new IllegalStateException("Mirror Node unreachable after " + MAX_RETRIES + " attempts", lastCause);
