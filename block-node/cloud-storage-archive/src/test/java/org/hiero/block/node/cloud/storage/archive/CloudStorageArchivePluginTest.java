@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
 
 import com.hedera.bucky.S3Client;
 import com.hedera.pbj.runtime.OneOf;
@@ -38,6 +37,7 @@ import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
@@ -173,11 +173,10 @@ class CloudStorageArchivePluginTest {
                     .withConfigDataType(CloudStorageArchiveConfig.class)
                     .withValue("cloud.archive.endpointUrl", minioEndpoint)
                     .build();
-            final MetricRegistry metricsMock = mock(MetricRegistry.class);
             final HistoricalBlockFacility historicalBlockFacility = new SimpleInMemoryHistoricalBlockFacility();
             final BlockNodeContext testContext = new BlockNodeContext(
                     configuration,
-                    metricsMock,
+                    MetricRegistry.builder().build(),
                     new TestHealthFacility(),
                     new TestBlockMessagingFacility(),
                     historicalBlockFacility,
@@ -204,7 +203,7 @@ class CloudStorageArchivePluginTest {
             final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
             final BlockNodeContext testContext = new BlockNodeContext(
                     builder.build(),
-                    mock(MetricRegistry.class),
+                    MetricRegistry.builder().build(),
                     new TestHealthFacility(),
                     messaging,
                     new SimpleInMemoryHistoricalBlockFacility(),
@@ -265,7 +264,7 @@ class CloudStorageArchivePluginTest {
             final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
             final BlockNodeContext testContext = new BlockNodeContext(
                     configuration,
-                    mock(MetricRegistry.class),
+                    MetricRegistry.builder().build(),
                     new TestHealthFacility(),
                     messaging,
                     new SimpleInMemoryHistoricalBlockFacility(),
@@ -932,6 +931,148 @@ class CloudStorageArchivePluginTest {
                 baos.write(TarEntries.toTarEntry(blocks.get(i).blockUnparsed(), startBlockNum + i));
             }
             return baos.toByteArray();
+        }
+
+        private void sendVerifications(List<TestBlock> blocks) {
+            for (final TestBlock block : blocks) {
+                sendVerification(block);
+            }
+        }
+
+        private void sendVerification(TestBlock block) {
+            blockMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+        }
+    }
+
+    /// Tests that verify plugin-level task metrics ([METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS] and
+    /// [METRIC_CLOUD_ARCHIVE_FAILED_TASKS]) are correctly incremented as upload tasks complete.
+    ///
+    /// The success tests use the correct MinIO credentials via [PluginTestBase].  The failure test
+    /// creates an independent [CloudStorageArchivePlugin] with wrong credentials that shares the
+    /// same [BlockingExecutor], so execution is still controlled deterministically from the test body.
+    @Nested
+    @DisplayName("Task Metrics Tests")
+    final class TaskMetricsTests
+            extends PluginTestBase<CloudStorageArchivePlugin, BlockingExecutor, ScheduledBlockingExecutor> {
+
+        private static final int GROUPING_LEVEL = 1;
+        private final BlockingExecutor pluginExecutor;
+
+        TaskMetricsTests() {
+            super(
+                    new BlockingExecutor(new LinkedBlockingQueue<>()),
+                    new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
+            start(
+                    new CloudStorageArchivePlugin(),
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    pluginConfig(GROUPING_LEVEL, 10));
+            pluginExecutor = testThreadPoolManager.executor();
+        }
+
+        /// Drains the main plugin's startup recovery task before each test.
+        @BeforeEach
+        void drainRecovery() {
+            pluginExecutor.executeSerially();
+        }
+
+        /// Verifies that a successful upload task increments [METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS]
+        /// by one and leaves [METRIC_CLOUD_ARCHIVE_FAILED_TASKS] at zero.
+        ///
+        /// [checkCompletedUpload] is only called from [handleVerification], so the metric is not
+        /// updated until the next notification arrives after the task finishes.  A single trigger
+        /// block from the next group is sent after [executeSerially] to flush the counter.
+        @Test
+        @DisplayName("Successful upload task increments successfulTasks and leaves failedTasks at zero")
+        void testSuccessfulUploadIncrementsSuccessfulTasks() throws Exception {
+            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(0, groupSize - 1));
+            pluginExecutor.executeSerially();
+            // Trigger checkCompletedUpload() for the just-finished task.
+            sendVerification(
+                    TestBlockBuilder.generateBlocksInRange(groupSize, groupSize).getFirst());
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS))
+                    .isEqualTo(1L);
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
+                    .isZero();
+        }
+
+        /// Verifies that two consecutive successful upload tasks increment
+        /// [METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS] by two.
+        ///
+        /// A trigger block is sent after each [executeSerially] so [checkCompletedUpload] detects
+        /// each completed task before the assertion.
+        @Test
+        @DisplayName("Two consecutive successful tasks increment successfulTasks by two")
+        void testTwoSuccessfulTasksIncrementSuccessfulTasksTwice() throws Exception {
+            final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(0, groupSize - 1));
+            pluginExecutor.executeSerially();
+            sendVerifications(TestBlockBuilder.generateBlocksInRange(groupSize, groupSize * 2 - 1));
+            pluginExecutor.executeSerially();
+            // Trigger checkCompletedUpload() for the second completed task.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(groupSize * 2, groupSize * 2)
+                    .getFirst());
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS))
+                    .isEqualTo(2L);
+            assertThat(getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS))
+                    .isZero();
+        }
+
+        /// Verifies that a failed [StartupRecoveryTask] (due to invalid S3 credentials) causes
+        /// [METRIC_CLOUD_ARCHIVE_FAILED_TASKS] to increment by one when the next
+        /// [CloudStorageArchivePlugin#handleVerification] call detects the done-but-failed recovery
+        /// future and catches the resulting [ExecutionException].
+        ///
+        /// An independent plugin instance is created with wrong credentials but shares the same
+        /// [BlockingExecutor] as the main plugin, so recovery can be driven the same way.
+        @Test
+        @DisplayName("Failed recovery task increments failedTasks and leaves successfulTasks at zero")
+        void testFailedRecoveryIncrementsFailedTasks() {
+            final TestMetricsExporter exporter = new TestMetricsExporter();
+            final ConfigurationBuilder builder =
+                    ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+            Map.of(
+                            "cloud.archive.groupingLevel", "1",
+                            "cloud.archive.partSizeMb", "10",
+                            "cloud.archive.endpointUrl", minioEndpoint,
+                            "cloud.archive.regionName", "us-east-1",
+                            "cloud.archive.bucketName", BUCKET_NAME,
+                            "cloud.archive.accessKey", "wronguser",
+                            "cloud.archive.secretKey", "wrongpassword")
+                    .forEach(builder::withValue);
+            final TestBlockMessagingFacility failingMessaging = new TestBlockMessagingFacility();
+            final BlockNodeContext failingContext = new BlockNodeContext(
+                    builder.build(),
+                    MetricRegistry.builder().setMetricsExporter(exporter).build(),
+                    new TestHealthFacility(),
+                    failingMessaging,
+                    new SimpleInMemoryHistoricalBlockFacility(),
+                    null,
+                    null,
+                    testThreadPoolManager,
+                    BlockNodeVersions.DEFAULT,
+                    TssData.DEFAULT);
+            final CloudStorageArchivePlugin failingPlugin = new CloudStorageArchivePlugin();
+            failingPlugin.init(failingContext, null);
+            // start() submits the recovery task to the shared BlockingExecutor.
+            failingPlugin.start();
+            // Drain the failing recovery task.  BlockingExecutor re-wraps the S3ResponseException
+            // (403) as RuntimeException, so catch and ignore it here — the Future is still done.
+            try {
+                pluginExecutor.executeSerially();
+            } catch (RuntimeException ignored) {
+            }
+            // handleVerification() detects the done-but-failed recovery future, catches the
+            // resulting ExecutionException, and increments failedTasks.
+            final TestBlock block = TestBlockBuilder.generateBlocksInRange(0, 0).getFirst();
+            failingMessaging.sendBlockVerification(new VerificationNotification(
+                    true, null, block.number(), Bytes.EMPTY, block.blockUnparsed(), BlockSource.PUBLISHER));
+            assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_FAILED_TASKS.name()))
+                    .isEqualTo(1L);
+            assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS.name()))
+                    .isZero();
+            failingPlugin.stop();
         }
 
         private void sendVerifications(List<TestBlock> blocks) {

@@ -51,6 +51,8 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
     private final CloudStorageArchiveConfig config;
     /// Facility used to publish [PersistedNotification]s after each block is durably stored.
     private final BlockMessagingFacility blockMessaging;
+    /// Metrics holder for tracking upload statistics.
+    private final CloudStorageArchivePlugin.MetricsHolder metricsHolder;
 
     /// The block number of the first block in this batch.
     private final long firstBlock;
@@ -80,8 +82,9 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
             @NonNull BlockMessagingFacility blockMessaging,
             long firstBlock,
             long groupSize,
-            @NonNull BlockingQueue<BlockWithSource> blockQueue) {
-        this(config, blockMessaging, firstBlock, groupSize, blockQueue, null);
+            @NonNull BlockingQueue<BlockWithSource> blockQueue,
+            @NonNull CloudStorageArchivePlugin.MetricsHolder metricsHolder) {
+        this(config, blockMessaging, firstBlock, groupSize, blockQueue, null, metricsHolder);
     }
 
     /// Creates a task that resumes an existing upload prepared by [StartupRecoveryTask].
@@ -99,7 +102,8 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
             long firstBlock,
             long groupSize,
             @NonNull BlockingQueue<BlockWithSource> blockQueue,
-            RecoveryResult resumeState) {
+            RecoveryResult resumeState,
+            @NonNull CloudStorageArchivePlugin.MetricsHolder metricsHolder) {
         this.config = config;
         this.blockMessaging = blockMessaging;
         this.firstBlock = firstBlock;
@@ -107,6 +111,7 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         this.partSizeBytes = config.partSizeMb() * 1024 * 1024;
         this.blockQueue = blockQueue;
         this.resumeState = resumeState;
+        this.metricsHolder = metricsHolder;
         this.key = ArchiveKey.format(firstBlock, config.groupingLevel());
     }
 
@@ -241,6 +246,8 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
                         blocksInBuffer.isEmpty() ? Map.entry(blockNum, blockSource) : blocksInBuffer.lastEntry();
                 blockMessaging.sendBlockPersisted(
                         new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
+                metricsHolder.blocksWritten().increment(blocksInBuffer.size());
+                metricsHolder.storedBytes().increment(partSizeBytes);
                 // Reset the map so the caller starts fresh for the next part's worth of blocks.
                 blocksInBuffer.clear();
             }
@@ -292,6 +299,8 @@ public class BlockUploadTask implements Callable<BlockUploadTask.UploadResult> {
         if (partResult == UploadResult.SUCCESS) {
             final Map.Entry<Long, BlockSource> last = blocksInBuffer.lastEntry();
             blockMessaging.sendBlockPersisted(new PersistedNotification(last.getKey(), true, 1_000, last.getValue()));
+            metricsHolder.blocksWritten().increment(blocksInBuffer.size());
+            metricsHolder.storedBytes().increment(buffer.length);
         }
         return partResult;
     }

@@ -23,6 +23,9 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.metrics.LongCounter;
+import org.hiero.metrics.core.MetricKey;
+import org.hiero.metrics.core.MetricRegistry;
 
 /// A block node plugin that stores verified blocks in cloud storage aggregated into `tar` archives.
 ///
@@ -43,6 +46,19 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// The logger for this class.
     private static final System.Logger LOGGER = System.getLogger(CloudStorageArchivePlugin.class.getName());
 
+    public static final MetricKey<LongCounter> METRIC_CLOUD_ARCHIVE_BLOCKS_WRITTEN = MetricKey.of(
+                    "cloud_storage_archive_blocks_written", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_CLOUD_ARCHIVE_FAILED_TASKS = MetricKey.of(
+                    "cloud_storage_archive_failed_tasks", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS = MetricKey.of(
+                    "cloud_storage_archive_successful_tasks", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_CLOUD_ARCHIVE_STORED_BYTES = MetricKey.of(
+                    "cloud_storage_archive_stored_bytes", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+
     /// The block node context, set during [init].
     private BlockNodeContext context;
     /// The plugin configuration, set during [init].
@@ -52,6 +68,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     /// Whether the plugin configuration is valid.  Set during [init]; gates handler registration,
     /// startup recovery, and handler unregistration in [stop].
     private boolean configValid = false;
+    /// Holder for all cloud archive metrics, initialized during [init].
+    private MetricsHolder metricsHolder;
 
     /// The [Future] for the currently active [BlockUploadTask], or `null` when no upload is
     /// in progress.  Checked on every [handleVerification] call via [Future#isDone()] to detect
@@ -98,6 +116,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
         this.config = context.configuration().getConfigData(CloudStorageArchiveConfig.class);
+        metricsHolder = MetricsHolder.createMetrics(context.metricRegistry());
         final List<String> violations = config.validate();
         if (!violations.isEmpty()) {
             // Should be reported to a health facility once we have it
@@ -153,6 +172,7 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
             LOGGER.log(WARNING, "Could not complete uploading blocks to cloud archive storage", e);
+            metricsHolder.failedTasks().increment();
             // TODO(1166) Handle properly block upload task failure
         }
     }
@@ -169,7 +189,10 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                 final UploadResult uploadResult = currentUploadFuture.get();
                 if (uploadResult == UploadResult.FAILED) {
                     LOGGER.log(WARNING, "Block upload task failed");
+                    metricsHolder.failedTasks().increment();
                     // TODO(1166) Handle properly block upload task failure
+                } else {
+                    metricsHolder.successfulTasks().increment();
                 }
                 // Clear the future regardless of outcome so the next block starts a fresh task.
                 currentUploadFuture = null;
@@ -204,7 +227,8 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
                         currentGroupStart,
                         currentGroupSize,
                         currentBlockQueue,
-                        result.uploadId() != null ? result : null));
+                        result.uploadId() != null ? result : null,
+                        metricsHolder));
                 tryReplayStash();
             }
             // No else: currentGroupStart == -1 means a fresh start with no prior S3 state.
@@ -241,7 +265,12 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         // from the previous task, which still holds a reference to the old queue instance.
         currentBlockQueue = new LinkedBlockingQueue<>();
         currentUploadFuture = virtualThreadExecutor.submit(new BlockUploadTask(
-                config, context.blockMessaging(), currentGroupStart, currentGroupSize, currentBlockQueue));
+                config,
+                context.blockMessaging(),
+                currentGroupStart,
+                currentGroupSize,
+                currentBlockQueue,
+                metricsHolder));
         tryReplayStash();
     }
 
@@ -310,5 +339,34 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
             context.blockMessaging().unregisterBlockNotificationHandler(this);
         }
         LOGGER.log(TRACE, "Cloud storage archive plugin stopped");
+    }
+
+    /// Holder for all cloud storage archive metrics.
+    public record MetricsHolder(
+            LongCounter.Measurement blocksWritten,
+            LongCounter.Measurement failedTasks,
+            LongCounter.Measurement successfulTasks,
+            LongCounter.Measurement storedBytes) {
+
+        /// Factory method to create and register all cloud archive metrics.
+        public static MetricsHolder createMetrics(@NonNull final MetricRegistry metricRegistry) {
+            return new MetricsHolder(
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_CLOUD_ARCHIVE_BLOCKS_WRITTEN)
+                                    .setDescription("Number of blocks written to S3 cloud archive storage."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_CLOUD_ARCHIVE_FAILED_TASKS)
+                                    .setDescription("Total number of failed cloud archive upload tasks."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_CLOUD_ARCHIVE_SUCCESSFUL_TASKS)
+                                    .setDescription("Total number of successful cloud archive upload tasks."))
+                            .getOrCreateNotLabeled(),
+                    metricRegistry
+                            .register(LongCounter.builder(METRIC_CLOUD_ARCHIVE_STORED_BYTES)
+                                    .setDescription("Total number of bytes stored in S3 cloud archive storage."))
+                            .getOrCreateNotLabeled());
+        }
     }
 }

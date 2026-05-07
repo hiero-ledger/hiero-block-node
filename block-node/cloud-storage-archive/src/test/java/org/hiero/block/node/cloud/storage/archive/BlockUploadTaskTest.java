@@ -27,10 +27,12 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -119,6 +121,11 @@ class BlockUploadTaskTest {
                 "cloud.archive.secretKey", MINIO_PASSWORD);
     }
 
+    private CloudStorageArchivePlugin.MetricsHolder createMetricsHolder(TestMetricsExporter exporter) {
+        return CloudStorageArchivePlugin.MetricsHolder.createMetrics(
+                MetricRegistry.builder().setMetricsExporter(exporter).build());
+    }
+
     /// Verifies that when [BlockUploadTask#doUploadPart] throws during a mid-loop flush, all
     /// blocks whose tar bytes were in the buffer at the time of failure receive a failed
     /// [PersistedNotification], and [BlockUploadTask.UploadResult#FAILED] is returned.
@@ -133,7 +140,12 @@ class BlockUploadTaskTest {
                 ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
         pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
         final BlockUploadTask task = new FailingBlockUploadTask(
-                builder.build().getConfigData(CloudStorageArchiveConfig.class), messaging, 0, groupSize, queue);
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()));
 
         // Pre-fill the queue with enough large blocks to trigger at least one part flush
         final Random rng = new Random(0xDEADBEEFL);
@@ -174,7 +186,12 @@ class BlockUploadTaskTest {
                 ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
         pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
         final BlockUploadTask task = new FailingBlockUploadTask(
-                builder.build().getConfigData(CloudStorageArchiveConfig.class), messaging, 0, groupSize, queue);
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()));
 
         // Small blocks (100 bytes each) so the total buffer stays well below PART_SIZE_MB,
         // meaning no mid-loop flush occurs and all blocks end up in the final partial buffer.
@@ -214,7 +231,12 @@ class BlockUploadTaskTest {
                 ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
         pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
         final BlockUploadTask task = new BlockUploadTask(
-                builder.build().getConfigData(CloudStorageArchiveConfig.class), messaging, 0, groupSize, queue);
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()));
 
         final Random rng = new Random(0xDEADBEEFL);
         for (int i = 0; i < groupSize; i++) {
@@ -253,7 +275,12 @@ class BlockUploadTaskTest {
                 ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
         pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
         final BlockUploadTask task = new BlockUploadTask(
-                builder.build().getConfigData(CloudStorageArchiveConfig.class), messaging, 0, groupSize, queue);
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()));
 
         // Even blocks → PUBLISHER, odd blocks → BACKFILL
         final Random rng = new Random(0xDEADBEEFL);
@@ -291,7 +318,12 @@ class BlockUploadTaskTest {
                 ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
         pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
         final BlockUploadTask task = new BlockUploadTask(
-                builder.build().getConfigData(CloudStorageArchiveConfig.class), messaging, 0, groupSize, queue);
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()));
 
         final Random rng = new Random(0xDEADBEEFL);
         for (int i = 0; i < groupSize; i++) {
@@ -314,6 +346,90 @@ class BlockUploadTaskTest {
         assertThat(notification.blockSource()).isEqualTo(BlockSource.UNKNOWN);
     }
 
+    /// Verifies that after a successful upload [blocksWritten] equals the group size and
+    /// [storedBytes] is positive, confirming metrics reflect what was durably stored.
+    @Test
+    @DisplayName("Successful upload tracks correct blocksWritten and storedBytes")
+    void testSuccessfulUploadTracksMetrics() throws Exception {
+        final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+        final TestMetricsExporter exporter = new TestMetricsExporter();
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
+        final BlockUploadTask task = new BlockUploadTask(
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(exporter));
+
+        final Random rng = new Random(0xDEADBEEFL);
+        for (int i = 0; i < groupSize; i++) {
+            final byte[] data = new byte[BLOCK_DATA_BYTES];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            queue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {item})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+
+        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+
+        assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_BLOCKS_WRITTEN.name()))
+                .isEqualTo(groupSize);
+        assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_STORED_BYTES.name()))
+                .isGreaterThan(0L);
+    }
+
+    /// Verifies that a failed upload leaves both [blocksWritten] and [storedBytes] at zero,
+    /// since no data was durably stored.
+    @Test
+    @DisplayName("Failed upload leaves blocksWritten and storedBytes at zero")
+    void testFailedUploadDoesNotTrackMetrics() throws Exception {
+        final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+        final TestMetricsExporter exporter = new TestMetricsExporter();
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
+        final BlockUploadTask task = new FailingBlockUploadTask(
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(exporter));
+
+        final Random rng = new Random(0xDEADBEEFL);
+        for (int i = 0; i < groupSize; i++) {
+            final byte[] data = new byte[BLOCK_DATA_BYTES];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            queue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {item})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+
+        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.FAILED);
+
+        assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_BLOCKS_WRITTEN.name()))
+                .isZero();
+        assertThat(exporter.getMetricValue(CloudStorageArchivePlugin.METRIC_CLOUD_ARCHIVE_STORED_BYTES.name()))
+                .isZero();
+    }
+
     /// [BlockUploadTask] subclass that always throws from [doUploadPart] to simulate S3 failures.
     private static final class FailingBlockUploadTask extends BlockUploadTask {
 
@@ -322,8 +438,9 @@ class BlockUploadTaskTest {
                 BlockMessagingFacility blockMessaging,
                 long firstBlock,
                 int groupSize,
-                BlockingQueue<BlockWithSource> queue) {
-            super(config, blockMessaging, firstBlock, groupSize, queue);
+                BlockingQueue<BlockWithSource> queue,
+                CloudStorageArchivePlugin.MetricsHolder metricsHolder) {
+            super(config, blockMessaging, firstBlock, groupSize, queue, metricsHolder);
         }
 
         @Override
