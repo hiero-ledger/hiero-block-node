@@ -3,6 +3,7 @@ package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -19,6 +20,7 @@ import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -40,12 +42,14 @@ import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility.State;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -115,17 +119,16 @@ class BlockNodeAppTest {
 
     @AfterEach
     void cleanup() {
-        try {
-            Files.deleteIfExists(Path.of("build/tmp/data/block/node/app-state-data.json"));
-        } catch (Exception e) {
-            // ignore
-        }
-        // Remove the RSA file written by addressBookPersistenceRoundTrip so subsequent tests
-        // start with a null address book rather than inheriting persisted state.
-        try {
-            Files.deleteIfExists(Path.of("build/resources/test/data/config/rsa-bootstrap-roster.json"));
-        } catch (Exception e) {
-            // ignore
+        for (String file : List.of(
+                "build/tmp/data/block/node/app-state-data.bin",
+                "build/resources/test/data/config/rsa-bootstrap-roster.json",
+                "build/tmp/data/block/node/stored-blocks-data.bin",
+                "build/tmp/data/block/node/available-blocks-data.bin")) {
+            try {
+                Files.deleteIfExists(Path.of(file));
+            } catch (Exception e) {
+                // ignore
+            }
         }
     }
 
@@ -384,7 +387,7 @@ class BlockNodeAppTest {
                 .blockNodeContext
                 .configuration()
                 .getConfigData(ApplicationStateConfig.class)
-                .dataFilePath();
+                .tssDataFilePath();
 
         Files.deleteIfExists(appStateDataFilePath);
         Files.createFile(appStateDataFilePath);
@@ -682,5 +685,103 @@ class BlockNodeAppTest {
                 .currentRoster(tssRoster)
                 .validFromBlock(validFromBlock)
                 .build();
+    }
+
+    /**
+     * Verifies that calling {@code addBlockRange} with {@link ApplicationStateFacility.BlockRangeType#STORED}
+     * adds the range to {@code storedBlocks} and leaves {@code availableBlocks} unchanged.
+     */
+    @Test
+    @DisplayName("addBlockRange with STORED type updates storedBlocks only")
+    void testAddBlockRangeStoredUpdatesOnlyStoredBlocks() {
+        blockNodeApp.addBlockRange(new LongRange(0, 9), ApplicationStateFacility.BlockRangeType.STORED);
+        assertTrue(blockNodeApp.storedBlocks.contains(0, 9));
+        assertFalse(blockNodeApp.availableBlocks.contains(0, 9));
+    }
+
+    /**
+     * Verifies that calling {@code addBlockRange} with {@link ApplicationStateFacility.BlockRangeType#AVAILABLE}
+     * adds the range to both {@code storedBlocks} and {@code availableBlocks}.
+     */
+    @Test
+    @DisplayName("addBlockRange with AVAILABLE type updates both storedBlocks and availableBlocks")
+    void testAddBlockRangeAvailableUpdatesBothSets() {
+        blockNodeApp.addBlockRange(new LongRange(10, 19), ApplicationStateFacility.BlockRangeType.AVAILABLE);
+        assertTrue(blockNodeApp.storedBlocks.contains(10, 19));
+        assertTrue(blockNodeApp.availableBlocks.contains(10, 19));
+    }
+
+    /**
+     * Verifies that once the cumulative stored block count reaches {@code BLOCK_RANGE_PERSIST_INTERVAL} (1000),
+     * both range sets are written to disk. Checks that the stored-blocks file contains the expected range entry
+     * and that the available-blocks file is empty (no ranges were reported as available).
+     */
+    @Test
+    @DisplayName("addBlockRange persists both range sets to disk after 1000 blocks")
+    void testAddBlockRangePersistsOnThreshold() throws IOException {
+        final ApplicationStateConfig appStateConfig =
+                blockNodeApp.blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
+        final Path storedPath = appStateConfig.storedBlocksFilePath();
+        final Path availablePath = appStateConfig.availableBlocksFilePath();
+        Files.deleteIfExists(storedPath);
+        Files.deleteIfExists(availablePath);
+
+        blockNodeApp.addBlockRange(new LongRange(0, 999), ApplicationStateFacility.BlockRangeType.STORED);
+
+        assertTrue(Files.exists(storedPath));
+        assertTrue(Files.exists(availablePath));
+        final ByteBuffer storedBuf = ByteBuffer.wrap(Files.readAllBytes(storedPath));
+        assertEquals(Long.BYTES * 2, storedBuf.capacity()); // exactly one range
+        assertEquals(0L, storedBuf.getLong());
+        assertEquals(999L, storedBuf.getLong());
+        assertEquals(0, Files.readAllBytes(availablePath).length); // available set is empty
+    }
+
+    /**
+     * Verifies the full persist lifecycle across both automatic (threshold) and shutdown triggers.
+     * <ol>
+     *   <li>Adds 1000 STORED blocks (0–999), which crosses {@code BLOCK_RANGE_PERSIST_INTERVAL}
+     *       and triggers an automatic persist.</li>
+     *   <li>Adds a small AVAILABLE range (1000–1049) and a small STORED range (1050–1099), both
+     *       below the next threshold, so no automatic persist fires for them.</li>
+     *   <li>Stops the facility, which triggers a final persist capturing the complete state.</li>
+     * </ol>
+     * After shutdown the stored-blocks file must reflect all three ranges merged (0–1099) and
+     * the available-blocks file must reflect only the AVAILABLE range (1000–1049).
+     */
+    @Test
+    @DisplayName("stopApplicationStateFacility persists range sets to disk including ranges added after threshold")
+    void testStopApplicationStateFacilityPersistsRangeSets() throws IOException {
+        final ApplicationStateConfig appStateConfig =
+                blockNodeApp.blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
+        final Path storedPath = appStateConfig.storedBlocksFilePath();
+        final Path availablePath = appStateConfig.availableBlocksFilePath();
+        Files.deleteIfExists(storedPath);
+        Files.deleteIfExists(availablePath);
+
+        blockNodeApp.startApplicationStateFacility();
+
+        // Cross the threshold — automatic persist fires here
+        blockNodeApp.addBlockRange(new LongRange(0, 999), ApplicationStateFacility.BlockRangeType.STORED);
+        assertTrue(Files.exists(storedPath), "automatic persist should have written the stored-blocks file");
+
+        // Add further ranges that do not cross the next threshold
+        blockNodeApp.addBlockRange(new LongRange(1000, 1049), ApplicationStateFacility.BlockRangeType.AVAILABLE);
+        blockNodeApp.addBlockRange(new LongRange(1050, 1099), ApplicationStateFacility.BlockRangeType.STORED);
+
+        // Shutdown triggers the final persist
+        blockNodeApp.stopApplicationStateFacility();
+
+        // All stored ranges should be merged into one contiguous range
+        final ByteBuffer storedBuf = ByteBuffer.wrap(Files.readAllBytes(storedPath));
+        assertEquals(Long.BYTES * 2, storedBuf.capacity()); // exactly one range
+        assertEquals(0L, storedBuf.getLong());
+        assertEquals(1099L, storedBuf.getLong());
+
+        // Only the AVAILABLE range should appear in the available-blocks file
+        final ByteBuffer availableBuf = ByteBuffer.wrap(Files.readAllBytes(availablePath));
+        assertEquals(Long.BYTES * 2, availableBuf.capacity()); // exactly one range
+        assertEquals(1000L, availableBuf.getLong());
+        assertEquals(1049L, availableBuf.getLong());
     }
 }
