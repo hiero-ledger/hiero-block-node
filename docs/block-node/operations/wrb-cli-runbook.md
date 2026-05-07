@@ -10,18 +10,6 @@ This runbook documents the setup and operational workflows for the Wrapped Recor
 
 ## Prerequisites
 
-### Server Requirements
-
-**Minimum Specifications:**
-- **CPU**: 16+ cores (validation benefits from parallelization)
-- **Memory**: 32GB+ RAM (recommend 64GB for large-scale operations)
-- **Disk**: 10TB+ SSD/NVMe storage
-  - Recommend ZFS for data integrity and compression
-  - Separate volumes for compressed days, wrapped blocks, and metadata
-- **Network**: High bandwidth (100Mbps+) for GCS downloads
-
-**Operating System**: Linux (Ubuntu 20.04+ or RHEL 8+ recommended)
-
 ### Required Tools
 
 ```bash
@@ -511,14 +499,6 @@ ls -d wrappedBlocks/*/ | wc -l
 ```
 
 ### Disk Space Requirements
-
-**Estimates** (mainnet, as of 2026):
-
-| Component | Size (approx) |
-|-----------|---------------|
-| Compressed Days (full history) | ~8TB |
-| Wrapped Blocks (full history) | ~12TB |
-| Metadata Files | ~10GB |
 
 **Recommendations**:
 - Use ZFS with compression (ratio ~1.5x for wrapped blocks)
