@@ -24,6 +24,7 @@ import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
@@ -47,6 +49,7 @@ import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -73,6 +76,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /** Metric key for the current state status of the app */
     public static final MetricKey<ObservableGauge> METRIC_APP_STATE_STATUS =
             MetricKey.of("app_state_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    /** Number of stored blocks between automatic persistence of the block range sets */
+    private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
     /** The logger for this class. */
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
     /** The state of the server. */
@@ -95,6 +100,15 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /** Pending address book loaded at startup; consumed by the first checkForApplicationStateUpdates run. */
     private final AtomicReference<NodeAddressBook> pendingAddressBook = new AtomicReference<>();
+
+    /** Blocks reported as stored by plugins that do not serve them for retrieval */
+    final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
+
+    /** Blocks reported as available by BlockProviderPlugin implementations */
+    final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
+
+    /** Running total of stored block numbers, used to trigger periodic persistence */
+    private final AtomicLong storedBlockCount = new AtomicLong(0);
 
     /** The ScheduledExecutorService used by the ApplicationStateFacility to check for TssData updates */
     private ScheduledExecutorService applicationStateExecutor;
@@ -385,6 +399,21 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (tssData != null) tssDataUpdates.add(tssData);
     }
 
+    @Override
+    public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
+        // Every range is stored; only AVAILABLE ranges are both stored and available.
+        storedBlocks.add(blockRange);
+        if (blockRangeType == BlockRangeType.AVAILABLE) {
+            availableBlocks.add(blockRange);
+        }
+        // Trigger a persist whenever the running total crosses a BLOCK_RANGE_PERSIST_INTERVAL boundary.
+        final long blocksToAdd = blockRange.size();
+        final long before = storedBlockCount.getAndAdd(blocksToAdd);
+        if (before / BLOCK_RANGE_PERSIST_INTERVAL < (before + blocksToAdd) / BLOCK_RANGE_PERSIST_INTERVAL) {
+            persistBlockRanges();
+        }
+    }
+
     /**
      * Allow plugins to update the NodeAddressBook for this BlockNodeApp. The address book is staged
      * in a last-write-wins reference; if {@code updateAddressBook} is called more than once before
@@ -437,10 +466,14 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
         // Schedule periodic check for live updates from running plugins.
         applicationStateExecutor.scheduleAtFixedRate(
-                this::checkForApplicationStateUpdates,
+                this::checkForTssDataStateUpdates,
                 appStateConfig.updateInitialDelay(),
                 appStateConfig.updateScanInterval(),
                 TimeUnit.MILLISECONDS);
+    }
+
+    private void checkForTssDataStateUpdates() {
+        checkForApplicationStateUpdates();
     }
 
     private void checkForApplicationStateUpdates() {
@@ -486,6 +519,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Thread.currentThread().interrupt();
             }
         }
+        persistBlockRanges();
     }
 
     /**
@@ -539,7 +573,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path appStateDataFilePath = blockNodeContext
                 .configuration()
                 .getConfigData(ApplicationStateConfig.class)
-                .dataFilePath();
+                .tssDataFilePath();
         try {
             Files.createDirectories(appStateDataFilePath.getParent());
             Bytes serialized = TssData.JSON.toBytes(tssData);
@@ -583,6 +617,34 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
+     * Persists both block range sets to the file paths specified in the ApplicationStateConfig.
+     */
+    private void persistBlockRanges() {
+        final ApplicationStateConfig appStateConfig =
+                blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
+        persistRangeSet(storedBlocks, appStateConfig.storedBlocksFilePath());
+        persistRangeSet(availableBlocks, appStateConfig.availableBlocksFilePath());
+    }
+
+    private void persistRangeSet(ConcurrentLongRangeSet rangeSet, Path filePath) {
+        try {
+            Files.createDirectories(filePath.getParent());
+            final var ranges = rangeSet.streamRanges().toList();
+            // Binary format: each range is two consecutive big-endian longs (start, end) — 16 bytes per range.
+            // Fixed-size records make loading trivial and allow size-based integrity checking.
+            final ByteBuffer buffer = ByteBuffer.allocate(ranges.size() * Long.BYTES * 2);
+            for (final LongRange range : ranges) {
+                buffer.putLong(range.start());
+                buffer.putLong(range.end());
+            }
+            Files.write(filePath, buffer.array());
+            LOGGER.log(INFO, "Persisted block ranges to file: {0}", filePath);
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to persist block ranges to %s".formatted(filePath), e);
+        }
+    }
+
+    /**
      * Loads all ApplicationState from file paths specified in the ApplicationStateConfig class.
      * Must be called after the BlockNodeContext is created and all plugins have been init'd.
      *
@@ -592,7 +654,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final ApplicationStateConfig appStateConfig = configuration.getConfigData(ApplicationStateConfig.class);
 
         // Load TssData (JSON format) — queued for processing on the next scanner tick.
-        final Path tssDataJsonPath = appStateConfig.dataFilePath();
+        final Path tssDataJsonPath = appStateConfig.tssDataFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
                 TssData tssData = TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
@@ -623,6 +685,30 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                         "Corrupt RSA bootstrap file at " + rsaFilePath
                                 + " — delete and restart to re-fetch from Mirror Node",
                         e);
+            }
+        }
+        loadRangeSet(storedBlocks, appStateConfig.storedBlocksFilePath());
+        loadRangeSet(availableBlocks, appStateConfig.availableBlocksFilePath());
+    }
+
+    private void loadRangeSet(ConcurrentLongRangeSet rangeSet, Path filePath) {
+        if (Files.exists(filePath)) {
+            try {
+                final byte[] bytes = Files.readAllBytes(filePath);
+                // Each range occupies exactly 16 bytes (two longs). A file whose length is not
+                // a multiple of 16 is truncated or corrupt — skip it rather than reading garbage ranges.
+                if (bytes.length % (Long.BYTES * 2) != 0) {
+                    LOGGER.log(ERROR, "Block ranges file has unexpected size, skipping: {0}", filePath);
+                } else {
+                    final ByteBuffer buffer = ByteBuffer.wrap(bytes);
+                    // Read pairs of longs until the buffer is exhausted, reconstructing each LongRange.
+                    while (buffer.hasRemaining()) {
+                        rangeSet.add(new LongRange(buffer.getLong(), buffer.getLong()));
+                    }
+                    LOGGER.log(INFO, "Loaded block ranges from file: {0}", filePath);
+                }
+            } catch (IOException | IllegalArgumentException e) {
+                LOGGER.log(ERROR, "Failed to read block ranges file: " + filePath, e);
             }
         }
     }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.spi;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -15,6 +16,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.List;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -61,6 +63,11 @@ public class BlockNodePluginTest {
         public void updateAddressBook(NodeAddressBook nodeAddressBook) {
             // do nothing
         }
+
+        @Override
+        public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
+            // do nothing
+        }
     }
 
     @Test
@@ -87,6 +94,32 @@ public class BlockNodePluginTest {
         public void updateAddressBook(NodeAddressBook nodeAddressBook) {
             // do nothing
         }
+
+        @Override
+        public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
+            // do nothing
+        }
+    }
+
+    private static class TestApplicationStateFacilityWithRange implements ApplicationStateFacility {
+        LongRange lastRange;
+        BlockRangeType lastType;
+
+        @Override
+        public void updateTssData(TssData tssData) {
+            // do nothing
+        }
+
+        @Override
+        public void updateAddressBook(NodeAddressBook nodeAddressBook) {
+            // do nothing
+        }
+
+        @Override
+        public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
+            this.lastRange = blockRange;
+            this.lastType = blockRangeType;
+        }
     }
 
     @Test
@@ -95,6 +128,33 @@ public class BlockNodePluginTest {
         TestApplicationStateFacility testApplicationStateFacility = new TestApplicationStateFacility();
         testApplicationStateFacility.updateTssData(null);
         assertEquals(null, testApplicationStateFacility.tssData);
+    }
+
+    @Test
+    @DisplayName("Test ApplicationStateFacility.addBlockRange() does not throw on no-op implementation")
+    void testAddBlockRangeDefault() {
+        assertDoesNotThrow(() -> new TestApplicationStateFacilityDefault()
+                .addBlockRange(new LongRange(0, 9), ApplicationStateFacility.BlockRangeType.STORED));
+    }
+
+    @Test
+    @DisplayName("Test ApplicationStateFacility.addBlockRange() records STORED range and type")
+    void testAddBlockRangeStored() {
+        TestApplicationStateFacilityWithRange facility = new TestApplicationStateFacilityWithRange();
+        LongRange range = new LongRange(0, 9);
+        facility.addBlockRange(range, ApplicationStateFacility.BlockRangeType.STORED);
+        assertEquals(range, facility.lastRange);
+        assertEquals(ApplicationStateFacility.BlockRangeType.STORED, facility.lastType);
+    }
+
+    @Test
+    @DisplayName("Test ApplicationStateFacility.addBlockRange() records AVAILABLE range and type")
+    void testAddBlockRangeAvailable() {
+        TestApplicationStateFacilityWithRange facility = new TestApplicationStateFacilityWithRange();
+        LongRange range = new LongRange(10, 99);
+        facility.addBlockRange(range, ApplicationStateFacility.BlockRangeType.AVAILABLE);
+        assertEquals(range, facility.lastRange);
+        assertEquals(ApplicationStateFacility.BlockRangeType.AVAILABLE, facility.lastType);
     }
 
     private static class TestBlockNodePlugin implements BlockNodePlugin {

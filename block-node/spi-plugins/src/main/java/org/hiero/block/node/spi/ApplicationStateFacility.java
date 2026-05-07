@@ -3,12 +3,19 @@ package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
  * Interface for the Application and block node plugins to exchange state information. The `ApplicationStateFacility`
  * is passed to all block node plugins in the BlockNodeCOntext.
  * */
 public interface ApplicationStateFacility {
+
+    enum BlockRangeType {
+        STORED,
+        AVAILABLE
+    }
+
     /**
      * Used by plugins to update the TssData for this application. i.e. `TssBootstrapPlugin`, and `VerificationPlugin`
      * The update will be forwarded to all plugins using the BlockNodePlugin.onContextUpdate() of the plugins
@@ -25,4 +32,19 @@ public interface ApplicationStateFacility {
      * @param nodeAddressBook The NodeAddressBook to be stored in the BlockNodeContext.
      */
     void updateAddressBook(NodeAddressBook nodeAddressBook);
+
+    /**
+     * Records a range of blocks as stored or available.
+     *
+     * <p>A range reported as {@link BlockRangeType#AVAILABLE} indicates that the blocks can be
+     * served to clients (e.g. reported by a {@code BlockProviderPlugin}). A range reported as
+     * {@link BlockRangeType#STORED} indicates the blocks are persisted but not necessarily
+     * retrievable. Ranges of both types count as stored; {@code AVAILABLE} ranges additionally
+     * count as available.
+     *
+     * @param blockRange the contiguous range of block numbers being reported
+     * @param blockRangeType {@link BlockRangeType#AVAILABLE} if the blocks can be retrieved,
+     *     {@link BlockRangeType#STORED} otherwise
+     */
+    void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType);
 }
