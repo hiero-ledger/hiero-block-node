@@ -561,49 +561,85 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     }
 
     /**
-     * Extracts the raw `record_file_contents` bytes (proto field 2) from a serialized
-     * `RecordFileItem` message by navigating the protobuf wire format without full parsing.
+     * Extracts the raw {@code record_file_contents} bytes from a serialized {@code RecordFileItem}
+     * proto message by walking the protobuf wire format directly, without deserializing the message.
      *
-     * <p>The verbatim bytes are required for V6 signed hash computation so that the hash
-     * is identical to the one computed by the consensus node — re-serializing from a parsed
-     * representation would risk byte-order or encoding differences.
+     * <p>{@code record_file_contents} is proto field 2 of {@code RecordFileItem}. These bytes are
+     * the verbatim content of the {@code .rcd} record stream file exactly as the consensus node
+     * read it from disk when it computed the V6 signed hash. They must be returned byte-for-byte
+     * identical to what the consensus node used; full deserialization via
+     * {@code RecordFileItem.PROTOBUF.parse()} is deliberately avoided because re-serializing a
+     * parsed object can produce subtly different bytes (e.g. omitting default-value fields, different
+     * varint encoding choices), which would cause the recomputed hash to diverge from the one the
+     * consensus node signed.
      *
-     * @param recordFileItemBytes raw serialized bytes of a `RecordFileItem` proto message
-     * @return raw bytes of the `record_file_contents` field, or `Bytes.EMPTY` if not found
+     * <p><b>Protobuf wire format:</b> every field on the wire is encoded as a tag varint followed
+     * by its value. The tag packs two things:
+     * <ul>
+     *   <li>{@code fieldNumber = tag >>> 3}
+     *   <li>{@code wireType   = tag & 0x7}
+     * </ul>
+     * Wire type 2 ({@code LEN}) means the value is length-prefixed bytes, used for {@code bytes},
+     * {@code string}, and embedded messages. It is encoded as:
+     * {@code [tag varint] [length varint] [raw bytes...]}.
+     *
+     * <p><b>Algorithm:</b>
+     * <ol>
+     *   <li>Read the next field tag varint and decode its field number and wire type.</li>
+     *   <li>If {@code fieldNumber == 2} and {@code wireType == LEN}: read the length prefix varint,
+     *       read exactly that many bytes, and return them — these are the
+     *       {@code record_file_contents}.</li>
+     *   <li>Otherwise skip the field using the wire type to know how many bytes to consume:
+     *       <ul>
+     *         <li>VARINT (wire 0): read and discard one varint</li>
+     *         <li>I64 (wire 1): skip 8 bytes fixed</li>
+     *         <li>LEN (wire 2): read the length prefix, skip that many bytes</li>
+     *         <li>I32 (wire 5): skip 4 bytes fixed</li>
+     *       </ul>
+     *   </li>
+     *   <li>Repeat until field 2 is found or input is exhausted.</li>
+     * </ol>
+     *
+     * @param recordFileItemBytes raw serialized bytes of a {@code RecordFileItem} proto message
+     * @return verbatim bytes of the {@code record_file_contents} field (proto field 2), or
+     *         {@code Bytes.EMPTY} if field 2 is not present or if any parse error occurs
      */
     private static Bytes extractRecordStreamFileBytes(final Bytes recordFileItemBytes) {
         try {
             final ReadableSequentialData input = recordFileItemBytes.toReadableSequentialData();
             while (input.hasRemaining()) {
+                // Each field starts with a tag varint: high bits = field number, low 3 bits = wire type
                 final int tag = input.readVarInt(false);
                 final int wireType = tag & 0x7;
                 final int fieldNumber = tag >>> 3;
                 if (fieldNumber == 2 && wireType == 2) {
-                    // LEN field: read the length prefix then copy the raw bytes
+                    // Found record_file_contents (field 2, LEN wire type).
+                    // Read the length-prefix varint then copy the raw payload bytes verbatim.
                     final int len = input.readVarInt(false);
                     final byte[] raw = new byte[len];
                     input.readBytes(raw);
                     return Bytes.wrap(raw);
                 }
-                // Skip any other field by wire type
+                // Not field 2 — skip this field using its wire type to advance the cursor correctly
                 switch (wireType) {
-                    case 0 -> input.readVarLong(false); // VARINT: consume value
-                    case 1 -> input.skip(8); // I64: skip 8 bytes
-                    case 2 -> { // LEN: skip length + content
+                    case 0 -> input.readVarLong(false); // VARINT: read and discard the value
+                    case 1 -> input.skip(8); // I64: fixed 64-bit, skip 8 bytes
+                    case 2 -> { // LEN: read length prefix, skip content
                         final int l = input.readVarInt(false);
                         input.skip(l);
                     }
-                    case 5 -> input.skip(4); // I32: skip 4 bytes
+                    case 5 -> input.skip(4); // I32: fixed 32-bit, skip 4 bytes
                     default -> {
-                        return Bytes.EMPTY;
-                    } // Unknown wire type — bail out
+                        return Bytes.EMPTY; // Unknown wire type — bail out safely
+                    }
                 }
             }
         } catch (final RuntimeException e) {
-            // Treat any parse error as a missing field
+            // Any unexpected read error (truncated input, malformed varint, etc.) is treated
+            // as a missing field rather than propagated, so the caller can fail verification cleanly.
             return Bytes.EMPTY;
         }
-        return Bytes.EMPTY;
+        return Bytes.EMPTY; // field 2 not present in the message
     }
 
     /**
