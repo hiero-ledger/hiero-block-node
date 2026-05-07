@@ -44,7 +44,7 @@ env:
 jobs:
   package-protobuf-source:
     timeout-minutes: 5
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
 
     steps:
       - name: Harden Runner
@@ -94,7 +94,7 @@ jobs:
 
   publish-app:
     timeout-minutes: 30
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
     strategy:
       matrix:
         # Define the images you want to build
@@ -176,7 +176,7 @@ jobs:
 
   publish-jars:
     timeout-minutes: 30
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
 
     steps:
       - name: Harden Runner
@@ -237,7 +237,7 @@ jobs:
 
   publish-simulator:
     timeout-minutes: 30
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
 
     steps:
       - name: Harden Runner
@@ -307,7 +307,7 @@ jobs:
     needs:
       - publish-app
       - publish-jars
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
 
     steps:
       - name: Harden Runner
@@ -347,7 +347,7 @@ jobs:
   helm-chart-release-simulator:
     timeout-minutes: 15
     needs: publish-simulator
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
 
     steps:
       - name: Harden Runner
