@@ -1,0 +1,717 @@
+# WRB CLI Operations Runbook
+
+## Overview
+
+This runbook documents the setup and operational workflows for the Wrapped Record Block (WRB) CLI tools. These tools are used to download, wrap, validate, and maintain block streams for Hiero networks (mainnet and testnet).
+
+**Audience**: Operators running block stream validation, migration, or archival processes.
+
+---
+
+## Prerequisites
+
+### Server Requirements
+
+**Minimum Specifications:**
+- **CPU**: 16+ cores (validation benefits from parallelization)
+- **Memory**: 32GB+ RAM (recommend 64GB for large-scale operations)
+- **Disk**: 10TB+ SSD/NVMe storage
+  - Recommend ZFS for data integrity and compression
+  - Separate volumes for compressed days, wrapped blocks, and metadata
+- **Network**: High bandwidth (100Mbps+) for GCS downloads
+
+**Operating System**: Linux (Ubuntu 20.04+ or RHEL 8+ recommended)
+
+### Required Tools
+
+```bash
+# Install Java 21+
+sudo apt-get update
+sudo apt-get install openjdk-21-jdk
+
+# Install zstd (required for decompression)
+sudo apt-get install zstd
+
+# Verify installations
+java -version
+zstd --version
+```
+
+### Building the Shadow JAR
+
+```bash
+# Clone the repository
+git clone https://github.com/hiero-ledger/hiero-block-node.git
+cd hiero-block-node
+
+# Build the tools shadow jar
+./gradlew :tools:shadowJar
+
+# Locate the jar
+ls tools-and-tests/tools/build/libs/tools-*-all.jar
+```
+
+The shadow jar is self-contained and can be copied to your deployment server.
+
+---
+
+## Directory Structure
+
+Recommended layout for operations:
+
+```
+/mnt/wrb-operations/
+├── tools-<version>-all.jar          # WRB CLI jar
+├── metadata/                         # Metadata files
+│   ├── block_times.bin               # Block number → timestamp mapping
+│   ├── day_blocks.json               # Day → block range mapping
+│   └── listingsByDay/                # GCS file listings per day
+│       ├── 2024-01-01.json
+│       └── ...
+├── compressedDays/                   # Downloaded record files (compressed)
+│   ├── 2024-01-01/
+│   └── ...
+└── wrappedBlocks/                    # Wrapped block stream output
+    ├── addressBookHistory.json       # Address book changes over time
+    ├── 0/                            # Block 0
+    ├── 1/                            # Block 1
+    └── ...
+```
+
+---
+
+## Network Configuration
+
+### GCP Authentication (for GCS access)
+
+Export GCP credentials before running any commands:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/gcp-key.json"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+export GCP_PROJECT_ID="your-project-id"
+```
+
+### Network Selection
+
+All commands accept `--network <mainnet|testnet>`:
+
+- **Mainnet**: `--network mainnet` (default if omitted)
+- **Testnet**: `--network testnet`
+
+---
+
+## Core Workflows
+
+### 1. Generate Address Book History
+
+**Purpose**: Fetch address book changes from the mirror node API to enable block proof verification.
+
+**Command**:
+
+```bash
+nohup java -jar tools-<version>-all.jar \
+  --network testnet \
+  mirror generateAddressBook \
+  -o wrappedBlocks/addressBookHistory.json \
+  --show-changes \
+  > addressbook.log 2>&1 &
+```
+
+**Output**: `wrappedBlocks/addressBookHistory.json` contains all address book updates.
+
+**Notes**:
+- Run this before starting wrapping or validation
+- Re-run periodically to capture new address book changes
+
+---
+
+### 2. Update Metadata Files
+
+Metadata files are essential for mapping blocks to days and timestamps.
+
+#### Generate Block Times and Day Blocks
+
+```bash
+nohup java -jar tools-<version>-all.jar \
+  --network testnet \
+  metadata update \
+  --listing-dir metadata/listingsByDay \
+  > metadata-update.log 2>&1 &
+```
+
+**Outputs**:
+- `metadata/block_times.bin` - binary map of block numbers to consensus timestamps
+- `metadata/day_blocks.json` - JSON map of dates to block ranges
+
+**For bounded updates** (e.g., stopping at a specific date):
+
+```bash
+java -jar tools-<version>-all.jar \
+  --network testnet \
+  metadata update \
+  --block-times metadata/block_times.bin \
+  --day-blocks metadata/day_blocks.json \
+  --end-date 2026-03-13
+```
+
+#### Update Day Listings
+
+```bash
+nohup java -jar tools-<version>-all.jar \
+  --network testnet \
+  days updateDayListings \
+  --listing-dir metadata/listingsByDay \
+  > update-day-listings.log 2>&1 &
+```
+
+**What it does**: Queries GCS for all record files per day and caches the listings locally.
+
+**Fix corrupt/missing day**:
+
+```bash
+java -jar tools-<version>-all.jar \
+  --network testnet \
+  days updateDayListings \
+  --day 2026-04-03
+```
+
+---
+
+### 3. Download Block Data
+
+#### Bulk Historical Download (`download-days-v3`)
+
+**Purpose**: Download compressed record files for a specific date range.
+
+**Command**:
+
+```bash
+nohup java -jar tools-<version>-all.jar \
+  --network testnet \
+  days download-days-v3 \
+  --listing-dir metadata/listingsByDay \
+  --downloaded-days-dir compressedDays \
+  --threads 600 \
+  2024 02 01 \
+  2026 03 13 \
+  > download-days.log 2>&1 &
+```
+
+**Arguments**:
+- `--listing-dir`: Path to day listings metadata
+- `--downloaded-days-dir` (or `-d`): Output directory
+- `--threads` (or `-t`): Parallelism (recommend 100-600 based on server capacity)
+- Date range: `YYYY MM DD YYYY MM DD` (start and end, inclusive)
+
+**Example - Single Day**:
+
+```bash
+nohup java -jar tools-<version>-all.jar \
+  --network testnet \
+  days download-days-v3 \
+  --listing-dir metadata/listingsByDay \
+  -d compressedDays \
+  -t 100 \
+  2026 04 03 \
+  2026 04 03 \
+  > download-single-day.log 2>&1 &
+```
+
+**Monitoring Progress**:
+
+```bash
+tail -f download-days.log
+```
+
+**Resuming**: The command automatically resumes from where it left off if interrupted.
+
+---
+
+#### Live Streaming Download (`live-sequential`)
+
+**Purpose**: Continuously download, wrap, and validate blocks in near real-time.
+
+**Command**:
+
+```bash
+nohup java -jar tools-<version>-all.jar \
+  --network testnet \
+  days live-sequential \
+  -l metadata/listingsByDay \
+  -o compressedDays \
+  --wrap-output-dir wrappedBlocks \
+  --address-book wrappedBlocks/addressBookHistory.json \
+  > live-sequential.log 2>&1 &
+```
+
+**Arguments**:
+- `-l`: Listing directory
+- `-o`: Downloaded days output directory
+- `--wrap-output-dir`: Wrapped blocks output directory
+- `--address-book`: Path to address book history JSON
+- `--start-date` (optional): Start from specific date (format: `YYYY-MM-DD`)
+
+**With Start Date**:
+
+```bash
+nohup java -jar tools-<version>-all.jar \
+  --network testnet \
+  days live-sequential \
+  -l metadata/listingsByDay \
+  -o compressedDays \
+  --wrap-output-dir wrappedBlocks \
+  --address-book wrappedBlocks/addressBookHistory.json \
+  --start-date 2026-03-27 \
+  > live-sequential.log 2>&1 &
+```
+
+**What it does**:
+1. Polls GCS for new record files
+2. Downloads them to `compressedDays/`
+3. Wraps them into block stream format
+4. Writes to `wrappedBlocks/`
+5. Validates hashes inline
+
+**Monitoring**:
+
+```bash
+tail -f live-sequential.log
+```
+
+**Graceful Shutdown**:
+
+```bash
+# Find the process
+ps aux | grep live-sequential
+
+# Send SIGTERM (allows checkpoint save)
+kill <PID>
+
+# Avoid SIGKILL unless necessary (loses checkpoint)
+```
+
+---
+
+#### Legacy Live Download (`download-live2`)
+
+**Note**: `download-live2` is deprecated in favor of `live-sequential`. Use `live-sequential` for new deployments.
+
+**Command** (for reference):
+
+```bash
+nohup java -jar tools-<version>-all.jar \
+  --network testnet \
+  days download-live2 \
+  --listing-dir metadata/listingsByDay \
+  --output-dir compressedDays \
+  --wrap-output-dir wrappedBlocks \
+  --address-book wrappedBlocks/addressBookHistory.json \
+  --start-date 2026-03-26 \
+  > download-live2.log 2>&1 &
+```
+
+---
+
+### 4. Wrap Record Files
+
+**Purpose**: Convert compressed record files into the wrapped block stream format.
+
+**Command**:
+
+```bash
+nohup java \
+  -Xms20g \
+  -Xmx20g \
+  -XX:+UseZGC \
+  -XX:+AlwaysPreTouch \
+  -XX:+UseNUMA \
+  -XX:ConcGCThreads=12 \
+  -jar tools-<version>-all.jar \
+  blocks wrap \
+  -i compressedDays \
+  -o wrappedBlocks \
+  -b metadata/block_times.bin \
+  -d metadata/day_blocks.json \
+  > wrap.log 2>&1 &
+```
+
+**Arguments**:
+- `-i`: Input directory (compressed days)
+- `-o`: Output directory (wrapped blocks)
+- `-b`: Block times binary file
+- `-d`: Day blocks JSON file
+
+**JVM Flags Explained**:
+- `-Xms20g -Xmx20g`: Heap size (adjust based on available RAM)
+- `-XX:+UseZGC`: Low-latency GC (recommended for large heaps)
+- `-XX:+AlwaysPreTouch`: Pre-allocate heap pages (reduces runtime delays)
+- `-XX:+UseNUMA`: NUMA-aware allocation (if hardware supports it)
+- `-XX:ConcGCThreads=12`: GC thread count (tune to CPU cores)
+
+**Monitoring**:
+
+```bash
+tail -f wrap.log
+```
+
+**Resuming**: Wrapping automatically resumes from the last completed block.
+
+**Output Structure**:
+
+```
+wrappedBlocks/
+├── 0/
+│   ├── 0.blk.gz                 # Block header
+│   ├── 0_01.record.gz           # Record file 1
+│   ├── 0.rsh                    # Record stream hash
+│   └── 0.blk.footer.gz          # Block footer
+├── 1/
+└── ...
+```
+
+---
+
+### 5. Validate Wrapped Blocks
+
+**Purpose**: Verify the integrity of wrapped blocks (hash chain, merkle trees, HBAR supply, balances).
+
+**Full Validation (Mainnet)**:
+
+```bash
+nohup java \
+  -Xms20g \
+  -Xmx20g \
+  -XX:+UseZGC \
+  -XX:+AlwaysPreTouch \
+  -jar tools-<version>-all.jar \
+  blocks validate \
+  wrappedBlocks/ \
+  > validate.log 2>&1 &
+```
+
+**Skip Supply Validation** (for testnet or known supply issues):
+
+```bash
+nohup java \
+  -Xms20g \
+  -Xmx20g \
+  -XX:+UseZGC \
+  -XX:+AlwaysPreTouch \
+  -jar tools-<version>-all.jar \
+  blocks validate \
+  --skip-supply \
+  wrappedBlocks/ \
+  > validate.log 2>&1 &
+```
+
+**Verbose Mode** (detailed output per block):
+
+```bash
+nohup java \
+  -Xms20g \
+  -Xmx20g \
+  -XX:+UseZGC \
+  -XX:+AlwaysPreTouch \
+  -jar tools-<version>-all.jar \
+  blocks validate \
+  --skip-supply \
+  --verbose \
+  wrappedBlocks/ \
+  > validate-verbose.log 2>&1 &
+```
+
+**Available Flags**:
+
+| Flag | Purpose |
+|------|---------|
+| `--skip-supply` | Skip HBAR supply validation |
+| `--skip-signatures` | Skip block proof signature validation |
+| `--validate-balances=false` | Disable balance tracking validation |
+| `--verbose` | Print detailed per-block output |
+| `--threads <N>` | Set parallel validation threads (default: CPU cores) |
+| `--prefetch <N>` | Number of blocks to prefetch (default: 10) |
+| `--no-resume` | Start from block 0 (ignore saved checkpoint) |
+
+**Checkpoint Behavior**:
+- Validation saves checkpoints periodically to `wrappedBlocks/.validation_checkpoint`
+- Resume automatically continues from the last checkpoint
+- Graceful shutdown (`kill`) saves checkpoint; `kill -9` does not
+
+**Interpreting Output**:
+
+```
+[INFO] Validated block 1,000,000 in 45.2ms (speed: 2.1x realtime)
+[INFO] Hash chain valid up to block 1,000,000
+[INFO] Supply: 50,000,000,000 HBAR (expected: 50,000,000,000)
+```
+
+- **Speed multiplier**: `2.1x` means validation is 2.1x faster than block production
+- **Timing breakdown**: Shows time spent on each validation phase (hashing, signatures, balances)
+
+**Known Issues**:
+
+**Testnet Supply Validation Failure** (Block 7,557,270):
+- A SCHEDULESIGN transaction with unbalanced transfer list causes supply mismatch
+- **Workaround**: Use `--skip-supply` for testnet validation
+- **Root cause**: Testnet consensus node bug from HAPI v0.52.0 (August 2024)
+- **Reference**: [Testnet Mirror API](https://testnet.mirrornode.hedera.com/api/v1/blocks/7557270)
+
+---
+
+### 6. Repair Corrupt or Missing Files
+
+**Purpose**: Re-download individual corrupt record files.
+
+**Command**:
+
+```bash
+java -jar tools-<version>-all.jar \
+  --network testnet \
+  blocks repair-zips \
+  --input compressedDays \
+  --listing-dir metadata/listingsByDay
+```
+
+**What it does**:
+- Scans `compressedDays/` for corrupt or incomplete `.zip` files
+- Re-downloads them from GCS using the day listings
+- Verifies file integrity after download
+
+**Use case**: When `download-days-v3` or `wrap` reports file corruption errors.
+
+---
+
+## Operational Notes
+
+### Monitoring Progress
+
+**Active Processes**:
+
+```bash
+ps aux | grep java | grep tools
+```
+
+**Log Tailing**:
+
+```bash
+tail -f <operation>.log
+```
+
+**Disk Usage**:
+
+```bash
+du -sh compressedDays/ wrappedBlocks/ metadata/
+```
+
+**Block Count**:
+
+```bash
+ls -d wrappedBlocks/*/ | wc -l
+```
+
+### Disk Space Requirements
+
+**Estimates** (mainnet, as of 2026):
+
+| Component | Size (approx) |
+|-----------|---------------|
+| Compressed Days (full history) | ~8TB |
+| Wrapped Blocks (full history) | ~12TB |
+| Metadata Files | ~10GB |
+
+**Recommendations**:
+- Use ZFS with compression (ratio ~1.5x for wrapped blocks)
+- Separate volumes for compressed days and wrapped blocks
+- Monitor disk usage during bulk downloads
+
+### Graceful Shutdown
+
+**SIGTERM (recommended)**:
+
+```bash
+kill <PID>
+```
+
+- Allows checkpoint save
+- Cleanly closes file handles
+- Safe for resume
+
+**SIGKILL (avoid)**:
+
+```bash
+kill -9 <PID>
+```
+
+- Loses checkpoint state
+- May corrupt in-progress writes
+- Use only if process is unresponsive
+
+### Running with `nohup`
+
+**Pattern**:
+
+```bash
+nohup <command> > output.log 2>&1 &
+```
+
+- `nohup`: Prevents termination on terminal disconnect
+- `> output.log`: Redirect stdout to log file
+- `2>&1`: Redirect stderr to stdout (same log)
+- `&`: Run in background
+
+**Check Job**:
+
+```bash
+jobs -l
+```
+
+**Bring to Foreground** (if needed):
+
+```bash
+fg %1
+```
+
+---
+
+## Troubleshooting
+
+### "Unknown file type in GCS bucket"
+
+**Symptom**: Download fails with unknown file extension error.
+
+**Cause**: GCS contains non-record files (e.g., `.tmp`, `.lock`).
+
+**Solution**: Re-run `days updateDayListings` for the affected day to refresh the file list.
+
+### "HBAR supply mismatch"
+
+**Symptom**: Validation fails at specific block with supply error.
+
+**Cause**: Consensus node bug or testnet-specific issue.
+
+**Solution**: Use `--skip-supply` flag. Report issue if on mainnet.
+
+### "Block proof signature verification failed"
+
+**Symptom**: Signature validation fails.
+
+**Cause**: Missing or outdated address book history.
+
+**Solution**:
+1. Re-generate address book: `mirror generateAddressBook`
+2. Use `--skip-signatures` as temporary workaround
+
+### "Out of memory" during validation
+
+**Symptom**: JVM crashes with `OutOfMemoryError`.
+
+**Solution**:
+1. Increase heap: `-Xms32g -Xmx32g`
+2. Reduce prefetch: `--prefetch 5`
+3. Reduce threads: `--threads 8`
+
+### Download stalls or times out
+
+**Symptom**: `download-days-v3` hangs or reports timeout.
+
+**Solution**:
+1. Reduce threads: `--threads 100` (instead of 600)
+2. Check network connectivity to GCS
+3. Verify GCP credentials are valid
+
+---
+
+## Quick Reference
+
+### Common Command Patterns
+
+**Mainnet Full Pipeline**:
+
+```bash
+# 1. Setup metadata
+java -jar tools.jar metadata update --listing-dir metadata/listingsByDay
+
+# 2. Generate address book
+java -jar tools.jar mirror generateAddressBook -o wrappedBlocks/addressBookHistory.json
+
+# 3. Download bulk history
+java -jar tools.jar days download-days-v3 -l metadata/listingsByDay -d compressedDays -t 600 2019 09 01 2026 04 30
+
+# 4. Wrap blocks
+java -Xms20g -Xmx20g -XX:+UseZGC -jar tools.jar blocks wrap -i compressedDays -o wrappedBlocks -b metadata/block_times.bin -d metadata/day_blocks.json
+
+# 5. Validate
+java -Xms20g -Xmx20g -XX:+UseZGC -jar tools.jar blocks validate wrappedBlocks/
+
+# 6. Live streaming
+java -jar tools.jar days live-sequential -l metadata/listingsByDay -o compressedDays --wrap-output-dir wrappedBlocks --address-book wrappedBlocks/addressBookHistory.json
+```
+
+**Testnet Full Pipeline** (with `--skip-supply`):
+
+```bash
+# Same as mainnet, but add --network testnet and --skip-supply to validate:
+java -Xms20g -Xmx20g -XX:+UseZGC -jar tools.jar --network testnet blocks validate --skip-supply wrappedBlocks/
+```
+
+---
+
+## Appendix: Real-World Examples
+
+### Mainnet Production Setup
+
+**Hardware**:
+- 32-core Xeon server
+- 128GB RAM
+- 20TB ZFS RAID10 SSD array
+
+**Commands**:
+
+```bash
+# Update metadata (daily cron)
+0 2 * * * cd /mnt/wrb && java -jar tools.jar days updateDayListings --listing-dir metadata/listingsByDay > update.log 2>&1
+
+# Live streaming (systemd service)
+nohup java -jar tools.jar days live-sequential -l metadata/listingsByDay -o compressedDays --wrap-output-dir wrappedBlocks --address-book wrappedBlocks/addressBookHistory.json > live.log 2>&1 &
+
+# Weekly full validation (Sunday 00:00)
+0 0 * * 0 cd /mnt/wrb && java -Xms64g -Xmx64g -XX:+UseZGC -jar tools.jar blocks validate wrappedBlocks/ > validate-$(date +\%Y\%m\%d).log 2>&1
+```
+
+### Testnet CI/CD Validation
+
+**Purpose**: Nightly validation of testnet wrapped blocks.
+
+```bash
+#!/bin/bash
+# testnet-validate.sh
+
+set -euo pipefail
+
+JAR="/opt/wrb/tools.jar"
+BLOCKS="/data/testnet/wrappedBlocks"
+
+java -Xms20g -Xmx20g -XX:+UseZGC \
+  -jar "$JAR" \
+  --network testnet \
+  blocks validate \
+  --skip-supply \
+  "$BLOCKS" > "/var/log/wrb/validate-$(date +%Y%m%d).log" 2>&1
+
+if [ $? -eq 0 ]; then
+  echo "Validation PASSED" | tee -a /var/log/wrb/status.log
+else
+  echo "Validation FAILED" | tee -a /var/log/wrb/status.log
+  exit 1
+fi
+```
+
+---
+
+## Support
+
+For issues or questions:
+- **GitHub Issues**: https://github.com/hiero-ledger/hiero-block-node/issues
+- **Discord**: Hiero developer community
+- **Logs**: Always include relevant log excerpts and command arguments when reporting issues
