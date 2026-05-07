@@ -154,12 +154,21 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 .build()) {
 
             final List<NodeAddress> addresses = new ArrayList<>();
+            // Use order=desc so the most-recently-active entries (timestamp.to == null) arrive first.
+            // We stop pagination as soon as we encounter a superseded entry (timestamp.to != null),
+            // since all remaining entries in descending order are also historical.
             String nextUrl = config.mirrorNodeBaseUrl() + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize()
-                    + "&order=asc";
+                    + "&order=desc";
 
+            outer:
             while (nextUrl != null) {
                 final MirrorNodeNodesResponse response = fetchAndParseWithRetry(client, nextUrl);
                 for (final MirrorNodeNodesResponse.NodeEntry entry : response.nodes()) {
+                    // A non-null timestamp.to means this entry has been superseded — all subsequent
+                    // entries (in descending order) are also historical; stop here.
+                    if (entry.timestamp() != null && entry.timestamp().to() != null) {
+                        break outer;
+                    }
                     if (entry.publicKey() == null || entry.publicKey().isBlank()) {
                         LOGGER.log(WARNING, "Mirror Node: node {0} has no public_key — skipped", entry.nodeId());
                         continue;

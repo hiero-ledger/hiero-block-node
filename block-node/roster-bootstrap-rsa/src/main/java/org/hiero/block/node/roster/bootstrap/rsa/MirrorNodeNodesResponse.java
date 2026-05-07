@@ -13,16 +13,30 @@ import java.util.List;
 /// Only the fields needed to build a `NodeAddressBook` are extracted:
 /// - `node_id` (long)
 /// - `public_key` (hex-encoded DER RSA public key, may have a `0x` prefix)
+/// - `timestamp.from` / `timestamp.to` (validity window for this node configuration)
 /// - `links.next` (URL for the next page, `null` when the last page is reached)
 ///
 /// Uses Gson for JSON traversal rather than hand-rolled string parsing.
 final class MirrorNodeNodesResponse {
 
+    /// The validity window for a node configuration entry returned by the Mirror Node.
+    ///
+    /// The Mirror Node may return multiple historical records per physical node — one for each
+    /// time the node's configuration changed. The **latest** (currently active) record has
+    /// `to == null`. A non-null `to` means the record has been superseded by a newer one.
+    ///
+    /// Both values use Hedera's `<seconds>.<nanos>` timestamp format (e.g. `1734567890.123456789`).
+    ///
+    /// @param from the timestamp from which this configuration became active; non-null
+    /// @param to   the timestamp at which this configuration was superseded, or `null` if still active
+    record Timestamp(String from, String to) {}
+
     /// A single node entry extracted from the Mirror Node response.
     ///
     /// @param nodeId    the numeric node identifier
     /// @param publicKey the hex-encoded RSA public key (may include `0x` prefix, may be `null`)
-    record NodeEntry(long nodeId, String publicKey) {}
+    /// @param timestamp the validity window for this entry; `null` if the field was absent in the response
+    record NodeEntry(long nodeId, String publicKey, Timestamp timestamp) {}
 
     private final List<NodeEntry> nodes;
     private final String nextLink;
@@ -52,7 +66,11 @@ final class MirrorNodeNodesResponse {
     /// ```json
     /// {
     ///   "nodes": [
-    ///     { "node_id": 0, "public_key": "0x..." },
+    ///     {
+    ///       "node_id": 0,
+    ///       "public_key": "0x...",
+    ///       "timestamp": { "from": "1234567890.000000000", "to": null }
+    ///     },
     ///     ...
     ///   ],
     ///   "links": { "next": "/api/v1/network/nodes?..." }
@@ -75,7 +93,17 @@ final class MirrorNodeNodesResponse {
                 final long nodeId = node.get("node_id").getAsLong();
                 final JsonElement keyEl = node.get("public_key");
                 final String publicKey = (keyEl == null || keyEl.isJsonNull()) ? null : keyEl.getAsString();
-                entries.add(new NodeEntry(nodeId, publicKey));
+                final JsonElement tsEl = node.get("timestamp");
+                Timestamp timestamp = null;
+                if (tsEl != null && tsEl.isJsonObject()) {
+                    final JsonObject ts = tsEl.getAsJsonObject();
+                    final JsonElement fromEl = ts.get("from");
+                    final JsonElement toEl = ts.get("to");
+                    final String from = (fromEl == null || fromEl.isJsonNull()) ? null : fromEl.getAsString();
+                    final String to = (toEl == null || toEl.isJsonNull()) ? null : toEl.getAsString();
+                    timestamp = new Timestamp(from, to);
+                }
+                entries.add(new NodeEntry(nodeId, publicKey, timestamp));
             }
         }
 
