@@ -44,6 +44,7 @@ import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -67,6 +68,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /** Metric key for the newest historical block available */
     public static final MetricKey<ObservableGauge> METRIC_APP_HISTORICAL_NEWEST_BLOCK =
             MetricKey.of("app_historical_newest_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the oldest stored block */
+    public static final MetricKey<ObservableGauge> METRIC_APP_STORED_OLDEST_BLOCK =
+            MetricKey.of("app_stored_oldest_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for the newest stored block */
+    public static final MetricKey<ObservableGauge> METRIC_APP_STORED_NEWEST_BLOCK =
+            MetricKey.of("app_stored_newest_block", ObservableGauge.class).addCategory(METRICS_CATEGORY);
     /** Metric key for the current state status of the app */
     public static final MetricKey<ObservableGauge> METRIC_APP_STATE_STATUS =
             MetricKey.of("app_state_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
@@ -86,6 +93,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     BlockNodeContext blockNodeContext;
     /** list of all loaded plugins. Package so accessible for testing. */
     final List<BlockNodePlugin> loadedPlugins = new ArrayList<>();
+
+    /** The set of blocks stored in the cloud archive. */
+    private final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
 
     /** Create a ConcurrentLinkedQueue to hold TssData updates */
     private final ConcurrentLinkedQueue<TssData> tssDataUpdates = new ConcurrentLinkedQueue<>();
@@ -256,6 +266,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         metricRegistry.register(ObservableGauge.builder(METRIC_APP_STATE_STATUS)
                 .setDescription("The current state of the BlockNode App")
                 .observe(() -> state.get().ordinal()));
+        metricRegistry.register(ObservableGauge.builder(METRIC_APP_STORED_OLDEST_BLOCK)
+                .setDescription("The oldest block archived in S3")
+                .observe(() -> storedBlocks.min()));
+        metricRegistry.register(ObservableGauge.builder(METRIC_APP_STORED_NEWEST_BLOCK)
+                .setDescription("The newest block archived in S3")
+                .observe(() -> storedBlocks.max()));
     }
 
     /**
@@ -376,6 +392,14 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     @Override
     public void updateTssData(TssData tssData) {
         if (tssData != null) tssDataUpdates.add(tssData);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void updateStoredBlocks(long startBlock, long endBlock) {
+        storedBlocks.add(startBlock, endBlock);
     }
 
     /**

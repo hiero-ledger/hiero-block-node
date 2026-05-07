@@ -230,7 +230,7 @@ public class S3ClientTest {
         }
         // upload parts
         try (final S3Client s3Client = client()) {
-            s3Client.uploadFile(key, "STANDARD", parts.iterator(), "plain/text");
+            s3Client.uploadFile(key, "STANDARD", parts.iterator(), "plain/text", () -> {});
         }
         // download with a minio client
         final byte[] actual = minioClient

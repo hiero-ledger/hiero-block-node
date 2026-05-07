@@ -136,6 +136,9 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                 if (lastArchivedBlockNumberString != null && !lastArchivedBlockNumberString.isEmpty()) {
                     lastArchivedBlockNumber.set(Long.parseLong(lastArchivedBlockNumberString));
                 }
+                if (lastArchivedBlockNumber.get() != UNKNOWN_BLOCK_NUMBER) {
+                    context.applicationStateFacility().updateStoredBlocks(0, lastArchivedBlockNumber.get());
+                }
                 LOGGER.log(INFO, "Last S3 archived block number: " + lastArchivedBlockNumber);
             } catch (final Exception e) {
                 LOGGER.log(ERROR, "Failed to read latest archived block file: " + e.getMessage(), e);
@@ -329,8 +332,9 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                 if (blockAccessorBatch.isEmpty()) {
                     return false;
                 } else {
+                    final BlockRangeTracker tracker = new BlockRangeTracker(blockAccessorBatch.iterator());
                     final Iterator<byte[]> tarBlocks =
-                            new TaredBlockIterator(Format.ZSTD_PROTOBUF, blockAccessorBatch.iterator());
+                            new TaredBlockIterator(Format.ZSTD_PROTOBUF, tracker);
                     // fetch the first blocks consensus time so that we can place the file in a directory based on year
                     // and
                     // month
@@ -366,7 +370,14 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                                     startBlockNumberFormatted,
                                     endBlockNumberFormatted);
                     // Upload the blocks to S3
-                    s3Client.uploadFile(objectKey, archiveConfig.storageClass(), tarBlocks, "application/x-tar");
+                    s3Client.uploadFile(
+                            objectKey, archiveConfig.storageClass(), tarBlocks, "application/x-tar", () -> {
+                                if (tracker.getMin() <= tracker.getMax()) {
+                                    context.applicationStateFacility()
+                                            .updateStoredBlocks(tracker.getMin(), tracker.getMax());
+                                    tracker.reset();
+                                }
+                            });
                     return true;
                 }
             } catch (final ParseException e) {
@@ -409,6 +420,46 @@ public class S3ArchivePlugin implements BlockNodePlugin, BlockNotificationHandle
                 accessors.close();
             }
             return accessors;
+        }
+    }
+
+    /**
+     * A block range tracker. This class tracks the block numbers of the blocks
+     * that have been read from the delegate iterator.
+     */
+    private static final class BlockRangeTracker implements Iterator<BlockAccessor> {
+        private final Iterator<BlockAccessor> delegate;
+        private long min = Long.MAX_VALUE;
+        private long max = Long.MIN_VALUE;
+
+        private BlockRangeTracker(Iterator<BlockAccessor> delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return delegate.hasNext();
+        }
+
+        @Override
+        public BlockAccessor next() {
+            BlockAccessor acc = delegate.next();
+            min = Math.min(min, acc.blockNumber());
+            max = Math.max(max, acc.blockNumber());
+            return acc;
+        }
+
+        public long getMin() {
+            return min;
+        }
+
+        public long getMax() {
+            return max;
+        }
+
+        public void reset() {
+            min = Long.MAX_VALUE;
+            max = Long.MIN_VALUE;
         }
     }
 }

@@ -15,4 +15,12 @@ public interface ApplicationStateFacility {
      * @param tssData - The TssData to be updated on the `BlockNodeContext`
      * */
     void updateTssData(TssData tssData);
+
+    /**
+     * Used by plugins to update the stored blocks range for this application. i.e. `S3ArchivePlugin`
+     *
+     * @param startBlock - The start block number of the range
+     * @param endBlock - The end block number of the range
+     * */
+    void updateStoredBlocks(long startBlock, long endBlock);
 }
