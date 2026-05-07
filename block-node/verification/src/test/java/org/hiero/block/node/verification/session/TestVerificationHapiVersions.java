@@ -12,6 +12,7 @@ import com.hedera.pbj.runtime.ParseException;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
@@ -41,7 +42,7 @@ class TestVerificationHapiVersions {
                 .parse(items.getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(blockNumber, BlockSource.UNKNOWN, null, null, null);
+                new ExtendedMerkleTreeSession(blockNumber, BlockSource.UNKNOWN, null, null, null, Map.of(), null, null, null);
         session.processBlockItems(new BlockItems(items, blockNumber, true, true));
     }
 

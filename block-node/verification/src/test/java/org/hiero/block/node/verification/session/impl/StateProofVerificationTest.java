@@ -14,6 +14,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
@@ -74,7 +75,7 @@ class StateProofVerificationTest {
         VerificationServicePlugin.tssParametersPersisted = false;
         // Process block 0 through a session to initialize native TSS state and extract ledger ID
         ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(block0.blockNumber(), BlockSource.PUBLISHER, null, null, null);
+                new ExtendedMerkleTreeSession(block0.blockNumber(), BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
         session.processBlockItems(
                 new BlockItems(block0.blockUnparsed().blockItems(), block0.blockNumber(), true, true));
         assertNotNull(VerificationServicePlugin.activeLedgerId, "Block 0 must set the active ledger ID");
@@ -182,7 +183,7 @@ class StateProofVerificationTest {
 
     private VerificationNotification verifyBlock(long blockNumber, BlockUnparsed block) throws ParseException {
         ExtendedMerkleTreeSession session =
-                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, activeLedgerId);
+                new ExtendedMerkleTreeSession(blockNumber, BlockSource.PUBLISHER, null, null, activeLedgerId, Map.of(), null, null, null);
         return session.processBlockItems(new BlockItems(block.blockItems(), blockNumber, true, true));
     }
 
