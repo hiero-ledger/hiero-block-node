@@ -295,7 +295,12 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                 this.previousBlockHash.toByteArray());
                     } else {
-                        LOGGER.log(INFO, "Verification failed for block={0}", currentBlockNumber);
+                        LOGGER.log(
+                                WARNING,
+                                "Verification failed for block={0} failureType={1} source={2}",
+                                currentBlockNumber,
+                                notification.failureType(),
+                                BlockSource.PUBLISHER);
                         sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
                     }
 
@@ -438,6 +443,13 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                             allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
                                     backfillNotification.blockHash().toByteArray());
                         }
+                    } else {
+                        LOGGER.log(
+                                WARNING,
+                                "Verification failed for block={0} failureType={1} source={2}",
+                                notification.blockNumber(),
+                                backfillNotification.failureType(),
+                                BlockSource.BACKFILL);
                     }
                     // send the verification notification for the backfilled block
                     context.blockMessaging().sendBlockVerification(backfillNotification);

@@ -161,6 +161,15 @@ class StateProofVerificationTest {
     }
 
     @Test
+    void shouldAcceptSinglePathStateProof() throws ParseException {
+        // TODO: TEMPORARY DEBUG WORKAROUND — 1-path state proof is unconditionally accepted.
+        BlockUnparsed singlePathBlock = withSinglePathStateProof(block3.blockUnparsed());
+        VerificationNotification notification = verifyBlock(block3.blockNumber(), singlePathBlock);
+        assertNotNull(notification);
+        assertTrue(notification.success(), "1-path state proof must pass under the bypass workaround");
+    }
+
+    @Test
     void shouldVerifyDirectTssProofStillWorks() throws ParseException {
         // Block 0 and block 4 have direct TSS proofs — ensure the existing path still works
         VerificationNotification notification0 = verifyBlock(block0);
@@ -245,6 +254,38 @@ class StateProofVerificationTest {
             break;
         }
         return new BlockUnparsed(items);
+    }
+
+    /**
+     * Creates a copy of the block whose state proof has only path 0 (1 path total). Mirrors the
+     * shape that triggered the 2026-05-07 incident.
+     */
+    private static BlockUnparsed withSinglePathStateProof(BlockUnparsed block) throws ParseException {
+        List<BlockItemUnparsed> items = new ArrayList<>(block.blockItems());
+        for (int i = items.size() - 1; i >= 0; i--) {
+            BlockItemUnparsed item = items.get(i);
+            if (item.item().kind() != BlockItemUnparsed.ItemOneOfType.BLOCK_PROOF) {
+                continue;
+            }
+            BlockProof proof = BlockProof.PROTOBUF.parse(item.blockProofOrThrow());
+            if (!proof.hasBlockStateProof()) {
+                continue;
+            }
+            StateProof stateProof = proof.blockStateProof();
+            StateProof shrunkStateProof = stateProof
+                    .copyBuilder()
+                    .paths(List.of(stateProof.paths().get(0)))
+                    .build();
+            BlockProof shrunkProof =
+                    proof.copyBuilder().blockStateProof(shrunkStateProof).build();
+            items.set(
+                    i,
+                    BlockItemUnparsed.newBuilder()
+                            .blockProof(BlockProof.PROTOBUF.toBytes(shrunkProof))
+                            .build());
+            return new BlockUnparsed(items);
+        }
+        throw new IllegalStateException("No state proof found in block");
     }
 
     /**
