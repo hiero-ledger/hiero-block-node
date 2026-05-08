@@ -187,7 +187,7 @@ env:
 
 jobs:
   solo-test-deploy:
-    runs-on: hl-bn-lin-md
+    runs-on: hl-bn-lin-lg
     outputs:
       result: ${{ steps.result.outputs.status }}
       resolved-versions: ${{ steps.versions.outputs.cn_version }},${{ steps.versions.outputs.mn_version }},${{ steps.versions.outputs.bn_version }}
