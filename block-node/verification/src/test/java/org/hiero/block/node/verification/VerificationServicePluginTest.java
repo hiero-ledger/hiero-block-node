@@ -9,17 +9,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.RecordFileSignature;
+import com.hedera.hapi.block.stream.SignedRecordFileProof;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
+import com.hedera.hapi.node.base.BlockHashAlgorithm;
+import com.hedera.hapi.node.base.NodeAddress;
+import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.hapi.node.base.SemanticVersion;
+import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.hapi.node.tss.LedgerIdPublicationTransactionBody;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.MessageDigest;
+import java.security.PrivateKey;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -461,6 +476,104 @@ class VerificationServicePluginTest
 
         // Must not throw; a WARNING is expected but not asserted here (logged to system logger).
         plugin.onContextUpdate(updatedContext);
+    }
+
+    @Test
+    @DisplayName("onContextUpdate with null NodeAddressBook logs warning and retains existing key map")
+    void onContextUpdate_nullBook_retainsKeyMap() {
+        // Build a context where nodeAddressBook() returns null — must not throw.
+        final var updatedContext = new org.hiero.block.node.spi.BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                blockNodeContext.tssData(),
+                null);
+
+        // Must not throw; a WARNING is expected but not asserted here (logged to system logger).
+        plugin.onContextUpdate(updatedContext);
+    }
+
+    @Test
+    @DisplayName("RSA WRB end-to-end: valid signed block verifies through the plugin and notification is success=true")
+    void rsaWrb_endToEnd_validBlock_notificationSucceeds() throws Exception {
+        // 1024-bit RSA keys for test speed only — production uses 4096-bit keys.
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(1024);
+        final KeyPair kp = kpg.generateKeyPair();
+
+        // Build a 1-node address book (threshold = floor(2*1/3)+1 = 1 valid sig needed).
+        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
+        final NodeAddressBook book = NodeAddressBook.newBuilder()
+                .nodeAddress(List.of(
+                        NodeAddress.newBuilder().nodeId(0L).rsaPubKey(hexKey).build()))
+                .build();
+
+        // Deliver the address book — triggers onContextUpdate and rebuilds the RSA key map.
+        updateAddressBook(book);
+
+        // Build a minimal RecordFileItem proto: field 2 (tag=0x12, LEN) = record stream file bytes.
+        final byte[] recordStreamFileBytes = "test-record-stream-content".getBytes();
+        final ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        bos.write(0x12); // tag: field 2, wire type 2 (LEN)
+        bos.write(recordStreamFileBytes.length); // length fits in 1 byte (< 128)
+        bos.write(recordStreamFileBytes);
+        final Bytes recordFileItemBytes = Bytes.wrap(bos.toByteArray());
+
+        // Compute the V6 signed payload: SHA-384(int32(6) || record_stream_file_bytes).
+        final MessageDigest digest = MessageDigest.getInstance("SHA-384");
+        digest.update(new byte[] {0, 0, 0, 6});
+        digest.update(recordStreamFileBytes);
+        final byte[] signedPayload = digest.digest();
+
+        // Sign the payload with node 0's private key.
+        final java.security.Signature engine = java.security.Signature.getInstance("SHA384withRSA");
+        engine.initSign(kp.getPrivate());
+        engine.update(signedPayload);
+        final byte[] sigBytes = engine.sign();
+
+        // Assemble the WRB block: BLOCK_HEADER | RECORD_FILE | BLOCK_FOOTER | BLOCK_PROOF.
+        final long blockNumber = 500L;
+        // HAPI version >= 0.72.0 routes to ExtendedMerkleTreeSession (RSA path).
+        final SemanticVersion hapiVersion = new SemanticVersion(1, 0, 0, "", "");
+        final SemanticVersion swVersion = new SemanticVersion(1, 0, 0, "", "");
+        final BlockHeader header = new BlockHeader(
+                hapiVersion, swVersion, blockNumber, new Timestamp(1_700_000_000L, 0), BlockHashAlgorithm.SHA2_384);
+        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockProof proof = BlockProof.newBuilder()
+                .block(blockNumber)
+                .signedRecordFileProof(new SignedRecordFileProof(
+                        6, List.of(new RecordFileSignature(Bytes.wrap(sigBytes), 0L))))
+                .build();
+
+        final List<BlockItemUnparsed> items = List.of(
+                BlockItemUnparsed.newBuilder()
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                        .build(),
+                BlockItemUnparsed.newBuilder().recordFile(recordFileItemBytes).build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                        .build());
+
+        // Send through the plugin's live-stream handler.
+        blockMessaging.sendBlockItems(new BlockItems(items, blockNumber, true, true));
+
+        // The RSA path must produce a success notification.
+        final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications();
+        assertFalse(notifications.isEmpty(), "Plugin must emit a VerificationNotification for the WRB block");
+        final VerificationNotification notification = notifications.getLast();
+        assertEquals(blockNumber, notification.blockNumber());
+        assertTrue(notification.success(), "RSA WRB block with a valid threshold signature must verify successfully");
+        assertNotNull(notification.blockHash(), "Block hash must be set on successful RSA verification");
+        assertNotNull(notification.block(), "Block must be present in the success notification");
     }
 
     // ==== TSS End-to-End Flow Test ===================================================================================

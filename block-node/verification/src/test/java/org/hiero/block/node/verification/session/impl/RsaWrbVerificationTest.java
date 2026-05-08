@@ -431,6 +431,67 @@ class RsaWrbVerificationTest {
     }
 
     /**
+     * Builds a WRB block using custom {@code recordFileItemBytes} instead of the global fixture.
+     * Used by the edge-case tests for {@code extractRecordStreamFileBytes}.
+     */
+    private static List<BlockItemUnparsed> buildWrbBlockWithCustomRecordFile(
+            final Bytes customRecordFileBytes, final List<RecordFileSignature> signatures) {
+        final BlockHeader header =
+                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+        final BlockProof proof = BlockProof.newBuilder()
+                .block(BLOCK_NUMBER)
+                .signedRecordFileProof(new SignedRecordFileProof(6, signatures))
+                .build();
+        return List.of(
+                BlockItemUnparsed.newBuilder()
+                        .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                        .build(),
+                BlockItemUnparsed.newBuilder().recordFile(customRecordFileBytes).build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                        .build(),
+                BlockItemUnparsed.newBuilder()
+                        .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                        .build());
+    }
+
+    @Test
+    @DisplayName("extractRecordStreamFileBytes: empty, field-2-absent, unknown-wire-type all return EMPTY → failure")
+    void extractRecordStreamFileBytes_defensiveCases() throws Exception {
+        // All cases use valid signatures so any failure is from extraction, not signature validation.
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
+
+        // Case 1: empty RECORD_FILE bytes — nothing to extract → field not found → Bytes.EMPTY → fail
+        final ExtendedMerkleTreeSession session1 = new ExtendedMerkleTreeSession(
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
+        final VerificationNotification result1 = session1.processBlockItems(new BlockItems(
+                buildWrbBlockWithCustomRecordFile(Bytes.EMPTY, sigs), BLOCK_NUMBER, true, true));
+        assertNotNull(result1);
+        assertFalse(result1.success(), "Empty RECORD_FILE bytes must cause extraction failure → rejected");
+
+        // Case 2: only field 1 present, no field 2 — iterator exhausts without finding field 2 → Bytes.EMPTY → fail
+        // Tag=0x0A (field 1, LEN), length=1, one payload byte
+        final Bytes field1Only = Bytes.wrap(new byte[] {0x0A, 0x01, 0x42});
+        final ExtendedMerkleTreeSession session2 = new ExtendedMerkleTreeSession(
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
+        final VerificationNotification result2 = session2.processBlockItems(new BlockItems(
+                buildWrbBlockWithCustomRecordFile(field1Only, sigs), BLOCK_NUMBER, true, true));
+        assertNotNull(result2);
+        assertFalse(result2.success(), "RECORD_FILE with no field-2 must cause extraction failure → rejected");
+
+        // Case 3: unknown wire type (wire type 3) as first tag — bail-out path returns Bytes.EMPTY → fail
+        // Tag = (1 << 3) | 3 = 0x0B (field 1, wire 3 = SGROUP — unused in proto3 but valid tag encoding)
+        final Bytes unknownWireType = Bytes.wrap(new byte[] {0x0B});
+        final ExtendedMerkleTreeSession session3 = new ExtendedMerkleTreeSession(
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
+        final VerificationNotification result3 = session3.processBlockItems(new BlockItems(
+                buildWrbBlockWithCustomRecordFile(unknownWireType, sigs), BLOCK_NUMBER, true, true));
+        assertNotNull(result3);
+        assertFalse(result3.success(), "Unknown wire type in RECORD_FILE must bail out → rejected");
+    }
+
+    /**
      * Verifies that the supermajority threshold `floor(2 * rosterSize / 3) + 1` is correctly
      * implemented for roster sizes that are not multiples of 3.
      *

@@ -254,8 +254,28 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                             + " WRB blocks will fail verification until a valid address book is delivered.");
             return;
         }
+        // Count non-blank address book entries — these are the nodes that should be signable.
+        final int declaredCount =
+                (int) book.nodeAddress().stream().filter(a -> !a.rsaPubKey().isBlank()).count();
         keyByNodeId = RsaKeyDecoder.buildKeyMap(book);
-        LOGGER.log(INFO, "RSA key map updated: {0} nodes loaded from address book", keyByNodeId.size());
+        final int effectiveCount = keyByNodeId.size();
+        if (effectiveCount < declaredCount) {
+            // Malformed DER keys were skipped; threshold is calculated against effectiveCount.
+            // Fix the address book so all declared nodes can contribute signatures.
+            LOGGER.log(
+                    WARNING,
+                    "RSA key map: {0}/{1} keys decoded successfully; {2} node(s) had malformed"
+                            + " hex-DER bytes and cannot contribute signatures. Verification"
+                            + " threshold is calculated against the {0} decodable keys.",
+                    effectiveCount,
+                    declaredCount,
+                    declaredCount - effectiveCount);
+        }
+        LOGGER.log(
+                INFO,
+                "RSA key map updated: {0}/{1} nodes loaded from address book",
+                effectiveCount,
+                declaredCount);
     }
 
     /**

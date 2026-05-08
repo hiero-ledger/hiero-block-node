@@ -49,18 +49,22 @@ public final class RsaKeyDecoder {
         }
         final Map<Long, PublicKey> map = new HashMap<>();
         final HexFormat hex = HexFormat.of();
+        // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
+        final KeyFactory kf;
+        try {
+            kf = KeyFactory.getInstance("RSA");
+        } catch (NoSuchAlgorithmException e) {
+            // RSA must be available in every JVM — this is a JVM misconfiguration
+            throw new IllegalStateException("RSA KeyFactory not available", e);
+        }
         for (final NodeAddress addr : book.nodeAddress()) {
             if (addr.rsaPubKey().isBlank()) {
                 continue;
             }
             try {
                 final byte[] keyBytes = hex.parseHex(addr.rsaPubKey());
-                final KeyFactory kf = KeyFactory.getInstance("RSA");
                 final PublicKey key = kf.generatePublic(new X509EncodedKeySpec(keyBytes));
                 map.put(addr.nodeId(), key);
-            } catch (NoSuchAlgorithmException e) {
-                // RSA must be available in every JVM — this is a JVM misconfiguration
-                throw new IllegalStateException("RSA KeyFactory not available", e);
             } catch (InvalidKeySpecException | IllegalArgumentException e) {
                 LOGGER.log(WARNING, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e.getMessage());
             }
