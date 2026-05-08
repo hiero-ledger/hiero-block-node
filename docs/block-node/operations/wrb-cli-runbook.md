@@ -411,15 +411,15 @@ nohup java \
 
 **Available Flags**:
 
-| Flag | Purpose |
-|------|---------|
-| `--skip-supply` | Skip HBAR supply validation |
-| `--skip-signatures` | Skip block proof signature validation |
-| `--validate-balances=false` | Disable balance tracking validation |
-| `--verbose` | Print detailed per-block output |
-| `--threads <N>` | Set parallel validation threads (default: CPU cores) |
-| `--prefetch <N>` | Number of blocks to prefetch (default: 10) |
-| `--no-resume` | Start from block 0 (ignore saved checkpoint) |
+|            Flag             |                       Purpose                        |
+|-----------------------------|------------------------------------------------------|
+| `--skip-supply`             | Skip HBAR supply validation                          |
+| `--skip-signatures`         | Skip block proof signature validation                |
+| `--validate-balances=false` | Disable balance tracking validation                  |
+| `--verbose`                 | Print detailed per-block output                      |
+| `--threads <N>`             | Set parallel validation threads (default: CPU cores) |
+| `--prefetch <N>`            | Number of blocks to prefetch (default: 10)           |
+| `--no-resume`               | Start from block 0 (ignore saved checkpoint)         |
 
 **Checkpoint Behavior**:
 - Validation saves checkpoints periodically to `wrappedBlocks/.validation_checkpoint`
