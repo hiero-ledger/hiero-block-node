@@ -47,7 +47,7 @@ The shadow jar is self-contained and can be copied to your deployment server.
 
 Recommended layout for operations:
 
-```
+```text
 /mnt/wrb-operations/
 ├── tools-<version>-all.jar          # WRB CLI jar
 ├── metadata/                         # Metadata files
@@ -59,7 +59,7 @@ Recommended layout for operations:
 ├── compressedDays/                   # Downloaded record files (compressed)
 │   ├── 2024-01-01/
 │   └── ...
-└── wrappedBlocks/                    # Wrapped block stream output
+└── wrappedBlocks/                    # Wrapped Block Stream output
     ├── addressBookHistory.json       # Address book changes over time
     ├── 0/                            # Block 0
     ├── 1/                            # Block 1
@@ -93,7 +93,7 @@ All commands accept `--network <mainnet|testnet>`:
 
 ### 1. Generate Address Book History
 
-**Purpose**: Fetch address book changes from the mirror node API to enable block proof verification.
+**Purpose**: Fetch address book changes from the Mirror Node API to enable block proof verification.
 
 **Command**:
 
@@ -257,7 +257,7 @@ nohup java -jar tools-<version>-all.jar \
 **What it does**:
 1. Polls GCS for new record files
 2. Downloads them to `compressedDays/`
-3. Wraps them into block stream format
+3. Wraps them into Block Stream format
 4. Writes to `wrappedBlocks/`
 5. Validates hashes inline
 
@@ -303,7 +303,7 @@ nohup java -jar tools-<version>-all.jar \
 
 ### 4. Wrap Record Files
 
-**Purpose**: Convert compressed record files into the wrapped block stream format.
+**Purpose**: Convert compressed record files into the wrapped Block Stream format.
 
 **Command**:
 
@@ -352,7 +352,7 @@ wrappedBlocks/
 ├── 0/
 │   ├── 0.blk.gz                 # Block header
 │   ├── 0_01.record.gz           # Record file 1
-│   ├── 0.rsh                    # Record stream hash
+│   ├── 0.rsh                    # Record Stream hash
 │   └── 0.blk.footer.gz          # Block footer
 ├── 1/
 └── ...
@@ -442,7 +442,7 @@ nohup java \
 **Testnet Supply Validation Failure** (Block 7,557,270):
 - A SCHEDULESIGN transaction with unbalanced transfer list causes supply mismatch
 - **Workaround**: Use `--skip-supply` for testnet validation
-- **Root cause**: Testnet consensus node bug from HAPI v0.52.0 (August 2024)
+- **Root cause**: Testnet Consensus Node bug from HAPI v0.52.0 (August 2024)
 - **Reference**: [Testnet Mirror API](https://testnet.mirrornode.hedera.com/api/v1/blocks/7557270)
 
 ---
@@ -568,7 +568,7 @@ fg %1
 
 **Symptom**: Validation fails at specific block with supply error.
 
-**Cause**: Consensus node bug or testnet-specific issue.
+**Cause**: Consensus Node bug or testnet-specific issue.
 
 **Solution**: Use `--skip-supply` flag. Report issue if on mainnet.
 
