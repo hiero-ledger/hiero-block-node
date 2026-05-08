@@ -121,7 +121,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     /// {@inheritDoc}
     @Override
     public void start() {
-        /// Don't start the querying thread if there are no peers defined.
+        // Don't start the querying thread if there are no peers defined.
         if (!hasBNSourcesPath) {
             LOGGER.log(WARNING, "RosterBootstrapTssPlugin: No BN Peers defined");
             return;

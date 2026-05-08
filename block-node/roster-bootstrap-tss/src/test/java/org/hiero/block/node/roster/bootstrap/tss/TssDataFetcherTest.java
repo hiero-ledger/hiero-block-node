@@ -40,7 +40,7 @@ class TssDataFetcherTest {
                 .build();
     }
 
-    private static TssDataFetcher newClient(BlockNodeSourceConfig... nodes) throws Exception {
+    private static TssDataFetcher newClient(BlockNodeSourceConfig... nodes) {
         final BlockNodeSource source =
                 BlockNodeSource.newBuilder().nodes(List.of(nodes)).build();
         return new TssDataFetcher(source, createTestConfig(), createTestMetricsHolder());
@@ -73,7 +73,7 @@ class TssDataFetcherTest {
 
         @Test
         @DisplayName("returns empty for empty availability")
-        void returnsEmptyForEmptyAvailability() throws Exception {
+        void returnsEmptyForEmptyAvailability() {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final TssDataFetcher client = newClient(nodeConfig);
 
@@ -84,7 +84,7 @@ class TssDataFetcherTest {
         @Test
         @Timeout(value = 10, unit = TimeUnit.SECONDS)
         @DisplayName("returns tss data on success")
-        void returnsTssDataOnSuccess() throws Exception {
+        void returnsTssDataOnSuccess() {
             final BlockNodeSourceConfig nodeConfig = node("localhost", 1, 1);
             final RosterBootstrapTssPlugin.MetricsHolder metrics = createTestMetricsHolder();
 
@@ -94,7 +94,7 @@ class TssDataFetcherTest {
             assertEquals(1, getMetricValue(RosterBootstrapTssPlugin.METRIC_TSS_DATA_REQUESTS));
         }
 
-        private BlockNodeClient mockClientReturning() throws Exception {
+        private BlockNodeClient mockClientReturning() {
             BlockNodeServiceInterface.BlockNodeServiceClient serviceClient =
                     mock(BlockNodeServiceInterface.BlockNodeServiceClient.class);
 
@@ -124,8 +124,7 @@ class TssDataFetcherTest {
     }
 
     private static TssDataFetcher createFetcherWithClient(
-            BlockNodeSourceConfig nodeConfig, RosterBootstrapTssPlugin.MetricsHolder metrics, BlockNodeClient client)
-            throws Exception {
+            BlockNodeSourceConfig nodeConfig, RosterBootstrapTssPlugin.MetricsHolder metrics, BlockNodeClient client) {
         final BlockNodeSource source = createSource(nodeConfig);
         final RosterBootstrapTssConfig config = createTestConfig();
         return new TssDataFetcher(source, config, metrics) {

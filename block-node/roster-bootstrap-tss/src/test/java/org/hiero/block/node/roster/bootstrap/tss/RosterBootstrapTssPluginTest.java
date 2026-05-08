@@ -55,7 +55,7 @@ public class RosterBootstrapTssPluginTest
         plugin.stop();
     }
 
-    public RosterBootstrapTssPluginTest(@TempDir final Path tempDir) throws IOException {
+    public RosterBootstrapTssPluginTest(@TempDir final Path tempDir) {
         super(
                 new BlockingExecutor(new LinkedBlockingQueue<>()),
                 new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
@@ -86,7 +86,7 @@ public class RosterBootstrapTssPluginTest
         // Config Override
         Map<String, String> configOverride = RosterBootstrapTssConfigBuilder.newBuilder()
                 .blockNodeSourcesPath(blockNodeSourcesPath)
-                .queryPeerInterval(1000)
+                .queryPeerInterval(500)
                 .queryPeerInitialDelay(500)
                 .maxIncomingBufferSize(104_857_600)
                 .enableTLS(false) // start quickly
@@ -107,15 +107,14 @@ public class RosterBootstrapTssPluginTest
         start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
 
         // allow some time for the queryingto run
-        parkNanos(1_000_000_000L);
+        parkNanos(3_000_000_000L);
 
         assertTrue(contextUpdated[0] > 0);
         assertNotNull(tssData[0]);
 
-        /// These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData to
-        /// hand back to testers. Using the values that are passed back to make sure the statusDetails api is
-        // being
-        /// called. Todo: add TssData flexibility to {@link TestBlockNodeServer}
+        // These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData to
+        // hand back to testers. Using the values that are passed back to make sure the statusDetails api is
+        // being called. Todo: add TssData flexibility to {@link TestBlockNodeServer}
         assertEquals(Bytes.fromHex("01010101"), tssData[0].ledgerId());
         assertEquals(Bytes.fromHex("02020202"), tssData[0].wrapsVerificationKey());
     }
@@ -173,14 +172,12 @@ public class RosterBootstrapTssPluginTest
                 throw new IllegalStateException("backfillSourcePath is required");
             }
 
-            Map<String, String> rosterBootstrapTssConfig = new HashMap<>(Map.of(
+            return new HashMap<>(Map.of(
                     "roster.bootstrap.tss.blockNodeSourcesPath", blockNodeSourcesPath,
                     "roster.bootstrap.tss.queryPeerInterval", String.valueOf(queryPeerInterval),
                     "roster.bootstrap.tss.queryPeerInitialDelay", String.valueOf(queryPeerInitialDelay),
                     "roster.bootstrap.tss.maxIncomingBufferSize", String.valueOf(maxIncomingBufferSize),
                     "roster.bootstrap.tss.enableTLS", String.valueOf(enableTLS)));
-
-            return rosterBootstrapTssConfig;
         }
     }
 }
