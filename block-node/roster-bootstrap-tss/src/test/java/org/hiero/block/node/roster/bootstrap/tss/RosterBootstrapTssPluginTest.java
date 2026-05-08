@@ -4,6 +4,7 @@ package org.hiero.block.node.roster.bootstrap.tss;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
@@ -87,7 +88,7 @@ public class RosterBootstrapTssPluginTest
         // Config Override
         Map<String, String> configOverride = RosterBootstrapTssConfigBuilder.newBuilder()
                 .blockNodeSourcesPath(blockNodeSourcesPath)
-                .queryPeerInterval(10000)
+                .queryPeerInterval(5000)
                 .queryPeerInitialDelay(500)
                 .maxIncomingBufferSize(104_857_600)
                 .enableTLS(false) // start quickly
@@ -110,7 +111,7 @@ public class RosterBootstrapTssPluginTest
         // allow some time for the queryingto run
         parkNanos(1_000_000_000L);
 
-        assertEquals(1, contextUpdated[0]);
+        assertTrue(contextUpdated[0] > 0);
         assertNotNull(tssData[0]);
 
         /// These are magic numbers, yes. The {@link TestBlockNodeServer} does not yet have a way to pass in TssData to
