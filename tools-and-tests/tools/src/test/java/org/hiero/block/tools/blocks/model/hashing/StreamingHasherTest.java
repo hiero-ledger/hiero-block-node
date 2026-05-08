@@ -559,6 +559,61 @@ class StreamingHasherTest {
     }
 
     /**
+     * Regression test for issue #2765: Verify leafCount accuracy after many increments.
+     *
+     * <p>This test validates that the leafCount field remains accurate even after millions
+     * of increments. A bug was introduced in commit 23226c219 where the value capture
+     * {@code final long i = leafCount;} was accidentally removed during refactoring,
+     * causing leafCount corruption at scale (94M+ blocks).
+     *
+     * <p>The bug manifested as:
+     * <ul>
+     *   <li>Expected leafCount: 94,569,609</li>
+     *   <li>Actual (corrupted): 192,673,619,542,346,069</li>
+     * </ul>
+     *
+     * @see <a href="https://github.com/hiero-ledger/hiero-block-node/issues/2765">Issue #2765</a>
+     */
+    @Test
+    @DisplayName("Regression #2765: leafCount should remain accurate after millions of increments")
+    void testLeafCountAccuracyAtScale() {
+        StreamingHasher hasher = new StreamingHasher();
+
+        // Test at multiple checkpoints to catch corruption early
+        int[] checkpoints = {1_000, 10_000, 100_000, 1_000_000};
+
+        for (int checkpoint : checkpoints) {
+            int startCount = (int) hasher.leafCount();
+            int leavesToAdd = checkpoint - startCount;
+
+            for (int i = 0; i < leavesToAdd; i++) {
+                byte[] randomHash = new byte[48];
+                Arrays.fill(randomHash, (byte) (i & 0xFF));
+                hasher.addNodeByHash(randomHash);
+            }
+
+            assertEquals(
+                    checkpoint,
+                    hasher.leafCount(),
+                    "leafCount should be exactly " + checkpoint + " after adding " + checkpoint + " leaves");
+
+            // Verify intermediate state size matches bitCount formula
+            int expectedStateSize = Integer.bitCount(checkpoint);
+            assertEquals(
+                    expectedStateSize,
+                    hasher.intermediateHashingState().size(),
+                    "At " + checkpoint + " leaves, hashList size should be bitCount(" + checkpoint + ") = "
+                            + expectedStateSize);
+        }
+
+        // Final verification: leafCount should match total additions
+        assertEquals(
+                checkpoints[checkpoints.length - 1],
+                hasher.leafCount(),
+                "Final leafCount should match total number of leaves added");
+    }
+
+    /**
      * Verifies the right-to-left folding for final root computation as described in design doc.
      *
      * <p>From design doc:
