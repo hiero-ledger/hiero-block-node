@@ -428,7 +428,7 @@ nohup java \
 
 **Interpreting Output**:
 
-```
+```text
 [INFO] Validated block 1,000,000 in 45.2ms (speed: 2.1x realtime)
 [INFO] Hash chain valid up to block 1,000,000
 [INFO] Supply: 50,000,000,000 HBAR (expected: 50,000,000,000)
