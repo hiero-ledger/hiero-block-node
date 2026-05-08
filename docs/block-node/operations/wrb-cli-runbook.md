@@ -4,7 +4,7 @@
 
 This runbook documents the setup and operational workflows for the Wrapped Record Block (WRB) CLI tools. These tools are used to download, wrap, validate, and maintain block streams for Hiero networks (mainnet and testnet).
 
-**Audience**: Operators running block stream validation, migration, or archival processes.
+**Audience**: Operators running Block Stream validation, migration, or archival processes.
 
 ---
 
@@ -347,7 +347,7 @@ tail -f wrap.log
 
 **Output Structure**:
 
-```
+```text
 wrappedBlocks/
 ├── 0/
 │   ├── 0.blk.gz                 # Block header
