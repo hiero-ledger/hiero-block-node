@@ -768,7 +768,11 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (blocksToResend.contains(blockNumber)) {
             // If we expect a block to be resent, we must check if this publisher is currently publishing that block
             if (blocksToResend.remove(blockNumber)) {
-                // Only one publisher can enter here and start publishing the expected block to be resent
+                // Only one publisher can enter here and start publishing the expected block to be resent.
+                // Track the block as actively resending so gap detection in correctForResendAndStreaming
+                // and stall detection in isResendingLive can see it. The set is cleared by endOfBlock /
+                // blockIsEnding on completion, and by handleVerification on failed re-verification.
+                activeResendBlocks.add(blockNumber);
                 return BlockAction.ACCEPT;
             } else {
                 return BlockAction.SKIP;
