@@ -86,7 +86,7 @@ public class RosterBootstrapTssPluginTest
         // Config Override
         Map<String, String> configOverride = RosterBootstrapTssConfigBuilder.newBuilder()
                 .blockNodeSourcesPath(blockNodeSourcesPath)
-                .queryPeerInterval(5000)
+                .queryPeerInterval(1000)
                 .queryPeerInitialDelay(500)
                 .maxIncomingBufferSize(104_857_600)
                 .enableTLS(false) // start quickly
