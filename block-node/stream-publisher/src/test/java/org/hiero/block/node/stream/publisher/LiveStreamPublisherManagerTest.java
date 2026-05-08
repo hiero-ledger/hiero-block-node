@@ -1485,6 +1485,97 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(0);
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
             }
+
+            /// Once a block has failed verification and a publisher has accepted the RESEND
+            /// header, the block is no longer in `blocksToResend` but the resend is still in
+            /// flight. If a later block persists in that window, gap detection must still
+            /// suppress the ACK. Previously this leaked because `activeResendBlocks` was queried
+            /// by gap detection but never populated; the fix populates it on the resend ACCEPT.
+            @Test
+            @DisplayName("handlePersisted() does not ACK a later block while a single resend is in flight")
+            void testNoAckLeakWhileSingleResendHeaderAccepted() {
+                // Establish lastPersisted=0 and advance nextUnstreamed past block 1 so
+                // handleVerification's failure branch fires.
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+
+                // Block 1 fails verification → blocksToResend = {1}.
+                toTest.handleVerification(new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, 1L, null, null, BlockSource.PUBLISHER));
+
+                responsePipeline.clear();
+                responsePipeline2.clear();
+
+                // Publisher resends block 1; the manager ACCEPTs the header, removing 1 from
+                // blocksToResend. With the fix, 1 is added to activeResendBlocks here.
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+
+                // A later block (3) is verified+persisted in parallel. Gap detection must clamp.
+                toTest.handlePersisted(new PersistedNotification(3L, true, 0, BlockSource.PUBLISHER));
+
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("lastPersisted must not advance past block 0 while block 1 is mid-resend")
+                        .isEqualTo(0L);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .filteredOn(call -> call.response().kind() == ResponseOneOfType.ACKNOWLEDGEMENT)
+                        .as("no ACK should be sent to publisher 1 while block 1 is mid-resend")
+                        .isEmpty();
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .filteredOn(call -> call.response().kind() == ResponseOneOfType.ACKNOWLEDGEMENT)
+                        .as("no ACK should be sent to publisher 2 while block 1 is mid-resend")
+                        .isEmpty();
+            }
+
+            /// Same invariant as above with two concurrent resends in flight, exercising the
+            /// case where multiple ACCEPTs back-to-back drain `blocksToResend` but the resends
+            /// have not yet completed verification.
+            @Test
+            @DisplayName("handlePersisted() does not ACK a later block while two concurrent resends are in flight")
+            void testNoAckLeakWhileTwoConcurrentResendsHeaderAccepted() {
+                // Establish lastPersisted=0 and advance nextUnstreamed past blocks 1 and 2.
+                assertThat(toTest.getActionForBlock(0L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                toTest.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.PUBLISHER));
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                assertThat(toTest.getActionForBlock(2L, null, publisherHandlerId2))
+                        .isEqualTo(BlockAction.ACCEPT);
+
+                // Both blocks 1 and 2 fail verification → blocksToResend = {1, 2}.
+                toTest.handleVerification(new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, 1L, null, null, BlockSource.PUBLISHER));
+                toTest.handleVerification(new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, 2L, null, null, BlockSource.PUBLISHER));
+
+                responsePipeline.clear();
+                responsePipeline2.clear();
+
+                // Resend headers for both blocks arrive (different handlers). With the fix,
+                // both end up in activeResendBlocks.
+                assertThat(toTest.getActionForBlock(1L, null, publisherHandlerId))
+                        .isEqualTo(BlockAction.ACCEPT);
+                assertThat(toTest.getActionForBlock(2L, null, publisherHandlerId2))
+                        .isEqualTo(BlockAction.ACCEPT);
+
+                // A still-later block (4) is verified+persisted in parallel.
+                toTest.handlePersisted(new PersistedNotification(4L, true, 0, BlockSource.PUBLISHER));
+
+                assertThat(toTest.getLatestBlockNumber())
+                        .as("lastPersisted must not advance past block 0 while blocks 1 and 2 are mid-resend")
+                        .isEqualTo(0L);
+                assertThat(responsePipeline.getOnNextCalls())
+                        .filteredOn(call -> call.response().kind() == ResponseOneOfType.ACKNOWLEDGEMENT)
+                        .as("no ACK should be sent to publisher 1 while blocks 1 & 2 are mid-resend")
+                        .isEmpty();
+                assertThat(responsePipeline2.getOnNextCalls())
+                        .filteredOn(call -> call.response().kind() == ResponseOneOfType.ACKNOWLEDGEMENT)
+                        .as("no ACK should be sent to publisher 2 while blocks 1 & 2 are mid-resend")
+                        .isEmpty();
+            }
         }
 
         /// Tests for [LiveStreamPublisherManager#blockIsEnding(long, long)].
