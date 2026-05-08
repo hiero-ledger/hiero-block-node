@@ -255,8 +255,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
             return;
         }
         // Count non-blank address book entries — these are the nodes that should be signable.
-        final int declaredCount =
-                (int) book.nodeAddress().stream().filter(a -> !a.rsaPubKey().isBlank()).count();
+        final int declaredCount = (int) book.nodeAddress().stream()
+                .filter(a -> !a.rsaPubKey().isBlank())
+                .count();
         keyByNodeId = RsaKeyDecoder.buildKeyMap(book);
         final int effectiveCount = keyByNodeId.size();
         if (effectiveCount < declaredCount) {
@@ -271,11 +272,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                     declaredCount,
                     declaredCount - effectiveCount);
         }
-        LOGGER.log(
-                INFO,
-                "RSA key map updated: {0}/{1} nodes loaded from address book",
-                effectiveCount,
-                declaredCount);
+        LOGGER.log(INFO, "RSA key map updated: {0}/{1} nodes loaded from address book", effectiveCount, declaredCount);
     }
 
     /**

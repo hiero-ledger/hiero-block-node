@@ -22,9 +22,9 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
+import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -93,10 +93,14 @@ class VerificationServicePluginIntegrationTest
         VerificationServicePlugin.tssParametersPersisted = false;
 
         final Map<String, String> config = new HashMap<>();
-        config.put("verification.allBlocksHasherFilePath", tempDir.resolve("hasher.bin").toString());
+        config.put(
+                "verification.allBlocksHasherFilePath",
+                tempDir.resolve("hasher.bin").toString());
         config.put("verification.allBlocksHasherEnabled", "true");
         config.put("verification.allBlocksHasherPersistenceInterval", "10");
-        config.put("verification.tssParametersFilePath", tempDir.resolve("tss-params.bin").toString());
+        config.put(
+                "verification.tssParametersFilePath",
+                tempDir.resolve("tss-params.bin").toString());
 
         start(new VerificationServicePlugin(), new NoBlocksHistoricalBlockFacility(), config);
     }

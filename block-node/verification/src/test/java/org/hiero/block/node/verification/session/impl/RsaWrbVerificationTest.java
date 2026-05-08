@@ -465,8 +465,8 @@ class RsaWrbVerificationTest {
         // Case 1: empty RECORD_FILE bytes — nothing to extract → field not found → Bytes.EMPTY → fail
         final ExtendedMerkleTreeSession session1 = new ExtendedMerkleTreeSession(
                 BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
-        final VerificationNotification result1 = session1.processBlockItems(new BlockItems(
-                buildWrbBlockWithCustomRecordFile(Bytes.EMPTY, sigs), BLOCK_NUMBER, true, true));
+        final VerificationNotification result1 = session1.processBlockItems(
+                new BlockItems(buildWrbBlockWithCustomRecordFile(Bytes.EMPTY, sigs), BLOCK_NUMBER, true, true));
         assertNotNull(result1);
         assertFalse(result1.success(), "Empty RECORD_FILE bytes must cause extraction failure → rejected");
 
@@ -475,8 +475,8 @@ class RsaWrbVerificationTest {
         final Bytes field1Only = Bytes.wrap(new byte[] {0x0A, 0x01, 0x42});
         final ExtendedMerkleTreeSession session2 = new ExtendedMerkleTreeSession(
                 BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
-        final VerificationNotification result2 = session2.processBlockItems(new BlockItems(
-                buildWrbBlockWithCustomRecordFile(field1Only, sigs), BLOCK_NUMBER, true, true));
+        final VerificationNotification result2 = session2.processBlockItems(
+                new BlockItems(buildWrbBlockWithCustomRecordFile(field1Only, sigs), BLOCK_NUMBER, true, true));
         assertNotNull(result2);
         assertFalse(result2.success(), "RECORD_FILE with no field-2 must cause extraction failure → rejected");
 
@@ -485,8 +485,8 @@ class RsaWrbVerificationTest {
         final Bytes unknownWireType = Bytes.wrap(new byte[] {0x0B});
         final ExtendedMerkleTreeSession session3 = new ExtendedMerkleTreeSession(
                 BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
-        final VerificationNotification result3 = session3.processBlockItems(new BlockItems(
-                buildWrbBlockWithCustomRecordFile(unknownWireType, sigs), BLOCK_NUMBER, true, true));
+        final VerificationNotification result3 = session3.processBlockItems(
+                new BlockItems(buildWrbBlockWithCustomRecordFile(unknownWireType, sigs), BLOCK_NUMBER, true, true));
         assertNotNull(result3);
         assertFalse(result3.success(), "Unknown wire type in RECORD_FILE must bail out → rejected");
     }

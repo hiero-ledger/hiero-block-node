@@ -31,7 +31,6 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
-import java.security.PrivateKey;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -547,8 +546,8 @@ class VerificationServicePluginTest
         final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
         final BlockProof proof = BlockProof.newBuilder()
                 .block(blockNumber)
-                .signedRecordFileProof(new SignedRecordFileProof(
-                        6, List.of(new RecordFileSignature(Bytes.wrap(sigBytes), 0L))))
+                .signedRecordFileProof(
+                        new SignedRecordFileProof(6, List.of(new RecordFileSignature(Bytes.wrap(sigBytes), 0L))))
                 .build();
 
         final List<BlockItemUnparsed> items = List.of(

@@ -27,8 +27,9 @@ class RsaKeyDecoderTest {
                 RsaKeyDecoder.buildKeyMap(NodeAddressBook.DEFAULT).isEmpty(),
                 "DEFAULT (empty) book must return empty map");
         assertTrue(
-                RsaKeyDecoder.buildKeyMap(
-                                NodeAddressBook.newBuilder().nodeAddress(List.of()).build())
+                RsaKeyDecoder.buildKeyMap(NodeAddressBook.newBuilder()
+                                .nodeAddress(List.of())
+                                .build())
                         .isEmpty(),
                 "Explicitly empty nodeAddress list must return empty map");
     }
@@ -63,7 +64,10 @@ class RsaKeyDecoderTest {
         final NodeAddressBook book = NodeAddressBook.newBuilder()
                 .nodeAddress(List.of(
                         NodeAddress.newBuilder().nodeId(0L).rsaPubKey("").build(), // blank — skipped
-                        NodeAddress.newBuilder().nodeId(1L).rsaPubKey("deadbeef").build(), // malformed DER — skipped
+                        NodeAddress.newBuilder()
+                                .nodeId(1L)
+                                .rsaPubKey("deadbeef")
+                                .build(), // malformed DER — skipped
                         NodeAddress.newBuilder().nodeId(2L).rsaPubKey(validHex).build() // valid
                         ))
                 .build();
