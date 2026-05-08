@@ -481,14 +481,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
         // Schedule periodic check for live updates from running plugins.
         applicationStateExecutor.scheduleAtFixedRate(
-                this::checkForTssDataStateUpdates,
+                this::checkForApplicationStateUpdates,
                 appStateConfig.updateInitialDelay(),
                 appStateConfig.updateScanInterval(),
                 TimeUnit.MILLISECONDS);
-    }
-
-    private void checkForTssDataStateUpdates() {
-        checkForApplicationStateUpdates();
     }
 
     private void checkForApplicationStateUpdates() {
@@ -624,7 +620,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /**
      * Persists both block range sets to the file paths specified in the ApplicationStateConfig.
      */
-    private void persistBlockRanges() {
+    private synchronized void persistBlockRanges() {
         final ApplicationStateConfig appStateConfig =
                 blockNodeContext.configuration().getConfigData(ApplicationStateConfig.class);
         persistRangeSet(storedBlocks, appStateConfig.storedBlocksFilePath());
@@ -633,7 +629,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     private void persistRangeSet(ConcurrentLongRangeSet rangeSet, Path filePath) {
         try {
-            Files.createDirectories(filePath.getParent());
             final var ranges = rangeSet.streamRanges().toList();
             // Binary format: each range is two consecutive big-endian longs (start, end) — 16 bytes per range.
             // Fixed-size records make loading trivial and allow size-based integrity checking.
@@ -707,6 +702,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             } catch (IOException e) {
                 LOGGER.log(ERROR, "Failed to create RSA bootstrap directory: " + parent, e);
             }
+        }
+
+        try {
+            Files.createDirectories(appStateConfig.storedBlocksFilePath().getParent());
+            Files.createDirectories(appStateConfig.availableBlocksFilePath().getParent());
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to create block ranges directories: {0}", e.getMessage());
         }
         loadRangeSet(storedBlocks, appStateConfig.storedBlocksFilePath());
         loadRangeSet(availableBlocks, appStateConfig.availableBlocksFilePath());

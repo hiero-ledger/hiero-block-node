@@ -13,7 +13,7 @@ import org.hiero.block.node.base.Loggable;
  * Node-wide configuration includes settings useful to _all_ or nearly all
  * plugins. Examples include the earliest block number managed by this node.
  *
- * @param tssDataFilePath path where TSS data (ledger ID, address book, WRAPS VK)
+ * @param tssDataFilePath path where application state, like TSS data (ledger ID, address book, WRAPS VK),
  *     are persisted across restarts as a serialized {@code TssData}.
  * @param rsaBootstrapFilePath path to the RSA roster bootstrap file (JSON-encoded {@code NodeAddressBook}).
  *     Configured via {@code app.state.rsaBootstrapFilePath}.
@@ -27,6 +27,7 @@ import org.hiero.block.node.base.Loggable;
  * @param updateScanInterval The amount of milliseconds that the {@code ApplicationStateFacility} waits between
  *     checking to see if there are any {@code TssData} updates to process.
  */
+// spotless:off
 @ConfigData("app.state")
 public record ApplicationStateConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/app-state-data.bin") Path tssDataFilePath,
@@ -34,7 +35,11 @@ public record ApplicationStateConfig(
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/rsa-bootstrap-roster.json")
         Path rsaBootstrapFilePath,
 
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/stored-blocks-data.bin") Path storedBlocksFilePath,
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/available-blocks-data.bin") Path availableBlocksFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/stored-blocks-data.bin")
+        Path storedBlocksFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/available-blocks-data.bin")
+        Path availableBlocksFilePath,
+
         @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long updateScanInterval,
         @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int updateInitialDelay) {}
+// spotless:on
