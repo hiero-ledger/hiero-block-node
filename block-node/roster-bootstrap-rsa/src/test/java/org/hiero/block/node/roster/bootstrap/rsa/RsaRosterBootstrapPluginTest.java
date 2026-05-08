@@ -2,7 +2,6 @@
 package org.hiero.block.node.roster.bootstrap.rsa;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,12 +28,26 @@ import org.junit.jupiter.api.Test;
 
 /// Unit tests for `RsaRosterBootstrapPlugin`.
 ///
-/// File loading and persistence are handled by `BlockNodeApp`. The plugin's
-/// sole responsibility is to check whether the address book was already loaded
-/// (`context.nodeAddressBook() != null`) and, if not, to fetch it from the Mirror Node.
+/// ## Responsibility split
 ///
-/// Tests that simulate "BlockNodeApp loaded the file between init and start" use the
-/// `doInit` / `simulatePreloadedAddressBook` / `doStart` pattern from `PluginTestBase`.
+/// File loading and persistence are handled by `BlockNodeApp`, not by this plugin.
+/// The plugin's sole responsibility is:
+/// - If `context.nodeAddressBook()` is non-null at `start()`: a bootstrap file was already
+///   parsed by `BlockNodeApp.loadApplicationState()` — record metrics and return.
+/// - If it is null: fetch from the Mirror Node, call `applicationStateFacility.updateAddressBook()`,
+///   and let `BlockNodeApp` persist and broadcast the result.
+///
+/// ## Simulating file pre-load in tests
+///
+/// In production, `BlockNodeApp.loadApplicationState()` reads the RSA bootstrap file, builds a
+/// `NodeAddressBook`, stages it as a pending update, and the `applicationStateExecutor` scheduler
+/// fires a scan tick that rebuilds the `BlockNodeContext` and calls `onContextUpdate` on every
+/// plugin before `start()` is invoked.
+///
+/// In tests we skip the scheduler entirely by calling `updateAddressBook(book)` directly after
+/// `doInit()`. This synchronously updates `blockNodeContext` and calls `plugin.onContextUpdate()`,
+/// so by the time `doStart()` runs the plugin's internal `context` reference already holds the
+/// address book — exactly as it would in production after the scanner tick fires.
 class RsaRosterBootstrapPluginTest
         extends PluginTestBase<RsaRosterBootstrapPlugin, BlockingExecutor, ScheduledBlockingExecutor> {
 
@@ -56,7 +69,15 @@ class RsaRosterBootstrapPluginTest
     }
 
     // -------------------------------------------------------------------------
-    // Pre-loaded address book tests (simulates BlockNodeApp loading from file)
+    // Pre-loaded address book (simulates BlockNodeApp.loadApplicationState())
+    //
+    // updateAddressBook(book) replaces the full BlockNodeApp scheduler cycle:
+    //   loadApplicationState() → pendingAddressBook.set() → scanner tick
+    //   → BlockNodeContext rebuilt → plugin.onContextUpdate() called
+    //
+    // By the time doStart() is called, plugin.context.nodeAddressBook() is
+    // non-null, so start() takes the "file-loaded" branch and skips the
+    // Mirror Node fetch entirely.
     // -------------------------------------------------------------------------
 
     @Nested
@@ -64,12 +85,14 @@ class RsaRosterBootstrapPluginTest
     class PreloadedAddressBook {
 
         @Test
-        @DisplayName("Pre-loaded book is reflected in context after start()")
+        @DisplayName("start() skips Mirror Node and exposes the pre-loaded book in context")
         void preloadedBookIsReflectedInContext() {
+            // updateAddressBook() simulates BlockNodeApp pre-loading the RSA bootstrap file:
+            // it synchronously updates blockNodeContext and calls plugin.onContextUpdate() so
+            // the plugin's internal context reference holds the book before start() runs.
             final NodeAddressBook book = buildAddressBook(3);
-
             doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
-            simulatePreloadedAddressBook(book);
+            updateAddressBook(book);
             doStart();
 
             final NodeAddressBook loaded = blockNodeContext.nodeAddressBook();
@@ -79,31 +102,17 @@ class RsaRosterBootstrapPluginTest
         }
 
         @Test
-        @DisplayName("Metrics are recorded when address book is pre-loaded")
+        @DisplayName("Metrics reflect the pre-loaded book entry count and a non-negative load duration")
         void metricsAreRecordedForPreloadedBook() {
+            // Same pre-load simulation as above; verifies that start() records the correct
+            // roster_entries_loaded count and a valid roster_load_duration_ms metric.
             final NodeAddressBook book = buildAddressBook(4);
-
             doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
-            simulatePreloadedAddressBook(book);
+            updateAddressBook(book);
             doStart();
 
             assertEquals(4, getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_ENTRIES_LOADED));
             assertTrue(getMetricValue(RsaRosterBootstrapPlugin.METRIC_ROSTER_LOAD_DURATION_MS) >= 0);
-        }
-
-        @Test
-        @DisplayName("onContextUpdate is called before start() when address book is pre-loaded")
-        void contextUpdateIsDeliveredBeforeStart() {
-            final NodeAddressBook book = buildAddressBook(2);
-
-            doInit(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), null, null, Map.of());
-            // simulatePreloadedAddressBook triggers onContextUpdate — plugin sees the book before start()
-            simulatePreloadedAddressBook(book);
-            doStart();
-
-            final NodeAddressBook published = blockNodeContext.nodeAddressBook();
-            assertFalse(published.nodeAddress().isEmpty());
-            assertEquals(2, published.nodeAddress().size());
         }
     }
 
