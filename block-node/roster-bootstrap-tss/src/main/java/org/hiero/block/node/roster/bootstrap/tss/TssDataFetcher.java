@@ -12,8 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.roster.boostrap.tss.BlockNodeSource;
-import org.hiero.block.node.roster.boostrap.tss.BlockNodeSourceConfig;
+import org.hiero.block.node.roster.bootstrap.tss.RosterBootstrapTssPlugin.MetricsHolder;
 import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
 
 /// Client for fetching TssData from block nodes using gRPC.
@@ -44,9 +43,7 @@ public class TssDataFetcher {
     /// @param blockNodeSource the blocknode source configuration
     /// @param config the blocknode configuration containing retry, timeout, and other settings
     public TssDataFetcher(
-            BlockNodeSource blockNodeSource,
-            RosterBootstrapTssConfig config,
-            @NonNull RosterBootstrapTssPlugin.MetricsHolder metrics) {
+            BlockNodeSource blockNodeSource, RosterBootstrapTssConfig config, @NonNull MetricsHolder metrics) {
         this.blockNodeSource = blockNodeSource;
         this.enableTls = config.enableTLS();
         this.maxIncomingBufferSize = config.maxIncomingBufferSize();

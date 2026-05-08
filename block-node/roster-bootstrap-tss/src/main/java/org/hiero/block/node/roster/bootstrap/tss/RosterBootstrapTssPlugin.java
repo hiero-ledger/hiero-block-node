@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.tss;
 
-import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
@@ -17,8 +16,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.roster.boostrap.tss.BlockNodeSource;
-import org.hiero.block.node.roster.boostrap.tss.BlockNodeSourceConfig;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -81,7 +78,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         // Validate block node sources configuration
         final String sourcesPath = rosterBootstrapTssConfig.blockNodeSourcesPath();
         if (sourcesPath == null || sourcesPath.isBlank()) {
-            LOGGER.log(DEBUG, "No block node sources path configured, TssBootstrapPlugin will not query any peers");
+            LOGGER.log(WARNING, "No block node sources path configured, TssBootstrapPlugin will not query any peers");
             return;
         }
 

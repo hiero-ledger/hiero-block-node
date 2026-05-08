@@ -19,8 +19,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.ToIntFunction;
 import org.hiero.block.api.BlockNodeServiceInterface;
-import org.hiero.block.node.roster.boostrap.tss.BlockNodeSourceConfig;
-import org.hiero.block.node.roster.boostrap.tss.GrpcWebClientTuning;
+import org.hiero.block.node.roster.bootstrap.tss.BlockNodeSourceConfig;
+import org.hiero.block.node.roster.bootstrap.tss.GrpcWebClientTuning;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
 public class BlockNodeClient {
@@ -189,7 +189,7 @@ public class BlockNodeClient {
                 .build();
     }
 
-    public void initializeClient() {
+    private void initializeClient() {
         try {
             PbjGrpcClient pbjGrpcClient = new PbjGrpcClient(webClient, grpcConfig);
             blockNodeServiceClient = new BlockNodeServiceInterface.BlockNodeServiceClient(pbjGrpcClient, OPTIONS);

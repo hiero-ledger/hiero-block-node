@@ -17,8 +17,6 @@ import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.TssData;
 import org.hiero.block.api.TssRoster;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
-import org.hiero.block.node.roster.boostrap.tss.BlockNodeSource;
-import org.hiero.block.node.roster.boostrap.tss.BlockNodeSourceConfig;
 import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;

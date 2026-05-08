@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 syntax = "proto3";
 
-package org.hiero.block.node.roster.boostrap.tss;
+package org.hiero.block.node.roster.bootstrap.tss;
 
 message BlockNodeSource {
   /** Array of BlockNode messages */
