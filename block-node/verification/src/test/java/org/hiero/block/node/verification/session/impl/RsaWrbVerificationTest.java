@@ -43,25 +43,27 @@ import org.junit.jupiter.params.provider.MethodSource;
  * `ExtendedMerkleTreeSession`.
  *
  * <p>Tests use synthetic blocks and in-process RSA key pairs — no real testnet blocks are required.
- * Six nodes are used so the supermajority threshold (`floor(2*6/3) + 1 = 5`) is testable with
- * both passing (5 or 6 valid sigs) and failing (4 valid sigs) scenarios.
+ * Six nodes are used so the strict majority threshold (`> N/2 = > 3` for 6 nodes, i.e. ≥ 4) is
+ * testable with both passing (≥ 4 valid sigs) and failing (≤ 3 valid sigs) scenarios.
+ * All signatures present must pass RSA verification — any single failed sig causes immediate
+ * block rejection, regardless of how many other sigs are valid.
  *
  * <p>The raw `RecordFileItem` proto is assembled manually using protobuf wire format so that
  * `extractRecordStreamFileBytes` is exercised by the field-2 extraction path.
  */
 class RsaWrbVerificationTest {
 
-    /** Number of test nodes — threshold is `floor(2*6/3) + 1 = 5`. */
+    /** Number of test nodes. Strict majority threshold for 6 nodes is > 3 (i.e. ≥ 4 valid sigs). */
     private static final int ROSTER_SIZE = 6;
 
     /**
      * Extended key pool size for the parametrised threshold tests.
-     * Covers all roster sizes tested in `supermajorityThreshold_exactlyMet_acceptedOneLess_rejected`.
+     * Covers all roster sizes tested in `strictMajorityThreshold_exactlyMet_acceptedOneLess_rejected`.
      */
     private static final int MAX_KEY_POOL = 9;
 
-    /** Supermajority threshold for 6 nodes. */
-    private static final int THRESHOLD = 5;
+    /** Strict majority threshold for 6 nodes: validCount * 2 > 6 → validCount ≥ 4. */
+    private static final int THRESHOLD = 4;
 
     /** HAPI version >= 0.72.0 routes to `ExtendedMerkleTreeSession`. */
     private static final SemanticVersion HAPI_VERSION = new SemanticVersion(1, 0, 0, "", "");
@@ -213,8 +215,8 @@ class RsaWrbVerificationTest {
     @Test
     @DisplayName("valid proof at exactly the threshold is accepted")
     void validProofAtExactThreshold_accepted() throws Exception {
-        // threshold = 5; sign with exactly nodes 0..4
-        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
+        // strict majority threshold for 6 nodes: > 3, i.e. exactly 4 valid sigs
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L);
         final VerificationNotification result = runVerification(KEY_MAP, sigs);
 
         assertNotNull(result, "Session must produce a notification");
@@ -236,8 +238,8 @@ class RsaWrbVerificationTest {
     @Test
     @DisplayName("valid proof one below threshold is rejected")
     void validProofOneBelowThreshold_rejected() throws Exception {
-        // threshold = 5; sign with only nodes 0..3 (4 valid sigs)
-        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L);
+        // strict majority for 6 nodes requires > 3; exactly 3 valid sigs → 3*2=6 not > 6 → rejected
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L);
         final VerificationNotification result = runVerification(KEY_MAP, sigs);
 
         assertNotNull(result);
@@ -287,9 +289,10 @@ class RsaWrbVerificationTest {
     }
 
     @Test
-    @DisplayName("wrong payload signature (signed wrong data) counts as invalid")
-    void wrongPayloadSignature_countedInvalid() throws Exception {
-        // Sign wrong data with all 6 node keys — only 0 valid sigs
+    @DisplayName("wrong payload signature (signed wrong data) causes immediate block rejection")
+    void wrongPayloadSignature_immediatelyRejectsBlock() throws Exception {
+        // CN only sends signatures from consensus-contributing nodes, so a failed RSA verify
+        // means the proof or block is tampered — the block is rejected at the first failing sig.
         final List<RecordFileSignature> sigs = new ArrayList<>();
         final byte[] wrongData = "totally-wrong-payload".getBytes();
         for (long id = 0; id < ROSTER_SIZE; id++) {
@@ -301,7 +304,28 @@ class RsaWrbVerificationTest {
         final VerificationNotification result = runVerification(KEY_MAP, sigs);
 
         assertNotNull(result);
-        assertFalse(result.success(), "Signatures on wrong payload must not verify");
+        assertFalse(result.success(), "Any signature failing RSA verification must cause immediate block rejection");
+    }
+
+    @Test
+    @DisplayName("one bad sig among otherwise sufficient valid sigs causes immediate block rejection")
+    void oneBadSigAmongValids_immediatelyRejectsBlock() throws Exception {
+        // 5 valid sigs from nodes 0..4 (would exceed the majority threshold of > 3 on their own),
+        // but node 5 signs the wrong payload — the block must be rejected immediately.
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
+        final byte[] wrongData = "tampered-payload".getBytes();
+        final Signature engine = Signature.getInstance("SHA384withRSA");
+        engine.initSign(PRIVATE_KEY_MAP.get(5L));
+        engine.update(wrongData);
+        sigs.add(new RecordFileSignature(Bytes.wrap(engine.sign()), 5L));
+
+        final VerificationNotification result = runVerification(KEY_MAP, sigs);
+
+        assertNotNull(result);
+        assertFalse(
+                result.success(),
+                "Block must be rejected immediately when any signature from a known node fails — "
+                        + "even if the remaining valid sigs would satisfy the majority count");
     }
 
     @Test
@@ -319,30 +343,32 @@ class RsaWrbVerificationTest {
     void malformedKeyExcludedFromMap_restStillCounted() throws Exception {
         // Build a key map where node 5 has a malformed (random) key — RsaKeyDecoder would skip it.
         // Here we simulate by simply omitting node 5 from the map (as if buildKeyMap had skipped it).
-        // 5 valid sigs from nodes 0..4 still meet the threshold of 5 for a 5-node roster.
+        // 5-node roster — strict majority threshold: > 2.5, i.e. ≥ 3 valid sigs.
         final Map<Long, PublicKey> reducedMap = new HashMap<>(KEY_MAP);
-        reducedMap.remove(5L); // 5-node roster now — threshold = floor(2*5/3)+1 = 3+1 = 4
+        reducedMap.remove(5L); // 5-node roster now — threshold: validCount*2 > 5 → ≥ 3
 
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
         final VerificationNotification result = runVerification(reducedMap, sigs);
 
         assertNotNull(result);
-        // threshold for 5 nodes = 4; 5 valid sigs ≥ 4 → accepted
-        assertTrue(result.success(), "5 valid sigs out of 5-node roster meets the threshold of 4");
+        // 5 valid sigs, 5*2=10 > 5 → accepted
+        assertTrue(result.success(), "5 valid sigs out of 5-node roster exceeds the strict majority threshold of > 2");
     }
 
     @Test
     @DisplayName("duplicate node_id in proof is counted only once toward the threshold")
     void duplicateNodeId_countedOnlyOnce() throws Exception {
-        // threshold = 5; send 4 distinct valid signatures + 1 duplicate of node 0 = still only 4 valid
-        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L);
+        // 6-node roster; strict majority requires > 3 (i.e. ≥ 4 valid).
+        // Send 3 distinct valid signatures + 1 duplicate of node 0 → validCount stays at 3.
+        // 3*2=6 not > 6 → rejected.
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L);
         sigs.add(new RecordFileSignature(Bytes.wrap(sign(0L)), 0L)); // duplicate node 0
         final VerificationNotification result = runVerification(KEY_MAP, sigs);
 
         assertNotNull(result);
         assertFalse(
                 result.success(),
-                "Duplicate signature from node 0 must not count twice — validCount stays at 4, below threshold 5");
+                "Duplicate signature from node 0 must not count twice — validCount stays at 3, not > rosterSize/2");
     }
 
     @Test
@@ -492,18 +518,15 @@ class RsaWrbVerificationTest {
     }
 
     /**
-     * Verifies that the supermajority threshold `floor(2 * rosterSize / 3) + 1` is correctly
-     * implemented for roster sizes that are not multiples of 3.
-     *
-     * <p>The former formula `2 * ceil(rosterSize / 3) + 1` only agreed with `floor(2n/3) + 1`
-     * when `rosterSize` was a multiple of 3. For example, with 7 nodes it produced threshold=7
-     * (unanimous, impossible with any offline node) instead of the correct threshold=5.
+     * Verifies that the strict majority threshold (`validCount * 2 > rosterSize`) is correctly
+     * enforced across a range of roster sizes. The minimum valid count is the smallest integer
+     * strictly greater than half the roster: `floor(rosterSize / 2) + 1`.
      */
-    @ParameterizedTest(name = "rosterSize={0} → threshold={1}")
+    @ParameterizedTest(name = "rosterSize={0} → minValidCount={1}")
     @MethodSource("thresholdCases")
-    @DisplayName("supermajority threshold floor(2n/3)+1 is correct across roster sizes")
-    void supermajorityThreshold_exactlyMet_acceptedOneLess_rejected(final int rosterSize, final int expectedThreshold)
-            throws Exception {
+    @DisplayName("strict majority threshold (validCount*2 > rosterSize) is correct across roster sizes")
+    void strictMajorityThreshold_exactlyMet_acceptedOneLess_rejected(
+            final int rosterSize, final int expectedThreshold) throws Exception {
         // Build a key map from the extended pool so existing 6-node KEY_MAP is unaffected.
         final Map<Long, PublicKey> keyMap = new HashMap<>();
         for (long id = 0; id < rosterSize; id++) {
@@ -530,15 +553,15 @@ class RsaWrbVerificationTest {
     }
 
     static Stream<Arguments> thresholdCases() {
-        // floor(2*n/3) + 1 for each roster size
+        // Minimum validCount such that validCount * 2 > rosterSize (i.e. floor(rosterSize/2) + 1)
         return Stream.of(
-                Arguments.of(3, 3), // floor(6/3)  + 1 = 3
-                Arguments.of(4, 3), // floor(8/3)  + 1 = 3
-                Arguments.of(5, 4), // floor(10/3) + 1 = 4
-                Arguments.of(6, 5), // floor(12/3) + 1 = 5
-                Arguments.of(7, 5), // floor(14/3) + 1 = 5
-                Arguments.of(8, 6), // floor(16/3) + 1 = 6
-                Arguments.of(9, 7) //  floor(18/3) + 1 = 7
-                );
+                Arguments.of(3, 2), // 2*2=4 > 3 ✓ ; 1*2=2 not > 3
+                Arguments.of(4, 3), // 3*2=6 > 4 ✓ ; 2*2=4 not > 4
+                Arguments.of(5, 3), // 3*2=6 > 5 ✓ ; 2*2=4 not > 5
+                Arguments.of(6, 4), // 4*2=8 > 6 ✓ ; 3*2=6 not > 6
+                Arguments.of(7, 4), // 4*2=8 > 7 ✓ ; 3*2=6 not > 7
+                Arguments.of(8, 5), // 5*2=10 > 8 ✓ ; 4*2=8 not > 8
+                Arguments.of(9, 5)  // 5*2=10 > 9 ✓ ; 4*2=8 not > 9
+        );
     }
 }

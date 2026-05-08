@@ -398,9 +398,13 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * 3. Compute the signed payload: `SHA-384(int32(6) || rawRecordStreamFileBytes)`.
      * 4. For each `RecordFileSignature` entry:
      *    - Skip if `node_id` not in `rsaKeyByNodeId` (increment roster-mismatch counter).
-     *    - Skip if signature bytes are all zeros.
-     *    - Verify with `SHA384withRSA`; count valid signatures.
-     * 5. Accept if `validCount >= floor(2 * rosterSize / 3) + 1` (supermajority threshold).
+     *    - Skip if signature bytes are all zeros (defensive pre-filter).
+     *    - Verify with `SHA384withRSA`. If verification fails or throws, **reject the block
+     *      immediately** — the CN only includes signatures from nodes that contributed to
+     *      consensus, so any included signature must be cryptographically valid.
+     * 5. Accept if `validCount * 2 > rosterSize` (strict majority: more than half of the
+     *      address-book nodes must have signed). The CN sends exactly the signatures from
+     *      nodes whose combined consensus weight exceeded 50%.
      *
      * <p>This method never throws; all error conditions return a `success=false` notification.
      *
@@ -512,14 +516,28 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 if (engine.verify(sigBytes)) {
                     validCount++;
                     validatedNodes.add(nodeId);
+                } else {
+                    // CN only includes signatures from consensus-contributing nodes, so a failed
+                    // cryptographic verification means the block or proof has been tampered with.
+                    LOGGER.log(
+                            WARNING,
+                            "RSA signature from node {0} failed verification in block {1} — rejecting block",
+                            nodeId,
+                            blockNumber);
+                    if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+                    return new VerificationNotification(
+                            false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
                 }
             } catch (final InvalidKeyException | SignatureException e) {
                 LOGGER.log(
-                        DEBUG,
-                        "RSA verification error for node {0} in block {1}: {2}",
+                        WARNING,
+                        "RSA verification error for node {0} in block {1}: {2} — rejecting block",
                         nodeId,
                         blockNumber,
                         e.getMessage());
+                if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+                return new VerificationNotification(
+                        false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
             }
         }
 
@@ -527,31 +545,29 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             rsaRosterMismatchTotal.increment(mismatchCount);
         }
 
-        // Supermajority threshold: floor(2 * rosterSize / 3) + 1
-        // Java integer division truncates toward zero (= floor for positive values), so
-        // `2 * rosterSize / 3` is exact floor division — no rounding adjustment needed.
-        // Note: the former expression `2 * ((rosterSize + 2) / 3) + 1` computed 2*ceil(n/3)+1,
-        // which only agrees with floor(2n/3)+1 when rosterSize is a multiple of 3.
-        final int threshold = 2 * rosterSize / 3 + 1;
-        final boolean accepted = validCount >= threshold;
+        // Strict majority threshold: validCount must be strictly greater than half the roster.
+        // The CN only sends signatures from nodes whose combined consensus weight exceeded 50%,
+        // so we require validCount * 2 > rosterSize (equivalent to validCount > rosterSize / 2.0).
+        // For example: 6-node roster requires > 3, i.e. ≥ 4 valid signatures.
+        final boolean accepted = validCount * 2 > rosterSize;
 
         if (accepted) {
             LOGGER.log(
                     DEBUG,
-                    "RSA WRB proof accepted for block {0}: {1}/{2} valid sigs (threshold {3})",
+                    "RSA WRB proof accepted for block {0}: {1}/{2} valid sigs (need > {3})",
                     blockNumber,
                     validCount,
                     rosterSize,
-                    threshold);
+                    rosterSize / 2);
             if (rsaVerificationSuccessTotal != null) rsaVerificationSuccessTotal.increment();
         } else {
             LOGGER.log(
                     WARNING,
-                    "RSA WRB proof rejected for block {0}: {1}/{2} valid sigs, need {3}",
+                    "RSA WRB proof rejected for block {0}: {1}/{2} valid sigs, need > {3}",
                     blockNumber,
                     validCount,
                     rosterSize,
-                    threshold);
+                    rosterSize / 2);
             if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
         }
 
