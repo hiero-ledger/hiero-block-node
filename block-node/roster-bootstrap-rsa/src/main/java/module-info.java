@@ -20,10 +20,11 @@ module org.hiero.block.node.roster.bootstrap.rsa {
             com.swirlds.config.extensions,
             org.hiero.block.node.app;
 
+    requires transitive com.swirlds.config.api;
     requires transitive org.hiero.block.node.spi;
-    requires transitive org.hiero.block.protobuf.pbj;
-    requires com.hedera.pbj.runtime;
     requires org.hiero.block.node.base;
+    requires org.hiero.block.protobuf.pbj;
+    requires org.hiero.metrics;
     requires com.google.gson;
     requires java.net.http;
 
