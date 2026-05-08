@@ -12,7 +12,6 @@ mainModuleInfo { runtimeOnly("com.swirlds.config.impl") }
 testModuleInfo {
     requires("org.junit.jupiter.api")
     requires("org.junit.jupiter.params")
-    requires("org.mockito")
     requires("org.hiero.block.node.app.test.fixtures")
     requires("jdk.httpserver")
 }

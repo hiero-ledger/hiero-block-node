@@ -3,6 +3,7 @@ package org.hiero.block.node.roster.bootstrap.rsa;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -125,6 +126,15 @@ class RsaRosterBootstrapPluginTest
     class MirrorNodeFallback {
 
         @Test
+        @DisplayName("Blank mirrorNodeBaseUrl returns early and leaves address book null")
+        void blankMirrorNodeUrlReturnsEarly() {
+            // No preloaded address book and no URL configured — plugin logs a WARNING and returns without a roster
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), Map.of());
+            // Address book must remain null — no Mirror Node fetch was attempted
+            assertNull(blockNodeContext.nodeAddressBook());
+        }
+
+        @Test
         @DisplayName("Unreachable Mirror Node (invalid URL) throws at start() when no book pre-loaded")
         void unreachableMirrorNodeThrows() {
             // No preloaded address book — plugin must fetch from Mirror Node and fail
@@ -134,16 +144,10 @@ class RsaRosterBootstrapPluginTest
                             new RsaRosterBootstrapPlugin(),
                             new SimpleInMemoryHistoricalBlockFacility(),
                             Map.of(
-                                    "roster.bootstrap.mirrorNodeBaseUrl", "http://localhost:1",
-                                    "roster.bootstrap.mirrorNodeConnectTimeoutSeconds", "1",
-                                    "roster.bootstrap.mirrorNodeReadTimeoutSeconds", "1")));
+                                    "roster.bootstrap.rsa.mirrorNodeBaseUrl", "http://localhost:1",
+                                    "roster.bootstrap.rsa.mirrorNodeConnectTimeoutSeconds", "1",
+                                    "roster.bootstrap.rsa.mirrorNodeReadTimeoutSeconds", "1")));
         }
-
-        // TODO: Add tests for blank-key filtering, 0x-prefix stripping, and pagination using
-        //  an embedded HTTP server (e.g. com.sun.net.httpserver.HttpServer or WireMock).
-        //  The blank-key filter and 0x-strip logic in fetchFromMirrorNode() is verified at the
-        //  MirrorNodeNodesResponse parsing layer; the relative-nextLink resolution is fixed in
-        //  RsaRosterBootstrapPlugin.fetchFromMirrorNode() and covered by MirrorNodeNodesResponseTest.
     }
 
     // -------------------------------------------------------------------------
@@ -173,11 +177,11 @@ class RsaRosterBootstrapPluginTest
 
         private Map<String, String> serverConfig() {
             return Map.of(
-                    "roster.bootstrap.mirrorNodeBaseUrl",
+                    "roster.bootstrap.rsa.mirrorNodeBaseUrl",
                     "http://localhost:" + port,
-                    "roster.bootstrap.mirrorNodeConnectTimeoutSeconds",
+                    "roster.bootstrap.rsa.mirrorNodeConnectTimeoutSeconds",
                     "5",
-                    "roster.bootstrap.mirrorNodeReadTimeoutSeconds",
+                    "roster.bootstrap.rsa.mirrorNodeReadTimeoutSeconds",
                     "5");
         }
 
@@ -328,9 +332,9 @@ class RsaRosterBootstrapPluginTest
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("configDataTypes() includes BootstrapRosterConfig")
-    void configDataTypesIncludesBootstrapRosterConfig() {
-        assertTrue(new RsaRosterBootstrapPlugin().configDataTypes().contains(BootstrapRosterConfig.class));
+    @DisplayName("configDataTypes() includes RsaRosterBootstrapConfig")
+    void configDataTypesIncludesRsaRosterBootstrapConfig() {
+        assertTrue(new RsaRosterBootstrapPlugin().configDataTypes().contains(RsaRosterBootstrapConfig.class));
     }
 
     // -------------------------------------------------------------------------

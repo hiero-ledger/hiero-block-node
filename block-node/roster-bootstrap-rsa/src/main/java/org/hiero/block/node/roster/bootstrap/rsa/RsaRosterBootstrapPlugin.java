@@ -54,9 +54,6 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     private static final System.Logger LOGGER = System.getLogger(RsaRosterBootstrapPlugin.class.getName());
 
-    /// Default testnet Mirror Node base URL (value of `mirrorNodeBaseUrl` config default).
-    private static final String DEFAULT_MIRROR_NODE_URL = "https://testnet-public.mirrornode.hedera.com";
-
     /// `blocknode:roster_entries_loaded` — number of `NodeAddress` entries loaded at startup.
     static final MetricKey<ObservableGauge> METRIC_ROSTER_ENTRIES_LOADED =
             MetricKey.of("roster_entries_loaded", ObservableGauge.class).addCategory(METRICS_CATEGORY);
@@ -69,7 +66,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     private static final int MAX_RETRIES = 3;
 
     private volatile BlockNodeContext context;
-    private BootstrapRosterConfig config;
+    private RsaRosterBootstrapConfig config;
     private ApplicationStateFacility applicationStateFacility;
 
     // Metric values stored after startup so ObservableGauge can read them
@@ -79,14 +76,14 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// {@inheritDoc}
     @Override
     public List<Class<? extends Record>> configDataTypes() {
-        return List.of(BootstrapRosterConfig.class);
+        return List.of(RsaRosterBootstrapConfig.class);
     }
 
     /// {@inheritDoc}
     @Override
     public void init(final BlockNodeContext context, final ServiceBuilder serviceBuilder) {
         this.context = context;
-        this.config = context.configuration().getConfigData(BootstrapRosterConfig.class);
+        this.config = context.configuration().getConfigData(RsaRosterBootstrapConfig.class);
         this.applicationStateFacility = context.applicationStateFacility();
         final MetricRegistry metricRegistry = context.metricRegistry();
         metricRegistry.register(ObservableGauge.builder(METRIC_ROSTER_ENTRIES_LOADED)
@@ -115,12 +112,14 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
         if (book == null) {
             // No bootstrap file was loaded by BlockNodeApp.loadApplicationState()
-            if (DEFAULT_MIRROR_NODE_URL.equals(config.mirrorNodeBaseUrl())) {
+            if (config.mirrorNodeBaseUrl().isBlank()) {
+                // @todo(#XXXX) replace this warning with proper plugin health reporting once
+                //   the block node supports plugin-level healthy/unhealthy status indication.
                 LOGGER.log(
                         WARNING,
-                        "roster.bootstrap.mirrorNodeBaseUrl is using the default testnet URL."
-                                + " Mainnet operators must override this config property to avoid"
-                                + " bootstrapping from testnet node keys.");
+                        "roster.bootstrap.rsa.mirrorNodeBaseUrl is blank and no RSA bootstrap file is present."
+                                + " Provide rsa-bootstrap-roster.json or set roster.bootstrap.rsa.mirrorNodeBaseUrl.");
+                return;
             }
             LOGGER.log(INFO, "RSA bootstrap file not found, querying Mirror Node at {0}", config.mirrorNodeBaseUrl());
             book = fetchFromMirrorNode();
