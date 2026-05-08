@@ -634,7 +634,6 @@ class ExpandedCloudStoragePluginTest
     @Test
     @DisplayName(
             "PersistedNotifications are published in ascending block-number order when results are drained together")
-    @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void notificationsPublishedInAscendingBlockOrder() throws InterruptedException {
         // Two-latch barrier: hold each upload INSIDE uploadFile until both tasks are
         // simultaneously in-flight. This prevents block 7's task from completing before
@@ -651,9 +650,12 @@ class ExpandedCloudStoragePluginTest
                     final String contentType) {
                 uploadsStarted.countDown();
                 try {
-                    releaseUploads.await(5, TimeUnit.SECONDS);
+                    if (!releaseUploads.await(5, TimeUnit.SECONDS)) {
+                        throw new AssertionError("Timed out waiting for releaseUploads barrier");
+                    }
                 } catch (final InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    throw new AssertionError("Interrupted while awaiting releaseUploads barrier", e);
                 }
             }
 
