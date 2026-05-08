@@ -525,8 +525,8 @@ class RsaWrbVerificationTest {
     @ParameterizedTest(name = "rosterSize={0} → minValidCount={1}")
     @MethodSource("thresholdCases")
     @DisplayName("strict majority threshold (validCount*2 > rosterSize) is correct across roster sizes")
-    void strictMajorityThreshold_exactlyMet_acceptedOneLess_rejected(
-            final int rosterSize, final int expectedThreshold) throws Exception {
+    void strictMajorityThreshold_exactlyMet_acceptedOneLess_rejected(final int rosterSize, final int expectedThreshold)
+            throws Exception {
         // Build a key map from the extended pool so existing 6-node KEY_MAP is unaffected.
         final Map<Long, PublicKey> keyMap = new HashMap<>();
         for (long id = 0; id < rosterSize; id++) {
@@ -561,7 +561,7 @@ class RsaWrbVerificationTest {
                 Arguments.of(6, 4), // 4*2=8 > 6 ✓ ; 3*2=6 not > 6
                 Arguments.of(7, 4), // 4*2=8 > 7 ✓ ; 3*2=6 not > 7
                 Arguments.of(8, 5), // 5*2=10 > 8 ✓ ; 4*2=8 not > 8
-                Arguments.of(9, 5)  // 5*2=10 > 9 ✓ ; 4*2=8 not > 9
-        );
+                Arguments.of(9, 5) // 5*2=10 > 9 ✓ ; 4*2=8 not > 9
+                );
     }
 }
