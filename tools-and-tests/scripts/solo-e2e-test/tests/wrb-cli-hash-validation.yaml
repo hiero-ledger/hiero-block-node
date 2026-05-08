@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB CLI Hash Validation Test (#2580)
+#
+# Validates that WRB CLI tools compute identical block hashes to the
+# Consensus Node. Extracts live block files from a Block Node pod
+# (which received and verified them from the CN), then runs the WRB CLI
+# `blocks validate` command against them.
+#
+# Validations performed:
+#   - BlockChainValidation: block hash matches previousBlockRootHash in next block
+#   - HistoricalBlockTreeValidation: streaming merkle tree matches rootHashOfAllBlockHashesTree
+#   - RequiredItemsValidation: block structure is valid
+#   - BlockStructureValidation: item ordering is correct
+#
+# Prerequisites:
+#   - Single topology deployed (1 CN, 1 BN)
+#   - Port forwards active (task port-forward)
+#
+# Usage:
+#   task test:run TEST_FILE=tests/wrb-cli-hash-validation.yaml
+
+name: wrb-cli-hash-validation
+description: "Validate WRB CLI block hashing matches Consensus Node hashing"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm nodes are running"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CN to produce blocks"
+    delay: 10
+    args:
+      seconds: 120
+
+  - id: pre-validation-metrics
+    type: print-metrics
+    description: "Capture pre-validation state"
+    delay: 135
+    args:
+      target: all
+
+  - id: build-tools-jar
+    type: command
+    description: "Build tools shadow jar"
+    delay: 140
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-validate-blocks.sh build"
+
+  - id: validate-blocks
+    type: command
+    description: "Extract blocks from BN and run WRB CLI validation"
+    delay: 145
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-validate-blocks.sh validate"
+
+  - id: final-status
+    type: network-status
+    description: "Post-validation network status"
+    delay: 150
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: all

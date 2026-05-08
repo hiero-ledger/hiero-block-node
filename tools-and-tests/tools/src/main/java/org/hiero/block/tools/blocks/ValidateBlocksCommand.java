@@ -142,6 +142,12 @@ public class ValidateBlocksCommand implements Runnable {
     private boolean skipSupply = false;
 
     @Option(
+            names = {"--skip-required-items"},
+            description =
+                    "Skip required items and block structure validations (useful for validating live blocks without RecordFile/BlockProof)")
+    private boolean skipRequiredItems = false;
+
+    @Option(
             names = {"--validate-balances"},
             description = "Enable validation of account balances (enabled by default)",
             defaultValue = "true",
@@ -401,8 +407,13 @@ public class ValidateBlocksCommand implements Runnable {
         final AddressBookRegistry abRegistry = addressBookRegistry;
         final NodeStakeRegistry nodeStakeRegistry = new NodeStakeRegistry();
         List<BlockValidation> parallelValidations = new ArrayList<>();
-        parallelValidations.add(new RequiredItemsValidation());
-        parallelValidations.add(new BlockStructureValidation());
+        if (!skipRequiredItems) {
+            parallelValidations.add(new RequiredItemsValidation());
+            parallelValidations.add(new BlockStructureValidation());
+        } else {
+            System.out.println(Ansi.AUTO.string(
+                    "@|yellow Skipping:|@ Required items and block structure validations (--skip-required-items)"));
+        }
         SignatureValidation sigVal = null;
         if (!skipSignatures) {
             sigVal = new SignatureValidation(abRegistry, nodeStakeRegistry, true);
