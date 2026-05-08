@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureInfo;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -245,7 +246,12 @@ class BackfillPersistenceAwaiterTest {
 
             // when - verification failed
             subject.handleVerification(new VerificationNotification(
-                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, BlockSource.BACKFILL));
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    null,
+                    BlockSource.BACKFILL));
 
             // then - await should return immediately
             boolean result = subject.awaitPersistence(blockNumber, 100);
@@ -277,7 +283,12 @@ class BackfillPersistenceAwaiterTest {
 
             // when - verification failure from PUBLISHER source
             subject.handleVerification(new VerificationNotification(
-                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, BlockSource.PUBLISHER));
+                    false,
+                    FailureInfo.standard(FailureType.BAD_BLOCK_PROOF),
+                    blockNumber,
+                    null,
+                    null,
+                    BlockSource.PUBLISHER));
 
             // then - block should still be pending, await times out
             boolean result = subject.awaitPersistence(blockNumber, 50);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package org.hiero.block.node.verification;
+package org.hiero.block.node.block.verification;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
@@ -27,13 +27,9 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
-import org.hiero.block.node.spi.blockmessaging.BlockSource;
-import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
-import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
-import org.hiero.block.node.verification.session.VerificationSession;
 
 /// Maintains and persists a streaming Merkle hasher over all previous block hashes.
 ///
@@ -292,12 +288,17 @@ public class AllBlocksHasherHandler {
                             final BlockItems blockItemsMessage =
                                     new BlockItems(block.blockItems(), blockNumber, true, true);
                             // Pass null, null so the session uses the block footer's authoritative values
-                            final VerificationSession session = HapiVersionSessionFactory.createSession(
-                                    blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion(), null, null, null);
-                            final VerificationNotification result = session.processBlockItems(blockItemsMessage);
-                            if (result != null && result.success()) {
-                                blockHash = result.blockHash().toByteArray();
-                            }
+                            // todo we need to use the new session
+                            //                            final VerificationSession session =
+                            // HapiVersionSessionFactory.createSession(
+                            //                                    blockNumber, BlockSource.HISTORY,
+                            // blockHeader.hapiProtoVersion(), null, null, null);
+                            //                            final VerificationNotification result =
+                            // session.processBlockItems(blockItemsMessage);
+                            //                            if (result != null && result.success()) {
+                            //                                blockHash = result.blockHash().toByteArray();
+                            //                            }
+                            throw new UnsupportedOperationException("need to use the new sessions");
                         }
                     }
                 }
@@ -346,7 +347,7 @@ public class AllBlocksHasherHandler {
     public void appendLatestHashToAllPreviousBlocksStreamingHasher(
             @NonNull final byte[] blockHashBytes, final long blockNumber) {
         if (isAvailable()) {
-            // @todo(2461) use blockNumber
+            // todo use blockNumber
             hasher.addNodeByHash(blockHashBytes);
             if (persistenceThresholdCounter.get() > UNINITIALIZED_PERSISTENCE_THRESHOLD) {
                 final int incremented = persistenceThresholdCounter.incrementAndGet();

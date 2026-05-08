@@ -168,7 +168,7 @@ class ExtendedMerkleTreeSessionTest {
 
         assertNotNull(notification, "Session must produce a notification for a malformed block");
         assertFalse(notification.success(), "Duplicate TSS proofs must not verify successfully");
-        assertEquals(FailureType.BAD_BLOCK_PROOF, notification.failureType());
+        assertEquals(FailureType.BAD_BLOCK_PROOF, notification.failureInfo().failureType());
     }
 
     private static ExtendedMerkleTreeSession createAndProcessSession(BlockUnparsed block, Bytes ledgerId)
