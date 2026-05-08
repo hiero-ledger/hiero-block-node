@@ -187,7 +187,7 @@ env:
 
 jobs:
   solo-test-deploy:
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
     outputs:
       result: ${{ steps.result.outputs.status }}
       resolved-versions: ${{ steps.versions.outputs.cn_version }},${{ steps.versions.outputs.mn_version }},${{ steps.versions.outputs.bn_version }}

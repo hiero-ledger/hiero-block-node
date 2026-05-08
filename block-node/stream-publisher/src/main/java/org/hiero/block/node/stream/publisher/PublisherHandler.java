@@ -46,6 +46,7 @@ import org.hiero.block.api.PublishStreamResponse.BlockAcknowledgement;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream;
 import org.hiero.block.api.PublishStreamResponse.EndOfStream.Code;
 import org.hiero.block.api.PublishStreamResponse.ResendBlock;
+import org.hiero.block.api.PublishStreamResponse.ResponseOneOfType;
 import org.hiero.block.api.PublishStreamResponse.SkipBlock;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed;
@@ -74,6 +75,12 @@ import org.hiero.metrics.core.MetricRegistry;
 /// block, the action for it might be different that what is usually expected,
 /// especially true in a multi-publisher environment.
 public final class PublisherHandler implements Pipeline<PublishStreamRequestUnparsed> {
+    // Note: not surrounding correlationId={3} with [] intentionally as it will break Loki's parsing.
+    private static final String LATENCY_END_METRIC_MESSAGE =
+            "metric-end-to-end-latency-by-block-end block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}";
+    private static final String LATENCY_START_MESSAGE =
+            "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}";
+
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /// The replies pipeline, used for sending responses to the publisher.
     private final Pipeline<? super PublishStreamResponse> replies;
@@ -211,21 +218,17 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     /// is sent as a response to the publisher, indicating that all blocks up to
     /// and including the given block number are safely stored in this block node.
     ///
-    /// @param newLastAcknowledgedBlockNumber the last block number that was
+    /// @param blockToAcknowledge the last block number that was
     ///     verified and persisted.
-    public void sendAcknowledgement(final long newLastAcknowledgedBlockNumber) {
-        LOGGER.log(
-                TRACE,
-                "[{0}] Handler {1} sending acknowledgement for block {2}",
-                correlationIdPrefix,
-                handlerId,
-                newLastAcknowledgedBlockNumber);
+    public void sendAcknowledgement(final long blockToAcknowledge) {
+        final String ackTraceStartMessage = "[{0}] Handler {1} sending acknowledgement for block {2}";
+        LOGGER.log(TRACE, ackTraceStartMessage, correlationIdPrefix, handlerId, blockToAcknowledge);
         // We only ever need to acknowledge once for a given block number, even
         // if there are several blocks "behind" that acknowledgement.
         // The publishers expect that acknowledgement for block N implicitly
         // acknowledges all blocks up to and including N.
         final BlockAcknowledgement ack = BlockAcknowledgement.newBuilder()
-                .blockNumber(newLastAcknowledgedBlockNumber)
+                .blockNumber(blockToAcknowledge)
                 .build();
         final PublishStreamResponse response =
                 PublishStreamResponse.newBuilder().acknowledgement(ack).build();
@@ -233,26 +236,16 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             // if response was sent successfully, we can remove
             // all unacknowledged blocks that are less than or equal to the
             // new last acknowledged block number.
-            unacknowledgedStreamedBlocks
-                    .headSet(newLastAcknowledgedBlockNumber, true)
-                    .clear();
+            unacknowledgedStreamedBlocks.headSet(blockToAcknowledge, true).clear();
             metrics.blockAcknowledgementsSent.increment(); // @todo(1415) add label
-            LOGGER.log(
-                    TRACE,
-                    // Note: not surrounding correlationId={3} with [] intentionally as it will break Loki's parsing.
-                    "metric-end-to-end-latency-by-block-end block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}",
-                    newLastAcknowledgedBlockNumber,
-                    System.nanoTime(),
-                    handlerId,
-                    correlationIdPrefix);
-            LOGGER.log(
-                    TRACE,
-                    "[{2}] Sent acknowledgement for block {0,number,#} from handler {1}",
-                    newLastAcknowledgedBlockNumber,
-                    handlerId,
-                    correlationIdPrefix);
+            final long ackTime = System.nanoTime();
+            LOGGER.log(TRACE, LATENCY_END_METRIC_MESSAGE, blockToAcknowledge, ackTime, handlerId, correlationIdPrefix);
+            final String ackTraceEndMessage = "[{2}] Sent acknowledgement for block {0,number,#} from handler {1}";
+            LOGGER.log(TRACE, ackTraceEndMessage, blockToAcknowledge, handlerId, correlationIdPrefix);
         } else {
-            scheduleShutdown();
+            // Here, we must end immediately, because if we failed to send, then
+            // we will never get another `onNext`.
+            checkMidBlockAndShutdown(currentStreamingBlockNumber.get());
         }
     }
 
@@ -307,6 +300,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     private void checkMidBlockAndShutdown(final long blockNumber) {
         try {
+            isActive.compareAndSet(true, false); // shouldn't be needed, but set just in case.
             if (isCurrentlyMidBlock(blockNumber)) {
                 publisherManager.blockIsEnding(currentStreamingBlockNumber.get(), handlerId);
             }
@@ -366,11 +360,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     return new SendEndAndShutdownResult(this, Code.INVALID_REQUEST, blockNumber);
                 }
             } else {
-                LOGGER.log(
-                        DEBUG,
-                        "[{0}] Handler {1} received a BlockHeader with null bytes",
-                        correlationIdPrefix,
-                        handlerId);
+                final String message = "[{0}] Handler {1} received a BlockHeader with null bytes";
+                LOGGER.log(DEBUG, message, correlationIdPrefix, handlerId);
                 // this should never happen
                 return new SendEndAndShutdownResult(this, Code.ERROR, blockNumber);
             }
@@ -388,17 +379,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             currentStreamingBlockNumber.set(blockNumber);
             // this means that we are starting a new block, so we can
             // update the current streaming block number
-            // Note: not surrounding correlationId={3} with [] intentionally as it will break Loki's parsing.
-            final String traceMessage =
-                    "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}";
             currentStreamingBlockHeaderReceivedTime = System.nanoTime();
-            LOGGER.log(
-                    TRACE,
-                    traceMessage,
-                    blockNumber,
-                    currentStreamingBlockHeaderReceivedTime,
-                    handlerId,
-                    correlationIdPrefix);
+            final long blockStartTime = currentStreamingBlockHeaderReceivedTime;
+            LOGGER.log(TRACE, LATENCY_START_MESSAGE, blockNumber, blockStartTime, handlerId, correlationIdPrefix);
         } else if (UNKNOWN_BLOCK_NUMBER == blockNumber) {
             // here we should drop the batch, _this is normal_, and can happen
             // in many cases, including if the publisher sent several batches
@@ -406,11 +389,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             // header batch to arrive and the "skip" response to be sent back,
             // due to network latency and processing time.
             metrics.blockItemSetsDropped.increment();
-            LOGGER.log(
-                    DEBUG,
-                    "[{0}] Handler {1} dropping batch because first block item is not BlockHeader",
-                    correlationIdPrefix,
-                    handlerId);
+            final String message = "[{0}] Handler {1} dropping batch because first block item is not BlockHeader";
+            LOGGER.log(DEBUG, message, correlationIdPrefix, handlerId);
             return new ContinueResult(this);
         }
         // now we need to query the manager with the block number currently
@@ -594,7 +574,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 PublishStreamResponse.newBuilder().endStream(endOfStream).build();
         if (sendResponse(response)) {
             metrics.endOfStreamsSent.increment(); // @todo(1415) add label
-        }
+        } // no else here, we expect to be shut down regardless...
     }
 
     /// Everytime we interact with the response pipeline we need to make sure we
@@ -607,13 +587,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             replies.onNext(response);
             long duration = System.nanoTime() - start;
             final String entryMessage = "[{0}] Handler {1} replies.onNext took {2,number,#} ns to send {3}";
-            LOGGER.log(
-                    DEBUG,
-                    entryMessage,
-                    correlationIdPrefix,
-                    handlerId,
-                    duration,
-                    response.response().kind());
+            final ResponseOneOfType responseKind = response.response().kind();
+            LOGGER.log(DEBUG, entryMessage, correlationIdPrefix, handlerId, duration, responseKind);
             return true;
         } catch (final UncheckedIOException e) {
             // Unfortunately this is the "standard" way to end a stream, so log
@@ -621,14 +596,14 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             // Also, this confuses everyone, they all see this debug log and
             // assume the node crashed, so we must not print a stack trace.
             final String messageFormat = "[%3$s] Publisher closed the connection unexpectedly for client %1$d: %2$s";
-            final String exceptionMessage = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-            final String message = messageFormat.formatted(handlerId, exceptionMessage, correlationIdPrefix);
+            final Throwable actualException = e.getCause() != null ? e.getCause() : e;
+            final String message = messageFormat.formatted(handlerId, actualException, correlationIdPrefix);
             LOGGER.log(DEBUG, message, e);
             metrics.sendResponseFailed.increment(); // @todo(1415) add label
             return false;
         } catch (final RuntimeException e) {
             final String message = "[%4$s] Failed to send response '%1$s' for handler %2$d: %3$s"
-                    .formatted(response.response().kind(), handlerId, e.getMessage(), correlationIdPrefix);
+                    .formatted(response.response().kind(), handlerId, e, correlationIdPrefix);
             LOGGER.log(DEBUG, message, e);
             metrics.sendResponseFailed.increment(); // @todo(1415) add label
             return false;
@@ -769,11 +744,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             publisherManager.removeHandler(handlerId);
         } catch (final RuntimeException e) {
             // this should not happen
-            LOGGER.log(
-                    WARNING,
-                    "[%2$s] RuntimeException during removal of handler %1$d from manager"
-                            .formatted(handlerId, correlationIdPrefix),
-                    e);
+            final String message = "[%2$s] RuntimeException during removal of handler %1$d from manager"
+                    .formatted(handlerId, correlationIdPrefix);
+            LOGGER.log(WARNING, message, e);
         } finally {
             try {
                 replies.onComplete();
@@ -784,18 +757,14 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             } catch (final UncheckedIOException wrapper) {
                 IOException wrapped = wrapper.getCause();
                 if (!(wrapped instanceof SocketException)) {
-                    LOGGER.log(
-                            DEBUG,
-                            "[%2$s] IO Exception during shutdown for handler %1$d"
-                                    .formatted(handlerId, correlationIdPrefix),
-                            wrapper);
+                    final String message = "[%2$s] IO Exception during shutdown for handler %1$d"
+                            .formatted(handlerId, correlationIdPrefix);
+                    LOGGER.log(DEBUG, message, wrapper);
                 }
             } catch (final RuntimeException e) {
-                LOGGER.log(
-                        DEBUG,
-                        "[%2$s] RuntimeException during shutdown for handler %1$d"
-                                .formatted(handlerId, correlationIdPrefix),
-                        e);
+                final String message = "[%2$s] RuntimeException during shutdown for handler %1$d"
+                        .formatted(handlerId, correlationIdPrefix);
+                LOGGER.log(DEBUG, message, e);
             }
             LOGGER.log(DEBUG, "[{0}] Handler {1} issued onComplete/closeConnection", correlationIdPrefix, handlerId);
         }

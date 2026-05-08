@@ -25,7 +25,7 @@ env:
 jobs:
   k6-tests:
     timeout-minutes: 30
-    runs-on: hiero-block-node-linux-medium
+    runs-on: hl-bn-lin-md
 
     steps:
       - name: Harden Runner
