@@ -89,10 +89,12 @@ echo "  Long version: $LONG_VERSION"
 echo "  Proto version: $PROTO_VERSION"
 
 # First, install SDK workspace dependencies from root (builds @hiero-ledger/proto and @hiero-ledger/cryptography)
+# --no-frozen-lockfile: SDK source is fetched fresh at the latest tag; in CI pnpm defaults to frozen
+# mode, which fails when the upstream lockfile's overrides config drifts from package.json.
 echo ""
 echo "=== Installing SDK workspace dependencies ==="
 cd "${SDK_DIR}"
-pnpm install
+pnpm install --no-frozen-lockfile
 
 # Then install deps in SDK server's tck directory
 # Install both @hashgraph and @hiero-ledger packages (code imports from @hiero-ledger/*)
