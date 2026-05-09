@@ -57,6 +57,26 @@ ASSERTIONS_FAILED=0
 ASSERTION_RESULTS_FILE="/tmp/solo-test-assert-results-$$"
 : > "${ASSERTION_RESULTS_FILE}"
 
+# Chaos: track applied NetworkChaos resource names so we can clean up on exit
+# even if the test fails between inject-latency and clear-latency.
+CHAOS_TEMPLATE_DIR="${CHAOS_TEMPLATE_DIR:-${SCRIPT_DIR}/chaos-templates}"
+CHAOS_ACTIVE_FILE="/tmp/solo-test-chaos-active-$$"
+: > "${CHAOS_ACTIVE_FILE}"
+
+function cleanup_chaos_on_exit {
+    if [[ -s "${CHAOS_ACTIVE_FILE}" ]]; then
+        echo ""
+        echo "Cleaning up active NetworkChaos resources..."
+        while IFS= read -r name; do
+            [[ -z "$name" ]] && continue
+            kctl delete networkchaos -n chaos-mesh "$name" --ignore-not-found 2>/dev/null \
+                | sed 's/^/  /' || true
+        done < "${CHAOS_ACTIVE_FILE}"
+    fi
+    rm -f "${CHAOS_ACTIVE_FILE}" 2>/dev/null
+}
+trap cleanup_chaos_on_exit EXIT
+
 
 # ============================================================================
 # Argument Parsing
@@ -482,6 +502,139 @@ function execute_reconfigure_cn_streaming {
     echo "CN ${cn_name} reconfigured to stream to: $(echo "$block_nodes_json" | yq -r '. | join(", ")')"
 }
 
+# ============================================================================
+# Chaos / Network Latency Helpers
+# ============================================================================
+# Maps the user-facing 'kind' to the actual pod label key/value present in
+# solo-e2e-test deployments. CN pods use the solo.hedera.com/* namespace
+# (emitted by Solo CLI) while BN pods use block-node.hiero.com/* (emitted by
+# the BN Helm chart). See:
+# agent/proposals/solo-chaos-spike/findings/002-bn-label-namespace-mismatch.md
+function chaos_label_key {
+    case "$1" in
+        network-node) echo "solo.hedera.com/type" ;;
+        block-node)   echo "block-node.hiero.com/type" ;;
+        *) echo "ERROR: unknown chaos kind: '$1' (expected: network-node | block-node)" >&2; return 1 ;;
+    esac
+}
+
+function chaos_label_value {
+    case "$1" in
+        network-node) echo "network-node" ;;
+        block-node)   echo "block-node" ;;
+        *) echo "ERROR: unknown chaos kind: '$1'" >&2; return 1 ;;
+    esac
+}
+
+# Slug a string into a Kubernetes-name-safe lowercase token.
+function chaos_slug {
+    echo "$1" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//'
+}
+
+function execute_inject_latency {
+    local args="$1"
+    local name source_kind target_kind latency jitter correlation bidirectional loss
+    name=$(echo "$args" | yq '.name // ""')
+    source_kind=$(echo "$args" | yq '.source.kind // ""')
+    target_kind=$(echo "$args" | yq '.target.kind // ""')
+    latency=$(echo "$args" | yq '.latency // "0ms"')
+    jitter=$(echo "$args" | yq '.jitter // "0ms"')
+    correlation=$(echo "$args" | yq '.correlation // "0"')
+    bidirectional=$(echo "$args" | yq '.bidirectional // true')
+    loss=$(echo "$args" | yq '.loss // ""')
+
+    [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: inject-latency requires args.name"; return 1; }
+    [[ -z "$source_kind" || "$source_kind" == "null" ]] && { echo "ERROR: inject-latency requires args.source.kind"; return 1; }
+    [[ -z "$target_kind" || "$target_kind" == "null" ]] && { echo "ERROR: inject-latency requires args.target.kind"; return 1; }
+
+    if ! kctl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
+        echo "ERROR: Chaos Mesh CRDs not present. Run: CHAOS_ENABLED=true task chaos:install"
+        return 1
+    fi
+
+    local source_key source_val target_key target_val
+    source_key=$(chaos_label_key "$source_kind") || return 1
+    source_val=$(chaos_label_value "$source_kind") || return 1
+    target_key=$(chaos_label_key "$target_kind") || return 1
+    target_val=$(chaos_label_value "$target_kind") || return 1
+
+    if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+            --selector "${source_key}=${source_val}" --label "source(${source_kind})"; then
+        return 1
+    fi
+    if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
+            --selector "${target_key}=${target_val}" --label "target(${target_kind})"; then
+        return 1
+    fi
+
+    local test_slug scenario_slug chaos_name direction loss_block
+    test_slug=$(chaos_slug "${TEST_NAME}")
+    scenario_slug=$(chaos_slug "${name}")
+    chaos_name="${test_slug}--${scenario_slug}"
+    chaos_name="${chaos_name:0:63}"
+
+    if [[ "${bidirectional}" == "true" ]]; then
+        direction="both"
+    else
+        direction="to"
+    fi
+
+    if [[ -n "${loss}" && "${loss}" != "null" && "${loss}" != "0%" && "${loss}" != "0" ]]; then
+        loss_block=$(printf "  loss:\n    loss: '%s'\n    correlation: '%s'" "${loss}" "${correlation}")
+    else
+        loss_block=""
+    fi
+
+    local manifest="/tmp/${chaos_name}.yaml"
+    export CHAOS_NAME="${chaos_name}"
+    export TEST_ID="${test_slug}"
+    export SCENARIO_ID="${scenario_slug}"
+    export DIRECTION="${direction}"
+    export TARGET_NAMESPACE="${NAMESPACE}"
+    export SOURCE_LABEL_KEY="${source_key}"
+    export SOURCE_LABEL_VALUE="${source_val}"
+    export TARGET_LABEL_KEY="${target_key}"
+    export TARGET_LABEL_VALUE="${target_val}"
+    export LATENCY="${latency}"
+    export JITTER="${jitter}"
+    export CORRELATION="${correlation}"
+    export LOSS_BLOCK="${loss_block}"
+
+    envsubst < "${CHAOS_TEMPLATE_DIR}/network-latency.yaml.tmpl" > "${manifest}"
+
+    echo "Applying NetworkChaos '${chaos_name}'"
+    echo "  selector: ${source_key}=${source_val}  ->  target: ${target_key}=${target_val}"
+    echo "  delay: ${latency} +/- ${jitter} (correlation: ${correlation}, direction: ${direction})"
+    [[ -n "${loss_block}" ]] && echo "  loss: ${loss}"
+
+    kctl apply -f "${manifest}"
+
+    echo "${chaos_name}" >> "${CHAOS_ACTIVE_FILE}"
+}
+
+function execute_clear_latency {
+    local args="$1"
+    local name test_slug scenario_slug chaos_name
+    name=$(echo "$args" | yq '.name // ""')
+    [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: clear-latency requires args.name"; return 1; }
+
+    test_slug=$(chaos_slug "${TEST_NAME}")
+    scenario_slug=$(chaos_slug "${name}")
+    chaos_name="${test_slug}--${scenario_slug}"
+    chaos_name="${chaos_name:0:63}"
+
+    echo "Deleting NetworkChaos '${chaos_name}'"
+    kctl delete networkchaos -n chaos-mesh "${chaos_name}" --ignore-not-found
+
+    if [[ -f "${CHAOS_ACTIVE_FILE}" ]]; then
+        grep -vx "${chaos_name}" "${CHAOS_ACTIVE_FILE}" > "${CHAOS_ACTIVE_FILE}.new" 2>/dev/null || true
+        mv -f "${CHAOS_ACTIVE_FILE}.new" "${CHAOS_ACTIVE_FILE}" 2>/dev/null || true
+    fi
+}
+
+# ============================================================================
+# Event Dispatch
+# ============================================================================
 function execute_event {
     local event_type="$1"
     local target="$2"
@@ -556,6 +709,12 @@ function execute_event {
             ;;
         reconfigure-cn-streaming)
             execute_reconfigure_cn_streaming "$args"
+            ;;
+        inject-latency)
+            execute_inject_latency "$args"
+            ;;
+        clear-latency)
+            execute_clear_latency "$args"
             ;;
         *)
             echo "ERROR: Unknown event type: $event_type"
