@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# CN ↔ BN Latency Test
+#
+# Injects 150 ms ± 30 ms bidirectional latency between Consensus Nodes and
+# Block Nodes during NLG load. This is the production-realistic scenario:
+# CNs and BNs sitting in different regions, with the block-publish stream
+# crossing a slow link. Verifies blocks continue to land and BNs stay healthy.
+#
+# Selectors:
+#   source: solo.hedera.com/type=network-node
+#   target: block-node.hiero.com/type=block-node
+#
+# Pre-req:
+#   task up TOPOLOGY=paired-3
+#   CHAOS_ENABLED=true task chaos:install
+#
+# Usage:
+#   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-cn-to-bn.yaml
+
+name: latency-cn-to-bn
+description: "150ms ± 30ms bidirectional latency between Consensus Nodes and Block Nodes during load"
+
+events:
+  - id: load-start
+    type: load-start
+    description: "Start NLG load"
+    delay: 0
+    args:
+      concurrency: 5
+      accounts: 10
+      duration: 420
+
+  - id: inject
+    type: inject-latency
+    description: "Inject CN↔BN 150ms latency"
+    delay: 30
+    args:
+      name: cn-to-bn-150ms
+      source: { kind: network-node }
+      target: { kind: block-node }
+      latency: 150ms
+      jitter: 30ms
+      correlation: '0'
+      bidirectional: true
+
+  - id: clear
+    type: clear-latency
+    description: "Clear CN↔BN latency"
+    delay: 330
+    args:
+      name: cn-to-bn-150ms
+
+  - id: load-stop
+    type: load-stop
+    description: "Stop NLG load"
+    delay: 360
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All BNs healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All BNs have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: blocks-increasing
+    type: blocks-increasing
+    description: "Blocks still increasing across CN↔BN chaos window"
+    target: all
+    args:
+      wait_seconds: 30
+      max_attempts: 3
