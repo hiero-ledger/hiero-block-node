@@ -1069,6 +1069,17 @@ function assert_signature_transition {
     fi
 }
 
+# ============================================================================
+# Phase 3: latency-aware assertion primitives — sourced from a separate library
+# so they can be exercised by fixture-based unit tests without invoking the
+# runner's CLI parsing.
+# ============================================================================
+# shellcheck source=lib/chaos-assertions.sh
+source "${SCRIPT_DIR}/lib/chaos-assertions.sh"
+
+# ============================================================================
+# Assertion Dispatch
+# ============================================================================
 function run_assertion {
     local assert_type="$1"
     local target="$2"
@@ -1106,6 +1117,45 @@ function run_assertion {
             local sig_max_block
             sig_max_block=$(echo "$args" | yq '.max_block // 1000')
             assert_signature_transition "$target" "$sig_max_block"
+            ;;
+        metric-threshold)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local mt_metric mt_op mt_value mt_samples mt_wait
+            mt_metric=$(echo "$args" | yq '.metric // ""')
+            mt_op=$(echo "$args" | yq '.comparator // ">"')
+            mt_value=$(echo "$args" | yq '.value // 0')
+            mt_samples=$(echo "$args" | yq '.samples // 1')
+            mt_wait=$(echo "$args" | yq '.wait_seconds // 0')
+            if [[ -z "$mt_metric" || "$mt_metric" == "null" ]]; then
+                echo "ERROR: metric-threshold requires args.metric"
+                return 1
+            fi
+            assert_metric_threshold "$target" "$mt_metric" "$mt_op" "$mt_value" "$mt_samples" "$mt_wait"
+            ;;
+        block-rate-floor)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local brf_min brf_window
+            brf_min=$(echo "$args" | yq '.min_rate_per_sec // 0')
+            brf_window=$(echo "$args" | yq '.window_seconds // 30')
+            assert_block_rate_floor "$target" "$brf_min" "$brf_window"
+            ;;
+        backfill-triggered)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local bt_grep bt_since
+            bt_grep=$(echo "$args" | yq '.grep // "backfill"')
+            bt_since=$(echo "$args" | yq '.since_seconds // 300')
+            assert_log_match "$target" "$bt_grep" "$bt_since"
+            ;;
+        log-match)
+            [[ -z "$target" || "$target" == "null" ]] && target=$(echo "$args" | yq '.target // "all"')
+            local lm_grep lm_since
+            lm_grep=$(echo "$args" | yq '.grep // ""')
+            lm_since=$(echo "$args" | yq '.since_seconds // 300')
+            if [[ -z "$lm_grep" || "$lm_grep" == "null" ]]; then
+                echo "ERROR: log-match requires args.grep"
+                return 1
+            fi
+            assert_log_match "$target" "$lm_grep" "$lm_since"
             ;;
         *)
             echo "Unknown assertion type: $assert_type"
@@ -1395,4 +1445,7 @@ function main {
     print_summary
 }
 
-main
+# Run main only when executed directly; allow sourcing for fixture-based unit tests.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main
+fi
