@@ -52,9 +52,9 @@ on:
         type: string
         default: ""
       js-sdk-version:
-        description: "JS-SDK version (leave empty to use workflow default; 'latest' to use newest tag)"
+        description: "JS-SDK version ('latest' or tag like 'v2.83.0')"
         type: string
-        default: ""
+        default: "v2.83.0"
       solo-version:
         description: "Solo CLI version (leave empty to use run-type default)"
         type: string
