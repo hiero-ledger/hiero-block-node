@@ -185,6 +185,22 @@ message BlockRange {
 }
 
 /**
+ * Persisted state of the stored and available block range sets.<br/>
+ * Both fields are persisted together in a single file so the two sets
+ * remain consistent across restarts.
+ */
+message BlockRangesState {
+    /**
+     * All block ranges that have been stored by this node.
+     */
+    repeated BlockRange stored_blocks = 1;
+    /**
+     * The subset of stored blocks that are currently available for retrieval.
+     */
+    repeated BlockRange available_blocks = 2;
+}
+
+/**
  * TSS information<br/>
  * `TssData` contains the Ledger Id, wraps validation key, and TssRoster information
  *  It is returned by the serverStatusDetail service
