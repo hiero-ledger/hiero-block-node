@@ -732,7 +732,10 @@ jobs:
       - name: Setup PNPM
         if: ${{ inputs.run-tck-regression-tests }}
         run: |
-          npm install -g pnpm
+          # Pin to pnpm 9.x: pnpm 10 enforces ERR_PNPM_IGNORED_BUILDS for native build
+          # scripts (chromedriver, esbuild, sharp, etc.) and requires explicit approval,
+          # which would fail unattended CI installs of the JS-SDK workspace.
+          npm install -g pnpm@9
 
       # Checkout TCK and checkout latest tag
       - name: Checkout TCK SDK
