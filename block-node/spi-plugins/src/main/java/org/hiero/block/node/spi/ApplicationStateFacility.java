@@ -3,6 +3,7 @@ package org.hiero.block.node.spi;
 
 import com.hedera.hapi.node.base.NodeAddressBook;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 
 /**
@@ -47,4 +48,13 @@ public interface ApplicationStateFacility {
      *     {@link BlockRangeType#STORED} otherwise
      */
     void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType);
+
+    /**
+     * Returns the set of block ranges that have been reported as stored.
+     *
+     * @return a {@link BlockRangeSet} of all stored block ranges; never null
+     */
+    default BlockRangeSet storedBlocks() {
+        return BlockRangeSet.EMPTY;
+    }
 }

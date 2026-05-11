@@ -57,6 +57,7 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
@@ -411,6 +412,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             availableBlocks.add(blockRange);
         }
         storedBlockCount.addAndGet(blockRange.size());
+    }
+
+    @Override
+    public BlockRangeSet storedBlocks() {
+        return storedBlocks;
     }
 
     /**
