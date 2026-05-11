@@ -23,7 +23,7 @@ that a block, received from any source is valid and not tampered with, is the
 central point of the Block Node.
 We achieve this by having a Verification Service Plugin.
 
-- Upon successful verification, the Verificaiton Service Plugin is able to
+- Upon successful verification, the Verification Service Plugin is able to
   propagate the block downstream via the internal messaging system.
 - Upon verification failure - be that the block fails to verify, parse, has
   missing mandatory items or fields, or any other reason, the Verification
@@ -36,7 +36,7 @@ from different sources, strict ordering of block reception CANNOT be guaranteed.
 It is therefore a requirement of the Verification Service Plugin to ensure that
 the strong ordering of messages for blocks that pass verification is maintained.
 This guarantee ensures that it is not possible for any given block to be left
-unprocessed donwstream. This essentially achieves a contiguous, in order data
+unprocessed downstream. This essentially achieves a contiguous, in order data
 stream that downstream plugins can process safely.
 
 ## Goals
@@ -168,7 +168,11 @@ data (block number and block root hash) for each block that is received and
 verified successfully. The Application State Facility is responsible for
 delivering this data to the All Blocks Hasher instance. Based on a configurable
 interval (measured in number of blocks), the Application State Facility will
-persist the All Blocks Hasher state to disk, thus making it persistent.
+persist the All Blocks Hasher state to disk, thus making it persistent. The
+configurable persistence interval is an optimization to avoid excessive disk
+usage. IO failures must be reported but must not prevent the Block Node from
+functioning. Upon restart, an attempt to update the all blocks hasher will be
+made using local storage.
 
 If all blocks hasher data is not available to the verification plugin, the
 handlers and verifiers automatically use the hash data provided in the block
@@ -229,8 +233,8 @@ Failure types include:
   - at least one of the other types of items (different from the
     above-mentioned) in between the header and the footer.
 - **MISSING_MANDATORY_FIELD**: If the block has all the mandatory items, but
-  one or more of the mandatory fields are missing, the block is considered
-  unverified.
+  one or more of the mandatory fields are missing (no value provided), the block
+  is considered unverified.
 - **CANCELLED**: If a session takes to long to complete, measured in N number of
   subsequent sessions started, the session is canceled and the block that the
   session is trying to verify is considered unverified.
