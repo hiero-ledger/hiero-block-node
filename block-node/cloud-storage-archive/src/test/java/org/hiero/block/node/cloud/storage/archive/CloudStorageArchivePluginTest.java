@@ -52,6 +52,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -910,6 +911,87 @@ class CloudStorageArchivePluginTest {
             assertThat(notifications.getLast().succeeded()).isTrue();
             // Blocks 0–3 were silently dropped: still in pending, never queued.
             assertThat(plugin.currentGroupPending).containsOnlyKeys(0L, 1L, 2L, 3L);
+        }
+
+        private final List<LongRange> capturedRanges = new ArrayList<>();
+
+        @Override
+        public void addStoredBlockRange(LongRange blockRange) {
+            super.addStoredBlockRange(blockRange);
+            capturedRanges.add(blockRange);
+        }
+
+        /// Verifies that `CloudStorageArchivePlugin.completeRecovery` does not call
+        /// `ApplicationStateFacility.addStoredBlockRange` when S3 is empty (fresh start).
+        @Test
+        @DisplayName("Fresh start: addBlockRange is not called when the bucket is empty")
+        void freshStartDoesNotCallAddBlockRange() {
+            // Bucket is empty (cleared by @BeforeEach clearBucket). Drive the recovery task.
+            pluginExecutor.executeSerially();
+            // Trigger completeRecovery() via the first verification notification.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(0, 0).getFirst());
+            assertThat(capturedRanges).isEmpty();
+        }
+
+        /// Verifies that `CloudStorageArchivePlugin.completeRecovery()` calls
+        /// `ApplicationStateFacility.addStoredBlockRange` with the full range of the last completed group
+        /// when recovery finds a completed tar in S3.
+        @Test
+        @DisplayName("Completed tar recovery: addBlockRange reports blocks 0 to groupSize-1 as STORED")
+        void completedTarRecoveryCallsAddBlockRange() throws Exception {
+            final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+            final CloudStorageArchiveConfig config = makeConfig();
+            final String firstKey = ArchiveKey.format(0, GROUPING_LEVEL);
+
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(firstKey, config.storageClass().name(), CONTENT_TYPE);
+                final String etag = s3.multipartUploadPart(
+                        firstKey,
+                        uploadId,
+                        1,
+                        buildTarBytes(TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1), 0));
+                s3.completeMultipartUpload(firstKey, uploadId, List.of(etag));
+            }
+
+            pluginExecutor.executeSerially();
+
+            // Trigger completeRecovery() — recovery result has currentGroupStart=groupSize, uploadId=null.
+            sendVerification(TestBlockBuilder.generateBlocksInRange((int) groupSize, (int) groupSize)
+                    .getFirst());
+
+            assertThat(capturedRanges).containsExactly(new LongRange(0, groupSize - 1));
+        }
+
+        /// Verifies that `CloudStorageArchivePlugin.completeRecovery()` calls
+        /// `ApplicationStateFacility.addStoredBlockRange` up to the last clean boundary found in the
+        /// hanging upload when recovery resumes a multipart upload.
+        ///
+        /// A hanging upload with tar entries for blocks 0–4 is planted.  Recovery locates block 4
+        /// as the last clean boundary, so `nextBlockNumber = 4` and `addBlockRange(0, 3, STORED)`
+        /// is expected.
+        @Test
+        @DisplayName("Hanging upload recovery: addBlockRange reports blocks 0 to nextBlockNumber-1 as STORED")
+        void hangingUploadRecoveryCallsAddBlockRange() throws Exception {
+            final long groupSize = Math.powExact(10, GROUPING_LEVEL);
+            final String key = ArchiveKey.format(0, GROUPING_LEVEL);
+            final List<TestBlock> blocks = TestBlockBuilder.generateBlocksInRange(0, (int) groupSize - 1);
+
+            final CloudStorageArchiveConfig config = makeConfig();
+            try (S3Client s3 = openS3Client(config)) {
+                final String uploadId =
+                        s3.createMultipartUpload(key, config.storageClass().name(), CONTENT_TYPE);
+                s3.multipartUploadPart(key, uploadId, 1, buildTarBytes(blocks.subList(0, 5), 0));
+                // deliberately NOT completing — simulate a crash mid-upload
+            }
+
+            pluginExecutor.executeSerially();
+
+            // Trigger completeRecovery() — recovery locates block 4 as the last clean boundary,
+            // so nextBlockNumber=4, meaning blocks 0–3 were stored before the crash.
+            sendVerification(TestBlockBuilder.generateBlocksInRange(4, 4).getFirst());
+
+            assertThat(capturedRanges).containsExactly(new LongRange(0, 3));
         }
 
         private CloudStorageArchiveConfig makeConfig() {
