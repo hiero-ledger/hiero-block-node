@@ -79,3 +79,11 @@ assertions:
     args:
       wait_seconds: 30
       max_attempts: 3
+
+  - id: block-rate-floor
+    type: block-rate-floor
+    description: "Post-chaos block rate ≥ 0.3 blk/s on every BN"
+    target: all
+    args:
+      min_rate_per_sec: 0.3
+      window_seconds: 30
