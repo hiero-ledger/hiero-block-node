@@ -51,6 +51,10 @@ on:
         description: "TCK-SDK version (leave empty for 'latest')"
         type: string
         default: ""
+      js-sdk-version:
+        description: "JS-SDK version (leave empty to use workflow default; 'latest' to use newest tag)"
+        type: string
+        default: ""
       solo-version:
         description: "Solo CLI version (leave empty to use run-type default)"
         type: string
@@ -95,6 +99,7 @@ jobs:
       solo-version: ${{ steps.config.outputs.solo_version }}
       relay-version: ${{ steps.config.outputs.relay_version }}
       tck-version: ${{ steps.config.outputs.tck_version }}
+      js-sdk-version: ${{ steps.config.outputs.js_sdk_version }}
       tss-enabled: ${{ steps.config.outputs.tss_enabled }}
       run-tck-regression-tests: ${{ steps.config.outputs.run_tck_regression_tests }}
       tck-test-file: ${{ steps.config.outputs.tck_test_file }}
@@ -224,6 +229,10 @@ jobs:
           TCK_VERSION="${{ inputs.tck-version }}"
           TCK_VERSION="${TCK_VERSION:-latest}"
 
+          # JS-SDK version: use input if provided, otherwise default to last-known-good pinned version
+          JS_SDK_VERSION="${{ inputs.js-sdk-version }}"
+          JS_SDK_VERSION="${JS_SDK_VERSION:-v2.83.0}"
+
           # TSS: use input value (defaults to true)
           TSS_ENABLED="${{ inputs.tss-enabled }}"
           TSS_ENABLED="${TSS_ENABLED:-true}"
@@ -247,6 +256,7 @@ jobs:
           echo "solo_version=${SOLO_VERSION}" >> "$GITHUB_OUTPUT"
           echo "relay_version=${RELAY_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tck_version=${TCK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "js_sdk_version=${JS_SDK_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tss_enabled=${TSS_ENABLED}" >> "$GITHUB_OUTPUT"
           echo "run_tck_regression_tests=${RUN_TCK}" >> "$GITHUB_OUTPUT"
           echo "tck_test_file=${TCK_TEST_FILE}" >> "$GITHUB_OUTPUT"
@@ -265,6 +275,7 @@ jobs:
             echo "| Solo Version | ${SOLO_VERSION} |"
             echo "| Relay Version | ${RELAY_VERSION} |"
             echo "| TCK Version | ${TCK_VERSION} |"
+            echo "| JS-SDK Version | ${JS_SDK_VERSION} |"
             echo "| TSS Enabled | ${TSS_ENABLED} |"
             echo "| TCK Regression | ${RUN_TCK} |"
             echo "| Slack Notify | ${NOTIFY_SLACK} |"
@@ -337,6 +348,7 @@ jobs:
       solo-version: ${{ needs.configure.outputs.solo-version }}
       relay-version: ${{ needs.configure.outputs.relay-version }}
       tck-version: ${{ needs.configure.outputs.tck-version }}
+      js-sdk-version: ${{ needs.configure.outputs.js-sdk-version }}
       tss-enabled: ${{ needs.configure.outputs.tss-enabled == 'true' }}
       run-tck-regression-tests: ${{ needs.configure.outputs.run-tck-regression-tests == 'true' }}
       tck-test-file: ${{ needs.configure.outputs.tck-test-file }}

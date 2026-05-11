@@ -29,6 +29,10 @@ on:
         description: "TCK-SDK version ('latest' or tag like 'v1.2.3')"
         type: string
         default: "latest"
+      js-sdk-version:
+        description: "JS-SDK version ('latest' or tag like 'v2.83.0')"
+        type: string
+        default: "v2.83.0"
       solo-version:
         description: "Solo CLI Version"
         type: string
@@ -113,6 +117,10 @@ on:
         description: "TCK-SDK version ('latest' or tag like 'v1.2.3')"
         required: false
         default: "latest"
+      js-sdk-version:
+        description: "JS-SDK version ('latest' or tag like 'v2.83.0')"
+        required: false
+        default: "v2.83.0"
       solo-version:
         description: "Solo CLI Version"
         required: false
@@ -352,6 +360,7 @@ jobs:
             echo "| Block Node | \`${{ inputs.block-node-version || 'latest' }}\` | \`${{ steps.versions.outputs.bn_version }}\` |"
             echo "| Relay | \`${{ inputs.relay-version || 'latest' }}\` | \`${{ steps.versions.outputs.relay_version }}\` |"
             echo "| Solo CLI | \`${{ inputs.solo-version || 'latest' }}\` | \`${{ steps.solo.outputs.solo_version }}\` |"
+            echo "| JS-SDK | \`${{ inputs.js-sdk-version || 'v2.83.0' }}\` | |"
             echo "| TSS Enabled | | \`${{ inputs.tss-enabled }}\` |"
             echo ""
           } >> "${GITHUB_STEP_SUMMARY}"
@@ -754,14 +763,19 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Checkout Latest Tag (JS-SDK)
+      - name: Checkout JS-SDK Version
         if: ${{ inputs.run-tck-regression-tests }}
         run: |
           cd sdk-tck/sdk-server
           git fetch --tags
-          LATEST_TAG=$(git describe --tags --abbrev=0)
-          echo "Checking out JS-SDK latest tag: $LATEST_TAG"
-          git checkout "$LATEST_TAG"
+          JS_SDK_REQUESTED="${{ inputs.js-sdk-version }}"
+          if [[ "${JS_SDK_REQUESTED}" == "latest" ]]; then
+            JS_SDK_RESOLVED=$(git describe --tags --abbrev=0)
+          else
+            JS_SDK_RESOLVED="${JS_SDK_REQUESTED}"
+          fi
+          echo "Checking out JS-SDK version: ${JS_SDK_RESOLVED}"
+          git checkout "${JS_SDK_RESOLVED}"
 
       # Install TCK-SDK dependencies using shared script (versions extracted from source)
       - name: Install TCK-SDK Dependencies
