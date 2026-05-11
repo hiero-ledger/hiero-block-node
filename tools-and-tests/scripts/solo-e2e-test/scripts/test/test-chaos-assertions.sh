@@ -59,7 +59,7 @@ fi
 # ----------------------------------------------------------------------------
 echo "[2] assert_metric_threshold: green / red / metric-missing"
 function fetch_metric {
-    awk -v m="$2" '$1 == m { print $2; exit }' "${FIXTURES}/metrics-sample.txt"
+    awk -v m="$2" '$1 == m { print $2; exit }' "${FIXTURES}/sample-metrics.txt"
 }
 # Green: highest_block_number_inbound is 1842, assert >= 100
 if assert_metric_threshold "block-node-1" "blocknode_publisher_highest_block_number_inbound" ">=" 100 >/dev/null 2>&1; then
@@ -133,20 +133,20 @@ rm -f "$COUNTER_FILE"
 
 # ----------------------------------------------------------------------------
 echo "[4] assert_log_match (powers backfill-triggered): pattern present / absent"
-function fetch_pod_logs { cat "${FIXTURES}/logs-with-backfill.txt"; }
+function fetch_pod_logs { cat "${FIXTURES}/sample-logs-with-backfill.txt"; }
 if assert_log_match "block-node-1" "Received backfill" 300 >/dev/null 2>&1; then
     pass "log-match green ('Received backfill' present, 3 hits)"
 else
     fail "log-match green"
 fi
-function fetch_pod_logs { cat "${FIXTURES}/logs-without-backfill.txt"; }
+function fetch_pod_logs { cat "${FIXTURES}/sample-logs-without-backfill.txt"; }
 if ! assert_log_match "block-node-1" "Received backfill" 300 >/dev/null 2>&1; then
     pass "log-match red ('Received backfill' absent)"
 else
     fail "log-match red"
 fi
 # Multiple hits — count surfaces in the output
-function fetch_pod_logs { cat "${FIXTURES}/logs-with-backfill.txt"; }
+function fetch_pod_logs { cat "${FIXTURES}/sample-logs-with-backfill.txt"; }
 output=$(assert_log_match "block-node-1" "Received backfill" 300 2>&1)
 if echo "$output" | grep -q "3 hits"; then
     pass "log-match reports hit count"

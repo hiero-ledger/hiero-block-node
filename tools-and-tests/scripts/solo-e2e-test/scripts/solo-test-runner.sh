@@ -1073,6 +1073,10 @@ function assert_signature_transition {
 # Phase 3: latency-aware assertion primitives — sourced from a separate library
 # so they can be exercised by fixture-based unit tests without invoking the
 # runner's CLI parsing.
+#
+# To add a new latency-aware assertion: add the implementation in
+# scripts/lib/chaos-assertions.sh and a dispatch case in run_assertion() below.
+# Fixture-based unit tests live at scripts/test/test-chaos-assertions.sh.
 # ============================================================================
 # shellcheck source=lib/chaos-assertions.sh
 source "${SCRIPT_DIR}/lib/chaos-assertions.sh"
