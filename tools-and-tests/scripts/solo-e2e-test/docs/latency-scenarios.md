@@ -115,7 +115,7 @@ The 0.3 blocks/s floor is intentionally conservative. On the paired-3 topology u
 - **Post-chaos measurement only.** The runner runs assertions *after* all events complete, so `block-rate-floor` measures recovery, not under-chaos rate. To measure under-chaos rate we'd need an event-time assertion. Tracked as a future enhancement.
 - **NLG lock contention between runs.** Solo CLI's lock can persist across consecutive test runs in the same cluster session. `load-stop` recovers via direct Helm uninstall, but the following `load-start` may fail. Tests still pass because consensus produces blocks via heartbeats. See `agent/proposals/solo-chaos-spike/findings/003-nlg-solo-cli-lock-contention.md`.
 - **Histogram metrics absent on the BN.** True p99 of block-arrival interval isn't computable from the metrics the BN exports today. `block-rate-floor` is the rate-based proxy that ships. See `agent/proposals/solo-chaos-spike/findings/004-bn-lacks-histogram-metrics-for-block-arrival.md`.
-- **TSS coupling.** `TSS_ENABLED=true` requires CN ≥ v0.74.0-0; the harness default is now `false` to make the latency tests work with `CN_VERSION=latest`. Re-enable explicitly once your CN tag supports TSS.
+- **TSS coupling.** `TSS_ENABLED=true` (the harness default) requires CN ≥ v0.74.0-0. Until `CN_VERSION=latest` resolves to a TSS-capable tag, the latency tests need the override `TSS_ENABLED=false` on `task up`. Drop the override once your default CN tag is TSS-capable. See `findings/001` for context.
 
 ## Extending — adding a new latency scenario
 

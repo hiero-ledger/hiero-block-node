@@ -52,6 +52,9 @@ vars:
   BN_VERSION: '{{.BN_VERSION | default "latest"}}'
   RELAY_VERSION: '{{.RELAY_VERSION | default "latest"}}'
   TCK_VERSION: '{{.TCK_VERSION | default "latest"}}'
+  # TSS_ENABLED defaults to 'true' to match the team's expected day-to-day flow.
+  # Latency tests require an override (TSS_ENABLED=false task up …) until the
+  # default CN tag resolves to >= v0.74.0-0; see .env.example for details.
   TSS_ENABLED: '{{.TSS_ENABLED | default "true"}}'
 
   # NLG load generation parameters

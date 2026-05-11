@@ -11,8 +11,11 @@
 #   target: solo.hedera.com/type=network-node
 #
 # Pre-req:
-#   task up TOPOLOGY=paired-3
+#   TSS_ENABLED=false task up TOPOLOGY=paired-3
 #   CHAOS_ENABLED=true task chaos:install
+#
+# Note: TSS_ENABLED=false is currently required at 'task up' time — see
+# .env.example or agent/proposals/solo-chaos-spike/findings/001 for context.
 #
 # Usage:
 #   CHAOS_ENABLED=true TOPOLOGY=paired-3 task test:run TEST_FILE=tests/latency-cn-to-cn.yaml

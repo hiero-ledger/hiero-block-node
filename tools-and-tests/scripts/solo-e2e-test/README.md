@@ -642,14 +642,17 @@ In addition to the usual prereqs:
 ### First-time setup (per cluster session)
 
 ```bash
-# 1. Bring up a cluster as normal
-task up TOPOLOGY=paired-3
+# 1. Bring up a cluster — override TSS to keep Solo CLI happy for the
+#    latency tests (see note below).
+TSS_ENABLED=false task up TOPOLOGY=paired-3
 
 # 2. Install Chaos Mesh (opt-in)
 CHAOS_ENABLED=true task chaos:install
 ```
 
 `task chaos:install` is idempotent — re-running upgrades in place rather than failing.
+
+> **Why `TSS_ENABLED=false`?** The harness defaults TSS to `true` (the day-to-day team flow). Solo CLI's `--wraps` flag requires CN ≥ v0.74.0-0, and `CN_VERSION=latest` currently resolves below that floor; the latency tests need the override on `task up` for now. See [`findings/001`](../../../agent/proposals/solo-chaos-spike/findings/001-tss-default-incompatible-with-latest-cn.md). Once the default CN tag advances, drop the override.
 
 ### Running a latency test
 

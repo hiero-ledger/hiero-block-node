@@ -12,17 +12,18 @@
 #   4. command — confirms the NetworkChaos is gone.
 #
 # Pre-req:
-#   task up TOPOLOGY=paired-3
+#   TSS_ENABLED=false task up TOPOLOGY=paired-3
 #   CHAOS_ENABLED=true task chaos:install
+#
+# Note on TSS_ENABLED=false: the harness defaults TSS to 'true' (the day-to-day
+# team flow), but Solo CLI's '--wraps' flag requires CN >= v0.74.0-0. Until
+# CN_VERSION=latest resolves to a TSS-capable tag, 'task up' needs the override
+# above. The chaos work itself is TSS-agnostic (CN/BN labels Chaos Mesh selects
+# on are present either way). See:
+#   agent/proposals/solo-chaos-spike/findings/001-tss-default-incompatible-with-latest-cn.md
 #
 # Usage:
 #   CHAOS_ENABLED=true task test:run TEST_FILE=tests/chaos-foundation-smoke.yaml
-#
-# Note: this test is TSS-agnostic. The CN labels Chaos Mesh selects on
-# (solo.hedera.com/type=network-node) are present whether TSS is on or off.
-# The Phase 0 spike documented an unrelated TSS-vs-CN-version compatibility
-# issue in the harness defaults; see
-# agent/proposals/solo-chaos-spike/findings/001-tss-default-incompatible-with-latest-cn.md
 
 name: chaos-foundation-smoke
 description: "Validates the chaos foundation (install, inject, clear, cleanup)"
