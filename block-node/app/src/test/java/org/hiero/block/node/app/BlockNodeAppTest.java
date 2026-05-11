@@ -48,6 +48,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility.State;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -737,5 +738,30 @@ class BlockNodeAppTest {
         assertEquals(new LongRange(1000, 1049), availableRanges.getFirst());
 
         app2.stopApplicationStateFacility();
+    }
+
+    /**
+     * Verifies that {@code storedBlocks()} reflects all ranges added via {@link ApplicationStateFacility.BlockRangeType#STORED}
+     * and that blocks outside those ranges are not reported as stored.
+     */
+    @Test
+    @DisplayName("storedBlocks() contains all stored ranges and excludes out-of-range blocks")
+    void testStoredBlocksContainsStoredRanges() {
+        // non-contiguous ranges
+        blockNodeApp.addBlockRange(new LongRange(0, 9), ApplicationStateFacility.BlockRangeType.STORED);
+        blockNodeApp.addBlockRange(new LongRange(20, 29), ApplicationStateFacility.BlockRangeType.STORED);
+        blockNodeApp.addBlockRange(new LongRange(50, 59), ApplicationStateFacility.BlockRangeType.STORED);
+        // contiguous with [0,9] — should merge into [0,19]
+        blockNodeApp.addBlockRange(new LongRange(10, 19), ApplicationStateFacility.BlockRangeType.STORED);
+
+        final BlockRangeSet result = blockNodeApp.storedBlocks();
+
+        assertTrue(result.contains(0, 19)); // merged contiguous ranges
+        assertTrue(result.contains(20, 29));
+        assertTrue(result.contains(50, 59));
+
+        assertFalse(result.contains(30));
+        assertFalse(result.contains(49));
+        assertFalse(result.contains(60));
     }
 }

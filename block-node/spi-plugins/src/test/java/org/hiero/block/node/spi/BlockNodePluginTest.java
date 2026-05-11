@@ -16,6 +16,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.List;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -130,6 +131,12 @@ public class BlockNodePluginTest {
         TestApplicationStateFacility testApplicationStateFacility = new TestApplicationStateFacility();
         testApplicationStateFacility.updateTssData(null);
         assertEquals(null, testApplicationStateFacility.tssData);
+    }
+
+    @Test
+    @DisplayName("Test ApplicationStateFacility.storedBlocks() default implementation returns empty set")
+    void testStoredBlocksDefaultReturnsEmpty() {
+        assertEquals(BlockRangeSet.EMPTY, new TestApplicationStateFacilityDefault().storedBlocks());
     }
 
     @Test
