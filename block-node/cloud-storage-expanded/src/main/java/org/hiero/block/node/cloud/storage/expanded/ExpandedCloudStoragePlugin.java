@@ -17,6 +17,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.node.spi.ApplicationStateFacility;
+import org.hiero.block.node.spi.ApplicationStateFacility.BlockRangeType;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
@@ -24,6 +26,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -91,6 +94,9 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     /// Messaging facility used to publish {@link PersistedNotification} results.
     private BlockMessagingFacility blockMessaging;
 
+    /// Application state facility used to record stored block ranges.
+    private ApplicationStateFacility applicationStateFacility;
+
     /// The active S3 upload client. `null` before {@link #start} and after {@link #stop}.
     /// May be pre-set by the package-private test constructor.
     private S3UploadClient s3Client;
@@ -150,6 +156,7 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.config = context.configuration().getConfigData(ExpandedCloudStorageConfig.class);
         this.blockMessaging = context.blockMessaging();
+        this.applicationStateFacility = context.applicationStateFacility();
         metricRegistry = context.metricRegistry();
         // @todo(#XXXX) replace these warnings with proper plugin health reporting once
         //   the block node supports plugin-level healthy/unhealthy status indication.
@@ -327,6 +334,8 @@ public class ExpandedCloudStoragePlugin implements BlockNodePlugin, BlockNotific
         } else {
             metricsHolder.uploadsTotal().increment();
             metricsHolder.uploadBytesTotal().increment(result.bytesUploaded());
+            applicationStateFacility.addBlockRange(
+                    new LongRange(result.blockNumber(), result.blockNumber()), BlockRangeType.STORED);
         }
         metricsHolder.uploadLatencyNs().increment(result.uploadDurationNs());
     }

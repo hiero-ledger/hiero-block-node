@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.bucky.S3Client;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -18,6 +19,7 @@ import io.minio.errors.MinioException;
 import io.minio.messages.Item;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -25,13 +27,17 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import org.hiero.block.api.TssData;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
+import org.hiero.block.node.spi.ApplicationStateFacility;
+import org.hiero.block.node.spi.ApplicationStateFacility.BlockRangeType;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -126,6 +132,10 @@ class BlockUploadTaskTest {
                 MetricRegistry.builder().setMetricsExporter(exporter).build());
     }
 
+    private static ApplicationStateFacility noOpAsf() {
+        return new TrackingApplicationStateFacility();
+    }
+
     /// Verifies that when [BlockUploadTask#doUploadPart] throws during a mid-loop flush, all
     /// blocks whose tar bytes were in the buffer at the time of failure receive a failed
     /// [PersistedNotification], and [BlockUploadTask.UploadResult#FAILED] is returned.
@@ -145,7 +155,8 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()));
+                createMetricsHolder(new TestMetricsExporter()),
+                noOpAsf());
 
         // Pre-fill the queue with enough large blocks to trigger at least one part flush
         final Random rng = new Random(0xDEADBEEFL);
@@ -191,7 +202,8 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()));
+                createMetricsHolder(new TestMetricsExporter()),
+                noOpAsf());
 
         // Small blocks (100 bytes each) so the total buffer stays well below PART_SIZE_MB,
         // meaning no mid-loop flush occurs and all blocks end up in the final partial buffer.
@@ -236,7 +248,8 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()));
+                createMetricsHolder(new TestMetricsExporter()),
+                noOpAsf());
 
         final Random rng = new Random(0xDEADBEEFL);
         for (int i = 0; i < groupSize; i++) {
@@ -280,7 +293,8 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()));
+                createMetricsHolder(new TestMetricsExporter()),
+                noOpAsf());
 
         // Even blocks → PUBLISHER, odd blocks → BACKFILL
         final Random rng = new Random(0xDEADBEEFL);
@@ -323,7 +337,8 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(new TestMetricsExporter()));
+                createMetricsHolder(new TestMetricsExporter()),
+                noOpAsf());
 
         final Random rng = new Random(0xDEADBEEFL);
         for (int i = 0; i < groupSize; i++) {
@@ -365,7 +380,8 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(exporter));
+                createMetricsHolder(exporter),
+                noOpAsf());
 
         final Random rng = new Random(0xDEADBEEFL);
         for (int i = 0; i < groupSize; i++) {
@@ -407,7 +423,8 @@ class BlockUploadTaskTest {
                 0,
                 groupSize,
                 queue,
-                createMetricsHolder(exporter));
+                createMetricsHolder(exporter),
+                noOpAsf());
 
         final Random rng = new Random(0xDEADBEEFL);
         for (int i = 0; i < groupSize; i++) {
@@ -430,6 +447,137 @@ class BlockUploadTaskTest {
                 .isZero();
     }
 
+    /// Verifies that [ApplicationStateFacility#addBlockRange] is called exactly once with
+    /// [BlockRangeType#STORED] covering all blocks when the upload fits in a single final part.
+    @Test
+    @DisplayName("Single-part upload calls addBlockRange once with full group range")
+    void addBlockRangeCalledOnceForSinglePartUpload() throws Exception {
+        final int groupingLevel = 1;
+        final int groupSize = (int) Math.pow(10, groupingLevel);
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(groupingLevel, PART_SIZE_MB).forEach(builder::withValue);
+        final BlockUploadTask task = new BlockUploadTask(
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()),
+                asf);
+
+        // Small blocks so the buffer never reaches PART_SIZE_MB — only a final part is uploaded.
+        final Random rng = new Random(0xDEADBEEFL);
+        for (int i = 0; i < groupSize; i++) {
+            final byte[] data = new byte[100];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            queue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {item})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+
+        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+
+        assertThat(asf.storedRanges).hasSize(1);
+        assertThat(asf.storedRanges.getFirst()).isEqualTo(new LongRange(0, groupSize - 1));
+    }
+
+    /// Verifies that [ApplicationStateFacility#addBlockRange] is called once per flushed part
+    /// plus once for the final part, and that together the ranges cover all blocks in the group.
+    @Test
+    @DisplayName("Multi-part upload calls addBlockRange per part with contiguous ranges covering all blocks")
+    void addBlockRangeCalledForEachPartInMultiPartUpload() throws Exception {
+        final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
+        final BlockUploadTask task = new BlockUploadTask(
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()),
+                asf);
+
+        // Large blocks (~600 KB each) so the buffer overflows the 5 MB part threshold, triggering
+        // multiple mid-loop flushes and producing multiple addBlockRange calls.
+        final Random rng = new Random(0xDEADBEEFL);
+        for (int i = 0; i < groupSize; i++) {
+            final byte[] data = new byte[BLOCK_DATA_BYTES];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            queue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {item})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+
+        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.SUCCESS);
+
+        assertThat(asf.storedRanges).hasSizeGreaterThan(1);
+        // Ranges must be contiguous and together cover all blocks from 0 to groupSize-1.
+        assertThat(asf.storedRanges.getFirst().start()).isZero();
+        assertThat(asf.storedRanges.getLast().end()).isEqualTo(groupSize - 1L);
+        for (int i = 1; i < asf.storedRanges.size(); i++) {
+            assertThat(asf.storedRanges.get(i).start())
+                    .isEqualTo(asf.storedRanges.get(i - 1).end() + 1);
+        }
+    }
+
+    /// Verifies that [ApplicationStateFacility#addBlockRange] is never called when the upload fails.
+    @Test
+    @DisplayName("Failed upload does not call addBlockRange")
+    void addBlockRangeNotCalledOnFailedUpload() throws Exception {
+        final int groupSize = (int) Math.pow(10, GROUPING_LEVEL);
+        final TestBlockMessagingFacility messaging = new TestBlockMessagingFacility();
+        final BlockingQueue<BlockWithSource> queue = new LinkedBlockingQueue<>();
+        final TrackingApplicationStateFacility asf = new TrackingApplicationStateFacility();
+
+        final ConfigurationBuilder builder =
+                ConfigurationBuilder.create().withConfigDataType(CloudStorageArchiveConfig.class);
+        pluginConfig(GROUPING_LEVEL, PART_SIZE_MB).forEach(builder::withValue);
+        final BlockUploadTask task = new FailingBlockUploadTask(
+                builder.build().getConfigData(CloudStorageArchiveConfig.class),
+                messaging,
+                0,
+                groupSize,
+                queue,
+                createMetricsHolder(new TestMetricsExporter()),
+                asf);
+
+        final Random rng = new Random(0xDEADBEEFL);
+        for (int i = 0; i < groupSize; i++) {
+            final byte[] data = new byte[BLOCK_DATA_BYTES];
+            rng.nextBytes(data);
+            final BlockItemUnparsed item = new BlockItemUnparsed(
+                    new OneOf<>(BlockItemUnparsed.ItemOneOfType.SIGNED_TRANSACTION, Bytes.wrap(data)));
+            queue.put(new BlockWithSource(
+                    BlockUnparsed.newBuilder()
+                            .blockItems(new BlockItemUnparsed[] {item})
+                            .build(),
+                    BlockSource.PUBLISHER));
+        }
+
+        assertThat(task.call()).isEqualTo(BlockUploadTask.UploadResult.FAILED);
+
+        assertThat(asf.storedRanges).isEmpty();
+    }
+
     /// [BlockUploadTask] subclass that always throws from [doUploadPart] to simulate S3 failures.
     private static final class FailingBlockUploadTask extends BlockUploadTask {
 
@@ -439,13 +587,32 @@ class BlockUploadTaskTest {
                 long firstBlock,
                 int groupSize,
                 BlockingQueue<BlockWithSource> queue,
-                CloudStorageArchivePlugin.MetricsHolder metricsHolder) {
-            super(config, blockMessaging, firstBlock, groupSize, queue, metricsHolder);
+                CloudStorageArchivePlugin.MetricsHolder metricsHolder,
+                ApplicationStateFacility applicationStateFacility) {
+            super(config, blockMessaging, firstBlock, groupSize, queue, metricsHolder, applicationStateFacility);
         }
 
         @Override
         void doUploadPart(byte[] buffer, S3Client s3, String uploadId, List<String> etags) throws IOException {
             throw new IOException("Simulated S3 final part upload failure");
+        }
+    }
+
+    /// [ApplicationStateFacility] implementation that records every [BlockRangeType#STORED] range.
+    private static final class TrackingApplicationStateFacility implements ApplicationStateFacility {
+        final List<LongRange> storedRanges = new ArrayList<>();
+
+        @Override
+        public void updateTssData(TssData tssData) {}
+
+        @Override
+        public void updateAddressBook(NodeAddressBook nodeAddressBook) {}
+
+        @Override
+        public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
+            if (blockRangeType == BlockRangeType.STORED) {
+                storedRanges.add(blockRange);
+            }
         }
     }
 }
