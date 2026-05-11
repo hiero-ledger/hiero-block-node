@@ -36,7 +36,7 @@ archive.
 | Fast NVMe Disk    | 7.5 TB NVMe SSD (recent blocks + live state; 7.5TB usable, see note on enterprise sizing and OS disk)                       |
 | Bulk Storage Disk | 100 TB HDD or equivalent (compressed block archive)                                                                         |
 | Network           | 2 × 10 Gbps NICs                                                                                                            |
-| OS                | Linux (Ubuntu 24.04 LTS or Debian 13.4 LTS recommended)                                                                     |
+| OS                | Linux host OS (Ubuntu 24.04 LTS or Debian 13.x LTS recommended)                                                             |
 
 ### 2. Remote Full History (RFH)
 
@@ -50,7 +50,7 @@ storage.
 | RAM            | 256 GB                                                                                                                      |
 | Fast NVMe Disk | 7.5 TB NVMe SSD (recent blocks + live state; 7.5TB usable, see note on enterprise sizing and OS disk)                       |
 | Network        | 2 × 10 Gbps NICs                                                                                                            |
-| OS             | Linux (Ubuntu 24.04 LTS or Debian 13.4 LTS recommended)                                                                     |
+| OS             | Linux host OS (Ubuntu 24.04 LTS or Debian 13.x LTS recommended)                                                             |
 
 #### Recommendations
 
@@ -148,7 +148,9 @@ T = transactions per block = TPS × block_interval
 * Worst-case egress subscribers: 33 (13 Block Nodes backfilling +
   10 Mirror Nodes + 10 DApps)
 * Worst-case ingress: 4 parallel catch-up streams from Consensus Nodes
-  (flow-control limited)
+  (workload assumption for capacity planning, not a software-enforced limit;
+  the actual per-node TCP connection cap is configured by
+  `server.maxTcpConnections`, default 1000)
 
 ### Block Size by TPS
 
