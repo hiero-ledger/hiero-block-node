@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.tss;
 
-import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import org.hiero.block.api.TssData;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
@@ -68,7 +68,7 @@ public class RosterBootstrapTssPluginTest
 
     @Test
     @DisplayName("request TssData from a peer bn ")
-    void requestTssDataFromPeerBN() throws IOException {
+    void requestTssDataFromPeerBN() throws IOException, InterruptedException {
         final TestBlockNodeServer server1 = new TestBlockNodeServer(0, new SimpleInMemoryHistoricalBlockFacility());
         testBlockNodeServers.add(server1);
         String blockNodeSourcesPath = testTempDir + "/blocknode-sources.json";
@@ -94,6 +94,7 @@ public class RosterBootstrapTssPluginTest
 
         final int[] contextUpdated = {0};
         final TssData[] tssData = {null};
+        CountDownLatch latch = new CountDownLatch(1);
 
         RosterBootstrapTssPlugin plugin = new RosterBootstrapTssPlugin() {
 
@@ -101,13 +102,13 @@ public class RosterBootstrapTssPluginTest
             public void onContextUpdate(BlockNodeContext context) {
                 contextUpdated[0]++;
                 tssData[0] = context.tssData();
+                latch.countDown();
             }
         };
 
         start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
 
-        // allow some time for the queryingto run
-        parkNanos(3_000_000_000L);
+        latch.await();
 
         assertTrue(contextUpdated[0] > 0);
         assertNotNull(tssData[0]);
