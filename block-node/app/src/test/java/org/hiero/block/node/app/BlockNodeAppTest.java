@@ -578,7 +578,7 @@ class BlockNodeAppTest {
         testPlugin.expectContextUpdates(1);
 
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(1024);
+        kpg.initialize(2048);
         final KeyPair kp = kpg.generateKeyPair();
         final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
         final NodeAddressBook book = NodeAddressBook.newBuilder()
@@ -622,7 +622,7 @@ class BlockNodeAppTest {
         testPlugin.expectContextUpdates(1);
 
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(1024);
+        kpg.initialize(2048);
         final KeyPair kp = kpg.generateKeyPair();
         final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
 
