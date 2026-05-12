@@ -122,6 +122,13 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
                 Thread.currentThread().interrupt();
             }
         }
+        if (tssDataFetcher != null) {
+            try {
+                tssDataFetcher.close();
+            } catch (IOException e) {
+                LOGGER.log(WARNING, "Unable to close tssDataFetcher: {0}", e);
+            }
+        }
     }
 
     /// UncaughtExceptionHandler for logging uncaught exceptions

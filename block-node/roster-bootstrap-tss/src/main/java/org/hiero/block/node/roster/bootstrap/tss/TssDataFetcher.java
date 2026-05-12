@@ -6,6 +6,8 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.Closeable;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,7 +22,7 @@ import org.hiero.block.node.roster.bootstrap.tss.client.BlockNodeClient;
 ///
 /// The client is initialized with a path to a block node preference file, which contains
 /// a list of block nodes with their addresses, ports, and priorities.
-public class TssDataFetcher {
+public class TssDataFetcher implements Closeable {
     private static final System.Logger LOGGER = System.getLogger(TssDataFetcher.class.getName());
 
     /// Source of block node configurations.
@@ -67,7 +69,11 @@ public class TssDataFetcher {
         // Check if existing client is unreachable and remove it to allow recreation
         BlockNodeClient existingClient = nodeClientMap.get(node);
         if (existingClient != null && !existingClient.isNodeReachable()) {
-            nodeClientMap.remove(node);
+            try {
+                nodeClientMap.remove(node).close();
+            } catch (IOException e) {
+                LOGGER.log(WARNING, "Unable to close BlockNodeClient [{0}]: {1}", node.name(), e);
+            }
             LOGGER.log(DEBUG, "Removed unreachable client for node [{0}], will attempt to recreate", node.address());
         }
         return nodeClientMap.computeIfAbsent(
@@ -100,5 +106,12 @@ public class TssDataFetcher {
         }
 
         return tssDataList;
+    }
+
+    @Override
+    public void close() throws IOException {
+        for (BlockNodeClient client : nodeClientMap.values()) {
+            client.close();
+        }
     }
 }

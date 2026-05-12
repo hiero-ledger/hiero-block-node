@@ -11,6 +11,8 @@ import io.helidon.common.tls.Tls;
 import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
 import io.helidon.webclient.http2.Http2ClientProtocolConfig;
+import java.io.Closeable;
+import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.System.Logger;
 import java.lang.System.Logger.Level;
@@ -23,7 +25,7 @@ import org.hiero.block.node.roster.bootstrap.tss.BlockNodeSourceConfig;
 import org.hiero.block.node.roster.bootstrap.tss.GrpcWebClientTuning;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 
-public class BlockNodeClient {
+public class BlockNodeClient implements Closeable {
     private static final Logger LOGGER = System.getLogger(BlockNodeClient.class.getName());
     // Default tuning values optimized for high-throughput block streaming
     private static final int DEFAULT_2MB = 2 * 1024 * 1024;
@@ -43,6 +45,13 @@ public class BlockNodeClient {
     private static final int MAX_BUFFER_SIZE = 64 * 1024 * 1024; // 64 MB
     private static final int MIN_HEADER_LIST_SIZE_BOUND = 1024; // 1 KB
     private static final int MAX_HEADER_LIST_SIZE_BOUND = 1024 * 1024; // 1 MB
+
+    @Override
+    public void close() throws IOException {
+        if (blockNodeServiceClient != null) {
+            blockNodeServiceClient.close();
+        }
+    }
 
     // Config specification record bundling name, default, range, and getter
     private record IntConfigSpec(
