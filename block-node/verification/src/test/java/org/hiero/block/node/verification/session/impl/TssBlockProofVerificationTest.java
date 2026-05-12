@@ -22,6 +22,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.VerificationServicePlugin;
+import org.hiero.block.node.verification.session.VerificationProofMetrics;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ class TssBlockProofVerificationTest {
                 .parse(wrapsBlock0.blockItems().getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null, null, null);
+                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
         session.processBlockItems(new BlockItems(wrapsBlock0.blockItems(), blockNumber, true, true));
         assertNotNull(VerificationServicePlugin.activeLedgerId, "Block 0 must set the active ledger ID");
         this.activeLedgerId = VerificationServicePlugin.activeLedgerId;
@@ -117,7 +118,7 @@ class TssBlockProofVerificationTest {
                 .parse(block.blockItems().getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), null, null, null, null, null);
+                blockNumber, BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), VerificationProofMetrics.NONE);
         BlockItems message = new BlockItems(block.blockItems(), blockNumber, true, true);
         VerificationNotification notification = session.processBlockItems(message);
         assertNotNull(notification, "Session must produce a VerificationNotification");

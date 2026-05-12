@@ -26,6 +26,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.verification.VerificationServicePlugin;
+import org.hiero.block.node.verification.session.VerificationProofMetrics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,7 +52,7 @@ class ExtendedMerkleTreeSessionTest {
         long blockNumber = blockHeader.number();
 
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null, null, null);
+                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
 
         BlockItems blockItemsMessage = new BlockItems(blockItems, blockNumber, true, true);
         VerificationNotification blockNotification = session.processBlockItems(blockItemsMessage);
@@ -93,7 +94,7 @@ class ExtendedMerkleTreeSessionTest {
                 .parse(items.getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null, null, null);
+                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
         VerificationNotification notification =
                 session.processBlockItems(new BlockItems(items, blockNumber, true, true));
         assertTrue(
@@ -118,7 +119,7 @@ class ExtendedMerkleTreeSessionTest {
     @DisplayName("should reject a malformed 10-byte signature as too short for VK prefix")
     void shouldRejectMalformedShortSignature() {
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                0L, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null, null, null);
+                0L, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
         Bytes hash = Bytes.wrap(new byte[48]);
         Bytes shortSignature = Bytes.wrap(new byte[10]);
         assertFalse(session.verifySignature(hash, shortSignature), "A 10-byte signature must be rejected as too short");
@@ -129,7 +130,7 @@ class ExtendedMerkleTreeSessionTest {
     void shouldRejectGarbageTssWrapsSignature() {
         // No ledgerId provided, so verifySignature returns false before calling TSS.verifyTSS()
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                0L, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null, null, null);
+                0L, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
         Bytes hash = Bytes.wrap(new byte[48]);
         Bytes garbageSignature = Bytes.wrap(new byte[2920]);
         assertFalse(
@@ -161,7 +162,7 @@ class ExtendedMerkleTreeSessionTest {
         items.add(tssProofItem);
 
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null, null, null);
+                blockNumber, BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
         VerificationNotification notification =
                 session.processBlockItems(new BlockItems(items, blockNumber, true, true));
 
@@ -177,7 +178,7 @@ class ExtendedMerkleTreeSessionTest {
                 .parse(items.getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), null, null, null, null, null);
+                blockNumber, BlockSource.PUBLISHER, null, null, ledgerId, Map.of(), VerificationProofMetrics.NONE);
         session.processBlockItems(new BlockItems(items, blockNumber, true, true));
         return session;
     }

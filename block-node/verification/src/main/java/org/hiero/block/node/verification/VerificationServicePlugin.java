@@ -34,6 +34,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.verification.session.HapiVersionSessionFactory;
+import org.hiero.block.node.verification.session.VerificationProofMetrics;
 import org.hiero.block.node.verification.session.VerificationSession;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.core.MetricKey;
@@ -60,23 +61,30 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     /** Metric key for block hashing time */
     public static final MetricKey<LongCounter> METRIC_HASHING_BLOCK_TIME =
             MetricKey.of("hashing_block_time", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for WRB blocks whose RSA proof was accepted */
-    public static final MetricKey<LongCounter> METRIC_RSA_VERIFICATION_SUCCESS =
-            MetricKey.of("rsa_verification_success_total", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for WRB blocks whose RSA proof was rejected */
-    public static final MetricKey<LongCounter> METRIC_RSA_VERIFICATION_FAILURE =
-            MetricKey.of("rsa_verification_failure_total", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /**
+     * Metric key for per-proof-type verification results. The metric carries two dynamic labels:
+     * {@code proof_type} ∈ {@code rsa | state_proof | tss} and {@code result} ∈ {@code success | failure}.
+     */
+    public static final MetricKey<LongCounter> METRIC_VERIFICATION_PROOF_TOTAL =
+            MetricKey.of("verification_proof_total", LongCounter.class).addCategory(METRICS_CATEGORY);
     /** Metric key for signatures from `node_id` values not present in the loaded address book */
     public static final MetricKey<LongCounter> METRIC_RSA_ROSTER_MISMATCH =
             MetricKey.of("rsa_roster_mismatch_total", LongCounter.class).addCategory(METRICS_CATEGORY);
-    /** Metric key for blocks whose state-proof verification was accepted */
-    public static final MetricKey<LongCounter> METRIC_STATE_PROOF_VERIFICATION_SUCCESS = MetricKey.of(
-                    "state_proof_verification_success_total", LongCounter.class)
-            .addCategory(METRICS_CATEGORY);
-    /** Metric key for blocks whose state-proof verification was rejected */
-    public static final MetricKey<LongCounter> METRIC_STATE_PROOF_VERIFICATION_FAILURE = MetricKey.of(
-                    "state_proof_verification_failure_total", LongCounter.class)
-            .addCategory(METRICS_CATEGORY);
+
+    /** Dynamic label name identifying the block proof type. */
+    public static final String LABEL_PROOF_TYPE = "proof_type";
+    /** Dynamic label name identifying the verification result. */
+    public static final String LABEL_RESULT = "result";
+    /** Label value for {@code SignedRecordFileProof} (WRB RSA) verification. */
+    public static final String PROOF_TYPE_RSA = "rsa";
+    /** Label value for {@code BlockStateProof} (indirect) verification. */
+    public static final String PROOF_TYPE_STATE_PROOF = "state_proof";
+    /** Label value for {@code SignedBlockProof} (TSS) verification. */
+    public static final String PROOF_TYPE_TSS = "tss";
+    /** Label value for a successful proof verification. */
+    public static final String RESULT_SUCCESS = "success";
+    /** Label value for a rejected proof verification. */
+    public static final String RESULT_FAILURE = "failure";
 
     private static final String COMPLETED_MESSAGE = "Verified backfill block items for block={0} with success={1}";
     /** The logger for this class. */
@@ -102,16 +110,8 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private LongCounter.Measurement verificationBlockTime;
     /** Metric for block hashing time. ignores time to receive block */
     private LongCounter.Measurement hashingBlockTimeNs;
-    /** Metric for accepted RSA WRB proof verifications. */
-    private LongCounter.Measurement rsaVerificationSuccessTotal;
-    /** Metric for rejected RSA WRB proof verifications. */
-    private LongCounter.Measurement rsaVerificationFailureTotal;
-    /** Metric for signatures from `node_id` values absent from the loaded address book. */
-    private LongCounter.Measurement rsaRosterMismatchTotal;
-    /** Metric for accepted state-proof verifications. */
-    private LongCounter.Measurement stateProofVerificationSuccessTotal;
-    /** Metric for rejected state-proof verifications. */
-    private LongCounter.Measurement stateProofVerificationFailureTotal;
+    /** Holder of all per-proof-type verification counters used by the session. */
+    private VerificationProofMetrics verificationProofMetrics = VerificationProofMetrics.NONE;
     /**
      * Most recent `node_id → PublicKey` map built from the `NodeAddressBook` delivered by
      * `RsaRosterBootstrapPlugin`. Volatile so that `onContextUpdate` writes are visible to the
@@ -177,26 +177,25 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         hashingBlockTimeNs = metricRegistry
                 .register(LongCounter.builder(METRIC_HASHING_BLOCK_TIME).setDescription("Hashing time per block (ms)"))
                 .getOrCreateNotLabeled();
-        rsaVerificationSuccessTotal = metricRegistry
-                .register(LongCounter.builder(METRIC_RSA_VERIFICATION_SUCCESS)
-                        .setDescription("WRB blocks whose RSA SignedRecordFileProof was accepted"))
-                .getOrCreateNotLabeled();
-        rsaVerificationFailureTotal = metricRegistry
-                .register(LongCounter.builder(METRIC_RSA_VERIFICATION_FAILURE)
-                        .setDescription("WRB blocks whose RSA SignedRecordFileProof was rejected"))
-                .getOrCreateNotLabeled();
-        rsaRosterMismatchTotal = metricRegistry
+        final LongCounter proofResultCounter =
+                metricRegistry.register(LongCounter.builder(METRIC_VERIFICATION_PROOF_TOTAL)
+                        .setDescription(
+                                "Block proof verifications by proof_type (rsa|state_proof|tss) and result (success|failure)")
+                        .addDynamicLabelNames(LABEL_PROOF_TYPE, LABEL_RESULT));
+        final LongCounter.Measurement rsaRosterMismatch = metricRegistry
                 .register(LongCounter.builder(METRIC_RSA_ROSTER_MISMATCH)
                         .setDescription("RSA signatures from node_id values absent from the loaded address book"))
                 .getOrCreateNotLabeled();
-        stateProofVerificationSuccessTotal = metricRegistry
-                .register(LongCounter.builder(METRIC_STATE_PROOF_VERIFICATION_SUCCESS)
-                        .setDescription("Blocks whose state-proof verification was accepted"))
-                .getOrCreateNotLabeled();
-        stateProofVerificationFailureTotal = metricRegistry
-                .register(LongCounter.builder(METRIC_STATE_PROOF_VERIFICATION_FAILURE)
-                        .setDescription("Blocks whose state-proof verification was rejected"))
-                .getOrCreateNotLabeled();
+        verificationProofMetrics = new VerificationProofMetrics(
+                proofResultCounter.getOrCreateLabeled(LABEL_PROOF_TYPE, PROOF_TYPE_RSA, LABEL_RESULT, RESULT_SUCCESS),
+                proofResultCounter.getOrCreateLabeled(LABEL_PROOF_TYPE, PROOF_TYPE_RSA, LABEL_RESULT, RESULT_FAILURE),
+                proofResultCounter.getOrCreateLabeled(
+                        LABEL_PROOF_TYPE, PROOF_TYPE_STATE_PROOF, LABEL_RESULT, RESULT_SUCCESS),
+                proofResultCounter.getOrCreateLabeled(
+                        LABEL_PROOF_TYPE, PROOF_TYPE_STATE_PROOF, LABEL_RESULT, RESULT_FAILURE),
+                proofResultCounter.getOrCreateLabeled(LABEL_PROOF_TYPE, PROOF_TYPE_TSS, LABEL_RESULT, RESULT_SUCCESS),
+                proofResultCounter.getOrCreateLabeled(LABEL_PROOF_TYPE, PROOF_TYPE_TSS, LABEL_RESULT, RESULT_FAILURE),
+                rsaRosterMismatch);
     }
 
     /**
@@ -355,11 +354,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         getRootOfAllPreviousBlocks(),
                         activeLedgerId,
                         keyByNodeId,
-                        rsaVerificationSuccessTotal,
-                        rsaVerificationFailureTotal,
-                        rsaRosterMismatchTotal,
-                        stateProofVerificationSuccessTotal,
-                        stateProofVerificationFailureTotal);
+                        verificationProofMetrics);
                 LOGGER.log(DEBUG, "Started new block verification session for block number {0}", currentBlockNumber);
             } else {
                 headerValid = true; // header not present, assume it was valid
@@ -517,11 +512,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         null,
                         activeLedgerId,
                         keyByNodeId,
-                        rsaVerificationSuccessTotal,
-                        rsaVerificationFailureTotal,
-                        rsaRosterMismatchTotal,
-                        stateProofVerificationSuccessTotal,
-                        stateProofVerificationFailureTotal);
+                        verificationProofMetrics);
                 // process the block items in the backfilled notification
                 // For backfill, we wrap items in BlockItems with isEndOfBlock=true (last item should be block proof)
                 BlockItems backfillBlockItems =

@@ -52,8 +52,8 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.verification.VerificationServicePlugin;
+import org.hiero.block.node.verification.session.VerificationProofMetrics;
 import org.hiero.block.node.verification.session.VerificationSession;
-import org.hiero.metrics.LongCounter;
 
 public class ExtendedMerkleTreeSession implements VerificationSession {
     private final System.Logger LOGGER = System.getLogger(getClass().getName());
@@ -114,21 +114,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * Null until a `RECORD_FILE` block item is encountered.
      */
     private Bytes rawRecordFileItemProtoBytes;
-    /** Metric for successful RSA WRB proof verifications; nullable — null when metrics not configured. */
-    @Nullable
-    private final LongCounter.Measurement rsaVerificationSuccessTotal;
-    /** Metric for failed RSA WRB proof verifications; nullable — null when metrics not configured. */
-    @Nullable
-    private final LongCounter.Measurement rsaVerificationFailureTotal;
-    /** Metric for signatures from `node_id` values absent from the loaded address book. */
-    @Nullable
-    private final LongCounter.Measurement rsaRosterMismatchTotal;
-    /** Metric for accepted state-proof verifications; nullable — null when metrics not configured. */
-    @Nullable
-    private final LongCounter.Measurement stateProofVerificationSuccessTotal;
-    /** Metric for rejected state-proof verifications; nullable — null when metrics not configured. */
-    @Nullable
-    private final LongCounter.Measurement stateProofVerificationFailureTotal;
+    /** Per-proof-type verification counters. Never null; uses {@link VerificationProofMetrics#NONE} when unwired. */
+    @NonNull
+    private final VerificationProofMetrics metrics;
 
     /**
      * The block items for the block this session is responsible for. We collect them here so we can provide the
@@ -162,11 +150,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * @param ledgerId the trusted ledger ID for TSS verification, may be null for block 0
      * @param rsaKeyByNodeId map from `node_id` to RSA `PublicKey` for WRB proof verification;
      *     use `Map.of()` when no address book is available
-     * @param rsaVerificationSuccessTotal metric counter for successful RSA verifications, may be null
-     * @param rsaVerificationFailureTotal metric counter for failed RSA verifications, may be null
-     * @param rsaRosterMismatchTotal metric counter for signatures from unknown nodes, may be null
-     * @param stateProofVerificationSuccessTotal metric counter for successful state-proof verifications, may be null
-     * @param stateProofVerificationFailureTotal metric counter for failed state-proof verifications, may be null
+     * @param metrics per-proof-type verification counters; use {@link VerificationProofMetrics#NONE} when not wired
      */
     public ExtendedMerkleTreeSession(
             final long blockNumber,
@@ -175,21 +159,13 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             final Bytes allPreviousBlocksRootHash,
             final Bytes ledgerId,
             final Map<Long, PublicKey> rsaKeyByNodeId,
-            @Nullable final LongCounter.Measurement rsaVerificationSuccessTotal,
-            @Nullable final LongCounter.Measurement rsaVerificationFailureTotal,
-            @Nullable final LongCounter.Measurement rsaRosterMismatchTotal,
-            @Nullable final LongCounter.Measurement stateProofVerificationSuccessTotal,
-            @Nullable final LongCounter.Measurement stateProofVerificationFailureTotal) {
+            @NonNull final VerificationProofMetrics metrics) {
         this.blockNumber = blockNumber;
         this.previousBlockHash = previousBlockHash;
         this.allPreviousBlockRootHash = allPreviousBlocksRootHash;
         this.ledgerId = ledgerId;
         this.rsaKeyByNodeId = Objects.requireNonNull(rsaKeyByNodeId, "rsaKeyByNodeId must not be null");
-        this.rsaVerificationSuccessTotal = rsaVerificationSuccessTotal;
-        this.rsaVerificationFailureTotal = rsaVerificationFailureTotal;
-        this.rsaRosterMismatchTotal = rsaRosterMismatchTotal;
-        this.stateProofVerificationSuccessTotal = stateProofVerificationSuccessTotal;
-        this.stateProofVerificationFailureTotal = stateProofVerificationFailureTotal;
+        this.metrics = Objects.requireNonNull(metrics, "metrics must not be null");
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
@@ -331,6 +307,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         final boolean verified =
                 verifySignature(blockRootHash, blockProof.signedBlockProof().blockSignature());
 
+        if (verified) {
+            metrics.incrementTssSuccess();
+        } else {
+            metrics.incrementTssFailure();
+        }
+
         return new VerificationNotification(
                 verified,
                 verified ? null : FailureType.BAD_BLOCK_PROOF,
@@ -429,7 +411,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     "Address book is empty — cannot verify RSA WRB proof for block {0}."
                             + " Ensure RsaRosterBootstrapPlugin started successfully.",
                     blockNumber);
-            if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+            metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
@@ -438,7 +420,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         if (rawRecordFileItemProtoBytes == null) {
             LOGGER.log(
                     WARNING, "No RECORD_FILE item found in WRB block {0} — cannot compute signed payload", blockNumber);
-            if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+            metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
@@ -453,7 +435,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     "Unsupported SignedRecordFileProof version {0} in block {1} — only V6 is supported",
                     version,
                     blockNumber);
-            if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+            metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
@@ -463,7 +445,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         if (rawRecordStreamFileBytes.length() == 0) {
             LOGGER.log(
                     WARNING, "Failed to extract record_file_contents from RECORD_FILE item in block {0}", blockNumber);
-            if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+            metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
@@ -515,7 +497,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                             "RSA signature from node {0} failed verification in block {1} — rejecting block",
                             nodeId,
                             blockNumber);
-                    if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+                    metrics.incrementRsaFailure();
                     return new VerificationNotification(
                             false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
                 }
@@ -526,14 +508,14 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                         nodeId,
                         blockNumber,
                         e.getMessage());
-                if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+                metrics.incrementRsaFailure();
                 return new VerificationNotification(
                         false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
             }
         }
 
-        if (rsaRosterMismatchTotal != null && mismatchCount > 0) {
-            rsaRosterMismatchTotal.increment(mismatchCount);
+        if (mismatchCount > 0) {
+            metrics.incrementRsaRosterMismatch(mismatchCount);
         }
 
         // Strict majority threshold: validCount must be strictly greater than half the roster.
@@ -550,7 +532,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     validCount,
                     rosterSize,
                     rosterSize / 2);
-            if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+            metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
@@ -576,7 +558,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 validCount,
                 rosterSize,
                 rosterSize / 2);
-        if (rsaVerificationSuccessTotal != null) rsaVerificationSuccessTotal.increment();
+        metrics.incrementRsaSuccess();
         return new VerificationNotification(
                 true, null, blockNumber, blockRootHash, new BlockUnparsed(blockItems), blockSource);
     }
@@ -737,10 +719,10 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         if (verified) {
             LOGGER.log(DEBUG, "State-proof verification accepted block {0}", blockNumber);
-            if (stateProofVerificationSuccessTotal != null) stateProofVerificationSuccessTotal.increment();
+            metrics.incrementStateProofSuccess();
         } else {
             LOGGER.log(WARNING, "State-proof verification rejected block {0}", blockNumber);
-            if (stateProofVerificationFailureTotal != null) stateProofVerificationFailureTotal.increment();
+            metrics.incrementStateProofFailure();
         }
 
         return new VerificationNotification(

@@ -477,13 +477,13 @@ tracked in #2562.
 
 #### 4.5.6 Failure Modes
 
-|                Condition                 |                          Action                          |
-|------------------------------------------|----------------------------------------------------------|
-| Zero valid signatures                    | Reject block; increment `rsa_verification_failure_total` |
-| `validatedCount < threshold`             | Reject block; increment `rsa_verification_failure_total` |
-| `node_id` not in `NodeAddressBook`       | Skip signature; increment `roster_mismatch_total`        |
-| Zeroed signature bytes (all 0x00)        | Skip signature; log at DEBUG level                       |
-| Malformed DER public key in `RSA_PubKey` | Skip signature; log at WARN level                        |
+|                Condition                 |                                        Action                                         |
+|------------------------------------------|---------------------------------------------------------------------------------------|
+| Zero valid signatures                    | Reject block; increment `verification_proof_total{proof_type="rsa",result="failure"}` |
+| `validatedCount < threshold`             | Reject block; increment `verification_proof_total{proof_type="rsa",result="failure"}` |
+| `node_id` not in `NodeAddressBook`       | Skip signature; increment `roster_mismatch_total`                                     |
+| Zeroed signature bytes (all 0x00)        | Skip signature; log at DEBUG level                                                    |
+| Malformed DER public key in `RSA_PubKey` | Skip signature; log at WARN level                                                     |
 
 Rejected blocks are **not** written to storage. The publisher receives the appropriate `PublishStreamResponse` error
 code.
@@ -607,13 +607,13 @@ ROSTER_BOOTSTRAP_MIRROR_NODE_BASE_URL=https://testnet.mirrornode.hedera.com
 
 All metrics use the BN-standard category `blocknode` and must follow existing naming conventions.
 
-|                 Metric name                  |   Type    |           Labels            |                                         Description                                          |
-|----------------------------------------------|-----------|-----------------------------|----------------------------------------------------------------------------------------------|
-| `blocknode_rsa_verification_total`           | Counter   | `result={success,failure}`  | Count of WRB RSA proof verifications by result.                                              |
-| `blocknode_rsa_verification_latency_seconds` | Histogram | —                           | Latency of the full RSA verification step per block (p50, p95, p99 buckets).                 |
-| `blocknode_rsa_roster_entries_loaded`        | Gauge     | `source={file,mirror_node}` | Number of `NodeAddress` entries loaded at startup, labelled by source.                       |
-| `blocknode_rsa_roster_mismatch_total`        | Counter   | —                           | Count of signatures where the signing node ID was not found in the loaded `NodeAddressBook`. |
-| `blocknode_rsa_roster_load_duration_seconds` | Gauge     | `source={file,mirror_node}` | Time taken to load the roster at startup (for alerting on slow Mirror Node calls).           |
+|                 Metric name                  |   Type    |                             Labels                             |                                         Description                                          |
+|----------------------------------------------|-----------|----------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| `blocknode_verification_proof_total`         | Counter   | `proof_type={rsa,state_proof,tss}`, `result={success,failure}` | Count of block proof verifications, broken down by proof type and result.                    |
+| `blocknode_rsa_verification_latency_seconds` | Histogram | —                                                              | Latency of the full RSA verification step per block (p50, p95, p99 buckets).                 |
+| `blocknode_rsa_roster_entries_loaded`        | Gauge     | `source={file,mirror_node}`                                    | Number of `NodeAddress` entries loaded at startup, labelled by source.                       |
+| `blocknode_rsa_roster_mismatch_total`        | Counter   | —                                                              | Count of signatures where the signing node ID was not found in the loaded `NodeAddressBook`. |
+| `blocknode_rsa_roster_load_duration_seconds` | Gauge     | `source={file,mirror_node}`                                    | Time taken to load the roster at startup (for alerting on slow Mirror Node calls).           |
 
 ---
 
@@ -685,7 +685,7 @@ protoc --decode=NodeAddressBook basic_types.proto < rsa-bootstrap-roster.pb
 - [ ] BN startup fails fast with a clear error log when no bootstrap file exists and Mirror Node is unreachable.
 - [ ] A WRB block with a passing RSA proof (supermajority count) is accepted and persisted.
 - [ ] A WRB block with an insufficient RSA proof (below threshold) is rejected;
-  `rsa_verification_total{result="failure"}` increments.
+  `verification_proof_total{proof_type="rsa",result="failure"}` increments.
 - [ ] A WRB block with a signature from a `node_id` absent from the `NodeAddressBook` increments `roster_mismatch_total`
   without a panic.
 - [ ] A block with a `StateProof` is routed to the state proof verification path regardless of plugin state.

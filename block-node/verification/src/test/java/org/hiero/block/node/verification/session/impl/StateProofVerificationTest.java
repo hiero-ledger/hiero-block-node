@@ -24,6 +24,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.verification.VerificationServicePlugin;
+import org.hiero.block.node.verification.session.VerificationProofMetrics;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,7 +76,7 @@ class StateProofVerificationTest {
         VerificationServicePlugin.tssParametersPersisted = false;
         // Process block 0 through a session to initialize native TSS state and extract ledger ID
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                block0.blockNumber(), BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null, null, null);
+                block0.blockNumber(), BlockSource.PUBLISHER, null, null, null, Map.of(), VerificationProofMetrics.NONE);
         session.processBlockItems(
                 new BlockItems(block0.blockUnparsed().blockItems(), block0.blockNumber(), true, true));
         assertNotNull(VerificationServicePlugin.activeLedgerId, "Block 0 must set the active ledger ID");
@@ -183,7 +184,13 @@ class StateProofVerificationTest {
 
     private VerificationNotification verifyBlock(long blockNumber, BlockUnparsed block) throws ParseException {
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, activeLedgerId, Map.of(), null, null, null, null, null);
+                blockNumber,
+                BlockSource.PUBLISHER,
+                null,
+                null,
+                activeLedgerId,
+                Map.of(),
+                VerificationProofMetrics.NONE);
         return session.processBlockItems(new BlockItems(block.blockItems(), blockNumber, true, true));
     }
 

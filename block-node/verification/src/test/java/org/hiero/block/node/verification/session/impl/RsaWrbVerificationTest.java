@@ -31,6 +31,7 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.verification.session.VerificationProofMetrics;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -187,7 +188,7 @@ class RsaWrbVerificationTest {
             final Map<Long, PublicKey> keyMap, final List<RecordFileSignature> signatures) throws Exception {
         final List<BlockItemUnparsed> items = buildWrbBlock(signatures);
         final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, keyMap, null, null, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, keyMap, VerificationProofMetrics.NONE);
         return session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
     }
 
@@ -400,7 +401,7 @@ class RsaWrbVerificationTest {
                             .build());
         }
         final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
         final VerificationNotification result =
                 session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
 
@@ -449,7 +450,7 @@ class RsaWrbVerificationTest {
                             .build());
         }
         final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
         final VerificationNotification result =
                 session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
 
@@ -491,7 +492,7 @@ class RsaWrbVerificationTest {
 
         // Case 1: empty RECORD_FILE bytes — nothing to extract → field not found → Bytes.EMPTY → fail
         final ExtendedMerkleTreeSession session1 = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
         final VerificationNotification result1 = session1.processBlockItems(
                 new BlockItems(buildWrbBlockWithCustomRecordFile(Bytes.EMPTY, sigs), BLOCK_NUMBER, true, true));
         assertNotNull(result1);
@@ -501,7 +502,7 @@ class RsaWrbVerificationTest {
         // Tag=0x0A (field 1, LEN), length=1, one payload byte
         final Bytes field1Only = Bytes.wrap(new byte[] {0x0A, 0x01, 0x42});
         final ExtendedMerkleTreeSession session2 = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
         final VerificationNotification result2 = session2.processBlockItems(
                 new BlockItems(buildWrbBlockWithCustomRecordFile(field1Only, sigs), BLOCK_NUMBER, true, true));
         assertNotNull(result2);
@@ -511,7 +512,7 @@ class RsaWrbVerificationTest {
         // Tag = (1 << 3) | 3 = 0x0B (field 1, wire 3 = SGROUP — unused in proto3 but valid tag encoding)
         final Bytes unknownWireType = Bytes.wrap(new byte[] {0x0B});
         final ExtendedMerkleTreeSession session3 = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
         final VerificationNotification result3 = session3.processBlockItems(
                 new BlockItems(buildWrbBlockWithCustomRecordFile(unknownWireType, sigs), BLOCK_NUMBER, true, true));
         assertNotNull(result3);

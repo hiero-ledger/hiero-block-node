@@ -1796,7 +1796,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "rate(blocknode_rsa_verification_success_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_proof_total{proof_type=\"rsa\",result=\"success\"}[$__rate_interval])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1884,7 +1884,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(blocknode_rsa_verification_success_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_proof_total{proof_type=\"rsa\",result=\"success\"}[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -1941,7 +1941,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "rate(blocknode_rsa_verification_failure_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_proof_total{proof_type=\"rsa\",result=\"failure\"}[$__rate_interval])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2029,7 +2029,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(blocknode_rsa_verification_failure_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_proof_total{proof_type=\"rsa\",result=\"failure\"}[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -2244,7 +2244,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "rate(blocknode_state_proof_verification_success_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_proof_total{proof_type=\"state_proof\",result=\"success\"}[$__rate_interval])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2332,7 +2332,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(blocknode_state_proof_verification_success_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_proof_total{proof_type=\"state_proof\",result=\"success\"}[$__rate_interval])",
           "refId": "A"
         }
       ],
@@ -2389,7 +2389,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "rate(blocknode_state_proof_verification_failure_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_proof_total{proof_type=\"state_proof\",result=\"failure\"}[$__rate_interval])",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2477,7 +2477,7 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "expr": "rate(blocknode_state_proof_verification_failure_total[$__rate_interval])",
+          "expr": "rate(blocknode_verification_proof_total{proof_type=\"state_proof\",result=\"failure\"}[$__rate_interval])",
           "refId": "A"
         }
       ],
