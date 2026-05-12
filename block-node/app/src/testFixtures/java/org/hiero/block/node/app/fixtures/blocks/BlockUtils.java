@@ -2,6 +2,7 @@
 package org.hiero.block.node.app.fixtures.blocks;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -50,6 +51,25 @@ public final class BlockUtils {
             return Block.PROTOBUF.parse(BlockUnparsed.PROTOBUF.toBytes(block));
         } catch (ParseException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Loads the RSA {@link NodeAddressBook} fixture for a WRB sample-block network.  Looks up
+     * {@code test-blocks/WRB/<network>/address-book.json} on the test classpath and parses it
+     * with the PBJ JSON codec.  See {@code WrbAddressBookFixtureGeneratorTest} for how this
+     * file is produced from {@code genesis-network.json}.
+     *
+     * @param network the WRB network folder name, e.g. {@code "SOLO_4N"}
+     * @return the parsed address book
+     */
+    public static NodeAddressBook getSampleAddressBook(String network) throws IOException, ParseException {
+        final String resourcePath = "test-blocks/WRB/" + network + "/address-book.json";
+        try (InputStream stream = TestUtils.class.getModule().getResourceAsStream(resourcePath)) {
+            if (stream == null) {
+                throw new IOException("Address book fixture not found on classpath: " + resourcePath);
+            }
+            return NodeAddressBook.JSON.parse(Bytes.wrap(stream.readAllBytes()));
         }
     }
 
@@ -150,6 +170,63 @@ public final class BlockUtils {
 
         public long getBlockNumber() {
             return blockNumber;
+        }
+    }
+
+    /**
+     * Sample wrapped record blocks (WRB) for the V6 {@code SignedRecordFileProof} verification path.
+     * Each constant maps to a {@code test-blocks/WRB/<network>/<blockNumber>.blk.gz} resource and
+     * carries the name of the network folder so callers can fetch the matching
+     * {@link NodeAddressBook} via {@link #getSampleAddressBook(String)}.
+     *
+     * <p>Hashes are intentionally empty: the integration tests that consume these blocks assert that
+     * the verifier emits a non-null block hash, but not its specific value. Populate them via
+     * {@code WrbAddressBookFixtureGeneratorTest} if a strict-hash assertion is needed later.
+     *
+     * <p>Only solo-network blocks are wired in right now. The {@code v6-block.blk.gz} sample under
+     * {@code tools-and-tests/.../record-files/wrb/} was evaluated as a second source but its block
+     * header carries HAPI 0.63.x, below the 0.72.0 minimum at which {@code HapiVersionSessionFactory}
+     * dispatches to the WRB-capable {@code ExtendedMerkleTreeSession}. Add it back once the
+     * verifier accepts older HAPI versions, or once a newer mainnet WRB capture is available.
+     */
+    public enum SAMPLE_BLOCKS_WRB implements SampleBlock {
+        /** Solo-network genesis WRB block — the only one in this batch containing tss-init metadata. */
+        SOLO_4N_BLOCK_0("WRB/SOLO_4N/0.blk.gz", "", 0, "SOLO_4N"),
+        SOLO_4N_BLOCK_1("WRB/SOLO_4N/1.blk.gz", "", 1, "SOLO_4N"),
+        SOLO_4N_BLOCK_2("WRB/SOLO_4N/2.blk.gz", "", 2, "SOLO_4N"),
+        SOLO_4N_BLOCK_3("WRB/SOLO_4N/3.blk.gz", "", 3, "SOLO_4N"),
+        SOLO_4N_BLOCK_4("WRB/SOLO_4N/4.blk.gz", "", 4, "SOLO_4N");
+
+        private final String blockName;
+        private final Bytes blockHash;
+        private final long blockNumber;
+        private final String network;
+
+        SAMPLE_BLOCKS_WRB(String blockName, String blockHash, long blockNumber, String network) {
+            this.blockName = blockName;
+            this.blockHash = Bytes.fromHex(blockHash);
+            this.blockNumber = blockNumber;
+            this.network = network;
+        }
+
+        @Override
+        public String getBlockName() {
+            return blockName;
+        }
+
+        @Override
+        public Bytes getBlockHash() {
+            return blockHash;
+        }
+
+        @Override
+        public long getBlockNumber() {
+            return blockNumber;
+        }
+
+        /** Network folder for this fixture (also the {@code <network>} argument to {@link #getSampleAddressBook(String)}). */
+        public String network() {
+            return network;
         }
     }
 

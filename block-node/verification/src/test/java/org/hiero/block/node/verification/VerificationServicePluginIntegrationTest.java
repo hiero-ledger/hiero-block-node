@@ -1,46 +1,55 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.verification;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.runtime.ParseException;
-import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.zip.GZIPInputStream;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
+import org.hiero.block.node.app.fixtures.blocks.BlockUtils;
+import org.hiero.block.node.app.fixtures.blocks.BlockUtils.SAMPLE_BLOCKS_WRB;
+import org.hiero.block.node.app.fixtures.blocks.BlockUtils.SampleBlockInfo;
 import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacility;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /**
  * Integration-style tests for {@link VerificationServicePlugin} using real WRB block fixtures.
  *
- * <p>These tests exercise the full plugin pipeline:
+ * <p>The pipeline under test:
  * <ol>
- *   <li>Load a real WRB (Wrapped Record Block) from a test resource file.</li>
- *   <li>Load the matching RSA {@link NodeAddressBook} (the public keys of the nodes that signed
- *       the block).</li>
+ *   <li>Load a real WRB (Wrapped Record Block) from {@code BlockUtils.SAMPLE_BLOCKS_WRB}.</li>
+ *   <li>Load the matching RSA {@link NodeAddressBook} via
+ *       {@link BlockUtils#getSampleAddressBook(String)}.</li>
  *   <li>Deliver the address book to the plugin via
  *       {@link PluginTestBase#updateAddressBook(NodeAddressBook)}, which simulates the production
- *       {@code ApplicationStateFacility.updateAddressBook()} → context rebuild → *       {@code onContextUpdate()} chain without requiring a running scheduler.</li>
+ *       {@code ApplicationStateFacility.updateAddressBook()} → context rebuild →
+ *       {@code onContextUpdate()} chain without requiring a running scheduler.</li>
  *   <li>Send the block through the plugin's live-stream handler via
  *       {@link org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility}.</li>
  *   <li>Assert the resulting {@link VerificationNotification}.</li>
@@ -48,36 +57,26 @@ import org.junit.jupiter.api.io.TempDir;
  *
  * <h2>Adding new test fixtures</h2>
  *
- * <p>Place files under {@code block-node/verification/src/test/resources/}:
+ * <p>Place files under {@code block-node/app/src/testFixtures/resources/}:
  *
  * <pre>
  * test-blocks/
- *   wrb/
+ *   WRB/
  *     &lt;network&gt;/
  *       &lt;block-number&gt;.blk.gz     — GZIP-compressed protobuf BlockUnparsed
- * test-data/
- *   wrb/
- *     &lt;network&gt;/
- *       address-book.pb            — protobuf-serialised NodeAddressBook (RSA public keys)
+ *       address-book.json          — NodeAddressBook (SPKI in rsaPubKey), PBJ JSON codec
  * </pre>
  *
  * <p>The {@code .blk.gz} format is identical to the TSS block fixtures under
  * {@code test-blocks/CN_0_73_TSS_WRAPS/}: GZIP wrapping a protobuf-encoded {@link BlockUnparsed}.
  *
- * <p>The {@code address-book.pb} file is a raw protobuf serialisation of {@link NodeAddressBook}
- * containing the RSA public keys ({@code rsaPubKey} field, hex-encoded DER) of the nodes that
- * produced the block.  Generate it with:
- * <pre>
- *   // Kotlin / Java snippet:
- *   val book = NodeAddressBook.newBuilder()
- *       .nodeAddress(/* ... node entries ... *{@literal /})
- *       .build()
- *   Files.write(Path.of("address-book.pb"), NodeAddressBook.PROTOBUF.toBytes(book).toByteArray())
- * </pre>
+ * <p>The {@code address-book.json} file is the PBJ JSON serialisation of {@link NodeAddressBook}
+ * whose {@code rsaPubKey} entries are hex-encoded X.509 {@code SubjectPublicKeyInfo} bytes (the
+ * only shape {@link RsaKeyDecoder} currently accepts). See {@code WrbAddressBookFixtureGeneratorTest}
+ * for how this file is produced from a {@code genesis-network.json}.
  *
- * <p>Alternatively, obtain the address book from the Mirror Node REST API
- * ({@code GET /api/v1/network/nodes}) and convert it using {@code RsaRosterBootstrapPlugin}'s
- * parsing logic, or export it from the block node's own persisted {@code rsa-bootstrap-roster.json}.
+ * <p>After adding a new fixture, append it to {@link SAMPLE_BLOCKS_WRB} so it is automatically
+ * picked up by {@link #realWrbBlock_verifiesSuccessfullyAgainstMatchingAddressBook}.
  */
 class VerificationServicePluginIntegrationTest
         extends PluginTestBase<VerificationServicePlugin, BlockingExecutor, ScheduledExecutorService> {
@@ -106,82 +105,92 @@ class VerificationServicePluginIntegrationTest
     }
 
     // -------------------------------------------------------------------------
-    // Placeholder test — enable once real WRB fixtures are available
+    // Happy path — every WRB sample verifies against its matching address book
     // -------------------------------------------------------------------------
 
-    /**
-     * Placeholder integration test for a real WRB block.
-     *
-     * <p>To activate:
-     * <ol>
-     *   <li>Remove {@code @Disabled}.</li>
-     *   <li>Place the WRB block at
-     *       {@code src/test/resources/test-blocks/wrb/<network>/<block-number>.blk.gz}.</li>
-     *   <li>Place the matching address book at
-     *       {@code src/test/resources/test-data/wrb/<network>/address-book.pb}.</li>
-     *   <li>Update the resource paths in this test accordingly.</li>
-     * </ol>
-     */
-    @Disabled("No WRB block fixtures available yet — see class Javadoc for setup instructions")
-    @Test
-    @DisplayName("real WRB block with matching address book verifies successfully")
-    void realWrbBlock_withMatchingAddressBook_verifies() throws IOException, ParseException {
-        final NodeAddressBook book = loadAddressBook("test-data/wrb/<network>/address-book.pb");
-        final BlockUnparsed block = loadWrbBlock("test-blocks/wrb/<network>/<block-number>.blk.gz");
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(SAMPLE_BLOCKS_WRB.class)
+    @DisplayName("Real WRB block verifies successfully against its matching address book")
+    void realWrbBlock_verifiesSuccessfullyAgainstMatchingAddressBook(final SAMPLE_BLOCKS_WRB sample)
+            throws IOException, ParseException {
+        final NodeAddressBook book = BlockUtils.getSampleAddressBook(sample.network());
+        final SampleBlockInfo blockInfo = BlockUtils.getSampleBlockInfo(sample);
 
-        final VerificationNotification notification = runWrbVerification(book, block);
+        final VerificationNotification notification = runWrbVerification(book, blockInfo);
 
         assertNotNull(notification, "Plugin must emit a VerificationNotification");
-        assertTrue(notification.success(), "Real WRB block must verify successfully with the matching address book");
+        assertTrue(
+                notification.success(),
+                "Real WRB block " + sample + " must verify successfully against its " + sample.network()
+                        + " address book");
         assertNotNull(notification.blockHash(), "Block hash must be set on successful verification");
         assertNotNull(notification.block(), "Block content must be present on successful verification");
+        assertEquals(
+                sample.getBlockNumber(),
+                notification.blockNumber(),
+                "Notification must echo the block number from the header");
     }
 
     // -------------------------------------------------------------------------
-    // Harness helpers
+    // Negative path — without a loaded address book the verifier must reject
     // -------------------------------------------------------------------------
 
-    /**
-     * Loads a GZIP-compressed, protobuf-encoded {@link BlockUnparsed} from the given resource
-     * path.  Resources are resolved from this module's test classpath.
-     *
-     * @param resourcePath path relative to the test resource root,
-     *     e.g. {@code "test-blocks/wrb/mainnet/1234567.blk.gz"}
-     * @return the parsed {@link BlockUnparsed}
-     * @throws IOException if the resource cannot be opened or read
-     * @throws ParseException if the protobuf payload cannot be parsed
-     */
-    private BlockUnparsed loadWrbBlock(final String resourcePath) throws IOException, ParseException {
-        try (InputStream raw = getClass().getModule().getResourceAsStream(resourcePath)) {
-            if (raw == null) {
-                throw new IOException("WRB block resource not found: " + resourcePath
-                        + " — see class Javadoc for fixture setup instructions");
-            }
-            try (GZIPInputStream gzip = new GZIPInputStream(raw)) {
-                return BlockUnparsed.PROTOBUF.parse(Bytes.wrap(gzip.readAllBytes()));
-            }
-        }
+    @Test
+    @DisplayName("WRB block is rejected when no RSA address book has been published yet")
+    void realWrbBlock_rejectedWithoutAddressBook() throws IOException, ParseException {
+        final SampleBlockInfo soloBlock = BlockUtils.getSampleBlockInfo(SAMPLE_BLOCKS_WRB.SOLO_4N_BLOCK_0);
+
+        final VerificationNotification notification = runWrbVerification(NodeAddressBook.DEFAULT, soloBlock);
+
+        assertNotNull(notification, "Plugin must emit a VerificationNotification");
+        assertFalse(
+                notification.success(),
+                "Solo-network block must NOT verify when the RSA key map is empty (RsaRosterBootstrapPlugin not yet ready)");
+        assertNull(notification.blockHash(), "Block hash must be null on a rejected verification");
+        assertNull(notification.block(), "Block content must be null on a rejected verification");
     }
 
-    /**
-     * Loads a protobuf-encoded {@link NodeAddressBook} from the given resource path.
-     * The file must be a raw serialisation of {@link NodeAddressBook} (not GZIP-compressed).
-     *
-     * @param resourcePath path relative to the test resource root,
-     *     e.g. {@code "test-data/wrb/mainnet/address-book.pb"}
-     * @return the parsed {@link NodeAddressBook}
-     * @throws IOException if the resource cannot be opened or read
-     * @throws ParseException if the protobuf payload cannot be parsed
-     */
-    private NodeAddressBook loadAddressBook(final String resourcePath) throws IOException, ParseException {
-        try (InputStream raw = getClass().getModule().getResourceAsStream(resourcePath)) {
-            if (raw == null) {
-                throw new IOException("Address book resource not found: " + resourcePath
-                        + " — see class Javadoc for fixture setup instructions");
-            }
-            return NodeAddressBook.PROTOBUF.parse(Bytes.wrap(raw.readAllBytes()));
-        }
+    @Test
+    @DisplayName("WRB block is rejected with BAD_BLOCK_PROOF when signed by keys that do not match the address book")
+    void realWrbBlock_rejectedWithWrongKeys() throws Exception {
+        // Build an address book that claims the same node IDs the solo capture uses (0..3) but
+        // whose RSA public keys are freshly generated — i.e. signatures over the real payload will
+        // never verify under these keys. This exercises the engine.verify(...) == false branch in
+        // ExtendedMerkleTreeSession#verifyRsaProof, which returns BAD_BLOCK_PROOF immediately on
+        // the first signature that fails to verify.
+        final NodeAddressBook wrongKeysBook = buildAddressBookWithFreshRsaKeys(4);
+        final SampleBlockInfo soloBlock = BlockUtils.getSampleBlockInfo(SAMPLE_BLOCKS_WRB.SOLO_4N_BLOCK_0);
+
+        final VerificationNotification notification = runWrbVerification(wrongKeysBook, soloBlock);
+
+        assertNotNull(notification, "Plugin must emit a VerificationNotification");
+        assertFalse(notification.success(), "Block must NOT verify against an address book containing wrong RSA keys");
+        assertEquals(
+                VerificationNotification.FailureType.BAD_BLOCK_PROOF,
+                notification.failureType(),
+                "Failed cryptographic verification must surface as BAD_BLOCK_PROOF");
+        assertNull(notification.blockHash(), "Block hash must be null on a rejected verification");
+        assertNull(notification.block(), "Block content must be null on a rejected verification");
     }
+
+    private static NodeAddressBook buildAddressBookWithFreshRsaKeys(final int nodeCount) throws Exception {
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(1024);
+        final HexFormat hex = HexFormat.of();
+        final List<NodeAddress> entries = new ArrayList<>(nodeCount);
+        for (long nodeId = 0; nodeId < nodeCount; nodeId++) {
+            final KeyPair kp = kpg.generateKeyPair();
+            entries.add(NodeAddress.newBuilder()
+                    .nodeId(nodeId)
+                    .rsaPubKey(hex.formatHex(kp.getPublic().getEncoded()))
+                    .build());
+        }
+        return NodeAddressBook.newBuilder().nodeAddress(entries).build();
+    }
+
+    // -------------------------------------------------------------------------
+    // Harness
+    // -------------------------------------------------------------------------
 
     /**
      * Runs the full WRB verification pipeline:
@@ -190,31 +199,19 @@ class VerificationServicePluginIntegrationTest
      *       {@link PluginTestBase#updateAddressBook(NodeAddressBook)} — this simulates
      *       {@code ApplicationStateFacility.updateAddressBook()} and synchronously triggers
      *       {@code plugin.onContextUpdate()}, rebuilding the RSA key map.</li>
-     *   <li>Parses the block number from the block's first item (the {@code BlockHeader}).</li>
-     *   <li>Sends all block items through the plugin's live-stream handler in a single
+     *   <li>Sends every block item through the plugin's live-stream handler in a single
      *       {@link BlockItems} batch (start-of-block = true, end-of-block = true).</li>
      *   <li>Returns the last {@link VerificationNotification} emitted by the plugin.</li>
      * </ol>
-     *
-     * @param book  the RSA address book matching the signing nodes for {@code block}
-     * @param block the WRB block to verify
-     * @return the {@link VerificationNotification} produced by the plugin
-     * @throws ParseException if the block header cannot be parsed to extract the block number
      */
-    private VerificationNotification runWrbVerification(final NodeAddressBook book, final BlockUnparsed block)
-            throws ParseException {
-        // Deliver the address book — triggers ApplicationStateFacility.updateAddressBook() flow.
+    private VerificationNotification runWrbVerification(final NodeAddressBook book, final SampleBlockInfo blockInfo) {
         updateAddressBook(book);
 
-        // Parse the block number from the header so BlockItems is constructed correctly.
-        final long blockNumber = com.hedera.hapi.block.stream.output.BlockHeader.PROTOBUF
-                .parse(block.blockItems().getFirst().blockHeaderOrThrow())
-                .number();
+        final BlockUnparsed block = blockInfo.blockUnparsed();
+        final long blockNumber = blockInfo.blockNumber();
 
-        // Send the entire block as a single batch (WRB blocks are always self-contained).
         blockMessaging.sendBlockItems(new BlockItems(block.blockItems(), blockNumber, true, true));
 
-        // Return the notification produced for this block.
         final List<VerificationNotification> notifications = blockMessaging.getSentVerificationNotifications();
         assertFalse(notifications.isEmpty(), "Plugin must emit at least one VerificationNotification");
         return notifications.getLast();

@@ -19,12 +19,18 @@ import java.util.Map;
  * Utility for decoding RSA public keys from a `NodeAddressBook` into a
  * `node_id → PublicKey` map used by the RSA WRB verification path.
  *
- * Keys are expected to be hex-encoded DER (X.509 `SubjectPublicKeyInfo`) or DER
- * certificate bytes, **without** a `0x` prefix.
+ * Keys are expected to be hex-encoded DER X.509 `SubjectPublicKeyInfo`,
+ * **without** a `0x` prefix.
  *
  * This logic mirrors `SigFileUtils.decodePublicKey` in `tools-and-tests/tools`
  * but is inlined here because that module cannot be imported from
  * `block-node/verification`.
+ *
+ * TODO: reconcile with `SigFileUtils.decodePublicKey` and `AddressBookRegistry`
+ * which store `rsaPubKey` as hex-encoded *certificate* DER (cert wrapping the
+ * SPKI) instead of the bare SPKI bytes accepted here. Once accepting both forms,
+ * the WRB fixture generator can drop its SPKI-extraction step and write the cert
+ * DER verbatim.
  */
 public final class RsaKeyDecoder {
 
