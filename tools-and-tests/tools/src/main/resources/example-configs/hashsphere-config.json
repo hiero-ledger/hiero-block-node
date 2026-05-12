@@ -1,0 +1,12 @@
+{
+  "networkName": "hashsphere",
+  "gcsBucketName": "hashsphere-streams",
+  "bucketPathPrefix": "recordstreams/",
+  "mirrorNodeApiUrl": "https://hashsphere.mirrornode.example.com/api/v1/",
+  "genesisDate": "2024-01-01",
+  "genesisTimestamp": "2024-01-01T00_00_00.000000000Z",
+  "minNodeAccountId": 3,
+  "maxNodeAccountId": 10,
+  "totalHbarSupplyTinybar": 5000000000000000000,
+  "genesisAddressBookResource": "hashsphere-genesis-address-book.proto.bin"
+}

@@ -100,17 +100,29 @@ public record NetworkConfig(
     /**
      * Creates a {@link NetworkConfig} from a network name.
      *
-     * @param name the network name (case-insensitive): "mainnet" or "testnet"
+     * <p>Supported networks:
+     * <ul>
+     *   <li>{@code mainnet} - Hedera mainnet (hardcoded configuration)</li>
+     *   <li>{@code testnet} - Hedera testnet (hardcoded configuration)</li>
+     *   <li>{@code previewnet} - Hedera previewnet (loaded from ~/.hiero/networks/previewnet-config.json)</li>
+     *   <li>{@code other} - Custom network (loaded from path specified in HIERO_NETWORK_CONFIG env var)</li>
+     * </ul>
+     *
+     * @param name the network name (case-insensitive): "mainnet", "testnet", "previewnet", or "other"
      * @return the corresponding {@link NetworkConfig}
-     * @throws IllegalArgumentException if the network name is not recognized
+     * @throws IllegalArgumentException if the network name is not recognized or config cannot be loaded
      */
     public static NetworkConfig fromName(final String name) {
         return switch (name.toLowerCase()) {
             case "mainnet" -> mainnet();
             case "testnet" -> testnet();
+            case "previewnet" -> NetworkConfigLoader.loadNetworkConfig("previewnet");
+            case "other" -> NetworkConfigLoader.loadCustomNetworkConfig();
             default ->
                 throw new IllegalArgumentException(
-                        "Unknown network: " + name + ". Supported networks: mainnet, testnet");
+                        "Unknown network: "
+                                + name
+                                + ". Supported networks: mainnet, testnet, previewnet, other");
         };
     }
 }
