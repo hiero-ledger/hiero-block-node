@@ -771,7 +771,7 @@ jobs:
         run: |
           cd sdk-tck/sdk-server
           git fetch --tags
-          JS_SDK_REQUESTED="${{ inputs.js-sdk-version }}"
+          JS_SDK_REQUESTED="${{ inputs.js-sdk-version || 'v2.83.0' }}"
           if [[ "${JS_SDK_REQUESTED}" == "latest" ]]; then
             JS_SDK_RESOLVED=$(git describe --tags --abbrev=0)
           else

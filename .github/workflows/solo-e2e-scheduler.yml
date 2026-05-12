@@ -230,7 +230,7 @@ jobs:
           TCK_VERSION="${TCK_VERSION:-latest}"
 
           # JS-SDK version: use input value (input has default v2.83.0)
-          JS_SDK_VERSION="${{ inputs.js-sdk-version }}"
+          JS_SDK_VERSION="${{ inputs.js-sdk-version || 'v2.83.0' }}"
 
           # TSS: use input value (defaults to true)
           TSS_ENABLED="${{ inputs.tss-enabled }}"
