@@ -181,6 +181,39 @@ class RsaWrbVerificationTest {
     }
 
     /**
+     * Builds a `BlockItemUnparsed` list representing a WRB block with multiple `BLOCK_PROOF`
+     * items, one per `SignedRecordFileProof`. Used to test the multi-proof verification path.
+     *
+     * @param signaturesPerProof one signature list per `BLOCK_PROOF` item to append
+     * @return list of unparsed block items ready to pass to `processBlockItems`
+     */
+    private static List<BlockItemUnparsed> buildWrbBlockWithMultipleProofs(
+            final List<List<RecordFileSignature>> signaturesPerProof) {
+        final BlockHeader header =
+                new BlockHeader(HAPI_VERSION, SW_VERSION, BLOCK_NUMBER, BLOCK_TIMESTAMP, BlockHashAlgorithm.SHA2_384);
+        final BlockFooter footer = new BlockFooter(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+
+        final List<BlockItemUnparsed> items = new ArrayList<>();
+        items.add(BlockItemUnparsed.newBuilder()
+                .blockHeader(BlockHeader.PROTOBUF.toBytes(header))
+                .build());
+        items.add(BlockItemUnparsed.newBuilder().recordFile(recordFileItemBytes).build());
+        items.add(BlockItemUnparsed.newBuilder()
+                .blockFooter(BlockFooter.PROTOBUF.toBytes(footer))
+                .build());
+        for (final List<RecordFileSignature> signatures : signaturesPerProof) {
+            final BlockProof proof = BlockProof.newBuilder()
+                    .block(BLOCK_NUMBER)
+                    .signedRecordFileProof(new SignedRecordFileProof(6, signatures))
+                    .build();
+            items.add(BlockItemUnparsed.newBuilder()
+                    .blockProof(BlockProof.PROTOBUF.toBytes(proof))
+                    .build());
+        }
+        return items;
+    }
+
+    /**
      * Runs a single-call verification through `ExtendedMerkleTreeSession` using the given
      * key map and signatures.
      */
@@ -371,6 +404,44 @@ class RsaWrbVerificationTest {
         assertFalse(
                 result.success(),
                 "Duplicate signature from node 0 must not count twice — validCount stays at 3, not > rosterSize/2");
+    }
+
+    @Test
+    @DisplayName("multiple RSA proofs all valid are accepted")
+    void multipleValidProofs_accepted() throws Exception {
+        // Two RSA proofs, both with the threshold of 4 valid signatures — both must verify.
+        final List<List<RecordFileSignature>> proofs =
+                List.of(signaturesFor(0L, 1L, 2L, 3L), signaturesFor(0L, 1L, 2L, 3L, 4L, 5L));
+        final List<BlockItemUnparsed> items = buildWrbBlockWithMultipleProofs(proofs);
+        final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
+        final VerificationNotification result =
+                session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
+
+        assertNotNull(result);
+        assertTrue(result.success(), "Block with multiple valid RSA proofs must be accepted");
+        assertNotNull(result.blockHash(), "Block hash must be set on success");
+        assertNotNull(result.block(), "Block must be present on success");
+    }
+
+    @Test
+    @DisplayName("multiple RSA proofs with one failing causes block rejection")
+    void multipleProofs_oneFailing_rejected() throws Exception {
+        // First proof is valid at threshold; second proof has too few valid signatures.
+        // The block must be rejected because every RSA proof present must pass verification.
+        final List<List<RecordFileSignature>> proofs = List.of(
+                signaturesFor(0L, 1L, 2L, 3L, 4L, 5L),
+                signaturesFor(0L, 1L, 2L)); // 3 valid sigs — below strict majority for 6-node roster
+        final List<BlockItemUnparsed> items = buildWrbBlockWithMultipleProofs(proofs);
+        final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
+        final VerificationNotification result =
+                session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
+
+        assertNotNull(result);
+        assertFalse(result.success(), "Block must be rejected when any RSA proof present fails verification");
+        assertNull(result.blockHash(), "Block hash must not be set on failure");
+        assertNull(result.block(), "Block must not be present on failure");
     }
 
     @Test

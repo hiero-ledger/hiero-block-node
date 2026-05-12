@@ -245,14 +245,25 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
 
         // Route by proof type. RSA WRB proofs take priority (Phase 2a); TSS proofs follow.
-        // A block carries exactly one BlockProof item, so `getSingle` is correct for every type;
-        // it returns the lone matching proof or null and throws if a malformed block carries
-        // duplicates (caught below).
+        // RSA proofs may appear multiple times in a single block (CLI-produced WRBs); every
+        // proof present is verified and the block is accepted only if all of them pass.
+        // TSS and State proofs use `getSingle`, which returns the lone matching proof or null
+        // and throws if a malformed block carries duplicates (caught below).
         try {
-            final BlockProof rsaProof = getSingle(blockProofs, BlockProof::hasSignedRecordFileProof);
-            if (rsaProof != null) {
-                return verifyRsaProof(
-                        rsaProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
+            final List<BlockProof> rsaProofs = blockProofs.stream()
+                    .filter(BlockProof::hasSignedRecordFileProof)
+                    .toList();
+            if (!rsaProofs.isEmpty()) {
+                VerificationNotification result = null;
+                for (final BlockProof rsaProof : rsaProofs) {
+                    result = verifyRsaProof(
+                            rsaProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
+                    // if one SignedRecordFileProof block proof fails we failed the block verification
+                    if (!result.success()) {
+                        return result;
+                    }
+                }
+                return result;
             }
 
             final BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
