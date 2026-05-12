@@ -175,7 +175,7 @@ class StateProofVerificationTest {
         assertEquals(block4.blockRootHash(), notification4.blockHash());
     }
 
-    // --- Helpers ---
+    // Helpers
 
     private VerificationNotification verifyBlock(SampleBlockInfo blockInfo) throws ParseException {
         return verifyBlock(blockInfo.blockNumber(), blockInfo.blockUnparsed());
