@@ -452,10 +452,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
         // Schedule periodic check for live updates from running plugins.
         applicationStateExecutor.scheduleAtFixedRate(
-                this::checkForApplicationStateUpdates,
-                appStateConfig.updateInitialDelay(),
-                appStateConfig.updateScanInterval(),
-                TimeUnit.MILLISECONDS);
+                this::checkForApplicationStateUpdates, 0, appStateConfig.updateScanInterval(), TimeUnit.MILLISECONDS);
     }
 
     private void checkForApplicationStateUpdates() {
