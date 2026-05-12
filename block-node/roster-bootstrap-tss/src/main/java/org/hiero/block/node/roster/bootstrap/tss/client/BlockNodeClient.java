@@ -96,7 +96,7 @@ public class BlockNodeClient implements Closeable {
     }
 
     // Config specification record bundling name, default, range, and getter
-    private record IntConfigSpec(
+    record IntConfigSpec(
             String name, int defaultValue, int minValue, int maxValue, ToIntFunction<GrpcWebClientTuning> getter) {
         boolean isValid(int value) {
             return value >= minValue && value <= maxValue;
