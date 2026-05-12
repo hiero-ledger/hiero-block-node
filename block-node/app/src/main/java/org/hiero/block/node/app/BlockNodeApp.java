@@ -31,7 +31,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
-import java.security.PublicKey;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
@@ -689,7 +688,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             }
             try {
                 final byte[] keyBytes = hex.parseHex(addr.rsaPubKey());
-                final PublicKey key = kf.generatePublic(new X509EncodedKeySpec(keyBytes));
+                kf.generatePublic(new X509EncodedKeySpec(keyBytes));
                 usable++;
             } catch (InvalidKeySpecException | IllegalArgumentException e) {
                 LOGGER.log(WARNING, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e.getMessage());

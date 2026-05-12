@@ -470,7 +470,7 @@ class BlockNodeAppTest {
     @DisplayName("validateAddressBook accepts book with at least one non-blank RSA key")
     void validateAddressBookAcceptsValidBook() throws NoSuchAlgorithmException {
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(1024);
+        kpg.initialize(2048);
         final KeyPair kp = kpg.generateKeyPair();
         final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
         final NodeAddressBook valid = NodeAddressBook.newBuilder()
