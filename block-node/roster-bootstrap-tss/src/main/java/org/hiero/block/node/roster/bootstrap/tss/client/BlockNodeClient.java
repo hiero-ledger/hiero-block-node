@@ -46,42 +46,6 @@ public class BlockNodeClient implements Closeable {
     private static final int MIN_HEADER_LIST_SIZE_BOUND = 1024; // 1 KB
     private static final int MAX_HEADER_LIST_SIZE_BOUND = 1024 * 1024; // 1 MB
 
-    @Override
-    public void close() throws IOException {
-        if (blockNodeServiceClient != null) {
-            blockNodeServiceClient.close();
-        }
-    }
-
-    // Config specification record bundling name, default, range, and getter
-    private record IntConfigSpec(
-            String name, int defaultValue, int minValue, int maxValue, ToIntFunction<GrpcWebClientTuning> getter) {
-        boolean isValid(int value) {
-            return value >= minValue && value <= maxValue;
-        }
-
-        int getValidOrDefault(@Nullable GrpcWebClientTuning tuning) {
-            // if null use default
-            if (tuning == null) return defaultValue;
-            // get value from tuning
-            int value = getter.applyAsInt(tuning);
-            // if 0 use default
-            if (value == 0) return defaultValue;
-            // validate range
-            if (isValid(value)) return value;
-            // log warning and use default
-            LOGGER.log(
-                    Level.WARNING,
-                    "Invalid tuning value for {0}: {1} is outside valid range [{2}, {3}], using default: {4}",
-                    name,
-                    value,
-                    minValue,
-                    maxValue,
-                    defaultValue);
-            return defaultValue;
-        }
-    }
-
     // Timeout config specs
     private static final IntConfigSpec CONNECT_TIMEOUT = new IntConfigSpec(
             "connectTimeout", DEFAULT_TIMEOUT_MS, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, GrpcWebClientTuning::connectTimeout);
@@ -123,6 +87,42 @@ public class BlockNodeClient implements Closeable {
     private final WebClient webClient;
     private BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient;
     private boolean nodeReachable;
+
+    @Override
+    public void close() throws IOException {
+        if (blockNodeServiceClient != null) {
+            blockNodeServiceClient.close();
+        }
+    }
+
+    // Config specification record bundling name, default, range, and getter
+    private record IntConfigSpec(
+            String name, int defaultValue, int minValue, int maxValue, ToIntFunction<GrpcWebClientTuning> getter) {
+        boolean isValid(int value) {
+            return value >= minValue && value <= maxValue;
+        }
+
+        int getValidOrDefault(@Nullable GrpcWebClientTuning tuning) {
+            // if null use default
+            if (tuning == null) return defaultValue;
+            // get value from tuning
+            int value = getter.applyAsInt(tuning);
+            // if 0 use default
+            if (value == 0) return defaultValue;
+            // validate range
+            if (isValid(value)) return value;
+            // log warning and use default
+            LOGGER.log(
+                    Level.WARNING,
+                    "Invalid tuning value for {0}: {1} is outside valid range [{2}, {3}], using default: {4}",
+                    name,
+                    value,
+                    minValue,
+                    maxValue,
+                    defaultValue);
+            return defaultValue;
+        }
+    }
 
     /// Constructs a BlockNodeClient using the provided configuration.
     ///
