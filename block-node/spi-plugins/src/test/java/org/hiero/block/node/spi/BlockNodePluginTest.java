@@ -58,8 +58,9 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public void updateAddressBook(NodeAddressBook nodeAddressBook) {
+        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
             // do nothing
+            return false;
         }
     }
 
@@ -84,8 +85,9 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public void updateAddressBook(NodeAddressBook nodeAddressBook) {
+        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
             // do nothing
+            return false;
         }
     }
 

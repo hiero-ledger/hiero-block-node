@@ -49,4 +49,59 @@ public record BlockNodeContext(
         ThreadPoolManager threadPoolManager,
         BlockNodeVersions blockNodeVersions,
         TssData tssData,
-        NodeAddressBook nodeAddressBook) {}
+        NodeAddressBook nodeAddressBook) {
+
+    // Static inner Builder class
+    public static class Builder {
+        Configuration configuration;
+        MetricRegistry metricRegistry;
+        HealthFacility serverHealth;
+        BlockMessagingFacility blockMessaging;
+        HistoricalBlockFacility historicalBlockProvider;
+        ApplicationStateFacility applicationStateFacility;
+        ServiceLoaderFunction serviceLoader;
+        ThreadPoolManager threadPoolManager;
+        BlockNodeVersions blockNodeVersions;
+        TssData tssData;
+        NodeAddressBook nodeAddressBook;
+
+        public Builder(BlockNodeContext context) {
+            this.configuration = context.configuration;
+            this.metricRegistry = context.metricRegistry;
+            this.serverHealth = context.serverHealth;
+            this.blockMessaging = context.blockMessaging;
+            this.historicalBlockProvider = context.historicalBlockProvider;
+            this.applicationStateFacility = context.applicationStateFacility;
+            this.serviceLoader = context.serviceLoader;
+            this.threadPoolManager = context.threadPoolManager;
+            this.blockNodeVersions = context.blockNodeVersions;
+            this.tssData = context.tssData;
+            this.nodeAddressBook = context.nodeAddressBook;
+        }
+
+        public Builder tssData(TssData tssData) {
+            this.tssData = tssData;
+            return this; // Returns the builder for chaining
+        }
+
+        public Builder nodeAddressBook(NodeAddressBook nodeAddressBook) {
+            this.nodeAddressBook = nodeAddressBook;
+            return this; // Returns the builder for chaining
+        }
+
+        public BlockNodeContext build() {
+            return new BlockNodeContext(
+                    this.configuration,
+                    this.metricRegistry,
+                    this.serverHealth,
+                    this.blockMessaging,
+                    this.historicalBlockProvider,
+                    this.applicationStateFacility,
+                    this.serviceLoader,
+                    this.threadPoolManager,
+                    this.blockNodeVersions,
+                    this.tssData,
+                    this.nodeAddressBook);
+        }
+    }
+}

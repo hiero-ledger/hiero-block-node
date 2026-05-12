@@ -223,7 +223,9 @@ testModuleInfo {
 val copyRsaTestFixture =
     tasks.register<Copy>("copyRsaTestFixture") {
         description = "Copies the RSA bootstrap test fixture into build/tmp/data/config/"
-        from(layout.projectDirectory.file("src/test/resources/data/config/rsa-bootstrap-roster.pb"))
+        from(
+            layout.projectDirectory.file("src/test/resources/data/config/rsa-bootstrap-roster.json")
+        )
         into(layout.buildDirectory.dir("tmp/data/config"))
     }
 

@@ -322,7 +322,7 @@ public abstract class PluginTestBase<
     }
 
     @Override
-    public void updateAddressBook(NodeAddressBook nodeAddressBook) {
+    public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
         blockNodeContext = new BlockNodeContext(
                 blockNodeContext.configuration(),
                 blockNodeContext.metricRegistry(),
@@ -336,5 +336,6 @@ public abstract class PluginTestBase<
                 blockNodeContext.tssData(),
                 nodeAddressBook);
         plugin.onContextUpdate(blockNodeContext);
+        return true;
     }
 }

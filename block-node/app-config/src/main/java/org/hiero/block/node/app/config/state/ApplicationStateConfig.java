@@ -25,7 +25,7 @@ import org.hiero.block.node.base.Loggable;
  */
 @ConfigData("app.state")
 public record ApplicationStateConfig(
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/app-state-data.bin")
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/app-state-data.json")
         Path dataFilePath,
 
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/rsa-bootstrap-roster.json")

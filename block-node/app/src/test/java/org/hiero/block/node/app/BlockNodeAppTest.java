@@ -112,7 +112,7 @@ class BlockNodeAppTest {
     @AfterEach
     void cleanup() {
         try {
-            Files.deleteIfExists(Path.of("build/tmp/data/block/node/app-state-data.bin"));
+            Files.deleteIfExists(Path.of("build/tmp/data/block/node/app-state-data.json"));
         } catch (Exception e) {
             // ignore
         }

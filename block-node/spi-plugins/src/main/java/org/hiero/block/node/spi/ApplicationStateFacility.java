@@ -23,6 +23,7 @@ public interface ApplicationStateFacility {
      * {@link BlockNodePlugin#onContextUpdate(BlockNodeContext)}.
      *
      * @param nodeAddressBook The NodeAddressBook to be stored in the BlockNodeContext.
+     * @return true if the addressbook is queued for update, false if it was not
      */
-    void updateAddressBook(NodeAddressBook nodeAddressBook);
+    boolean updateAddressBook(NodeAddressBook nodeAddressBook);
 }
