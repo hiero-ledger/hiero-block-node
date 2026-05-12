@@ -21,8 +21,12 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -464,10 +468,14 @@ class BlockNodeAppTest {
      */
     @Test
     @DisplayName("validateAddressBook accepts book with at least one non-blank RSA key")
-    void validateAddressBookAcceptsValidBook() {
+    void validateAddressBookAcceptsValidBook() throws NoSuchAlgorithmException {
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(1024);
+        final KeyPair kp = kpg.generateKeyPair();
+        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
         final NodeAddressBook valid = NodeAddressBook.newBuilder()
                 .nodeAddress(
-                        NodeAddress.newBuilder().nodeId(0).rsaPubKey("deadbeef").build())
+                        NodeAddress.newBuilder().nodeId(0).rsaPubKey(hexKey).build())
                 .build();
         assertDoesNotThrow(() -> BlockNodeApp.validateAddressBook(valid, "test-valid"));
     }
@@ -559,7 +567,7 @@ class BlockNodeAppTest {
      */
     @Test
     @DisplayName("updateAddressBook queues book; scanner picks it up and notifies plugins")
-    void updateAddressBookQueuesForScanner() throws IOException, InterruptedException {
+    void updateAddressBookQueuesForScanner() throws IOException, InterruptedException, NoSuchAlgorithmException {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
         final TestPlugin testPlugin = new TestPlugin();
@@ -569,9 +577,13 @@ class BlockNodeAppTest {
         final int updatesBeforeCall = testPlugin.getContextUpdated();
         testPlugin.expectContextUpdates(1);
 
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(1024);
+        final KeyPair kp = kpg.generateKeyPair();
+        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
         final NodeAddressBook book = NodeAddressBook.newBuilder()
                 .nodeAddress(
-                        NodeAddress.newBuilder().nodeId(1).rsaPubKey("aabbcc").build())
+                        NodeAddress.newBuilder().nodeId(1).rsaPubKey(hexKey).build())
                 .build();
         app.updateAddressBook(book);
 
@@ -585,7 +597,7 @@ class BlockNodeAppTest {
         assertNotNull(app.blockNodeContext.nodeAddressBook());
         assertEquals(1, app.blockNodeContext.nodeAddressBook().nodeAddress().size());
         assertEquals(
-                "aabbcc",
+                hexKey,
                 app.blockNodeContext.nodeAddressBook().nodeAddress().getFirst().rsaPubKey());
 
         app.stopApplicationStateFacility();
@@ -596,7 +608,7 @@ class BlockNodeAppTest {
      */
     @Test
     @DisplayName("address book is persisted and reloaded on next startup")
-    void addressBookPersistenceRoundTrip() throws IOException, InterruptedException {
+    void addressBookPersistenceRoundTrip() throws IOException, InterruptedException, NoSuchAlgorithmException {
         final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
         final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
         final Path rsaPath = app.blockNodeContext
@@ -609,9 +621,14 @@ class BlockNodeAppTest {
         app.loadedPlugins.add(testPlugin);
         testPlugin.expectContextUpdates(1);
 
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(1024);
+        final KeyPair kp = kpg.generateKeyPair();
+        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
+
         final NodeAddressBook book = NodeAddressBook.newBuilder()
                 .nodeAddress(
-                        NodeAddress.newBuilder().nodeId(7).rsaPubKey("cafebabe").build())
+                        NodeAddress.newBuilder().nodeId(7).rsaPubKey(hexKey).build())
                 .build();
         app.updateAddressBook(book);
         // wait for scanner to process and persist the address book
@@ -627,7 +644,7 @@ class BlockNodeAppTest {
         final NodeAddressBook loaded = app2.blockNodeContext.nodeAddressBook();
         assertNotNull(loaded, "Persisted address book must be loaded on restart");
         assertEquals(1, loaded.nodeAddress().size());
-        assertEquals("cafebabe", loaded.nodeAddress().getFirst().rsaPubKey());
+        assertEquals(hexKey, loaded.nodeAddress().getFirst().rsaPubKey());
 
         app2.stopApplicationStateFacility();
     }

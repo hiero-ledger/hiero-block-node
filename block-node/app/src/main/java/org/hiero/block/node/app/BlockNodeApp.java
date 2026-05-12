@@ -11,6 +11,7 @@ import static org.hiero.block.common.constants.StringsConstants.APPLICATION_TEST
 import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 
 import com.hedera.hapi.block.stream.Block;
+import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.ParseException;
@@ -28,8 +29,14 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
+import java.security.PublicKey;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
@@ -659,12 +666,38 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             throw new IllegalStateException(
                     "RSA address book from " + source + " contains no entries — cannot verify WRB proofs");
         }
-        final long usable = book.nodeAddress().stream()
+        final long declared = book.nodeAddress().stream()
                 .filter(a -> !a.rsaPubKey().isBlank())
                 .count();
-        if (usable == 0) {
+        if (declared == 0) {
             throw new IllegalStateException("RSA address book from " + source + " has "
                     + book.nodeAddress().size() + " entries but none have a non-blank RSA_PubKey");
+        }
+        long usable = 0;
+        final HexFormat hex = HexFormat.of();
+        // Obtain KeyFactory once — provider lookup is not cheap and RSA must always be available.
+        final KeyFactory kf;
+        try {
+            kf = KeyFactory.getInstance("RSA");
+        } catch (NoSuchAlgorithmException e) {
+            // RSA must be available in every JVM — this is a JVM misconfiguration
+            throw new IllegalStateException("RSA KeyFactory not available", e);
+        }
+        for (final NodeAddress addr : book.nodeAddress()) {
+            if (addr.rsaPubKey().isBlank()) {
+                continue;
+            }
+            try {
+                final byte[] keyBytes = hex.parseHex(addr.rsaPubKey());
+                final PublicKey key = kf.generatePublic(new X509EncodedKeySpec(keyBytes));
+                usable++;
+            } catch (InvalidKeySpecException | IllegalArgumentException e) {
+                LOGGER.log(WARNING, "Malformed RSA_PubKey for node {0} — skipped: {1}", addr.nodeId(), e.getMessage());
+            }
+        }
+        if (usable == 0) {
+            throw new IllegalStateException("RSA address book from " + source + " has "
+                    + book.nodeAddress().size() + " entries but none have a valid RSA_PubKey");
         }
     }
 }
