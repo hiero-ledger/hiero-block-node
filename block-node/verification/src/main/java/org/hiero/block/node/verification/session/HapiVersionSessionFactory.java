@@ -54,6 +54,8 @@ public final class HapiVersionSessionFactory {
                 Map.of(),
                 null,
                 null,
+                null,
+                null,
                 null);
     }
 
@@ -74,6 +76,8 @@ public final class HapiVersionSessionFactory {
      * @param rsaVerificationSuccessTotal metric for successful RSA verifications, may be null
      * @param rsaVerificationFailureTotal metric for failed RSA verifications, may be null
      * @param rsaRosterMismatchTotal metric for sigs from unknown nodes, may be null
+     * @param stateProofVerificationSuccessTotal metric for successful state-proof verifications, may be null
+     * @param stateProofVerificationFailureTotal metric for failed state-proof verifications, may be null
      * @throws NullPointerException if `blockSource`, `hapiVersion`, or `rsaKeyByNodeId` is null
      * @throws IllegalArgumentException if `blockNumber` is less than 0 or the version is unsupported
      */
@@ -87,7 +91,9 @@ public final class HapiVersionSessionFactory {
             final Map<Long, PublicKey> rsaKeyByNodeId,
             @Nullable final LongCounter.Measurement rsaVerificationSuccessTotal,
             @Nullable final LongCounter.Measurement rsaVerificationFailureTotal,
-            @Nullable final LongCounter.Measurement rsaRosterMismatchTotal) {
+            @Nullable final LongCounter.Measurement rsaRosterMismatchTotal,
+            @Nullable final LongCounter.Measurement stateProofVerificationSuccessTotal,
+            @Nullable final LongCounter.Measurement stateProofVerificationFailureTotal) {
         Objects.requireNonNull(blockSource, "blockSource cannot be null");
         Objects.requireNonNull(hapiVersion, "hapiVersion cannot be null");
         Objects.requireNonNull(rsaKeyByNodeId, "rsaKeyByNodeId cannot be null");
@@ -103,7 +109,9 @@ public final class HapiVersionSessionFactory {
                     rsaKeyByNodeId,
                     rsaVerificationSuccessTotal,
                     rsaVerificationFailureTotal,
-                    rsaRosterMismatchTotal);
+                    rsaRosterMismatchTotal,
+                    stateProofVerificationSuccessTotal,
+                    stateProofVerificationFailureTotal);
         }
 
         // TODO, before going live we should remove the Dummy Implementation.

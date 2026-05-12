@@ -42,7 +42,7 @@ class TestVerificationHapiVersions {
                 .parse(items.getFirst().blockHeaderOrThrow())
                 .number();
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.UNKNOWN, null, null, null, Map.of(), null, null, null);
+                blockNumber, BlockSource.UNKNOWN, null, null, null, Map.of(), null, null, null, null, null);
         session.processBlockItems(new BlockItems(items, blockNumber, true, true));
     }
 

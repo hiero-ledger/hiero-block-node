@@ -175,7 +175,7 @@ class VerificationServicePluginIntegrationTest
 
     private static NodeAddressBook buildAddressBookWithFreshRsaKeys(final int nodeCount) throws Exception {
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(1024);
+        kpg.initialize(2048);
         final HexFormat hex = HexFormat.of();
         final List<NodeAddress> entries = new ArrayList<>(nodeCount);
         for (long nodeId = 0; nodeId < nodeCount; nodeId++) {

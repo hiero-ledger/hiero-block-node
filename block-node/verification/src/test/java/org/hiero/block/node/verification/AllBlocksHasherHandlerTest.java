@@ -13,6 +13,7 @@ import com.hedera.hapi.block.stream.TssSignedBlockProof;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.base.BlockHashAlgorithm;
+import com.hedera.hapi.node.base.NodeAddressBook;
 import com.hedera.hapi.node.base.SemanticVersion;
 import com.hedera.hapi.node.base.Timestamp;
 import com.hedera.pbj.runtime.OneOf;
@@ -319,7 +320,7 @@ class AllBlocksHasherHandlerTest {
                 mock(ThreadPoolManager.class),
                 BlockNodeVersions.DEFAULT,
                 TssData.DEFAULT,
-                com.hedera.hapi.node.base.NodeAddressBook.DEFAULT);
+                NodeAddressBook.DEFAULT);
     }
 
     private void persistHasher(final Path hasherPath, final List<byte[]> blockHashes)

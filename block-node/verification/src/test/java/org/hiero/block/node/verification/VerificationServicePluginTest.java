@@ -26,11 +26,14 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
+import java.security.PublicKey;
+import java.security.Signature;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -51,6 +54,7 @@ import org.hiero.block.node.app.fixtures.plugintest.NoBlocksHistoricalBlockFacil
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.app.fixtures.plugintest.TestHealthFacility;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
@@ -417,93 +421,61 @@ class VerificationServicePluginTest
     @DisplayName("onContextUpdate with non-empty address book rebuilds keyByNodeId")
     void onContextUpdate_nonEmptyBook_rebuildsKeyMap() throws Exception {
         // Build a minimal NodeAddress with a real RSA public key encoded as hex-DER.
-        // 1024-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
-        final java.security.KeyPairGenerator kpg = java.security.KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(1024);
-        final java.security.KeyPair kp = kpg.generateKeyPair();
-        final String hexKey = java.util.HexFormat.of().formatHex(kp.getPublic().getEncoded());
+        // 2048-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        final KeyPair kp = kpg.generateKeyPair();
+        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
 
-        final com.hedera.hapi.node.base.NodeAddress addr = com.hedera.hapi.node.base.NodeAddress.newBuilder()
-                .nodeId(7L)
-                .rsaPubKey(hexKey)
-                .build();
-        final com.hedera.hapi.node.base.NodeAddressBook book = com.hedera.hapi.node.base.NodeAddressBook.newBuilder()
-                .nodeAddress(List.of(addr))
-                .build();
+        final NodeAddress addr =
+                NodeAddress.newBuilder().nodeId(7L).rsaPubKey(hexKey).build();
+        final NodeAddressBook book =
+                NodeAddressBook.newBuilder().nodeAddress(List.of(addr)).build();
 
-        // The test context has nodeAddressBook set to DEFAULT (empty) initially;
-        // simulate a context update by calling onContextUpdate directly
-        final var updatedContext = new org.hiero.block.node.spi.BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                blockNodeContext.tssData(),
-                book);
+        plugin.onContextUpdate(contextWithAddressBook(book));
 
-        plugin.onContextUpdate(updatedContext);
-
-        // Verify the key map now contains node 7's key (indirect: the plugin won't reject a WRB
-        // from node 7 as "unknown node"). The simplest assertion is that the method did not throw.
-        // A deeper assertion would require exposing `keyByNodeId`, which we avoid.
-        // Coverage is provided by the unit tests in `RsaWrbVerificationTest`.
+        final Map<Long, PublicKey> rebuiltKeyMap = readKeyByNodeId();
+        assertEquals(
+                1, rebuiltKeyMap.size(), "Key map must contain exactly one entry after a 1-node book is delivered");
+        assertNotNull(rebuiltKeyMap.get(7L), "Node 7's RSA public key must be present in the rebuilt key map");
     }
 
     @Test
     @DisplayName("onContextUpdate with empty address book logs warning and retains existing key map")
-    void onContextUpdate_emptyBook_retainsKeyMap() {
-        // Call onContextUpdate with an empty NodeAddressBook — must not throw and must not reset
-        // the key map to empty (it starts empty already, but the important contract is: no crash).
-        final com.hedera.hapi.node.base.NodeAddressBook emptyBook = com.hedera.hapi.node.base.NodeAddressBook.DEFAULT;
-        final var updatedContext = new org.hiero.block.node.spi.BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                blockNodeContext.tssData(),
-                emptyBook);
+    void onContextUpdate_emptyBook_retainsKeyMap() throws Exception {
+        // First populate the key map with a real 1-node book.
+        final Map<Long, PublicKey> populatedMap = seedKeyMapWithSingleNode(7L);
 
-        // Must not throw; a WARNING is expected but not asserted here (logged to system logger).
-        plugin.onContextUpdate(updatedContext);
+        // Now deliver an empty book — onContextUpdate must early-return and leave the map intact.
+        plugin.onContextUpdate(contextWithAddressBook(NodeAddressBook.DEFAULT));
+
+        assertEquals(
+                populatedMap,
+                readKeyByNodeId(),
+                "Empty NodeAddressBook must not reset the previously loaded RSA key map");
     }
 
     @Test
     @DisplayName("onContextUpdate with null NodeAddressBook logs warning and retains existing key map")
-    void onContextUpdate_nullBook_retainsKeyMap() {
-        // Build a context where nodeAddressBook() returns null — must not throw.
-        final var updatedContext = new org.hiero.block.node.spi.BlockNodeContext(
-                blockNodeContext.configuration(),
-                blockNodeContext.metricRegistry(),
-                blockNodeContext.serverHealth(),
-                blockNodeContext.blockMessaging(),
-                blockNodeContext.historicalBlockProvider(),
-                blockNodeContext.applicationStateFacility(),
-                blockNodeContext.serviceLoader(),
-                blockNodeContext.threadPoolManager(),
-                blockNodeContext.blockNodeVersions(),
-                blockNodeContext.tssData(),
-                null);
+    void onContextUpdate_nullBook_retainsKeyMap() throws Exception {
+        // First populate the key map with a real 1-node book.
+        final Map<Long, PublicKey> populatedMap = seedKeyMapWithSingleNode(11L);
 
-        // Must not throw; a WARNING is expected but not asserted here (logged to system logger).
-        plugin.onContextUpdate(updatedContext);
+        // Now deliver a null book — onContextUpdate must early-return and leave the map intact.
+        plugin.onContextUpdate(contextWithAddressBook(null));
+
+        assertEquals(
+                populatedMap,
+                readKeyByNodeId(),
+                "Null NodeAddressBook must not reset the previously loaded RSA key map");
     }
 
     @Test
     @DisplayName("RSA WRB end-to-end: valid signed block verifies through the plugin and notification is success=true")
     void rsaWrb_endToEnd_validBlock_notificationSucceeds() throws Exception {
-        // 1024-bit RSA keys for test speed only — production uses 4096-bit keys.
+        // 2048-bit RSA keys for test speed only — production uses 4096-bit keys.
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(1024);
+        kpg.initialize(2048);
         final KeyPair kp = kpg.generateKeyPair();
 
         // Build a 1-node address book (threshold = floor(2*1/3)+1 = 1 valid sig needed).
@@ -531,7 +503,7 @@ class VerificationServicePluginTest
         final byte[] signedPayload = digest.digest();
 
         // Sign the payload with node 0's private key.
-        final java.security.Signature engine = java.security.Signature.getInstance("SHA384withRSA");
+        final Signature engine = Signature.getInstance("SHA384withRSA");
         engine.initSign(kp.getPrivate());
         engine.update(signedPayload);
         final byte[] sigBytes = engine.sign();
@@ -609,6 +581,59 @@ class VerificationServicePluginTest
                 GZIPInputStream gzip = new GZIPInputStream(stream)) {
             return BlockUnparsed.PROTOBUF.parse(Bytes.wrap(gzip.readAllBytes()));
         }
+    }
+
+    /**
+     * Builds a {@link BlockNodeContext} that mirrors {@link #blockNodeContext} but with
+     * {@code book} as the active {@link NodeAddressBook}. Used by the {@code onContextUpdate}
+     * tests so they can drive different address books through the plugin's rebuild path.
+     */
+    private BlockNodeContext contextWithAddressBook(final NodeAddressBook book) {
+        return new BlockNodeContext(
+                blockNodeContext.configuration(),
+                blockNodeContext.metricRegistry(),
+                blockNodeContext.serverHealth(),
+                blockNodeContext.blockMessaging(),
+                blockNodeContext.historicalBlockProvider(),
+                blockNodeContext.applicationStateFacility(),
+                blockNodeContext.serviceLoader(),
+                blockNodeContext.threadPoolManager(),
+                blockNodeContext.blockNodeVersions(),
+                blockNodeContext.tssData(),
+                book);
+    }
+
+    /**
+     * Reads {@link VerificationServicePlugin#keyByNodeId} via reflection so {@code onContextUpdate}
+     * tests can assert what was actually loaded without exposing the field on production code.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<Long, PublicKey> readKeyByNodeId() throws Exception {
+        final Field field = VerificationServicePlugin.class.getDeclaredField("keyByNodeId");
+        field.setAccessible(true);
+        return (Map<Long, PublicKey>) field.get(plugin);
+    }
+
+    /**
+     * Generates a 2048-bit RSA keypair, builds a 1-node {@link NodeAddressBook} with the public
+     * SPKI as {@code rsaPubKey}, delivers it through {@code onContextUpdate}, and returns a
+     * snapshot of the resulting key map.
+     */
+    private Map<Long, PublicKey> seedKeyMapWithSingleNode(final long nodeId) throws Exception {
+        final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048);
+        final KeyPair kp = kpg.generateKeyPair();
+        final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
+        final NodeAddressBook book = NodeAddressBook.newBuilder()
+                .nodeAddress(List.of(NodeAddress.newBuilder()
+                        .nodeId(nodeId)
+                        .rsaPubKey(hexKey)
+                        .build()))
+                .build();
+        plugin.onContextUpdate(contextWithAddressBook(book));
+        final Map<Long, PublicKey> snapshot = Map.copyOf(readKeyByNodeId());
+        assertEquals(1, snapshot.size(), "Seed step must leave exactly one key in the map");
+        return snapshot;
     }
 
     private static class VerificationConfigBuilder {

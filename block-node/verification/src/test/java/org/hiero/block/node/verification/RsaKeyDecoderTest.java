@@ -38,7 +38,7 @@ class RsaKeyDecoderTest {
     @DisplayName("valid hex-DER RSA key is decoded and added to the map")
     void validKey_decodedAndMapped() throws Exception {
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(1024);
+        kpg.initialize(2048);
         final KeyPair kp = kpg.generateKeyPair();
         final String hexKey = HexFormat.of().formatHex(kp.getPublic().getEncoded());
 
@@ -57,7 +57,7 @@ class RsaKeyDecoderTest {
     @DisplayName("blank rsaPubKey is skipped; malformed hex-DER is skipped; valid keys are retained")
     void blankAndMalformedKeys_skipped_validKeysRetained() throws Exception {
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(1024);
+        kpg.initialize(2048);
         final KeyPair kp = kpg.generateKeyPair();
         final String validHex = HexFormat.of().formatHex(kp.getPublic().getEncoded());
 

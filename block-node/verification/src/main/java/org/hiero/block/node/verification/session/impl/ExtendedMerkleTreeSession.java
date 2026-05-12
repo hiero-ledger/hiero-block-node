@@ -2,7 +2,6 @@
 package org.hiero.block.node.verification.session.impl;
 
 import static java.lang.System.Logger.Level.DEBUG;
-import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static org.hiero.block.common.hasher.HashingUtilities.getBlockItemHash;
@@ -124,6 +123,12 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     /** Metric for signatures from `node_id` values absent from the loaded address book. */
     @Nullable
     private final LongCounter.Measurement rsaRosterMismatchTotal;
+    /** Metric for accepted state-proof verifications; nullable — null when metrics not configured. */
+    @Nullable
+    private final LongCounter.Measurement stateProofVerificationSuccessTotal;
+    /** Metric for rejected state-proof verifications; nullable — null when metrics not configured. */
+    @Nullable
+    private final LongCounter.Measurement stateProofVerificationFailureTotal;
 
     /**
      * The block items for the block this session is responsible for. We collect them here so we can provide the
@@ -160,6 +165,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      * @param rsaVerificationSuccessTotal metric counter for successful RSA verifications, may be null
      * @param rsaVerificationFailureTotal metric counter for failed RSA verifications, may be null
      * @param rsaRosterMismatchTotal metric counter for signatures from unknown nodes, may be null
+     * @param stateProofVerificationSuccessTotal metric counter for successful state-proof verifications, may be null
+     * @param stateProofVerificationFailureTotal metric counter for failed state-proof verifications, may be null
      */
     public ExtendedMerkleTreeSession(
             final long blockNumber,
@@ -170,7 +177,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             final Map<Long, PublicKey> rsaKeyByNodeId,
             @Nullable final LongCounter.Measurement rsaVerificationSuccessTotal,
             @Nullable final LongCounter.Measurement rsaVerificationFailureTotal,
-            @Nullable final LongCounter.Measurement rsaRosterMismatchTotal) {
+            @Nullable final LongCounter.Measurement rsaRosterMismatchTotal,
+            @Nullable final LongCounter.Measurement stateProofVerificationSuccessTotal,
+            @Nullable final LongCounter.Measurement stateProofVerificationFailureTotal) {
         this.blockNumber = blockNumber;
         this.previousBlockHash = previousBlockHash;
         this.allPreviousBlockRootHash = allPreviousBlocksRootHash;
@@ -179,6 +188,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         this.rsaVerificationSuccessTotal = rsaVerificationSuccessTotal;
         this.rsaVerificationFailureTotal = rsaVerificationFailureTotal;
         this.rsaRosterMismatchTotal = rsaRosterMismatchTotal;
+        this.stateProofVerificationSuccessTotal = stateProofVerificationSuccessTotal;
+        this.stateProofVerificationFailureTotal = stateProofVerificationFailureTotal;
         // using NaiveStreamingTreeHasher as we should only need single threaded
         this.inputTreeHasher = new NaiveStreamingTreeHasher();
         this.outputTreeHasher = new NaiveStreamingTreeHasher();
@@ -258,13 +269,16 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         Bytes startOfBlockStateRootHash = this.blockFooter.startOfBlockStateRootHash();
 
         // Route by proof type. RSA WRB proofs take priority (Phase 2a); TSS proofs follow.
-        final BlockProof rsaProof = getFirst(blockProofs, BlockProof::hasSignedRecordFileProof);
-        if (rsaProof != null) {
-            return verifyRsaProof(
-                    rsaProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
-        }
-
+        // A block carries exactly one BlockProof item, so `getSingle` is correct for every type;
+        // it returns the lone matching proof or null and throws if a malformed block carries
+        // duplicates (caught below).
         try {
+            final BlockProof rsaProof = getSingle(blockProofs, BlockProof::hasSignedRecordFileProof);
+            if (rsaProof != null) {
+                return verifyRsaProof(
+                        rsaProof, previousBlockHashToUse, rootOfAllPreviousBlockHashes, startOfBlockStateRootHash);
+            }
+
             final BlockProof tssBasedProof = getSingle(blockProofs, BlockProof::hasSignedBlockProof);
             if (tssBasedProof != null) {
                 return getVerificationResult(
@@ -374,18 +388,6 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         return body.ledgerIdPublicationOrThrow();
     }
 
-    /**
-     * Returns the first element matching `predicate`, or `null` if none match.
-     *
-     * @param <T> element type
-     * @param list the list to search
-     * @param predicate the match condition
-     * @return first matching element, or `null`
-     */
-    private static <T> T getFirst(final List<T> list, final Predicate<T> predicate) {
-        return list.stream().filter(predicate).findFirst().orElse(null);
-    }
-
     // ---- RSA WRB verification -----------------------------------------------------------------------
 
     /**
@@ -420,22 +422,10 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             final Bytes rootOfAllPreviousBlockHashes,
             final Bytes startOfBlockStateRootHash) {
 
-        // Compute block root hash for chain continuity — identical computation for all proof types
-        final Bytes blockRootHash = HashingUtilities.computeFinalBlockHash(
-                blockHeader.blockTimestamp(),
-                previousBlockHash,
-                rootOfAllPreviousBlockHashes,
-                startOfBlockStateRootHash,
-                inputTreeHasher,
-                outputTreeHasher,
-                consensusHeaderHasher,
-                stateChangesHasher,
-                traceDataHasher);
-
         // Guard: address book must be loaded before any WRB arrives
         if (rsaKeyByNodeId.isEmpty()) {
             LOGGER.log(
-                    ERROR,
+                    WARNING,
                     "Address book is empty — cannot verify RSA WRB proof for block {0}."
                             + " Ensure RsaRosterBootstrapPlugin started successfully.",
                     blockNumber);
@@ -447,7 +437,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // Guard: RECORD_FILE item must be present in the block
         if (rawRecordFileItemProtoBytes == null) {
             LOGGER.log(
-                    ERROR, "No RECORD_FILE item found in WRB block {0} — cannot compute signed payload", blockNumber);
+                    WARNING, "No RECORD_FILE item found in WRB block {0} — cannot compute signed payload", blockNumber);
             if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
             return new VerificationNotification(
                     false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
@@ -471,7 +461,8 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // Extract the raw RecordStreamFile bytes from the RecordFileItem proto (field 2)
         final Bytes rawRecordStreamFileBytes = extractRecordStreamFileBytes(rawRecordFileItemProtoBytes);
         if (rawRecordStreamFileBytes.length() == 0) {
-            LOGGER.log(ERROR, "Failed to extract record_file_contents from RECORD_FILE item in block {0}", blockNumber);
+            LOGGER.log(
+                    WARNING, "Failed to extract record_file_contents from RECORD_FILE item in block {0}", blockNumber);
             if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
             return new VerificationNotification(
                     false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
@@ -551,16 +542,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
         // For example: 6-node roster requires > 3, i.e. ≥ 4 valid signatures.
         final boolean accepted = validCount * 2 > rosterSize;
 
-        if (accepted) {
-            LOGGER.log(
-                    DEBUG,
-                    "RSA WRB proof accepted for block {0}: {1}/{2} valid sigs (need > {3})",
-                    blockNumber,
-                    validCount,
-                    rosterSize,
-                    rosterSize / 2);
-            if (rsaVerificationSuccessTotal != null) rsaVerificationSuccessTotal.increment();
-        } else {
+        if (!accepted) {
             LOGGER.log(
                     WARNING,
                     "RSA WRB proof rejected for block {0}: {1}/{2} valid sigs, need > {3}",
@@ -569,15 +551,34 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                     rosterSize,
                     rosterSize / 2);
             if (rsaVerificationFailureTotal != null) rsaVerificationFailureTotal.increment();
+            return new VerificationNotification(
+                    false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
         }
 
-        return new VerificationNotification(
-                accepted,
-                accepted ? null : FailureType.BAD_BLOCK_PROOF,
+        // Compute block root hash for chain continuity — only needed for the successful return;
+        // every failure path above returns null for the hash, so doing the work here avoids the
+        // wasted hashing of an early-return.
+        final Bytes blockRootHash = HashingUtilities.computeFinalBlockHash(
+                blockHeader.blockTimestamp(),
+                previousBlockHash,
+                rootOfAllPreviousBlockHashes,
+                startOfBlockStateRootHash,
+                inputTreeHasher,
+                outputTreeHasher,
+                consensusHeaderHasher,
+                stateChangesHasher,
+                traceDataHasher);
+
+        LOGGER.log(
+                DEBUG,
+                "RSA WRB proof accepted for block {0}: {1}/{2} valid sigs (need > {3})",
                 blockNumber,
-                accepted ? blockRootHash : null,
-                accepted ? new BlockUnparsed(blockItems) : null,
-                blockSource);
+                validCount,
+                rosterSize,
+                rosterSize / 2);
+        if (rsaVerificationSuccessTotal != null) rsaVerificationSuccessTotal.increment();
+        return new VerificationNotification(
+                true, null, blockNumber, blockRootHash, new BlockUnparsed(blockItems), blockSource);
     }
 
     /**
@@ -665,9 +666,20 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     /**
      * Computes the V6 RSA signed payload: `SHA-384(int32(6) || rawRecordStreamFileBytes)`.
      *
-     * <p>This matches `SignatureDataExtractor.computeSignedHash(6, ...)` in
-     * `tools-and-tests/tools`. Inlined here because that module cannot be imported from
-     * `block-node/verification`.
+     * <p>This is the Hedera Record Stream V6 signing convention: a big-endian 32-bit version
+     * tag followed by the verbatim {@code record_file_contents} bytes, hashed with SHA-384.
+     * It is the same payload the consensus node hashes before applying an RSA signature, so
+     * verification must reproduce it byte-for-byte. References:
+     * <ul>
+     *   <li>{@code SignatureDataExtractor.computeSignedHash(6, ...)} in
+     *       {@code tools-and-tests/tools/.../validation/SignatureDataExtractor.java} — the
+     *       reference reconstruction this method is inlined from (verification cannot depend
+     *       on the tools module).</li>
+     *   <li>{@code RecordStreamV6} signing format used by hedera-services when producing
+     *       record stream files (`recordStreamFileVersion=6`).</li>
+     *   <li>WRB transition: HIP-1056 "Block Streams" — wrapped record blocks carry the
+     *       pre-existing V6 RSA signature payload unchanged.</li>
+     * </ul>
      *
      * @param rawRecordStreamFileBytes raw bytes of the `record_file_contents` field
      * @return 48-byte SHA-384 digest
@@ -722,6 +734,14 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 traceDataHasher);
 
         final boolean verified = verifyStateProof(blockRootHash, blockProof.blockStateProof());
+
+        if (verified) {
+            LOGGER.log(DEBUG, "State-proof verification accepted block {0}", blockNumber);
+            if (stateProofVerificationSuccessTotal != null) stateProofVerificationSuccessTotal.increment();
+        } else {
+            LOGGER.log(WARNING, "State-proof verification rejected block {0}", blockNumber);
+            if (stateProofVerificationFailureTotal != null) stateProofVerificationFailureTotal.increment();
+        }
 
         return new VerificationNotification(
                 verified,

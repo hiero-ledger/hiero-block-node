@@ -75,7 +75,7 @@ class StateProofVerificationTest {
         VerificationServicePlugin.tssParametersPersisted = false;
         // Process block 0 through a session to initialize native TSS state and extract ledger ID
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                block0.blockNumber(), BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null);
+                block0.blockNumber(), BlockSource.PUBLISHER, null, null, null, Map.of(), null, null, null, null, null);
         session.processBlockItems(
                 new BlockItems(block0.blockUnparsed().blockItems(), block0.blockNumber(), true, true));
         assertNotNull(VerificationServicePlugin.activeLedgerId, "Block 0 must set the active ledger ID");
@@ -183,7 +183,7 @@ class StateProofVerificationTest {
 
     private VerificationNotification verifyBlock(long blockNumber, BlockUnparsed block) throws ParseException {
         ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                blockNumber, BlockSource.PUBLISHER, null, null, activeLedgerId, Map.of(), null, null, null);
+                blockNumber, BlockSource.PUBLISHER, null, null, activeLedgerId, Map.of(), null, null, null, null, null);
         return session.processBlockItems(new BlockItems(block.blockItems(), blockNumber, true, true));
     }
 

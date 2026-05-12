@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -137,7 +138,7 @@ class WrbAddressBookFixtureGeneratorTest {
         Files.write(out, NodeAddressBook.JSON.toBytes(book).toByteArray());
     }
 
-    private static InputStream openResource(final String path) throws java.io.IOException {
+    private static InputStream openResource(final String path) throws IOException {
         final InputStream is = TestUtils.class.getModule().getResourceAsStream(path);
         assertNotNull(is, "Required test resource not found on classpath: " + path);
         return is;

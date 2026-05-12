@@ -102,9 +102,10 @@ class RsaWrbVerificationTest {
 
     @BeforeAll
     static void generateKeysAndPayload() throws Exception {
-        // 1024-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
+        // 2048-bit RSA keys are used for test speed only — production network uses 4096-bit keys.
+        // CodeQL flags anything below 2048 as a weak-key warning even in test code, so we stay at 2048.
         final KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(1024);
+        kpg.initialize(2048);
         // Generate the 6-node pool used by the fixed-roster tests.
         for (long nodeId = 0; nodeId < ROSTER_SIZE; nodeId++) {
             final KeyPair kp = kpg.generateKeyPair();
@@ -186,7 +187,7 @@ class RsaWrbVerificationTest {
             final Map<Long, PublicKey> keyMap, final List<RecordFileSignature> signatures) throws Exception {
         final List<BlockItemUnparsed> items = buildWrbBlock(signatures);
         final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, keyMap, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, keyMap, null, null, null, null, null);
         return session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
     }
 
@@ -399,7 +400,7 @@ class RsaWrbVerificationTest {
                             .build());
         }
         final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
         final VerificationNotification result =
                 session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
 
@@ -448,7 +449,7 @@ class RsaWrbVerificationTest {
                             .build());
         }
         final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
         final VerificationNotification result =
                 session.processBlockItems(new BlockItems(items, BLOCK_NUMBER, true, true));
 
@@ -490,7 +491,7 @@ class RsaWrbVerificationTest {
 
         // Case 1: empty RECORD_FILE bytes — nothing to extract → field not found → Bytes.EMPTY → fail
         final ExtendedMerkleTreeSession session1 = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
         final VerificationNotification result1 = session1.processBlockItems(
                 new BlockItems(buildWrbBlockWithCustomRecordFile(Bytes.EMPTY, sigs), BLOCK_NUMBER, true, true));
         assertNotNull(result1);
@@ -500,7 +501,7 @@ class RsaWrbVerificationTest {
         // Tag=0x0A (field 1, LEN), length=1, one payload byte
         final Bytes field1Only = Bytes.wrap(new byte[] {0x0A, 0x01, 0x42});
         final ExtendedMerkleTreeSession session2 = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
         final VerificationNotification result2 = session2.processBlockItems(
                 new BlockItems(buildWrbBlockWithCustomRecordFile(field1Only, sigs), BLOCK_NUMBER, true, true));
         assertNotNull(result2);
@@ -510,7 +511,7 @@ class RsaWrbVerificationTest {
         // Tag = (1 << 3) | 3 = 0x0B (field 1, wire 3 = SGROUP — unused in proto3 but valid tag encoding)
         final Bytes unknownWireType = Bytes.wrap(new byte[] {0x0B});
         final ExtendedMerkleTreeSession session3 = new ExtendedMerkleTreeSession(
-                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null);
+                BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, null, null, null, null, null);
         final VerificationNotification result3 = session3.processBlockItems(
                 new BlockItems(buildWrbBlockWithCustomRecordFile(unknownWireType, sigs), BLOCK_NUMBER, true, true));
         assertNotNull(result3);

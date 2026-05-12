@@ -69,6 +69,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     /** Metric key for signatures from `node_id` values not present in the loaded address book */
     public static final MetricKey<LongCounter> METRIC_RSA_ROSTER_MISMATCH =
             MetricKey.of("rsa_roster_mismatch_total", LongCounter.class).addCategory(METRICS_CATEGORY);
+    /** Metric key for blocks whose state-proof verification was accepted */
+    public static final MetricKey<LongCounter> METRIC_STATE_PROOF_VERIFICATION_SUCCESS = MetricKey.of(
+                    "state_proof_verification_success_total", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    /** Metric key for blocks whose state-proof verification was rejected */
+    public static final MetricKey<LongCounter> METRIC_STATE_PROOF_VERIFICATION_FAILURE = MetricKey.of(
+                    "state_proof_verification_failure_total", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
 
     private static final String COMPLETED_MESSAGE = "Verified backfill block items for block={0} with success={1}";
     /** The logger for this class. */
@@ -100,6 +108,10 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     private LongCounter.Measurement rsaVerificationFailureTotal;
     /** Metric for signatures from `node_id` values absent from the loaded address book. */
     private LongCounter.Measurement rsaRosterMismatchTotal;
+    /** Metric for accepted state-proof verifications. */
+    private LongCounter.Measurement stateProofVerificationSuccessTotal;
+    /** Metric for rejected state-proof verifications. */
+    private LongCounter.Measurement stateProofVerificationFailureTotal;
     /**
      * Most recent `node_id → PublicKey` map built from the `NodeAddressBook` delivered by
      * `RsaRosterBootstrapPlugin`. Volatile so that `onContextUpdate` writes are visible to the
@@ -176,6 +188,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         rsaRosterMismatchTotal = metricRegistry
                 .register(LongCounter.builder(METRIC_RSA_ROSTER_MISMATCH)
                         .setDescription("RSA signatures from node_id values absent from the loaded address book"))
+                .getOrCreateNotLabeled();
+        stateProofVerificationSuccessTotal = metricRegistry
+                .register(LongCounter.builder(METRIC_STATE_PROOF_VERIFICATION_SUCCESS)
+                        .setDescription("Blocks whose state-proof verification was accepted"))
+                .getOrCreateNotLabeled();
+        stateProofVerificationFailureTotal = metricRegistry
+                .register(LongCounter.builder(METRIC_STATE_PROOF_VERIFICATION_FAILURE)
+                        .setDescription("Blocks whose state-proof verification was rejected"))
                 .getOrCreateNotLabeled();
     }
 
@@ -337,7 +357,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         keyByNodeId,
                         rsaVerificationSuccessTotal,
                         rsaVerificationFailureTotal,
-                        rsaRosterMismatchTotal);
+                        rsaRosterMismatchTotal,
+                        stateProofVerificationSuccessTotal,
+                        stateProofVerificationFailureTotal);
                 LOGGER.log(DEBUG, "Started new block verification session for block number {0}", currentBlockNumber);
             } else {
                 headerValid = true; // header not present, assume it was valid
@@ -497,7 +519,9 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         keyByNodeId,
                         rsaVerificationSuccessTotal,
                         rsaVerificationFailureTotal,
-                        rsaRosterMismatchTotal);
+                        rsaRosterMismatchTotal,
+                        stateProofVerificationSuccessTotal,
+                        stateProofVerificationFailureTotal);
                 // process the block items in the backfilled notification
                 // For backfill, we wrap items in BlockItems with isEndOfBlock=true (last item should be block proof)
                 BlockItems backfillBlockItems =
