@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 dependencies {
-    api(platform("io.netty:netty-bom:4.2.12.Final"))
+    api(platform("io.netty:netty-bom:4.2.13.Final"))
     api(platform("com.google.cloud:libraries-bom:26.80.0"))
 }
 
