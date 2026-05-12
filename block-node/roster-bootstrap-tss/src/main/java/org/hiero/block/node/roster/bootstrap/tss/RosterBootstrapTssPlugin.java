@@ -40,7 +40,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
             MetricKey.of("tss_data_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
 
     /// The logger for this class.
-    private final System.Logger LOGGER = System.getLogger(getClass().getName());
+    private static final System.Logger LOGGER = System.getLogger(RosterBootstrapTssPlugin.class.getName());
 
     /// The block node context, for access to core facilities.
     private volatile BlockNodeContext blockNodeContext;
@@ -112,10 +112,12 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     @Override
     public void stop() {
         if (queryPeerExecutor != null) {
-            queryPeerExecutor.shutdownNow();
+            queryPeerExecutor.shutdown();
             try {
                 if (!queryPeerExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    final String executorTerminationMsg = "queryPeerExecutor did not terminate in time";
+                    final String executorTerminationMsg =
+                            "queryPeerExecutor did not terminate in time, calling shutdownNow()";
+                    queryPeerExecutor.shutdownNow();
                     LOGGER.log(INFO, executorTerminationMsg);
                 }
             } catch (InterruptedException e) {
@@ -133,7 +135,8 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
 
     /// UncaughtExceptionHandler for logging uncaught exceptions
     private void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
-        LOGGER.log(WARNING, "Uncaught exception in RosterBootstrapTssPlugin thread: " + thread.getName(), throwable);
+        LOGGER.log(
+                WARNING, "Uncaught exception in RosterBootstrapTssPlugin thread {0}: {1}", thread.getName(), throwable);
     }
 
     /// {@inheritDoc}

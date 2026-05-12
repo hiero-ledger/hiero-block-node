@@ -137,6 +137,8 @@ public class BlockNodeClient {
         int pollWaitMs = POLL_WAIT_TIME.getValidOrDefault(tuning);
 
         Tls tls = Tls.builder().enabled(enableTls).build();
+        String protocol = enableTls ? "https://" : "http://";
+
         grpcConfig = new PbjGrpcClientConfig(
                 Duration.ofMillis(readTimeoutMs),
                 tls,
@@ -148,7 +150,7 @@ public class BlockNodeClient {
                 maxIncomingBufferSize);
 
         webClient = WebClient.builder()
-                .baseUri("http://" + blockNodeConfig.address() + ":" + blockNodeConfig.port())
+                .baseUri(protocol + blockNodeConfig.address() + ":" + blockNodeConfig.port())
                 .tls(tls)
                 .protocolConfigs(List.of(buildHttp2Config(tuning), buildGrpcConfig(pollWaitMs, tuning)))
                 .connectTimeout(Duration.ofMillis(connectTimeoutMs))

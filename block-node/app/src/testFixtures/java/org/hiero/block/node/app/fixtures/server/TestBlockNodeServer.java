@@ -233,9 +233,7 @@ public class TestBlockNodeServer {
                     .tssData(buildTssData(
                             Bytes.fromHex("01010101"),
                             Bytes.fromHex("02020202"),
-                            11,
-                            22,
-                            Bytes.fromHex("03030303"),
+                            List.of(buildRosterEntry(11, 22, Bytes.fromHex("03030303"))),
                             250,
                             50))
                     .build();
@@ -245,27 +243,17 @@ public class TestBlockNodeServer {
         ///
         /// @param ledgerId The ledgerId Bytes
         /// @param wrapsVerificationKey The wrapsVerificationKey Bytes
-        /// @param nodeId The node id
-        /// @param weight The weight
-        /// @param schnorrPublicKey The schnorrPublicKey Bytes
         /// @param validFromBlock The block from which this TssData is valid
         /// @param rosterValidFromBlock The block from which this TssRoster is valid
         /// @return a `TssData` object
         private TssData buildTssData(
                 Bytes ledgerId,
                 Bytes wrapsVerificationKey,
-                long nodeId,
-                long weight,
-                Bytes schnorrPublicKey,
+                List<RosterEntry> rosterEntries,
                 long validFromBlock,
                 long rosterValidFromBlock) {
-            RosterEntry rosterEntry = RosterEntry.newBuilder()
-                    .nodeId(nodeId)
-                    .weight(weight)
-                    .schnorrPublicKey(schnorrPublicKey)
-                    .build();
             TssRoster tssRoster = TssRoster.newBuilder()
-                    .rosterEntries(rosterEntry)
+                    .rosterEntries(rosterEntries)
                     .validFromBlock(rosterValidFromBlock)
                     .build();
             return TssData.newBuilder()
@@ -273,6 +261,20 @@ public class TestBlockNodeServer {
                     .wrapsVerificationKey(wrapsVerificationKey)
                     .currentRoster(tssRoster)
                     .validFromBlock(validFromBlock)
+                    .build();
+        }
+
+        /// build a `RosterEntry`object from individual fields
+        ///
+        /// @param nodeId The node id
+        /// @param weight The weight
+        /// @param schnorrPublicKey The schnorrPublicKey Bytes
+        /// @return a `RosterEntry` object
+        private RosterEntry buildRosterEntry(long nodeId, long weight, Bytes schnorrPublicKey) {
+            return RosterEntry.newBuilder()
+                    .nodeId(nodeId)
+                    .weight(weight)
+                    .schnorrPublicKey(schnorrPublicKey)
                     .build();
         }
     }
