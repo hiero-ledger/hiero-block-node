@@ -547,8 +547,20 @@ function execute_inject_latency {
     [[ -z "$source_kind" || "$source_kind" == "null" ]] && { echo "ERROR: inject-latency requires args.source.kind"; return 1; }
     [[ -z "$target_kind" || "$target_kind" == "null" ]] && { echo "ERROR: inject-latency requires args.target.kind"; return 1; }
 
-    if ! kctl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
-        echo "ERROR: Chaos Mesh CRDs not present. Run: CHAOS_ENABLED=true task chaos:install"
+    # Retry the CRD check — kubectl can return non-zero transiently after
+    # Chaos Mesh install (CRD propagation lag) or under cluster API-server load.
+    # Observed in a 3× flake check: 3×1s wasn't enough; this is 6×2s = up to 12s.
+    local crd_attempts=0
+    local crd_max=6
+    while [[ $crd_attempts -lt $crd_max ]]; do
+        if kctl api-resources --api-group=chaos-mesh.org -o name 2>/dev/null | grep -q networkchaos; then
+            break
+        fi
+        crd_attempts=$((crd_attempts + 1))
+        [[ $crd_attempts -lt $crd_max ]] && sleep 2
+    done
+    if [[ $crd_attempts -ge $crd_max ]]; then
+        echo "ERROR: Chaos Mesh CRDs not present after ${crd_max} retries. Run: CHAOS_ENABLED=true task chaos:install"
         return 1
     fi
 
