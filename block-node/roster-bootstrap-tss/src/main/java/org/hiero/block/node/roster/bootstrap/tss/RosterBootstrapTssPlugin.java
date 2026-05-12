@@ -96,6 +96,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
             // Let the logs know what we loaded.
             for (BlockNodeSourceConfig node : blockNodeSources.nodes()) {
                 LOGGER.log(INFO, "Loaded peer BN source node: {0}", node);
+                currentBlockNodePeers.incrementAndGet();
             }
             hasBNSourcesPath = true;
             tssDataFetcher = new TssDataFetcher(blockNodeSources, rosterBootstrapTssConfig, metricsHolder);
@@ -110,7 +111,17 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     /// {@inheritDoc}
     @Override
     public void stop() {
-        if (queryPeerExecutor != null) queryPeerExecutor.shutdown();
+        if (queryPeerExecutor != null) {
+            queryPeerExecutor.shutdownNow();
+            try {
+                if (!queryPeerExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    final String executorTerminationMsg = "queryPeerExecutor did not terminate in time";
+                    LOGGER.log(INFO, executorTerminationMsg);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     /// UncaughtExceptionHandler for logging uncaught exceptions
