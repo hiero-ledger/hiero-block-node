@@ -76,24 +76,9 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
 
         initMetrics();
 
-        // Validate block node sources configuration
-        final String sourcesPath = rosterBootstrapTssConfig.blockNodeSourcesPath();
-        if (sourcesPath == null || sourcesPath.isBlank()) {
-            LOGGER.log(INFO, "No block node sources path configured, TssBootstrapPlugin will not query any peers");
-            return;
-        }
+        BlockNodeSource blockNodeSources = getBlockNodeSource(rosterBootstrapTssConfig);
 
-        Path blockNodeSourcesPath = Path.of(rosterBootstrapTssConfig.blockNodeSourcesPath());
-        if (!Files.isRegularFile(blockNodeSourcesPath)) {
-            final String blockNodeSourcesPathNotFoundMsg =
-                    "Block node sources path does not exist or is not a regular file: [{0}], TssBootstrapPlugin will not query any peers";
-            LOGGER.log(WARNING, blockNodeSourcesPathNotFoundMsg, rosterBootstrapTssConfig.blockNodeSourcesPath());
-            return;
-        }
-
-        try {
-            BlockNodeSource blockNodeSources =
-                    BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
+        if (blockNodeSources != null) {
             // Let the logs know what we loaded.
             for (BlockNodeSourceConfig node : blockNodeSources.nodes()) {
                 LOGGER.log(DEBUG, "Loaded peer BN source node: {0}", node);
@@ -101,12 +86,29 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
             }
             hasBNSourcesPath = true;
             tssDataFetcher = new TssDataFetcher(blockNodeSources, rosterBootstrapTssConfig, metricsHolder);
-        } catch (ParseException | IOException e) {
-            final String parseFailedMsg =
-                    "Failed to parse block node sources from path: [%s], TssBootstrapPlugin will not query any peers: %s"
-                            .formatted(rosterBootstrapTssConfig.blockNodeSourcesPath(), e.getMessage());
-            LOGGER.log(WARNING, parseFailedMsg, e);
         }
+    }
+
+    /// Get the BlockNodeSource
+    /// @param config {@link RosterBootstrapTssConfig} configuration information for the plugin.
+    /// @return The {@link BlockNodeSource} or null if it cannot be determined.
+    private BlockNodeSource getBlockNodeSource(RosterBootstrapTssConfig config) {
+        final String sourcesPath = config.blockNodeSourcesPath();
+        if (sourcesPath != null && !sourcesPath.isBlank()) {
+            Path blockNodeSourcesPath = Path.of(sourcesPath);
+            if (Files.isRegularFile(blockNodeSourcesPath)) {
+                try {
+                    return BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
+                } catch (ParseException | IOException e) {
+                    // do nothing
+                }
+            }
+        }
+        final String parseFailedMsg =
+                "Failed to read/parse block node sources from path: [%s], TssBootstrapPlugin will not query any peers"
+                        .formatted(sourcesPath);
+        LOGGER.log(INFO, parseFailedMsg);
+        return null;
     }
 
     /// {@inheritDoc}
