@@ -30,21 +30,21 @@ Once a server has been acquired, it needs to be provisioned with the necessary s
 and the Block Node Server.
 
 Assuming a Linux based environment, a node operator has two options at this time
-1. [Solo Weaver](https://github.com/hashgraph/solo-weaver) installation (recommended)
+1. [Solo Provisioner](https://github.com/hashgraph/solo-weaver) installation (recommended)
 2. Custom provisioner script
 
-### Solo Weaver
+### Solo Provisioner
 
-Solo weaver is a go-based tool to simplify the provisioning of Hiero network components (like the block node) in a
-streamlined and automated fashion. For a step-by-step GCP VM walkthrough using Solo Weaver (including `local`, `previewnet`, and `testnet` profiles), see the [Solo Weaver Single Node Kubernetes Deployment Guide](./solo-weaver-single-node-k8s-deployment.md). For production Tier 1 mainnet, the [Block Node Hardware Specifications](./block-node-hardware-specifications.md) take precedence over the smaller VM sizings used there.
+Solo Provisioner (formerly known as Solo Weaver) is a go-based tool to simplify the provisioning of Hiero network components (like the block node) in a
+streamlined and automated fashion. For a step-by-step GCP VM walkthrough using Solo Provisioner (including `local`, `previewnet`, and `testnet` profiles), see the [Solo Provisioner Single Node Kubernetes Deployment Guide](./solo-weaver-single-node-k8s-deployment.md). For production Tier 1 mainnet, the [Block Node Hardware Specifications](./block-node-hardware-specifications.md) take precedence over the smaller VM sizings used there.
 
-To utilize the Solo Weaver experience
+To utilize the Solo Provisioner experience
 
-1. Install Weaver on the server
+1. Install Solo Provisioner on the server
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/hashgraph/solo-weaver/main/install.sh | bash
-weaver --help
+solo-provisioner --help
 ```
 
 2. Run the provisioning and install flow
@@ -78,7 +78,7 @@ in addition to metalLB load balancing.
 
 With the server provisioned, follow these steps to deploy the Block Node Server on a single-node Kubernetes cluster:
 
-Note 1: Skip steps 1 through 7 if you utilize Solo Weaver as will install teh block node for you.
+Note 1: Skip steps 1 through 7 if you utilize Solo Provisioner as will install teh block node for you.
 
 Note 2: Some steps are marked as intermediate, indicating they will change due to improvements.
 
