@@ -74,11 +74,8 @@ function assert_metric_threshold {
         local failed=0 results=""
         for bn in $(get_all_block_nodes); do
             local result
-            if result=$(assert_metric_threshold_single "$bn" "$metric" "$op" "$threshold" "$samples" "$wait_seconds"); then
-                results="${results}${result}\n"
-            else
-                results="${results}${result}\n"; failed=1
-            fi
+            result=$(assert_metric_threshold_single "$bn" "$metric" "$op" "$threshold" "$samples" "$wait_seconds") || failed=1
+            results="${results}${result}\n"
         done
         echo -e "${results%\\n}"
         return $failed
@@ -122,11 +119,8 @@ function assert_block_rate_floor {
         local failed=0 results=""
         for bn in $(get_all_block_nodes); do
             local result
-            if result=$(assert_block_rate_floor_single "$bn" "$min_rate" "$window_seconds"); then
-                results="${results}${result}\n"
-            else
-                results="${results}${result}\n"; failed=1
-            fi
+            result=$(assert_block_rate_floor_single "$bn" "$min_rate" "$window_seconds") || failed=1
+            results="${results}${result}\n"
         done
         echo -e "${results%\\n}"
         return $failed
@@ -135,17 +129,19 @@ function assert_block_rate_floor {
     fi
 }
 
-# fetch_pod_logs: read recent pod logs (overridable in tests).
+# fetch_pod_logs: read recent pod logs for a target (matched by label, not
+# pod-name suffix, so it doesn't depend on Deployment vs StatefulSet pod
+# naming). Overridable in fixture tests.
 function fetch_pod_logs {
-    local pod="$1" since="$2"
-    kctl logs "${pod}" -n "${NAMESPACE}" --since="${since}s" 2>/dev/null || true
+    local target="$1" since="$2"
+    kctl logs -n "${NAMESPACE}" -l "app.kubernetes.io/name=${target}" \
+        --since="${since}s" --tail=10000 --prefix 2>/dev/null || true
 }
 
 function assert_log_match_single {
     local target="$1" grep_pattern="$2" since_seconds="${3:-300}"
-    local pod_name="${target}-0"
     local logs
-    logs=$(fetch_pod_logs "$pod_name" "$since_seconds")
+    logs=$(fetch_pod_logs "$target" "$since_seconds")
     if echo "$logs" | grep -F -- "$grep_pattern" >/dev/null 2>&1; then
         local count
         count=$(echo "$logs" | grep -F -c -- "$grep_pattern")
@@ -163,11 +159,8 @@ function assert_log_match {
         local failed=0 results=""
         for bn in $(get_all_block_nodes); do
             local result
-            if result=$(assert_log_match_single "$bn" "$grep_pattern" "$since_seconds"); then
-                results="${results}${result}\n"
-            else
-                results="${results}${result}\n"; failed=1
-            fi
+            result=$(assert_log_match_single "$bn" "$grep_pattern" "$since_seconds") || failed=1
+            results="${results}${result}\n"
         done
         echo -e "${results%\\n}"
         return $failed

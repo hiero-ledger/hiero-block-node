@@ -59,6 +59,16 @@ ASSERTION_RESULTS_FILE="/tmp/solo-test-assert-results-$$"
 
 # Chaos: track applied NetworkChaos resource names so we can clean up on exit
 # even if the test fails between inject-latency and clear-latency.
+#
+# Cleanup contract:
+#   - execute_inject_latency appends the resource name to CHAOS_ACTIVE_FILE.
+#   - execute_clear_latency removes it on graceful clear.
+#   - cleanup_chaos_on_exit (registered on EXIT below) drains any remaining
+#     names so a crash between inject and clear doesn't leak NetworkChaos
+#     resources into the cluster.
+# The file is PID-scoped (`$$`), so two concurrent runner invocations in the
+# same shell session don't share state. Running two test runners in parallel
+# is not a supported workflow anyway.
 CHAOS_TEMPLATE_DIR="${CHAOS_TEMPLATE_DIR:-${SCRIPT_DIR}/chaos-templates}"
 CHAOS_ACTIVE_FILE="/tmp/solo-test-chaos-active-$$"
 : > "${CHAOS_ACTIVE_FILE}"
@@ -505,30 +515,31 @@ function execute_reconfigure_cn_streaming {
 # ============================================================================
 # Chaos / Network Latency Helpers
 # ============================================================================
-# Maps the user-facing 'kind' to the actual pod label key/value present in
-# solo-e2e-test deployments. CN pods use the solo.hedera.com/* namespace
-# (emitted by Solo CLI) while BN pods use block-node.hiero.com/* (emitted by
-# the BN Helm chart). See:
+# Maps the user-facing 'kind' to the actual pod label selector (key=value)
+# present in solo-e2e-test deployments. CN pods use the solo.hedera.com/*
+# namespace (emitted by Solo CLI) while BN pods use block-node.hiero.com/*
+# (emitted by the BN Helm chart). See:
 # agent/proposals/solo-chaos-spike/findings/002-bn-label-namespace-mismatch.md
-function chaos_label_key {
+function chaos_label_selector {
     case "$1" in
-        network-node) echo "solo.hedera.com/type" ;;
-        block-node)   echo "block-node.hiero.com/type" ;;
+        network-node) echo "solo.hedera.com/type=network-node" ;;
+        block-node)   echo "block-node.hiero.com/type=block-node" ;;
         *) echo "ERROR: unknown chaos kind: '$1' (expected: network-node | block-node)" >&2; return 1 ;;
-    esac
-}
-
-function chaos_label_value {
-    case "$1" in
-        network-node) echo "network-node" ;;
-        block-node)   echo "block-node" ;;
-        *) echo "ERROR: unknown chaos kind: '$1'" >&2; return 1 ;;
     esac
 }
 
 # Slug a string into a Kubernetes-name-safe lowercase token.
 function chaos_slug {
     echo "$1" | tr 'A-Z' 'a-z' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//'
+}
+
+# Deterministic NetworkChaos resource name for a (test, scenario) pair.
+# Used by both inject-latency and clear-latency so they cannot disagree on the
+# resource name a future clear must target.
+function chaos_resource_name {
+    local scenario_name="$1"
+    local n="$(chaos_slug "${TEST_NAME}")--$(chaos_slug "${scenario_name}")"
+    echo "${n:0:63}"
 }
 
 function execute_inject_latency {
@@ -564,26 +575,23 @@ function execute_inject_latency {
         return 1
     fi
 
-    local source_key source_val target_key target_val
-    source_key=$(chaos_label_key "$source_kind") || return 1
-    source_val=$(chaos_label_value "$source_kind") || return 1
-    target_key=$(chaos_label_key "$target_kind") || return 1
-    target_val=$(chaos_label_value "$target_kind") || return 1
+    local source_selector target_selector
+    source_selector=$(chaos_label_selector "$source_kind") || return 1
+    target_selector=$(chaos_label_selector "$target_kind") || return 1
+    local source_key="${source_selector%%=*}" source_val="${source_selector#*=}"
+    local target_key="${target_selector%%=*}" target_val="${target_selector#*=}"
 
     if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
-            --selector "${source_key}=${source_val}" --label "source(${source_kind})"; then
+            --selector "${source_selector}" --label "source(${source_kind})"; then
         return 1
     fi
     if ! "${SCRIPT_DIR}/chaos-dryrun.sh" --namespace "${NAMESPACE}" \
-            --selector "${target_key}=${target_val}" --label "target(${target_kind})"; then
+            --selector "${target_selector}" --label "target(${target_kind})"; then
         return 1
     fi
 
-    local test_slug scenario_slug chaos_name direction loss_block
-    test_slug=$(chaos_slug "${TEST_NAME}")
-    scenario_slug=$(chaos_slug "${name}")
-    chaos_name="${test_slug}--${scenario_slug}"
-    chaos_name="${chaos_name:0:63}"
+    local chaos_name direction loss_block
+    chaos_name=$(chaos_resource_name "${name}")
 
     if [[ "${bidirectional}" == "true" ]]; then
         direction="both"
@@ -599,8 +607,8 @@ function execute_inject_latency {
 
     local manifest="/tmp/${chaos_name}.yaml"
     export CHAOS_NAME="${chaos_name}"
-    export TEST_ID="${test_slug}"
-    export SCENARIO_ID="${scenario_slug}"
+    export TEST_ID="$(chaos_slug "${TEST_NAME}")"
+    export SCENARIO_ID="$(chaos_slug "${name}")"
     export DIRECTION="${direction}"
     export TARGET_NAMESPACE="${NAMESPACE}"
     export SOURCE_LABEL_KEY="${source_key}"
@@ -626,14 +634,11 @@ function execute_inject_latency {
 
 function execute_clear_latency {
     local args="$1"
-    local name test_slug scenario_slug chaos_name
+    local name chaos_name
     name=$(echo "$args" | yq '.name // ""')
     [[ -z "$name" || "$name" == "null" ]] && { echo "ERROR: clear-latency requires args.name"; return 1; }
 
-    test_slug=$(chaos_slug "${TEST_NAME}")
-    scenario_slug=$(chaos_slug "${name}")
-    chaos_name="${test_slug}--${scenario_slug}"
-    chaos_name="${chaos_name:0:63}"
+    chaos_name=$(chaos_resource_name "${name}")
 
     echo "Deleting NetworkChaos '${chaos_name}'"
     kctl delete networkchaos -n chaos-mesh "${chaos_name}" --ignore-not-found
