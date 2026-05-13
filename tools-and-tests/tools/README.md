@@ -197,7 +197,7 @@ java -jar tools.jar mirror --network testnet update
 java -jar tools.jar blocks wrap --network previewnet
 
 # Custom network (requires HIERO_NETWORK_CONFIG env var)
-export HIERO_NETWORK_CONFIG=/path/to/hashsphere-config.json
+export HIERO_NETWORK_CONFIG=/path/to/custom-network-config.json
 java -jar tools.jar blocks wrap --network other
 ```
 
@@ -225,10 +225,10 @@ cp tools/src/main/resources/example-configs/previewnet-config.json \
 java -jar tools.jar blocks wrap --network previewnet
 ```
 
-**For custom networks (e.g., Hashsphere):**
+**For custom networks:**
 
 ```bash
-# Create config file (see example-configs/hashsphere-config.json for format)
+# Create config file (see example-configs/custom-network-config.json for format)
 export HIERO_NETWORK_CONFIG=/path/to/my-network-config.json
 java -jar tools.jar blocks wrap --network other
 ```

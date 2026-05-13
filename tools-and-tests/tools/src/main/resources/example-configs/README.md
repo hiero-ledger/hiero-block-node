@@ -16,7 +16,7 @@ These networks have built-in configurations and don't require config files:
 These networks require configuration files:
 
 - **previewnet** - Hedera previewnet (config file required)
-- **other** - Custom networks like Hashsphere (config file required)
+- **other** - Custom/private networks (config file required)
 
 ## Configuration File Format
 
@@ -70,18 +70,18 @@ Network configurations are JSON files with the following structure:
    java -jar tools-*.jar blocks validate --network previewnet ...
    ```
 
-### Using Custom Networks (e.g., Hashsphere)
+### Using Custom Networks
 
 1. Create or copy a config file:
 
    ```bash
-   cp hashsphere-config.json /path/to/my-hashsphere-config.json
+   cp custom-network-config.json /path/to/my-network-config.json
    ```
 2. Update the config with your network's actual values
 3. Set the environment variable:
 
    ```bash
-   export HIERO_NETWORK_CONFIG=/path/to/my-hashsphere-config.json
+   export HIERO_NETWORK_CONFIG=/path/to/my-network-config.json
    ```
 4. Use with CLI commands:
 
@@ -104,10 +104,10 @@ java -jar tools-*.jar download-day \
   --output compressedDays/
 ```
 
-### Wrap blocks from hashsphere
+### Wrap blocks from custom network
 
 ```bash
-export HIERO_NETWORK_CONFIG=./hashsphere-config.json
+export HIERO_NETWORK_CONFIG=./custom-network-config.json
 
 java -jar tools-*.jar blocks wrap \
   --network other \

@@ -1,0 +1,12 @@
+{
+  "networkName": "my-custom-network",
+  "gcsBucketName": "my-network-streams",
+  "bucketPathPrefix": "recordstreams/",
+  "mirrorNodeApiUrl": "https://my-network.mirrornode.example.com/api/v1/",
+  "genesisDate": "2024-01-01",
+  "genesisTimestamp": "2024-01-01T00_00_00.000000000Z",
+  "minNodeAccountId": 3,
+  "maxNodeAccountId": 10,
+  "totalHbarSupplyTinybar": 5000000000000000000,
+  "genesisAddressBookResource": "custom-network-genesis-address-book.proto.bin"
+}
