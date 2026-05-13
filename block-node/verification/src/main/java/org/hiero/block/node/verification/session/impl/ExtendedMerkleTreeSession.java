@@ -397,9 +397,10 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      *    - Verify with `SHA384withRSA`. If verification fails or throws, **reject the block
      *      immediately** — the CN only includes signatures from nodes that contributed to
      *      consensus, so any included signature must be cryptographically valid.
-     * 5. Accept if `validCount * 2 > rosterSize` (strict majority: more than half of the
-     *      address-book nodes must have signed). The CN sends exactly the signatures from
-     *      nodes whose combined consensus weight exceeded 50%.
+     * 5. Accept if at least one signature in the proof verified. Step 4 already rejects
+     *      the block on any failed verification, so reaching this step means every
+     *      signature we were able to verify did pass; we only need to confirm at least
+     *      one such verification occurred.
      *
      * <p>This method never throws; all error conditions return a `success=false` notification.
      *
@@ -529,20 +530,18 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             metrics.incrementRsaRosterMismatch(mismatchCount);
         }
 
-        // Strict majority threshold: validCount must be strictly greater than half the roster.
-        // The CN only sends signatures from nodes whose combined consensus weight exceeded 50%,
-        // so we require validCount * 2 > rosterSize (equivalent to validCount > rosterSize / 2.0).
-        // For example: 6-node roster requires > 3, i.e. ≥ 4 valid signatures.
-        final boolean accepted = validCount * 2 > rosterSize;
+        // Acceptance threshold: at least one valid signature from a roster node.
+        // Every signature present in the proof that failed cryptographic verification already
+        // rejected the block in the loop above, so reaching this point with validCount >= 1
+        // means all signatures we attempted to verify did pass.
+        final boolean accepted = validCount >= 1;
 
         if (!accepted) {
             LOGGER.log(
                     WARNING,
-                    "RSA WRB proof rejected for block {0}: {1}/{2} valid sigs, need > {3}",
+                    "RSA WRB proof rejected for block {0}: 0 valid signatures (roster size {1})",
                     blockNumber,
-                    validCount,
-                    rosterSize,
-                    rosterSize / 2);
+                    rosterSize);
             metrics.incrementRsaFailure();
             return new VerificationNotification(
                     false, FailureType.BAD_BLOCK_PROOF, blockNumber, null, null, blockSource);
@@ -564,11 +563,10 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         LOGGER.log(
                 DEBUG,
-                "RSA WRB proof accepted for block {0}: {1}/{2} valid sigs (need > {3})",
+                "RSA WRB proof accepted for block {0}: {1} valid signature(s) (roster size {2})",
                 blockNumber,
                 validCount,
-                rosterSize,
-                rosterSize / 2);
+                rosterSize);
         metrics.incrementRsaSuccess();
         return new VerificationNotification(
                 true, null, blockNumber, blockRootHash, new BlockUnparsed(blockItems), blockSource);

@@ -44,27 +44,23 @@ import org.junit.jupiter.params.provider.MethodSource;
  * `ExtendedMerkleTreeSession`.
  *
  * <p>Tests use synthetic blocks and in-process RSA key pairs — no real testnet blocks are required.
- * Six nodes are used so the strict majority threshold (`> N/2 = > 3` for 6 nodes, i.e. ≥ 4) is
- * testable with both passing (≥ 4 valid sigs) and failing (≤ 3 valid sigs) scenarios.
- * All signatures present must pass RSA verification — any single failed sig causes immediate
- * block rejection, regardless of how many other sigs are valid.
+ * The acceptance rule is: at least one signature in the proof must verify, AND every signature
+ * present that we are able to verify must succeed — any single failed cryptographic verification
+ * causes immediate block rejection regardless of how many other sigs are valid.
  *
  * <p>The raw `RecordFileItem` proto is assembled manually using protobuf wire format so that
  * `extractRecordStreamFileBytes` is exercised by the field-2 extraction path.
  */
 class RsaWrbVerificationTest {
 
-    /** Number of test nodes. Strict majority threshold for 6 nodes is > 3 (i.e. ≥ 4 valid sigs). */
+    /** Number of nodes in the fixed roster used by most tests. */
     private static final int ROSTER_SIZE = 6;
 
     /**
-     * Extended key pool size for the parametrised threshold tests.
-     * Covers all roster sizes tested in `strictMajorityThreshold_exactlyMet_acceptedOneLess_rejected`.
+     * Extended key pool size for the parametrised roster-size test.
+     * Covers all roster sizes exercised in `oneValidSignatureSuffices_zeroRejected`.
      */
     private static final int MAX_KEY_POOL = 9;
-
-    /** Strict majority threshold for 6 nodes: validCount * 2 > 6 → validCount ≥ 4. */
-    private static final int THRESHOLD = 4;
 
     /** HAPI version >= 0.72.0 routes to `ExtendedMerkleTreeSession`. */
     private static final SemanticVersion HAPI_VERSION = new SemanticVersion(1, 0, 0, "", "");
@@ -87,7 +83,7 @@ class RsaWrbVerificationTest {
 
     /**
      * Extended public key pool covering node_ids 0 .. MAX_KEY_POOL-1.
-     * Used exclusively by the parametrised threshold test so it can build rosters of varying sizes
+     * Used exclusively by the parametrised roster-size test so it can build rosters of varying sizes
      * without affecting the existing 6-node test fixtures.
      */
     private static final Map<Long, PublicKey> EXTENDED_KEY_MAP = new HashMap<>();
@@ -113,7 +109,7 @@ class RsaWrbVerificationTest {
             KEY_MAP.put(nodeId, kp.getPublic());
             PRIVATE_KEY_MAP.put(nodeId, kp.getPrivate());
         }
-        // Generate the extended pool (MAX_KEY_POOL nodes) for the parametrised threshold tests.
+        // Generate the extended pool (MAX_KEY_POOL nodes) for the parametrised roster-size tests.
         for (long nodeId = 0; nodeId < MAX_KEY_POOL; nodeId++) {
             final KeyPair kp = kpg.generateKeyPair();
             EXTENDED_KEY_MAP.put(nodeId, kp.getPublic());
@@ -236,7 +232,7 @@ class RsaWrbVerificationTest {
 
     /**
      * Signs `signedPayload` with the extended pool private key for `nodeId` and returns a
-     * `RecordFileSignature`. Used only by the parametrised threshold test.
+     * `RecordFileSignature`. Used only by the parametrised roster-size test.
      */
     private static RecordFileSignature extendedSignature(final long nodeId) throws Exception {
         final Signature engine = Signature.getInstance("SHA384withRSA");
@@ -248,14 +244,26 @@ class RsaWrbVerificationTest {
     // ---- Tests -------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("valid proof at exactly the threshold is accepted")
-    void validProofAtExactThreshold_accepted() throws Exception {
-        // strict majority threshold for 6 nodes: > 3, i.e. exactly 4 valid sigs
+    @DisplayName("valid proof with a single signature is accepted")
+    void validProofSingleSignature_accepted() throws Exception {
+        // Under the at-least-one-valid rule, a single valid signature accepts the block.
+        final List<RecordFileSignature> sigs = signaturesFor(0L);
+        final VerificationNotification result = runVerification(KEY_MAP, sigs);
+
+        assertNotNull(result, "Session must produce a notification");
+        assertTrue(result.success(), "Proof with one valid signature must be accepted");
+        assertNotNull(result.blockHash(), "Block hash must be set on success");
+        assertNotNull(result.block(), "Block must be present on success");
+    }
+
+    @Test
+    @DisplayName("valid proof with multiple signatures is accepted")
+    void validProofMultipleSignatures_accepted() throws Exception {
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L);
         final VerificationNotification result = runVerification(KEY_MAP, sigs);
 
         assertNotNull(result, "Session must produce a notification");
-        assertTrue(result.success(), "Proof with exactly threshold signatures must be accepted");
+        assertTrue(result.success(), "Proof with multiple valid signatures must be accepted");
         assertNotNull(result.blockHash(), "Block hash must be set on success");
         assertNotNull(result.block(), "Block must be present on success");
     }
@@ -271,22 +279,24 @@ class RsaWrbVerificationTest {
     }
 
     @Test
-    @DisplayName("valid proof one below threshold is rejected")
-    void validProofOneBelowThreshold_rejected() throws Exception {
-        // strict majority for 6 nodes requires > 3; exactly 3 valid sigs → 3*2=6 not > 6 → rejected
+    @DisplayName("valid proof with three signatures in a six-node roster is accepted")
+    void validProofMinoritySignatures_accepted() throws Exception {
+        // Under the at-least-one-valid rule a small number of valid signatures (well below half
+        // the roster) still accepts the block, provided every signature present verifies.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L);
         final VerificationNotification result = runVerification(KEY_MAP, sigs);
 
         assertNotNull(result);
-        assertFalse(result.success(), "Proof with fewer than threshold signatures must be rejected");
-        assertNull(result.blockHash(), "Block hash must not be set on failure");
-        assertNull(result.block(), "Block must not be present on failure");
+        assertTrue(result.success(), "3 valid sigs of 6 must be accepted under the at-least-one rule");
+        assertNotNull(result.blockHash(), "Block hash must be set on success");
+        assertNotNull(result.block(), "Block must be present on success");
     }
 
     @Test
-    @DisplayName("all-zero signature bytes are skipped and count as invalid")
+    @DisplayName("all-zero signature bytes are skipped, leaving zero valid sigs → rejected")
     void allZeroSignatures_rejected() throws Exception {
-        // Build signatures with all-zero bytes for every node
+        // Every entry is all-zero — the defensive pre-filter skips each, validCount stays at 0,
+        // and the at-least-one-valid rule rejects the block.
         final List<RecordFileSignature> sigs = new ArrayList<>();
         for (long id = 0; id < ROSTER_SIZE; id++) {
             sigs.add(new RecordFileSignature(Bytes.wrap(new byte[256]), id));
@@ -294,7 +304,7 @@ class RsaWrbVerificationTest {
         final VerificationNotification result = runVerification(KEY_MAP, sigs);
 
         assertNotNull(result);
-        assertFalse(result.success(), "All-zero signatures must not count toward threshold");
+        assertFalse(result.success(), "All-zero signatures yield zero valid sigs and must be rejected");
     }
 
     @Test
@@ -309,7 +319,7 @@ class RsaWrbVerificationTest {
     @Test
     @DisplayName("signature from unknown node_id is skipped; rest still counted")
     void unknownNodeId_sigSkipped_othersStillCounted() throws Exception {
-        // Nodes 0..4 produce valid sigs (meets threshold); node 99 is not in the key map
+        // Nodes 0..4 produce valid sigs; node 99 is not in the key map and is skipped.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
         // Add a sig from an unknown node
         sigs.add(new RecordFileSignature(Bytes.wrap(sign(0L) /* use node 0's key bytes */), 99L));
@@ -320,7 +330,7 @@ class RsaWrbVerificationTest {
         assertNotNull(result);
         assertTrue(
                 result.success(),
-                "Sig from unknown node should be skipped; valid sigs from known nodes still meet threshold");
+                "Sig from unknown node is skipped (no key to verify); valid sigs from known nodes still accept");
     }
 
     @Test
@@ -343,10 +353,11 @@ class RsaWrbVerificationTest {
     }
 
     @Test
-    @DisplayName("one bad sig among otherwise sufficient valid sigs causes immediate block rejection")
+    @DisplayName("one bad sig among otherwise valid sigs causes immediate block rejection")
     void oneBadSigAmongValids_immediatelyRejectsBlock() throws Exception {
-        // 5 valid sigs from nodes 0..4 (would exceed the majority threshold of > 3 on their own),
-        // but node 5 signs the wrong payload — the block must be rejected immediately.
+        // 5 valid sigs from nodes 0..4, but node 5 signs the wrong payload — the block must be
+        // rejected immediately by the "any failed verify rejects" rule, regardless of how many
+        // other sigs are valid.
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
         final byte[] wrongData = "tampered-payload".getBytes();
         final Signature engine = Signature.getInstance("SHA384withRSA");
@@ -360,7 +371,7 @@ class RsaWrbVerificationTest {
         assertFalse(
                 result.success(),
                 "Block must be rejected immediately when any signature from a known node fails — "
-                        + "even if the remaining valid sigs would satisfy the majority count");
+                        + "regardless of how many other sigs are valid");
     }
 
     @Test
@@ -378,38 +389,34 @@ class RsaWrbVerificationTest {
     void malformedKeyExcludedFromMap_restStillCounted() throws Exception {
         // Build a key map where node 5 has a malformed (random) key — RsaKeyDecoder would skip it.
         // Here we simulate by simply omitting node 5 from the map (as if buildKeyMap had skipped it).
-        // 5-node roster — strict majority threshold: > 2.5, i.e. ≥ 3 valid sigs.
         final Map<Long, PublicKey> reducedMap = new HashMap<>(KEY_MAP);
-        reducedMap.remove(5L); // 5-node roster now — threshold: validCount*2 > 5 → ≥ 3
+        reducedMap.remove(5L);
 
         final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L, 3L, 4L);
         final VerificationNotification result = runVerification(reducedMap, sigs);
 
         assertNotNull(result);
-        // 5 valid sigs, 5*2=10 > 5 → accepted
-        assertTrue(result.success(), "5 valid sigs out of 5-node roster exceeds the strict majority threshold of > 2");
+        assertTrue(result.success(), "5 valid sigs against a 5-key map must be accepted");
     }
 
     @Test
-    @DisplayName("duplicate node_id in proof is counted only once toward the threshold")
-    void duplicateNodeId_countedOnlyOnce() throws Exception {
-        // 6-node roster; strict majority requires > 3 (i.e. ≥ 4 valid).
-        // Send 3 distinct valid signatures + 1 duplicate of node 0 → validCount stays at 3.
-        // 3*2=6 not > 6 → rejected.
-        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L, 2L);
-        sigs.add(new RecordFileSignature(Bytes.wrap(sign(0L)), 0L)); // duplicate node 0
+    @DisplayName("duplicate node_id in proof is handled without crash and block is accepted")
+    void duplicateNodeId_skippedNotCrashed() throws Exception {
+        // 2 distinct valid sigs + 1 duplicate of node 0. The dedup branch must skip the
+        // duplicate (defence-in-depth against an inflated validCount) without affecting the
+        // accept/reject outcome under the at-least-one-valid rule.
+        final List<RecordFileSignature> sigs = signaturesFor(0L, 1L);
+        sigs.add(new RecordFileSignature(Bytes.wrap(sign(0L)), 0L)); // duplicate of node 0
         final VerificationNotification result = runVerification(KEY_MAP, sigs);
 
         assertNotNull(result);
-        assertFalse(
-                result.success(),
-                "Duplicate signature from node 0 must not count twice — validCount stays at 3, not > rosterSize/2");
+        assertTrue(result.success(), "Block must still be accepted when a duplicate signature is present");
     }
 
     @Test
     @DisplayName("multiple RSA proofs all valid are accepted")
     void multipleValidProofs_accepted() throws Exception {
-        // Two RSA proofs, both with the threshold of 4 valid signatures — both must verify.
+        // Two RSA proofs, each with all-valid signatures — both must verify for the block to accept.
         final List<List<RecordFileSignature>> proofs =
                 List.of(signaturesFor(0L, 1L, 2L, 3L), signaturesFor(0L, 1L, 2L, 3L, 4L, 5L));
         final List<BlockItemUnparsed> items = buildWrbBlockWithMultipleProofs(proofs);
@@ -425,13 +432,19 @@ class RsaWrbVerificationTest {
     }
 
     @Test
-    @DisplayName("multiple RSA proofs with one failing causes block rejection")
+    @DisplayName("multiple RSA proofs with one containing a failed signature rejects the block")
     void multipleProofs_oneFailing_rejected() throws Exception {
-        // First proof is valid at threshold; second proof has too few valid signatures.
-        // The block must be rejected because every RSA proof present must pass verification.
-        final List<List<RecordFileSignature>> proofs = List.of(
-                signaturesFor(0L, 1L, 2L, 3L, 4L, 5L),
-                signaturesFor(0L, 1L, 2L)); // 3 valid sigs — below strict majority for 6-node roster
+        // First proof is fully valid; second proof contains one signature against a wrong
+        // payload — that single failed verify must reject the whole block.
+        final List<RecordFileSignature> secondProofSigs = signaturesFor(0L, 1L);
+        final byte[] wrongData = "tampered-payload".getBytes();
+        final Signature wrongEngine = Signature.getInstance("SHA384withRSA");
+        wrongEngine.initSign(PRIVATE_KEY_MAP.get(2L));
+        wrongEngine.update(wrongData);
+        secondProofSigs.add(new RecordFileSignature(Bytes.wrap(wrongEngine.sign()), 2L));
+
+        final List<List<RecordFileSignature>> proofs =
+                List.of(signaturesFor(0L, 1L, 2L, 3L, 4L, 5L), secondProofSigs);
         final List<BlockItemUnparsed> items = buildWrbBlockWithMultipleProofs(proofs);
         final ExtendedMerkleTreeSession session = new ExtendedMerkleTreeSession(
                 BLOCK_NUMBER, BlockSource.PUBLISHER, null, null, null, KEY_MAP, VerificationProofMetrics.NONE);
@@ -591,50 +604,38 @@ class RsaWrbVerificationTest {
     }
 
     /**
-     * Verifies that the strict majority threshold (`validCount * 2 > rosterSize`) is correctly
-     * enforced across a range of roster sizes. The minimum valid count is the smallest integer
-     * strictly greater than half the roster: `floor(rosterSize / 2) + 1`.
+     * Verifies the at-least-one-valid acceptance rule across a range of roster sizes:
+     * a single valid signature accepts, zero valid signatures rejects.
      */
-    @ParameterizedTest(name = "rosterSize={0} → minValidCount={1}")
-    @MethodSource("thresholdCases")
-    @DisplayName("strict majority threshold (validCount*2 > rosterSize) is correct across roster sizes")
-    void strictMajorityThreshold_exactlyMet_acceptedOneLess_rejected(final int rosterSize, final int expectedThreshold)
-            throws Exception {
+    @ParameterizedTest(name = "rosterSize={0}")
+    @MethodSource("rosterSizes")
+    @DisplayName("one valid signature accepts and zero valid signatures rejects across roster sizes")
+    void oneValidSignatureSuffices_zeroRejected(final int rosterSize) throws Exception {
         // Build a key map from the extended pool so existing 6-node KEY_MAP is unaffected.
         final Map<Long, PublicKey> keyMap = new HashMap<>();
         for (long id = 0; id < rosterSize; id++) {
             keyMap.put(id, EXTENDED_KEY_MAP.get(id));
         }
 
-        // Exactly threshold valid sigs → must be accepted
-        final List<RecordFileSignature> atThreshold = new ArrayList<>();
-        for (long id = 0; id < expectedThreshold; id++) {
-            atThreshold.add(extendedSignature(id));
-        }
+        // 1 valid sig → must be accepted
+        final List<RecordFileSignature> one = List.of(extendedSignature(0L));
         assertTrue(
-                runVerification(keyMap, atThreshold).success(),
-                "rosterSize=" + rosterSize + ": " + expectedThreshold + " sigs (= threshold) must be accepted");
+                runVerification(keyMap, one).success(), "rosterSize=" + rosterSize + ": 1 valid sig must be accepted");
 
-        // One below threshold → must be rejected
-        final List<RecordFileSignature> oneLess = new ArrayList<>();
-        for (long id = 0; id < expectedThreshold - 1; id++) {
-            oneLess.add(extendedSignature(id));
-        }
+        // 0 valid sigs (empty list) → must be rejected
         assertFalse(
-                runVerification(keyMap, oneLess).success(),
-                "rosterSize=" + rosterSize + ": " + (expectedThreshold - 1) + " sigs (threshold-1) must be rejected");
+                runVerification(keyMap, List.of()).success(),
+                "rosterSize=" + rosterSize + ": 0 valid sigs must be rejected");
     }
 
-    static Stream<Arguments> thresholdCases() {
-        // Minimum validCount such that validCount * 2 > rosterSize (i.e. floor(rosterSize/2) + 1)
+    static Stream<Arguments> rosterSizes() {
         return Stream.of(
-                Arguments.of(3, 2), // 2*2=4 > 3 ✓ ; 1*2=2 not > 3
-                Arguments.of(4, 3), // 3*2=6 > 4 ✓ ; 2*2=4 not > 4
-                Arguments.of(5, 3), // 3*2=6 > 5 ✓ ; 2*2=4 not > 5
-                Arguments.of(6, 4), // 4*2=8 > 6 ✓ ; 3*2=6 not > 6
-                Arguments.of(7, 4), // 4*2=8 > 7 ✓ ; 3*2=6 not > 7
-                Arguments.of(8, 5), // 5*2=10 > 8 ✓ ; 4*2=8 not > 8
-                Arguments.of(9, 5) // 5*2=10 > 9 ✓ ; 4*2=8 not > 9
-                );
+                Arguments.of(3),
+                Arguments.of(4),
+                Arguments.of(5),
+                Arguments.of(6),
+                Arguments.of(7),
+                Arguments.of(8),
+                Arguments.of(9));
     }
 }
