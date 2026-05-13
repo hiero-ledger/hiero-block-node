@@ -137,13 +137,10 @@ public class BlockNodeClient implements Closeable {
             int maxIncomingBufferSize,
             @Nullable GrpcWebClientTuning tuning) {
 
-        int connectTimeoutMs = CONNECT_TIMEOUT.getValidOrDefault(tuning);
-        int readTimeoutMs = READ_TIMEOUT.getValidOrDefault(tuning);
-        int pollWaitMs = POLL_WAIT_TIME.getValidOrDefault(tuning);
-
         Tls tls = Tls.builder().enabled(enableTls).build();
+        String protocol = enableTls ? "https://" : "http://";
         grpcConfig = new PbjGrpcClientConfig(
-                Duration.ofMillis(readTimeoutMs),
+                Duration.ofMillis(READ_TIMEOUT.getValidOrDefault(tuning)),
                 tls,
                 Optional.of(""),
                 "application/grpc",
@@ -153,10 +150,11 @@ public class BlockNodeClient implements Closeable {
                 maxIncomingBufferSize);
 
         webClient = WebClient.builder()
-                .baseUri("http://" + blockNodeConfig.address() + ":" + blockNodeConfig.port())
+                .baseUri(protocol + blockNodeConfig.address() + ":" + blockNodeConfig.port())
                 .tls(tls)
-                .protocolConfigs(List.of(buildHttp2Config(tuning), buildGrpcConfig(pollWaitMs, tuning)))
-                .connectTimeout(Duration.ofMillis(connectTimeoutMs))
+                .protocolConfigs(List.of(
+                        buildHttp2Config(tuning), buildGrpcConfig(POLL_WAIT_TIME.getValidOrDefault(tuning), tuning)))
+                .connectTimeout(Duration.ofMillis(CONNECT_TIMEOUT.getValidOrDefault(tuning)))
                 .keepAlive(true)
                 .build();
 

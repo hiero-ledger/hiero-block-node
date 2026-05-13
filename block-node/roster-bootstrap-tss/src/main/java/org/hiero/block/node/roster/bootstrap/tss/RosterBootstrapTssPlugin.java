@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.tss;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
@@ -78,7 +79,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         // Validate block node sources configuration
         final String sourcesPath = rosterBootstrapTssConfig.blockNodeSourcesPath();
         if (sourcesPath == null || sourcesPath.isBlank()) {
-            LOGGER.log(WARNING, "No block node sources path configured, TssBootstrapPlugin will not query any peers");
+            LOGGER.log(INFO, "No block node sources path configured, TssBootstrapPlugin will not query any peers");
             return;
         }
 
@@ -95,7 +96,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
                     BlockNodeSource.JSON.parse(Bytes.wrap(Files.readAllBytes(blockNodeSourcesPath)));
             // Let the logs know what we loaded.
             for (BlockNodeSourceConfig node : blockNodeSources.nodes()) {
-                LOGGER.log(INFO, "Loaded peer BN source node: {0}", node);
+                LOGGER.log(DEBUG, "Loaded peer BN source node: {0}", node);
                 currentBlockNodePeers.incrementAndGet();
             }
             hasBNSourcesPath = true;
@@ -111,6 +112,23 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
     /// {@inheritDoc}
     @Override
     public void stop() {
+        shutdownExecutor();
+        closeFetcherResources();
+    }
+
+    /// close tssDataFetcher resources
+    private void closeFetcherResources() {
+        if (tssDataFetcher != null) {
+            try {
+                tssDataFetcher.close();
+            } catch (IOException e) {
+                LOGGER.log(INFO, "Unable to close tssDataFetcher: {0}", e);
+            }
+        }
+    }
+
+    /// Shutdown the executor
+    private void shutdownExecutor() {
         if (queryPeerExecutor != null) {
             queryPeerExecutor.shutdown();
             try {
@@ -122,13 +140,6 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-            }
-        }
-        if (tssDataFetcher != null) {
-            try {
-                tssDataFetcher.close();
-            } catch (IOException e) {
-                LOGGER.log(WARNING, "Unable to close tssDataFetcher: {0}", e);
             }
         }
     }
@@ -149,7 +160,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
         }
         // save the reference of this volatile object.
         BlockNodeContext context = blockNodeContext;
-        LOGGER.log(INFO, "RosterBootstrapTssPlugin start called");
+        LOGGER.log(DEBUG, "RosterBootstrapTssPlugin start called");
 
         // Create thread executors via threadPoolManager.
         queryPeerExecutor = context.threadPoolManager()
