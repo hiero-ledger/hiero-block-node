@@ -175,12 +175,12 @@ java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar bloc
 
 The tools support multiple Hedera networks via the `--network` flag:
 
-|    Network    |                                      Description                                       |
-|---------------|----------------------------------------------------------------------------------------|
-| `mainnet`     | Hedera mainnet (default, hardcoded). Genesis: 2019-09-13, nodes 3-37.                 |
-| `testnet`     | Hedera testnet (hardcoded). Genesis: 2024-02-01, nodes 3-9.                           |
-| `previewnet`  | Hedera previewnet (config-loaded). Loads from `~/.hiero/networks/previewnet-config.json` |
-| `other`       | Custom networks (config-loaded). Loads from path in `HIERO_NETWORK_CONFIG` env var.   |
+|   Network    |                                       Description                                        |
+|--------------|------------------------------------------------------------------------------------------|
+| `mainnet`    | Hedera mainnet (default, hardcoded). Genesis: 2019-09-13, nodes 3-37.                    |
+| `testnet`    | Hedera testnet (hardcoded). Genesis: 2024-02-01, nodes 3-9.                              |
+| `previewnet` | Hedera previewnet (config-loaded). Loads from `~/.hiero/networks/previewnet-config.json` |
+| `other`      | Custom networks (config-loaded). Loads from path in `HIERO_NETWORK_CONFIG` env var.      |
 
 The `--network` flag is a **top-level inherited option** — it can be placed anywhere on the command line (before, between, or after subcommands). You only need to specify it once.
 
@@ -214,6 +214,7 @@ When `--network testnet` is specified, the tools automatically use:
 Previewnet and custom networks require JSON configuration files. Example configs are provided in `tools/src/main/resources/example-configs/`.
 
 **For previewnet:**
+
 ```bash
 # Copy example config to default location
 mkdir -p ~/.hiero/networks
@@ -225,6 +226,7 @@ java -jar tools.jar blocks wrap --network previewnet
 ```
 
 **For custom networks (e.g., Hashsphere):**
+
 ```bash
 # Create config file (see example-configs/hashsphere-config.json for format)
 export HIERO_NETWORK_CONFIG=/path/to/my-network-config.json

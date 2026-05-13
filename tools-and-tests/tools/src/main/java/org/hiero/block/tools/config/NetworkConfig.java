@@ -120,9 +120,7 @@ public record NetworkConfig(
             case "other" -> NetworkConfigLoader.loadCustomNetworkConfig();
             default ->
                 throw new IllegalArgumentException(
-                        "Unknown network: "
-                                + name
-                                + ". Supported networks: mainnet, testnet, previewnet, other");
+                        "Unknown network: " + name + ". Supported networks: mainnet, testnet, previewnet, other");
         };
     }
 }

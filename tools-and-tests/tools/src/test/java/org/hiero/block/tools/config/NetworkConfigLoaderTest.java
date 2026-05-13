@@ -18,8 +18,7 @@ class NetworkConfigLoaderTest {
     @Test
     void testLoadFromPath() throws IOException {
         // Create a test config file
-        final String json =
-                """
+        final String json = """
                 {
                   "networkName": "testnet-custom",
                   "gcsBucketName": "test-bucket",
@@ -76,8 +75,7 @@ class NetworkConfigLoaderTest {
 
     @Test
     void testLoadFromPath_MissingRequiredField() throws IOException {
-        final String json =
-                """
+        final String json = """
                 {
                   "gcsBucketName": "test-bucket"
                 }
