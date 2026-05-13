@@ -397,10 +397,11 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
      *    - Verify with `SHA384withRSA`. If verification fails or throws, **reject the block
      *      immediately** — the CN only includes signatures from nodes that contributed to
      *      consensus, so any included signature must be cryptographically valid.
-     * 5. Accept if at least one signature in the proof verified. Step 4 already rejects
-     *      the block on any failed verification, so reaching this step means every
-     *      signature we were able to verify did pass; we only need to confirm at least
-     *      one such verification occurred.
+     * 5. Accept if all signatures in the proof verified. Signatures from nodes not in
+     *      the local roster are skipped (see TODO(2808)); step 4 already rejects
+     *      the block on any failed signature from a known node, so reaching this step
+     *      means every verifiable signature passed; we only need to confirm at least
+     *      one such signature exists.
      *
      * <p>This method never throws; all error conditions return a `success=false` notification.
      *
@@ -475,6 +476,9 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         for (final RecordFileSignature sig : proof.recordFileSignatures()) {
             final long nodeId = sig.nodeId();
+            // TODO(2808): long-term, use a historical roster keyed by block number so signatures
+            //   from nodes that were valid at the time the block was produced are verified correctly
+            //   across address-book transitions, rather than skipping unknown node IDs.
             final PublicKey publicKey = rsaKeyByNodeId.get(nodeId);
             if (publicKey == null) {
                 mismatchCount++;
@@ -530,17 +534,18 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
             metrics.incrementRsaRosterMismatch(mismatchCount);
         }
 
-        // Acceptance threshold: at least one valid signature from a roster node.
-        // Every signature present in the proof that failed cryptographic verification already
-        // rejected the block in the loop above, so reaching this point with validCount >= 1
-        // means all signatures we attempted to verify did pass.
-        final boolean accepted = validCount >= 1;
+        // Acceptance threshold: every signature present in the proof passes validation,
+        // and at least one such signature exists. Signatures from nodes not in the local
+        // roster are skipped (see TODO(2808)). Because we fail fast on any failed
+        // verification, reaching this point means all verifiable signatures passed.
+        final boolean accepted = validCount > 0;
 
         if (!accepted) {
             LOGGER.log(
                     WARNING,
-                    "RSA WRB proof rejected for block {0}: 0 valid signatures (roster size {1})",
+                    "RSA WRB proof rejected for block {0}: {1} valid signatures (roster size {2})",
                     blockNumber,
+                    validCount,
                     rosterSize);
             metrics.incrementRsaFailure();
             return new VerificationNotification(
@@ -563,7 +568,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
 
         LOGGER.log(
                 DEBUG,
-                "RSA WRB proof accepted for block {0}: {1} valid signature(s) (roster size {2})",
+                "RSA WRB proof accepted for block {0}: {1} valid signatures (roster size {2})",
                 blockNumber,
                 validCount,
                 rosterSize);
