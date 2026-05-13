@@ -659,7 +659,7 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
     /**
      * Computes the V6 RSA signed payload: `SHA-384(int32(6) || rawRecordStreamFileBytes)`.
      *
-     * <p>This is the Hedera Record Stream V6 signing convention: a big-endian 32-bit version
+     * <p>This is the Hiero Record Stream V6 signing convention: a big-endian 32-bit version
      * tag followed by the verbatim {@code record_file_contents} bytes, hashed with SHA-384.
      * It is the same payload the consensus node hashes before applying an RSA signature, so
      * verification must reproduce it byte-for-byte. References:
