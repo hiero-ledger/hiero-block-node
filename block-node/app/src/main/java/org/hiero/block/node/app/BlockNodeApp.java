@@ -409,7 +409,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
      */
     @Override
     public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
-        if (nodeAddressBook == null) return false;
+        if (nodeAddressBook == null || nodeAddressBook.equals(blockNodeContext.nodeAddressBook())) return false;
         try {
             validateAddressBook(nodeAddressBook, "runtime update");
         } catch (IllegalStateException e) {
@@ -461,13 +461,11 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         TssData tssData = getPendingTssData();
         if (tssData != null) {
             persistTssData(tssData);
-            LOGGER.log(INFO, "ApplicationStateFacility persisted TssData");
         }
 
         final NodeAddressBook addressBook = pendingAddressBook.getAndSet(null);
         if (addressBook != null) {
             persistNodeAddressBook(addressBook);
-            LOGGER.log(INFO, "ApplicationStateFacility persisted NodeAddressBook");
         }
 
         if (updateBlockNodeContext(tssData, addressBook)) {
@@ -552,12 +550,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         try {
             Bytes serialized = TssData.JSON.toBytes(tssData);
             Files.write(appStateDataFilePath, serialized.toByteArray());
-            LOGGER.log(INFO, "Persisted Application State Data to file: {0}", appStateDataFilePath);
+            LOGGER.log(INFO, "Persisted TssData to file: {0}", appStateDataFilePath);
         } catch (IOException e) {
-            LOGGER.log(
-                    WARNING,
-                    "Failed to persist Application State Data to %s: %s".formatted(appStateDataFilePath, e),
-                    e);
+            LOGGER.log(WARNING, "Failed to persist TssData to %s: %s".formatted(appStateDataFilePath, e), e);
         }
     }
 
@@ -604,17 +599,17 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             try {
                 TssData tssData = TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
                 updateTssData(tssData);
-                LOGGER.log(INFO, "Loaded Application State Data from file: {0}", tssDataJsonPath);
+                LOGGER.log(INFO, "Loaded TssData from file: {0}", tssDataJsonPath);
             } catch (ParseException | IOException e) {
-                LOGGER.log(ERROR, "Failed to read Application State Data file: " + tssDataJsonPath, e);
+                LOGGER.log(ERROR, "Failed to read TssData file: " + tssDataJsonPath, e);
             }
         } else {
             // make sure the directory is created for the writes
             Path parent = tssDataJsonPath.getParent();
             try {
-                Files.createDirectories(tssDataJsonPath.getParent());
+                Files.createDirectories(parent);
             } catch (IOException e) {
-                LOGGER.log(ERROR, "Failed to create Application State Data directory: " + parent, e);
+                LOGGER.log(ERROR, "Failed to create TssData directory: " + parent, e);
             }
         }
 
@@ -643,9 +638,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             // make sure the directory is created for the writes
             Path parent = rsaFilePath.getParent();
             try {
-                Files.createDirectories(tssDataJsonPath.getParent());
+                Files.createDirectories(parent);
             } catch (IOException e) {
-                LOGGER.log(ERROR, "Failed to create Application State Data directory: " + parent, e);
+                LOGGER.log(ERROR, "Failed to create RSA bootstrap directory: " + parent, e);
             }
         }
     }
