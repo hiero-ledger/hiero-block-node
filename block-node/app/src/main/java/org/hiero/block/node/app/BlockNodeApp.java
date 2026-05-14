@@ -638,7 +638,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .getConfigData(ApplicationStateConfig.class)
                 .blockRangesFilePath();
         try {
-            Files.createDirectories(filePath.getParent());
             final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
             final Bytes json = BlockRangesState.JSON.toBytes(toBlockRangesState());
             Files.write(tmp, json.toByteArray());
@@ -735,6 +734,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 LOGGER.log(INFO, "Loaded block ranges from file: {0}", blockRangesPath);
             } catch (ParseException | IOException | IllegalArgumentException e) {
                 LOGGER.log(ERROR, "Failed to read block ranges file: " + blockRangesPath, e);
+            }
+        } else {
+            Path parent = blockRangesPath.getParent();
+            try {
+                Files.createDirectories(parent);
+            } catch (IOException e) {
+                LOGGER.log(ERROR, "Failed to create block ranges directory: " + parent, e);
             }
         }
     }

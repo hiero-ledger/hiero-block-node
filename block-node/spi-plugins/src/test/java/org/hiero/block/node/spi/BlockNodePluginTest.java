@@ -114,8 +114,8 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public void updateAddressBook(NodeAddressBook nodeAddressBook) {
-            // do nothing
+        public boolean updateAddressBook(NodeAddressBook nodeAddressBook) {
+            return false;
         }
 
         @Override
