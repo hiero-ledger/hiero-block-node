@@ -1,0 +1,40 @@
+name: Sync docs to hiero-docs hub
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hiero-block-node
+        uses: actions/checkout@v4
+        with:
+          path: block-node
+
+      - name: Checkout hiero-docs
+        uses: actions/checkout@v4
+        with:
+          repository: hiero-ledger/hiero-docs
+          token: ${{ secrets.DOCS_SYNC_TOKEN }}
+          path: hiero-docs
+          ref: master
+
+      - name: Copy docs
+        run: |
+          rm -rf hiero-docs/block-node
+          mkdir -p hiero-docs/block-node
+          cp -r block-node/docs/. hiero-docs/block-node/
+
+      - name: Commit and push
+        working-directory: hiero-docs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add block-node/
+          git diff --staged --quiet || git commit -m "chore: sync block-node docs from hiero-block-node"
+          git push
