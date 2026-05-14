@@ -173,14 +173,18 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     @Override
     public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
         this.applicationStateFacility = Objects.requireNonNull(context.applicationStateFacility());
-        this.config = context.configuration().getConfigData(BootstrapRosterConfig.class);
+        this.config = context.configuration().getConfigData(RsaRosterBootstrapConfig.class);
     }
 
     @Override
     public void start() {
-        final NodeAddressBook book = loadOrFetchAddressBook(config);
-        // ApplicationStateFacility handles file persistence and onContextUpdate broadcast
-        applicationStateFacility.updateAddressBook(book);
+        NodeAddressBook book = context.nodeAddressBook();
+        if (book == null) {
+            // No bootstrap file was loaded by BlockNodeApp.loadApplicationState()
+            book = fetchFromMirrorNode();
+            // ApplicationStateFacility handles file persistence and onContextUpdate broadcast
+            applicationStateFacility.updateAddressBook(book);
+        }
     }
 }
 ```
@@ -220,9 +224,9 @@ exist).
 
 ### 4.2 Bootstrap File Format
 
-The bootstrap file is a **binary protobuf serialization** of the `NodeAddressBook` message from `basic_types.proto`.
-This reuses a well-known, stable message definition from the Hedera services API rather than introducing a bespoke
-schema, and it is directly compatible with the on-chain address book format stored at file `0.0.102`.
+The bootstrap file is a **JSON serialization** of the `NodeAddressBook` protobuf message from `basic_types.proto`,
+written and read via PBJ's `NodeAddressBook.JSON` codec. This reuses a well-known, stable message definition from
+the Hedera services API rather than introducing a bespoke schema.
 
 **Proto definition (from `hiero-consensus-nodehapi/hedera-protobuf-java-api/src/main/proto/services/basic_types.proto`):**
 
@@ -267,23 +271,25 @@ All other `NodeAddress` fields (`ipAddress`, `portno`, `memo`, `nodeAccountId`, 
 **Serialization and deserialization (PBJ):**
 
 ```java
-// Write
-final Bytes encoded = NodeAddressBook.PROTOBUF.toBytes(nodeAddressBook);
+// Write (via BlockNodeApp.persistNodeAddressBook)
+final Bytes encoded = NodeAddressBook.JSON.toBytes(nodeAddressBook);
 Files.write(filePath, encoded.toByteArray());
 
-// Read
+// Read (via BlockNodeApp.loadApplicationState)
 final byte[] raw = Files.readAllBytes(filePath);
 final NodeAddressBook nodeAddressBook =
-        NodeAddressBook.PROTOBUF.parse(BufferedData.wrap(raw));
+        NodeAddressBook.JSON.parse(Bytes.wrap(raw));
 ```
 
-**Default file path:** `data/config/rsa-bootstrap-roster.pb`
+**Default file path:** `/opt/hiero/block-node/node/rsa-bootstrap-roster.json`
+(Configured via `app.state.rsaBootstrapFilePath`.)
 
 **Notes:**
 - The `RSA_PubKey` string in `NodeAddress` is the raw hex-encoded DER bytes without an `0x` prefix. Mirror Node
 returns the key with a leading `0x` which must be stripped before storing.
 - The file does not embed metadata such as network name or generation timestamp. Operators wishing to annotate the
 file should maintain a separate sidecar file or rely on filesystem timestamps.
+- Writes use an atomic `.tmp`-then-move strategy to avoid corrupt files on process crash.
 
 ---
 
@@ -311,33 +317,46 @@ it is `null` to collect all nodes.
 **Filtering:** Only include nodes where `public_key` is non-null and non-empty. Nodes without a public key are not
 eligible for RSA verification and must be excluded from the `NodeAddressBook`.
 
+**Active-entry filtering:** The API is queried with `order=desc` so the most-recently-active entries
+(`timestamp.to == null`) arrive first. Pagination stops on the first entry with a non-null `timestamp.to`, since
+all remaining entries in descending order are also historical.
+
 **Pseudo-implementation:**
 
 ```java
-private NodeAddressBook fetchFromMirrorNode(BootstrapRosterConfig config) {
+private NodeAddressBook fetchFromMirrorNode(RsaRosterBootstrapConfig config) {
     final List<NodeAddress> entries = new ArrayList<>();
-    String nextPath = "/api/v1/network/nodes?limit=100&order=asc";
+    // Use order=desc so active entries (timestamp.to == null) arrive first.
+    String nextUrl = config.mirrorNodeBaseUrl()
+            + "/api/v1/network/nodes?limit=" + config.mirrorNodePageSize() + "&order=desc";
 
-    while (nextPath != null) {
-        final JsonNode page = httpGet(config.mirrorNodeBaseUrl() + nextPath);
-        for (JsonNode node : page.get("nodes")) {
-            final String pubKey = node.path("public_key").asText(null);
-            if (pubKey == null || pubKey.isBlank()) continue;
+    outer:
+    while (nextUrl != null) {
+        final MirrorNodeNodesResponse page = fetchAndParseWithRetry(client, nextUrl);
+        for (MirrorNodeNodesResponse.NodeEntry entry : page.nodes()) {
+            // A non-null timestamp.to means this entry has been superseded — stop.
+            if (entry.timestamp() != null && entry.timestamp().to() != null) break outer;
+
+            if (entry.publicKey() == null || entry.publicKey().isBlank()) continue;
 
             // Strip the 0x prefix that Mirror Node includes
-            final String rsaPubKeyHex = pubKey.replaceFirst("^0x", "");
+            final String hexKey = entry.publicKey().startsWith("0x")
+                    ? entry.publicKey().substring(2) : entry.publicKey();
 
             entries.add(NodeAddress.newBuilder()
-                    .nodeId(node.get("node_id").asLong())
-                    .rsaPubKey(rsaPubKeyHex)
+                    .nodeId(entry.nodeId())
+                    .rsaPubKey(hexKey)
                     .build());
         }
-        nextPath = page.path("links").path("next").asText(null);
+        // Mirror Node may return a relative path; resolve against the base URL.
+        final String rawNext = page.nextLink();
+        nextUrl = (rawNext == null) ? null
+                : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
     }
 
     if (entries.isEmpty()) {
-        throw new RosterFetchException(
-                "Mirror Node returned zero nodes with RSA public keys");
+        throw new IllegalStateException(
+                "Mirror Node returned zero nodes with a non-blank public_key");
     }
     return NodeAddressBook.newBuilder().nodeAddress(entries).build();
 }
@@ -355,29 +374,38 @@ The plugin follows a **file-first** strategy consistent with `TssBootstrapPlugin
 happen in `start()`, after `init()` has stored the facility reference.
 
 ```
-start() called
+BlockNodeApp.loadApplicationState() [before any plugin is started]
    │
-   ├─ Bootstrap file exists at config path (rsa-bootstrap-roster.pb)?
+   ├─ rsa-bootstrap-roster.json exists at app.state.rsaBootstrapFilePath?
    │       │
-   │       YES ──► Read bytes → NodeAddressBook.PROTOBUF.parse() → validate (≥1 entry)
+   │       YES ──► NodeAddressBook.JSON.parse() → validate (≥1 entry)
    │       │        │
-   │       │        ├─ On parse error or empty book: LOG ERROR → FAIL FAST (throw)
+   │       │        ├─ On parse error or empty book: FAIL FAST (throw IllegalStateException)
    │       │        │
-   │       │        └─ applicationStateFacility.updateAddressBook(book)
-   │       │              └─ BlockNodeApp notifies all plugins via onContextUpdate
+   │       │        └─ pendingAddressBook.set(book) [flushed to context before plugins start]
    │       │
-   │       NO ──► Query Mirror Node API (paginated GET /api/v1/network/nodes)
+   │       NO ──► (no-op; context.nodeAddressBook() will be null when plugins start)
+   │
+RsaRosterBootstrapPlugin.start() called
+   │
+   ├─ context.nodeAddressBook() != null?
+   │       │
+   │       YES ──► record metrics, log success, return
+   │       │
+   │       NO ──► mirrorNodeBaseUrl blank?
    │               │
-   │               ├─ SUCCESS: build NodeAddressBook (nodeId + RSA_PubKey per entry)
-   │               │     └─ applicationStateFacility.updateAddressBook(book)
-   │               │           ├─ BlockNodeApp writes rsa-bootstrap-roster.pb
-   │               │           └─ BlockNodeApp notifies all plugins via onContextUpdate
+   │               YES ──► LOG WARNING → return (no fail-fast)
    │               │
-   │               └─ FAILURE (API unreachable / timeout / empty response):
-   │                     LOG ERROR: "RSA address book could not be created — Mirror Node
-   │                                 API unavailable. BN cannot verify WRB proofs."
-   │                     FAIL FAST → shutdown BN
-   │                     (see Open Question #1 below)
+   │               NO ──► Query Mirror Node API (paginated GET /api/v1/network/nodes, order=desc)
+   │                       │
+   │                       ├─ SUCCESS: build NodeAddressBook (nodeId + RSA_PubKey per entry)
+   │                       │     └─ applicationStateFacility.updateAddressBook(book)
+   │                       │           ├─ BlockNodeApp writes rsa-bootstrap-roster.json (atomic)
+   │                       │           └─ BlockNodeApp notifies all plugins via onContextUpdate [async]
+   │                       │
+   │                       └─ FAILURE after MAX_RETRIES (API unreachable / timeout / empty response):
+   │                             LOG ERROR: "RSA address book could not be created"
+   │                             FAIL FAST → throw IllegalStateException → shutdown BN
    │
    └─ Startup complete
 ```
@@ -536,27 +564,33 @@ sequenceDiagram
     participant MN as Mirror Node API
     participant Plugins as All Loaded Plugins
 
+    App->>File: loadApplicationState() — exists(rsa-bootstrap-roster.json)?
+    alt file found
+        File-->>App: raw bytes
+        App->>App: NodeAddressBook.JSON.parse(bytes), validate ≥1 entry
+        App->>App: pendingAddressBook.set(book)
+        App->>App: checkForApplicationStateUpdates() [flush to context before plugins start]
+    end
     App->>Plugin: init(context, serviceBuilder)
     Plugin->>Plugin: store applicationStateFacility, config
     App->>Plugin: start()
-    Plugin->>File: exists(rsa-bootstrap-roster.pb)?
-    alt file found
-        File-->>Plugin: raw bytes
-        Plugin->>Plugin: NodeAddressBook.PROTOBUF.parse(bytes)
-        Plugin->>Plugin: validate ≥1 entry with RSA_PubKey + nodeId
-        Plugin->>Facility: updateAddressBook(book)
-        Facility->>Plugins: onContextUpdate(updatedContext) [async]
-    else no file
-        Plugin->>MN: GET /api/v1/network/nodes (paginated)
-        alt MN reachable
-            MN-->>Plugin: node list (node_id, public_key)
-            Plugin->>Plugin: build NodeAddressBook (nodeId + RSA_PubKey per entry)
-            Plugin->>Facility: updateAddressBook(book)
-            Facility->>File: NodeAddressBook.PROTOBUF.toBytes() → write
-            Facility->>Plugins: onContextUpdate(updatedContext) [async]
-        else MN unreachable
-            Plugin->>Plugin: LOG ERROR: address book not created
-            Plugin->>App: FAIL FAST → shutdown
+    alt context.nodeAddressBook() != null (file was loaded)
+        Plugin->>Plugin: record metrics, log success, return
+    else context.nodeAddressBook() == null
+        alt mirrorNodeBaseUrl is blank
+            Plugin->>Plugin: LOG WARNING → return (no fail-fast)
+        else mirrorNodeBaseUrl configured
+            Plugin->>MN: GET /api/v1/network/nodes (paginated, order=desc)
+            alt MN reachable
+                MN-->>Plugin: node list (node_id, public_key, timestamp)
+                Plugin->>Plugin: build NodeAddressBook (active entries only)
+                Plugin->>Facility: updateAddressBook(book)
+                Facility->>File: NodeAddressBook.JSON.toBytes() → atomic write
+                Facility->>Plugins: onContextUpdate(updatedContext) [async]
+            else MN unreachable after retries
+                Plugin->>Plugin: LOG ERROR: address book not created
+                Plugin->>App: FAIL FAST → throw → shutdown
+            end
         end
     end
     App->>App: continue startup (if not shut down)
@@ -604,20 +638,25 @@ sequenceDiagram
 
 ## 6. Configuration
 
-All properties are under the `roster.bootstrap.rsa` namespace.
+Bootstrap file path is in the `app.state` namespace (shared application state config):
 
-|                        Property                         |  Type   |                    Default                     |                                      Description                                       |
-|---------------------------------------------------------|---------|------------------------------------------------|----------------------------------------------------------------------------------------|
-| `roster.bootstrap.rsa.filePath`                         | string  | `data/config/rsa-bootstrap-roster.pb`          | Path to the local bootstrap file (binary protobuf). Relative to BN working directory.  |
-| `roster.bootstrap.rsa.mirrorNode.baseUrl`               | string  | `https://testnet-public.mirrornode.hedera.com` | Base URL for Mirror Node REST API calls. Used when no local bootstrap file is present. |
-| `roster.bootstrap.rsa.mirrorNode.connectTimeoutSeconds` | integer | `5`                                            | TCP connect timeout for Mirror Node HTTP calls.                                        |
-| `roster.bootstrap.rsa.mirrorNode.readTimeoutSeconds`    | integer | `10`                                           | Read timeout for Mirror Node HTTP calls.                                               |
-| `roster.bootstrap.rsa.mirrorNode.pageSize`              | integer | `100`                                          | Items per page for paginated Mirror Node calls. Max 100.                               |
+|           Property            |  Type  |                           Default                            |                          Description                           |
+|-------------------------------|--------|--------------------------------------------------------------|----------------------------------------------------------------|
+| `app.state.rsaBootstrapFilePath` | string | `/opt/hiero/block-node/node/rsa-bootstrap-roster.json` | Path to the JSON-serialized `NodeAddressBook` bootstrap file. |
+
+Mirror Node fallback is in the `roster.bootstrap.rsa` namespace:
+
+|                           Property                            |  Type   | Default  |                                      Description                                       |
+|---------------------------------------------------------------|---------|----------|----------------------------------------------------------------------------------------|
+| `roster.bootstrap.rsa.mirrorNodeBaseUrl`                      | string  | *(blank)* | Base URL for Mirror Node REST API calls. Blank disables Mirror Node fallback.          |
+| `roster.bootstrap.rsa.mirrorNodeConnectTimeoutSeconds`        | integer | `5`      | TCP connect timeout for Mirror Node HTTP calls.                                        |
+| `roster.bootstrap.rsa.mirrorNodeReadTimeoutSeconds`           | integer | `10`     | Read timeout for Mirror Node HTTP calls.                                               |
+| `roster.bootstrap.rsa.mirrorNodePageSize`                     | integer | `100`    | Items per page for paginated Mirror Node calls. Max 100.                               |
 
 **Environment variable overrides** follow the standard Swirlds Config pattern (uppercase, `_` for `.` and `-`). For example:
 
 ```
-ROSTER_BOOTSTRAP_MIRROR_NODE_BASE_URL=https://testnet.mirrornode.hedera.com
+ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL=https://testnet.mirrornode.hedera.com
 ```
 
 ---
@@ -626,14 +665,21 @@ ROSTER_BOOTSTRAP_MIRROR_NODE_BASE_URL=https://testnet.mirrornode.hedera.com
 
 All metrics use the BN-standard category `blocknode` and must follow existing naming conventions.
 
-|                 Metric name                  |   Type    |                             Labels                             |                                          Description                                          |
-|----------------------------------------------|-----------|----------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
-| `blocknode_verification_proof_total`         | Counter   | `proof_type={rsa,state_proof,tss}`, `result={success,failure}` | Count of block proof verifications, broken down by proof type and result.                     |
-| `blocknode_rsa_verification_latency_seconds` | Histogram | —                                                              | Latency of the full RSA verification step per block (p50, p95, p99 buckets).                  |
-| `blocknode_rsa_roster_entries_loaded`        | Gauge     | `source={file,mirror_node}`                                    | Number of `NodeAddress` entries loaded at startup, labelled by source.                        |
-| `blocknode_rsa_roster_mismatch_total`        | Counter   | —                                                              | Count of signatures where the signing node ID was not found in the loaded `NodeAddressBook`.  |
-| `blocknode_rsa_roster_load_duration_seconds` | Gauge     | `source={file,mirror_node}`                                    | Time taken to load the roster at startup (for alerting on slow Mirror Node calls).            |
-| `blocknode_rsa_roster_creation_failed`       | Counter   | —                                                              | Incremented each time the roster cannot be created (file corrupt or Mirror Node unreachable). |
+**Plugin metrics** (`RsaRosterBootstrapPlugin` — category `blocknode`):
+
+|             Metric name              |  Type  | Labels |                                 Description                                  |
+|--------------------------------------|--------|--------|------------------------------------------------------------------------------|
+| `blocknode_roster_entries_loaded`    | Gauge  | —      | Number of `NodeAddress` entries loaded at startup.                           |
+| `blocknode_roster_load_duration_ms`  | Gauge  | —      | Time to load the RSA roster at startup in milliseconds.                      |
+| `blocknode_rsa_roster_creation_failed` | Counter | —  | Incremented each time the roster cannot be created (file corrupt or Mirror Node unreachable). |
+
+**Verification service metrics** (`BlockVerificationService` — category `blocknode`):
+
+|                 Metric name                  |   Type    |                             Labels                             |                                         Description                                          |
+|----------------------------------------------|-----------|----------------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| `blocknode_verification_proof_total`         | Counter   | `proof_type={rsa,state_proof,tss}`, `result={success,failure}` | Count of block proof verifications, broken down by proof type and result.                    |
+| `blocknode_rsa_verification_latency_seconds` | Histogram | —                                                              | Latency of the full RSA verification step per block (p50, p95, p99 buckets).                 |
+| `blocknode_rsa_roster_mismatch_total`        | Counter   | —                                                              | Count of signatures where the signing node ID was not found in the loaded `NodeAddressBook`. |
 
 
 ---
@@ -668,30 +714,25 @@ A script `tools-and-tests/scripts/node-operations/generate-roster-rsa-bootstrap.
 1. Accept `--network <mainnet|testnet|previewnet>` and optionally `--mirror-node-url <url>`.
 2. Query `GET /api/v1/network/nodes` (with pagination) to collect all nodes with non-empty `public_key`.
 3. Build a `NodeAddressBook` protobuf, setting only `nodeId` and `RSA_PubKey` (stripped of `0x` prefix) per `NodeAddress` entry.
-4. Serialize with `NodeAddressBook.PROTOBUF.toBytes()` and write to `rsa-bootstrap-roster.pb`.
+4. Serialize with `NodeAddressBook.JSON.toBytes()` and write to `rsa-bootstrap-roster.json`.
 5. Print a summary: number of entries written, file path, file size.
 
 **Expected usage before a Phase 2a cutover:**
 
 ```bash
-generate-rsa-roster-bootstrap.sh --network mainnet --output /opt/blocknode/data/config/rsa-bootstrap-roster.pb
+generate-rsa-roster-bootstrap.sh --network mainnet --output /opt/hiero/block-node/node/rsa-bootstrap-roster.json
 ```
 
 Operators must regenerate and restart the BN if the address book changes (new nodes added, nodes removed).
 The `blocknode_roster_entries_loaded` gauge metric provides a quick sanity check that the expected number of nodes was
 loaded at startup.
 
-**Fallback — public NodeAddressBook snapshot:** If the Mirror Node API is unavailable at the time of the pre-cutover
-setup, operators can obtain a copy of the on-chain `NodeAddressBook` (file `0.0.102`) from a publicly available
-snapshot of Hedera state (e.g., a Mirror Node state snapshot or community-maintained archive). The binary contents of
-`0.0.102` are directly compatible with the binary protobuf format expected by the plugin.
-
 **Inspecting the generated file:**
 
-The binary protobuf can be inspected using `protoc` with the `NodeAddressBook` proto definition:
+The JSON file is human-readable and can be inspected directly:
 
 ```bash
-protoc --decode=NodeAddressBook basic_types.proto < rsa-bootstrap-roster.pb
+cat /opt/hiero/block-node/node/rsa-bootstrap-roster.json | python3 -m json.tool | head -40
 ```
 
 ---

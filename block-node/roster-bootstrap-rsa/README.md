@@ -23,25 +23,24 @@ the roster cannot be loaded.
 
 ## How it works
 
-1. **File-first:** On startup the application state facility checks for a local bootstrap file at the configured path
-   (default `data/config/rsa-bootstrap-roster.pb`). If found, the roster is loaded from that file.
-2. **Mirror Node fallback:** If no local file is present, the roster is fetched from the Hedera
-   Mirror Node REST API (`GET /api/v1/network/nodes`, paginated). The result is written to the
-   bootstrap file for future restarts.
-3. **Fail fast:** If neither source succeeds startup is aborted with a clear error message.
+1. **File-first:** On startup `BlockNodeApp.loadApplicationState()` checks for a local bootstrap file at
+   `app.state.rsaBootstrapFilePath` (default `/opt/hiero/block-node/node/rsa-bootstrap-roster.json`). If found,
+   the roster is parsed and made available in `BlockNodeContext` before any plugin is started.
+2. **Mirror Node fallback:** If no local file is present, the plugin queries the Hedera Mirror Node REST API
+   (`GET /api/v1/network/nodes`, paginated, `order=desc`). The result is written to the bootstrap file via
+   `ApplicationStateFacility.updateAddressBook()` for future restarts.
+3. **Fail fast on Mirror Node error:** If `roster.bootstrap.rsa.mirrorNodeBaseUrl` is configured but the Mirror Node
+   is unreachable after 3 retries, startup is aborted with a clear error log. If `mirrorNodeBaseUrl` is left blank
+   and no file is present, a WARNING is logged and the plugin exits without failing startup.
 4. **No runtime reload:** The roster is loaded once and does not change for the lifetime of the
    BN instance. An address-book change requires a restart with a refreshed bootstrap file.
-5. **Status endpoint exposure:** The loaded `NodeAddressBook` is included in `ServerStatusDetailResponse` returned by
-   `BlockNodeService.serverStatusDetail()` (field 4). Callers can retrieve the full list of node ID + RSA public key
-   entries without restarting the BN.
 
 ---
 
 ## Bootstrap file format
 
-The bootstrap file is a **binary protobuf serialization** of the `NodeAddressBook` message from
-`basic_types.proto` (`hiero-consensus-node`). This reuses the on-chain address book format used for
-Hedera file `0.0.102`, avoiding a bespoke schema.
+The bootstrap file is a **JSON serialization** of the `NodeAddressBook` protobuf message from
+`basic_types.proto` (`hiero-consensus-node`), written and read via `NodeAddressBook.JSON`.
 
 Only two fields from each `NodeAddress` entry are populated:
 
@@ -50,32 +49,38 @@ Only two fields from each `NodeAddress` entry are populated:
 | `nodeId`     | 5             | `int64`  | Numeric node identifier                                       |
 | `RSA_PubKey` | 4             | `string` | Raw hex-encoded DER X.509 RSA public key — **no** `0x` prefix |
 
-No metadata fields (network name, generation timestamp, schema version) are embedded; the file is
-a direct binary protobuf of `NodeAddressBook`. Operators wishing to annotate the file should
-maintain a separate sidecar.
+No metadata fields (network name, generation timestamp, schema version) are embedded.
+Operators wishing to annotate the file should maintain a separate sidecar.
 
-**Default file path:** `data/config/rsa-bootstrap-roster.pb`
+**Default file path:** `/opt/hiero/block-node/node/rsa-bootstrap-roster.json`
+(Configured via `app.state.rsaBootstrapFilePath`.)
 
 Generate this file before Phase 2a cutover using the operator script:
 
 ```bash
 tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh \
   --network mainnet \
-  --output data/config/rsa-bootstrap-roster.pb
+  --output /opt/hiero/block-node/node/rsa-bootstrap-roster.json
 ```
 
 ---
 
 ## Configuration
 
-|                      Property                       |                    Default                     |                        Description                        |
-|-----------------------------------------------------|------------------------------------------------|-----------------------------------------------------------|
-| `roster.bootstrap.enabled`                          | `true`                                         | Enable/disable the plugin.                                |
-| `roster.bootstrap.filePath`                         | `data/config/rsa-bootstrap-rosterp.pb`         | Path to the local bootstrap file (binary protobuf).       |
-| `roster.bootstrap.mirrorNode.baseUrl`               | `https://testnet-public.mirrornode.hedera.com` | Mirror Node base URL.                                     |
-| `roster.bootstrap.mirrorNode.connectTimeoutSeconds` | `5`                                            | Connect timeout for Mirror Node calls.                    |
-| `roster.bootstrap.mirrorNode.readTimeoutSeconds`    | `10`                                           | Read timeout for Mirror Node calls.                       |
-| `roster.bootstrap.mirrorNode.pageSize`              | `100`                                          | Nodes per page for paginated Mirror Node calls (max 100). |
+Bootstrap file path is configured in the `app.state` namespace (shared with other application state):
+
+|                Property                 |                           Default                            |                                     Description                                      |
+|-----------------------------------------|--------------------------------------------------------------|--------------------------------------------------------------------------------------|
+| `app.state.rsaBootstrapFilePath`        | `/opt/hiero/block-node/node/rsa-bootstrap-roster.json`       | Path to the local bootstrap file (JSON-serialized `NodeAddressBook`).                |
+
+Mirror Node fallback is configured in the `roster.bootstrap.rsa` namespace:
+
+|                         Property                          | Default |                        Description                        |
+|-----------------------------------------------------------|---------|-----------------------------------------------------------|
+| `roster.bootstrap.rsa.mirrorNodeBaseUrl`                  | *(blank)* | Mirror Node base URL. Leave blank to disable MN fallback. |
+| `roster.bootstrap.rsa.mirrorNodeConnectTimeoutSeconds`    | `5`     | TCP connect timeout for Mirror Node calls.                |
+| `roster.bootstrap.rsa.mirrorNodeReadTimeoutSeconds`       | `10`    | Read timeout per Mirror Node request.                     |
+| `roster.bootstrap.rsa.mirrorNodePageSize`                 | `100`   | Nodes per page for paginated Mirror Node calls (max 100). |
 
 ---
 
@@ -83,8 +88,8 @@ tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh \
 
 This plugin parallels `RosterBootstrapTssPlugin` in structure. Both plugins:
 
-- Implement `BlockNodePlugin` and perform all work in `init()`.
-- Use a binary protobuf bootstrap file in `data/config/` managed by Application State Facility.
+- Implement `BlockNodePlugin` and perform all work in `start()`.
+- Use a JSON bootstrap file under the path configured in `app.state` managed by Application State Facility.
 - Populate a field on `BlockNodeContext` for downstream consumers.
 
 The RSA roster plugin handles Phase 2a verification. The TSS bootstrap plugin handles Phase 2b
@@ -97,6 +102,6 @@ transition window.
 
 |                                Ticket                                 |                                                                   Work                                                                   |
 |-----------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| [#2561](https://github.com/hiero-ledger/hiero-block-node/issues/2561) | Implement `RsaRosterBootstrapPlugin`, `MirrorNodeRosterSource`, `BootstrapRosterConfig`, and extend `BlockNodeContext` with `RsaRoster`. |
+| [#2561](https://github.com/hiero-ledger/hiero-block-node/issues/2561) | Implement `RsaRosterBootstrapPlugin` and `RsaRosterBootstrapConfig`; extend `ApplicationStateFacility` with `updateAddressBook()` and `BlockNodeContext` with `nodeAddressBook()`. |
 | [#2562](https://github.com/hiero-ledger/hiero-block-node/issues/2562) | Implement RSA `SignedRecordFileProof` verification in `BlockVerificationService`.                                                        |
 | [#2660](https://github.com/hiero-ledger/hiero-block-node/issues/2660) | Implement `generate-roster-bootstrap.sh` operator script and Phase 2a cutover runbook.                                                   |
