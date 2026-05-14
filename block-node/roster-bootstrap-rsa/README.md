@@ -23,7 +23,7 @@ the roster cannot be loaded.
 
 ## How it works
 
-1. **File-first:** On startup the plugin checks for a local bootstrap file at the configured path
+1. **File-first:** On startup the application state facility checks for a local bootstrap file at the configured path
    (default `data/config/rsa-bootstrap-roster.pb`). If found, the roster is loaded from that file.
 2. **Mirror Node fallback:** If no local file is present, the roster is fetched from the Hedera
    Mirror Node REST API (`GET /api/v1/network/nodes`, paginated). The result is written to the
@@ -31,14 +31,17 @@ the roster cannot be loaded.
 3. **Fail fast:** If neither source succeeds startup is aborted with a clear error message.
 4. **No runtime reload:** The roster is loaded once and does not change for the lifetime of the
    BN instance. An address-book change requires a restart with a refreshed bootstrap file.
+5. **Status endpoint exposure:** The loaded `NodeAddressBook` is included in `ServerStatusDetailResponse` returned by
+   `BlockNodeService.serverStatusDetail()` (field 4). Callers can retrieve the full list of node ID + RSA public key
+   entries without restarting the BN.
 
 ---
 
 ## Bootstrap file format
 
 The bootstrap file is a **binary protobuf serialization** of the `NodeAddressBook` message from
-`basic_types.proto` (`hiero-consensus-node`). This reuses the on-chain address book format stored
-at Hedera file `0.0.102`, avoiding a bespoke schema.
+`basic_types.proto` (`hiero-consensus-node`). This reuses the on-chain address book format used for
+Hedera file `0.0.102`, avoiding a bespoke schema.
 
 Only two fields from each `NodeAddress` entry are populated:
 
@@ -76,12 +79,12 @@ tools-and-tests/scripts/node-operations/generate-roster-bootstrap.sh \
 
 ---
 
-## Relationship to `TssBootstrapPlugin`
+## Relationship to `RosterBootstrapTssPlugin`
 
-This plugin parallels `TssBootstrapPlugin` in structure. Both plugins:
+This plugin parallels `RosterBootstrapTssPlugin` in structure. Both plugins:
 
 - Implement `BlockNodePlugin` and perform all work in `init()`.
-- Use a binary protobuf bootstrap file in `data/config/`.
+- Use a binary protobuf bootstrap file in `data/config/` managed by Application State Facility.
 - Populate a field on `BlockNodeContext` for downstream consumers.
 
 The RSA roster plugin handles Phase 2a verification. The TSS bootstrap plugin handles Phase 2b

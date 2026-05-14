@@ -185,6 +185,25 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 }
 ```
 
+**Node details status endpoint:** Once the `NodeAddressBook` is loaded it must be included in the
+`ServerStatusDetailResponse` returned by `BlockNodeService.serverStatusDetail()`. The `node_service.proto` response
+message will carry the full address book as field 4:
+
+```protobuf
+message ServerStatusDetailResponse {
+    // ... existing fields ...
+
+    /**
+     * RSA Node Address Book Data from the block node server.
+     * Node Id, rsa public key information
+     */
+    NodeAddressBook node_address_book = 4;
+}
+```
+
+This allows any caller of `serverStatusDetail` to inspect the full set of loaded `NodeAddress` entries (node ID and
+RSA public key per entry) without restarting the BN.
+
 **`ApplicationStateFacility` extension:** A new `updateAddressBook(NodeAddressBook)` method must be added:
 - `BlockNodeApp` implements the method.
 - The method updates the `nodeAddressBook` field in `BlockNodeContext`.
@@ -607,13 +626,15 @@ ROSTER_BOOTSTRAP_MIRROR_NODE_BASE_URL=https://testnet.mirrornode.hedera.com
 
 All metrics use the BN-standard category `blocknode` and must follow existing naming conventions.
 
-|                 Metric name                  |   Type    |                             Labels                             |                                         Description                                          |
-|----------------------------------------------|-----------|----------------------------------------------------------------|----------------------------------------------------------------------------------------------|
-| `blocknode_verification_proof_total`         | Counter   | `proof_type={rsa,state_proof,tss}`, `result={success,failure}` | Count of block proof verifications, broken down by proof type and result.                    |
-| `blocknode_rsa_verification_latency_seconds` | Histogram | —                                                              | Latency of the full RSA verification step per block (p50, p95, p99 buckets).                 |
-| `blocknode_rsa_roster_entries_loaded`        | Gauge     | `source={file,mirror_node}`                                    | Number of `NodeAddress` entries loaded at startup, labelled by source.                       |
-| `blocknode_rsa_roster_mismatch_total`        | Counter   | —                                                              | Count of signatures where the signing node ID was not found in the loaded `NodeAddressBook`. |
-| `blocknode_rsa_roster_load_duration_seconds` | Gauge     | `source={file,mirror_node}`                                    | Time taken to load the roster at startup (for alerting on slow Mirror Node calls).           |
+|                 Metric name                  |   Type    |                             Labels                             |                                          Description                                          |
+|----------------------------------------------|-----------|----------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| `blocknode_verification_proof_total`         | Counter   | `proof_type={rsa,state_proof,tss}`, `result={success,failure}` | Count of block proof verifications, broken down by proof type and result.                     |
+| `blocknode_rsa_verification_latency_seconds` | Histogram | —                                                              | Latency of the full RSA verification step per block (p50, p95, p99 buckets).                  |
+| `blocknode_rsa_roster_entries_loaded`        | Gauge     | `source={file,mirror_node}`                                    | Number of `NodeAddress` entries loaded at startup, labelled by source.                        |
+| `blocknode_rsa_roster_mismatch_total`        | Counter   | —                                                              | Count of signatures where the signing node ID was not found in the loaded `NodeAddressBook`.  |
+| `blocknode_rsa_roster_load_duration_seconds` | Gauge     | `source={file,mirror_node}`                                    | Time taken to load the roster at startup (for alerting on slow Mirror Node calls).            |
+| `blocknode_rsa_roster_creation_failed`       | Counter   | —                                                              | Incremented each time the roster cannot be created (file corrupt or Mirror Node unreachable). |
+
 
 ---
 
