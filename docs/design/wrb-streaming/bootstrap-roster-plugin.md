@@ -640,18 +640,18 @@ sequenceDiagram
 
 Bootstrap file path is in the `app.state` namespace (shared application state config):
 
-|           Property            |  Type  |                           Default                            |                          Description                           |
-|-------------------------------|--------|--------------------------------------------------------------|----------------------------------------------------------------|
+|             Property             |  Type  |                        Default                         |                          Description                          |
+|----------------------------------|--------|--------------------------------------------------------|---------------------------------------------------------------|
 | `app.state.rsaBootstrapFilePath` | string | `/opt/hiero/block-node/node/rsa-bootstrap-roster.json` | Path to the JSON-serialized `NodeAddressBook` bootstrap file. |
 
 Mirror Node fallback is in the `roster.bootstrap.rsa` namespace:
 
-|                           Property                            |  Type   | Default  |                                      Description                                       |
-|---------------------------------------------------------------|---------|----------|----------------------------------------------------------------------------------------|
-| `roster.bootstrap.rsa.mirrorNodeBaseUrl`                      | string  | *(blank)* | Base URL for Mirror Node REST API calls. Blank disables Mirror Node fallback.          |
-| `roster.bootstrap.rsa.mirrorNodeConnectTimeoutSeconds`        | integer | `5`      | TCP connect timeout for Mirror Node HTTP calls.                                        |
-| `roster.bootstrap.rsa.mirrorNodeReadTimeoutSeconds`           | integer | `10`     | Read timeout for Mirror Node HTTP calls.                                               |
-| `roster.bootstrap.rsa.mirrorNodePageSize`                     | integer | `100`    | Items per page for paginated Mirror Node calls. Max 100.                               |
+|                        Property                        |  Type   |  Default  |                                  Description                                  |
+|--------------------------------------------------------|---------|-----------|-------------------------------------------------------------------------------|
+| `roster.bootstrap.rsa.mirrorNodeBaseUrl`               | string  | *(blank)* | Base URL for Mirror Node REST API calls. Blank disables Mirror Node fallback. |
+| `roster.bootstrap.rsa.mirrorNodeConnectTimeoutSeconds` | integer | `5`       | TCP connect timeout for Mirror Node HTTP calls.                               |
+| `roster.bootstrap.rsa.mirrorNodeReadTimeoutSeconds`    | integer | `10`      | Read timeout for Mirror Node HTTP calls.                                      |
+| `roster.bootstrap.rsa.mirrorNodePageSize`              | integer | `100`     | Items per page for paginated Mirror Node calls. Max 100.                      |
 
 **Environment variable overrides** follow the standard Swirlds Config pattern (uppercase, `_` for `.` and `-`). For example:
 
@@ -667,11 +667,11 @@ All metrics use the BN-standard category `blocknode` and must follow existing na
 
 **Plugin metrics** (`RsaRosterBootstrapPlugin` — category `blocknode`):
 
-|             Metric name              |  Type  | Labels |                                 Description                                  |
-|--------------------------------------|--------|--------|------------------------------------------------------------------------------|
-| `blocknode_roster_entries_loaded`    | Gauge  | —      | Number of `NodeAddress` entries loaded at startup.                           |
-| `blocknode_roster_load_duration_ms`  | Gauge  | —      | Time to load the RSA roster at startup in milliseconds.                      |
-| `blocknode_rsa_roster_creation_failed` | Counter | —  | Incremented each time the roster cannot be created (file corrupt or Mirror Node unreachable). |
+|              Metric name               |  Type   | Labels |                                          Description                                          |
+|----------------------------------------|---------|--------|-----------------------------------------------------------------------------------------------|
+| `blocknode_roster_entries_loaded`      | Gauge   | —      | Number of `NodeAddress` entries loaded at startup.                                            |
+| `blocknode_roster_load_duration_ms`    | Gauge   | —      | Time to load the RSA roster at startup in milliseconds.                                       |
+| `blocknode_rsa_roster_creation_failed` | Counter | —      | Incremented each time the roster cannot be created (file corrupt or Mirror Node unreachable). |
 
 **Verification service metrics** (`BlockVerificationService` — category `blocknode`):
 
@@ -680,7 +680,6 @@ All metrics use the BN-standard category `blocknode` and must follow existing na
 | `blocknode_verification_proof_total`         | Counter   | `proof_type={rsa,state_proof,tss}`, `result={success,failure}` | Count of block proof verifications, broken down by proof type and result.                    |
 | `blocknode_rsa_verification_latency_seconds` | Histogram | —                                                              | Latency of the full RSA verification step per block (p50, p95, p99 buckets).                 |
 | `blocknode_rsa_roster_mismatch_total`        | Counter   | —                                                              | Count of signatures where the signing node ID was not found in the loaded `NodeAddressBook`. |
-
 
 ---
 
