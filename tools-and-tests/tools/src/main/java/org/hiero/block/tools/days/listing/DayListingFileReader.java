@@ -47,8 +47,10 @@ public class DayListingFileReader {
                 recordFiles.add(ListingRecordFile.read(din));
             }
             // double check there are no remaining bytes
-            if (din.available() > 0 || din.readAllBytes().length > 0) {
-                throw new IOException("Unexpected extra bytes in listing file: " + listingPath);
+            byte[] remaining = din.readAllBytes();
+            if (remaining.length > 0) {
+                throw new IOException("Unexpected extra bytes in listing file: " + listingPath + " (found "
+                        + remaining.length + " extra bytes)");
             }
         }
         return recordFiles;
