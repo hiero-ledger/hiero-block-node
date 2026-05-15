@@ -1,0 +1,12 @@
+{
+  "networkName": "previewnet",
+  "gcsBucketName": "",
+  "bucketPathPrefix": "recordstreams/",
+  "mirrorNodeApiUrl": "https://previewnet.mirrornode.hedera.com/api/v1/",
+  "genesisDate": "",
+  "genesisTimestamp": "",
+  "minNodeAccountId": 0,
+  "maxNodeAccountId": 0,
+  "totalHbarSupplyTinybar": 5000000000000000000,
+  "genesisAddressBookResource": "previewnet-genesis-address-book.proto.bin"
+}

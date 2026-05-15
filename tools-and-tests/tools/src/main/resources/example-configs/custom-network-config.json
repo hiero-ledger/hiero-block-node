@@ -1,0 +1,12 @@
+{
+  "networkName": "",
+  "gcsBucketName": "",
+  "bucketPathPrefix": "recordstreams/",
+  "mirrorNodeApiUrl": "",
+  "genesisDate": "",
+  "genesisTimestamp": "",
+  "minNodeAccountId": 0,
+  "maxNodeAccountId": 0,
+  "totalHbarSupplyTinybar": 0,
+  "genesisAddressBookResource": ""
+}

@@ -175,10 +175,12 @@ java -jar tools-and-tests/tools/build/libs/tools-<VERSION>-SNAPSHOT-all.jar bloc
 
 The tools support multiple Hedera networks via the `--network` flag:
 
-|  Network  |                            Description                             |
-|-----------|--------------------------------------------------------------------|
-| `mainnet` | Hedera mainnet (default). Genesis: 2019-09-13, nodes 3-37.         |
-| `testnet` | Hedera testnet (current instance). Genesis: 2024-02-01, nodes 3-9. |
+|   Network    |                                       Description                                        |
+|--------------|------------------------------------------------------------------------------------------|
+| `mainnet`    | Hedera mainnet (default, hardcoded). Genesis: 2019-09-13, nodes 3-37.                    |
+| `testnet`    | Hedera testnet (hardcoded). Genesis: 2024-02-01, nodes 3-9.                              |
+| `previewnet` | Hedera previewnet (config-loaded). Loads from `~/.hiero/networks/previewnet-config.json` |
+| `other`      | Custom networks (config-loaded). Loads from path in `HIERO_NETWORK_CONFIG` env var.      |
 
 The `--network` flag is a **top-level inherited option** — it can be placed anywhere on the command line (before, between, or after subcommands). You only need to specify it once.
 
@@ -190,13 +192,48 @@ java -jar tools.jar mirror update
 java -jar tools.jar mirror update --network testnet
 java -jar tools.jar --network testnet mirror update
 java -jar tools.jar mirror --network testnet update
+
+# Previewnet (requires config file)
+java -jar tools.jar blocks wrap --network previewnet
+
+# Custom network (requires HIERO_NETWORK_CONFIG env var)
+export HIERO_NETWORK_CONFIG=/path/to/custom-network-config.json
+java -jar tools.jar blocks wrap --network other
 ```
+
+### Built-in Networks (mainnet, testnet)
 
 When `--network testnet` is specified, the tools automatically use:
 - **GCS bucket**: `hedera-testnet-streams`
 - **Mirror Node API**: `https://testnet.mirrornode.hedera.com/api/v1/`
 - **Node account IDs**: 0.0.3 through 0.0.9 (7 nodes)
 - **Genesis address book**: bundled as a classpath resource (no generation step needed)
+
+### Config-Loaded Networks (previewnet, other)
+
+Previewnet and custom networks require JSON configuration files. Example configs are provided in `tools/src/main/resources/example-configs/`.
+
+**For previewnet:**
+
+```bash
+# Copy example config to default location
+mkdir -p ~/.hiero/networks
+cp tools/src/main/resources/example-configs/previewnet-config.json \
+   ~/.hiero/networks/previewnet-config.json
+
+# Edit with actual values, then use:
+java -jar tools.jar blocks wrap --network previewnet
+```
+
+**For custom networks:**
+
+```bash
+# Create config file (see example-configs/custom-network-config.json for format)
+export HIERO_NETWORK_CONFIG=/path/to/my-network-config.json
+java -jar tools.jar blocks wrap --network other
+```
+
+See `tools/src/main/resources/example-configs/README.md` for complete configuration documentation.
 
 > For a complete end-to-end testnet walkthrough, see the [Testnet Pipeline Guide](docs/testnet-guide.md).
 
