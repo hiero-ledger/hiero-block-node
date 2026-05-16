@@ -8,7 +8,6 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
-import com.swirlds.config.api.ConfigurationBuilder;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +56,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.stream.publisher.LiveStreamPublisherManager.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.ActionForBlock;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
+import org.hiero.block.node.stream.publisher.fixtures.TestStreamPublisherManager;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -2080,7 +2080,8 @@ class LiveStreamPublisherManagerTest {
                 messagingFacility = new TestBlockMessagingFacility();
                 final Map<String, String> configOverrides =
                         Map.ofEntries(Map.entry("producer.publisherUnavailabilityTimeout", "2"));
-                final Configuration testConfiguration = createTestConfiguration(configOverrides);
+                final Configuration testConfiguration =
+                        TestStreamPublisherManager.createTestConfiguration(configOverrides);
                 testPublisherConfig = testConfiguration.getConfigData(PublisherConfig.class);
                 threadPoolManager = new TestThreadPoolManager<>(
                         new BlockingExecutor(new LinkedBlockingQueue<>()),
@@ -2438,6 +2439,7 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler.onNext(req);
                     endThisBlock(publisherHandler, block);
                 }
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // No EndStream(TIMEOUT) should have been sent.
                 assertThat(responsePipeline.getOnNextCalls())
                         .as("single handler should never receive EndStream(TIMEOUT)")
@@ -2481,6 +2483,7 @@ class LiveStreamPublisherManagerTest {
                         .build();
                 publisherHandler2.onNext(block4Req);
                 endThisBlock(publisherHandler2, 4L);
+                threadPoolManager.scheduledExecutor().executeSerially();
                 assertThat(responsePipeline.getOnNextCalls())
                         .as("completing block 4 (> 0+3) must trigger EndStream(TIMEOUT) on handler 1")
                         .anySatisfy(r -> {
@@ -2510,6 +2513,7 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler2.onNext(req);
                     endThisBlock(publisherHandler2, block);
                 }
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Handler 1 must have received EndStream(TIMEOUT) and been shut down.
                 assertThat(responsePipeline.getOnNextCalls())
                         .as("stalled handler 1 must receive EndStream(TIMEOUT)")
@@ -2588,6 +2592,8 @@ class LiveStreamPublisherManagerTest {
 
             /// When two handlers are simultaneously stalled, a single completing
             /// handler that is far enough ahead must terminate both.
+            /// NOTE: This test fails because handler 1 gets end stream, but no on complete call
+            ///       handler 2 gets both, so something might be weird in the test setup.
             @Test
             @DisplayName("all stalled handlers are terminated when multiple are stalled simultaneously")
             void testMultipleStalledHandlersAllTerminated() {
@@ -2600,7 +2606,7 @@ class LiveStreamPublisherManagerTest {
                 // Handler 2 wins ACCEPT for block 1 — sends header only.
                 sendHeaderOnly(publisherHandler2, 1L);
                 // Handler 3 completes block 5: 4 > 0+3 AND 5 > 1+3 — both stalled.
-                for (long block = 2L; block <= 5L; block++) {
+                for (long block = 2L; block <= 6L; block++) {
                     final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                             .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
                                     .asItemSetUnparsed())
@@ -2608,6 +2614,10 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler3.onNext(req);
                     endThisBlock(publisherHandler3, block);
                 }
+                // expect 3 here because we have an idle detection task in addition
+                // to the 2 end stream tasks.
+                assertThat(threadPoolManager.scheduledExecutor().getTaskCount()).isEqualTo(3);
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Both handler 1 and handler 2 must have received EndStream(TIMEOUT).
                 assertThat(responsePipeline.getOnNextCalls())
                         .as("stalled handler 1 must receive EndStream(TIMEOUT)")
@@ -2650,6 +2660,7 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler2.onNext(req);
                     endThisBlock(publisherHandler2, block);
                 }
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Stall must have fired — handler 1 terminated.
                 assertThat(responsePipeline.getOnCompleteCalls().get())
                         .as("handler 1 must be shut down by stall detection before checking resend")
@@ -2700,7 +2711,7 @@ class LiveStreamPublisherManagerTest {
             final HistoricalBlockFacility historicalBlockFacility,
             final ThreadPoolManager threadPoolManager,
             final BlockMessagingFacility blockMessagingFacility) {
-        final Configuration configuration = createTestConfiguration();
+        final Configuration configuration = TestStreamPublisherManager.createTestConfiguration();
         return generateContext(historicalBlockFacility, threadPoolManager, blockMessagingFacility, configuration);
     }
 
@@ -2730,17 +2741,6 @@ class LiveStreamPublisherManagerTest {
                 BlockNodeVersions.DEFAULT,
                 null,
                 null);
-    }
-
-    private static Configuration createTestConfiguration() {
-        return createTestConfiguration(Map.of());
-    }
-
-    private static Configuration createTestConfiguration(final Map<String, String> overrides) {
-        final ConfigurationBuilder builder =
-                TestUtils.createTestConfiguration().withConfigDataType(PublisherConfig.class);
-        overrides.forEach(builder::withValue);
-        return builder.build();
     }
 
     /// This method generates a [MetricsHolder] instance with default

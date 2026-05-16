@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Flow.Subscription;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
@@ -26,6 +27,7 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -79,7 +81,8 @@ class PublisherHandlerTest {
             validNextId = 1L;
             validReplyPipeline = new TestResponsePipeline();
             validMetricsHodler = createMetrics();
-            validPublisherManager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
+            validPublisherManager = new TestStreamPublisherManager(
+                    new TestBlockMessagingFacility(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         }
 
         /**
@@ -159,7 +162,8 @@ class PublisherHandlerTest {
         void setup() {
             repliesPipeline = new TestResponsePipeline<>();
             metrics = createMetrics();
-            manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
+            manager = new TestStreamPublisherManager(
+                    new TestBlockMessagingFacility(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
 
             julLogger = java.util.logging.Logger.getLogger(PublisherHandler.class.getName());
             logHandler = new TestLogHandler();

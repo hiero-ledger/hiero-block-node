@@ -22,34 +22,30 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
-/**
- * A very simple executor to be used only for testing! This executor has the
- * ability to block the caller and execute tasks until completion either
- * on the caller thread, or on a single thread per task. It will
- * collect all submitted tasks to it and will hold them in order. After that
- * when the {@link #executeSerially()} method is called, all tasks will be
- * executed in order serially on the same thread that called the method. This
- * will ensure that all tasks will complete before doing any asserts. This pool
- * can also execute tasks asynchronously using any of the
- * {@link #executeAsync()} methods. The tasks will be executed in the
- * order they were submitted to the pool, and will be executed using a
- * {@link java.util.concurrent.ThreadPerTaskExecutor} internally. There are
- * options to join the tasks, effectively blocking until all tasks are completed.
- */
+/// A very simple executor to be used only for testing! This executor has the
+/// ability to block the caller and execute tasks until completion either
+/// on the caller thread, or on a single thread per task. It will
+/// collect all submitted tasks to it and will hold them in order. After that
+/// when the [#executeSerially()] method is called, all tasks will be
+/// executed in order serially on the same thread that called the method. This
+/// will ensure that all tasks will complete before doing any asserts. This pool
+/// can also execute tasks asynchronously using any of the
+/// [#executeAsync()] methods. The tasks will be executed in the
+/// order they were submitted to the pool, and will be executed using a
+/// [java.util.concurrent.ThreadPerTaskExecutor] internally. There are
+/// options to join the tasks, effectively blocking until all tasks are completed.
 public class BlockingExecutor extends ThreadPoolExecutor {
-    private static final Logger LOGGER = System.getLogger(BlockingExecutor.class.getName());
+    private final Logger LOGGER = System.getLogger(getClass().getCanonicalName());
     private static final long TASK_TIMEOUT_MILLIS = 5_000L;
     private static final long RUNNABLE_FUTURE_MAX_TIMEOUT_SECONDS = 60L;
-    /** The work queue that will be used to hold the tasks. */
+    /// The work queue that will be used to hold the tasks.
     private final BlockingQueue<Runnable> workQueue;
-    /** Counter to indicate total submitted tasks. */
+    /// Counter to indicate total submitted tasks.
     private int tasksSubmitted;
     /// All async executors created when running tasks async
     private final Queue<ExecutorService> asyncExecutors;
 
-    /**
-     * Constructor.
-     */
+    /// Constructor.
     public BlockingExecutor(@NonNull final BlockingQueue<Runnable> workQueue) {
         // supply super with arbitrary values, they will not be used
         super(
@@ -105,16 +101,14 @@ public class BlockingExecutor extends ThreadPoolExecutor {
         tasksSubmitted++;
     }
 
-    /**
-     * Invoke this method once you have submitted all the tasks that need to be
-     * run by this executor. This method will then proceed to poll each task
-     * (in the same order that they have been submitted) and will execute the
-     * tasks serially on the same thread that called this method. Once this
-     * method returns (or throws), we are certain that all tasks have run and
-     * can safely assert based on that. This method will throw an
-     * {@link IllegalStateException} to indicate a broken state, when the queue
-     * is empty.
-     */
+    /// Invoke this method once you have submitted all the tasks that need to be
+    /// run by this executor. This method will then proceed to poll each task
+    /// (in the same order that they have been submitted) and will execute the
+    /// tasks serially on the same thread that called this method. Once this
+    /// method returns (or throws), we are certain that all tasks have run and
+    /// can safely assert based on that. This method will throw an
+    /// [IllegalStateException] to indicate a broken state, when the queue
+    /// is empty.
     public void executeSerially() {
         if (workQueue.isEmpty()) {
             throw new IllegalStateException("Queue is empty");
@@ -125,62 +119,52 @@ public class BlockingExecutor extends ThreadPoolExecutor {
         }
     }
 
-    /**
-     * This method executes all tasks that were submitted to this executor
-     * asynchronously.
-     * <p>
-     * Timeout is {@value TASK_TIMEOUT_MILLIS} milliseconds, blocking is enabled,
-     * and exceptions will be thrown on exceptional completion.
-     * Logging on exceptional completion is disabled.
-     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
-     */
+    /// This method executes all tasks that were submitted to this executor
+    /// asynchronously.
+    ///
+    /// Timeout is {@value TASK_TIMEOUT_MILLIS} milliseconds, blocking is enabled,
+    /// and exceptions will be thrown on exceptional completion.
+    /// Logging on exceptional completion is disabled.
+    /// @see #executeAsync(boolean, long, boolean, boolean, Supplier)
     public List<CompletableFuture<Void>> executeAsync() {
         return executeAsync(true);
     }
 
-    /**
-     * This method executes all tasks that were submitted to this executor
-     * asynchronously.
-     * <p>
-     * Timeout is {@value TASK_TIMEOUT_MILLIS} milliseconds and blocking is
-     * enabled. Logging on exceptional completion is disabled.
-     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
-     */
+    /// This method executes all tasks that were submitted to this executor
+    /// asynchronously.
+    ///
+    /// Timeout is {@value TASK_TIMEOUT_MILLIS} milliseconds and blocking is
+    /// enabled. Logging on exceptional completion is disabled.
+    /// @see #executeAsync(boolean, long, boolean, boolean, Supplier)
     public List<CompletableFuture<Void>> executeAsync(final boolean throwOnExceptionalCompletion) {
         return executeAsync(TASK_TIMEOUT_MILLIS, throwOnExceptionalCompletion);
     }
 
-    /**
-     * This method executes all tasks that were submitted to this executor
-     * asynchronously.
-     * <p>
-     * Blocking is enabled and exceptions will be thrown on exceptional
-     * completion. Logging on exceptional completion is disabled.
-     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
-     */
+    /// This method executes all tasks that were submitted to this executor
+    /// asynchronously.
+    ///
+    /// Blocking is enabled and exceptions will be thrown on exceptional
+    /// completion. Logging on exceptional completion is disabled.
+    /// @see #executeAsync(boolean, long, boolean, boolean, Supplier)
     public List<CompletableFuture<Void>> executeAsync(final long timeoutMillis) {
         return executeAsync(timeoutMillis, true);
     }
 
-    /**
-     * This method executes all tasks that were submitted to this executor
-     * asynchronously.
-     * <p>
-     * Blocking is enabled. Logging on exceptional completion is disabled.
-     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
-     */
+    /// This method executes all tasks that were submitted to this executor
+    /// asynchronously.
+    ///
+    /// Blocking is enabled. Logging on exceptional completion is disabled.
+    /// @see #executeAsync(boolean, long, boolean, boolean, Supplier)
     public List<CompletableFuture<Void>> executeAsync(
             final long blockTimeoutMillis, final boolean throwOnExceptionalCompletion) {
         return executeAsync(blockTimeoutMillis, throwOnExceptionalCompletion, false);
     }
 
-    /**
-     * This method executes all tasks that were submitted to this executor
-     * asynchronously.
-     * <p>
-     * Blocking is enabled.
-     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
-     */
+    /// This method executes all tasks that were submitted to this executor
+    /// asynchronously.
+    ///
+    /// Blocking is enabled.
+    /// @see #executeAsync(boolean, long, boolean, boolean, Supplier)
     public List<CompletableFuture<Void>> executeAsync(
             final long blockTimeoutMillis,
             final boolean throwOnExceptionalCompletion,
@@ -193,13 +177,11 @@ public class BlockingExecutor extends ThreadPoolExecutor {
                 () -> Executors.newThreadPerTaskExecutor(Executors.defaultThreadFactory()));
     }
 
-    /**
-     * This method executes all tasks that were submitted to this executor
-     * asynchronously.
-     * <p>
-     * Default pool implementation used.
-     * @see #executeAsync(boolean, long, boolean, boolean, Supplier)
-     */
+    /// This method executes all tasks that were submitted to this executor
+    /// asynchronously.
+    ///
+    /// Default pool implementation used.
+    /// @see #executeAsync(boolean, long, boolean, boolean, Supplier)
     public List<CompletableFuture<Void>> executeAsync(
             final long blockTimeoutMillis,
             final boolean blockUntilDone,
@@ -213,38 +195,36 @@ public class BlockingExecutor extends ThreadPoolExecutor {
                 () -> Executors.newThreadPerTaskExecutor(Executors.defaultThreadFactory()));
     }
 
-    /**
-     * This method executes all tasks that were submitted to this executor
-     * asynchronously.
-     * <p>
-     * Internally, a {@link java.util.concurrent.ThreadPerTaskExecutor} is used
-     * to submit each task. All tasks are started in the order they were
-     * submitted to the executor. The way tasks are submitted is by
-     * calling {@link CompletableFuture#runAsync(Runnable, java.util.concurrent.Executor)}
-     * on each task in the internal worker queue. Depending on the parameters
-     * described below, this method will either block or not, throw an
-     * exception or not, log an exceptional execution or not, and will use a
-     * timeout for each task or not.
-     *
-     * @param blockUntilDone boolean value indicating if the method should
-     * block until all tasks are done or not. If true, the method will
-     * call {@link CompletableFuture#join()} on each submitted task.
-     * @param blockTimeoutMillis long value indicating the timeout in
-     * milliseconds for each task to complete. Internally,
-     * {@link CompletableFuture#orTimeout(long, TimeUnit)} will be used on each
-     * task with the supplied timeout value, unit is always
-     * {@link TimeUnit#MILLISECONDS}.
-     * @param throwOnExceptionalCompletion boolean value indicating if the
-     * method should throw an exception if any of the tasks completes
-     * exceptionally. This includes timeouts as well. If true, the method
-     * will throw a {@link RuntimeException} with the cause. This will be done
-     * for the first encounter of an exceptional completion, given that tasks
-     * are started in the order they were submitted and joined in the same\
-     * order.
-     * @return List of {@link CompletableFuture} objects, each representing a
-     * submitted task. The list will contain the same number of futures as the
-     * number of tasks submitted to the executor.
-     */
+    /// This method executes all tasks that were submitted to this executor
+    /// asynchronously.
+    ///
+    /// Internally, a [java.util.concurrent.ThreadPerTaskExecutor] is used
+    /// to submit each task. All tasks are started in the order they were
+    /// submitted to the executor. The way tasks are submitted is by
+    /// calling [CompletableFuture#runAsync(Runnable, java.util.concurrent.Executor)]
+    /// on each task in the internal worker queue. Depending on the parameters
+    /// described below, this method will either block or not, throw an
+    /// exception or not, log an exceptional execution or not, and will use a
+    /// timeout for each task or not.
+    ///
+    /// @param blockUntilDone boolean value indicating if the method should
+    /// block until all tasks are done or not. If true, the method will
+    /// call [CompletableFuture#join()] on each submitted task.
+    /// @param blockTimeoutMillis long value indicating the timeout in
+    /// milliseconds for each task to complete. Internally,
+    /// [CompletableFuture#orTimeout(long, TimeUnit)] will be used on each
+    /// task with the supplied timeout value, unit is always
+    /// [TimeUnit#MILLISECONDS].
+    /// @param throwOnExceptionalCompletion boolean value indicating if the
+    /// method should throw an exception if any of the tasks completes
+    /// exceptionally. This includes timeouts as well. If true, the method
+    /// will throw a [RuntimeException] with the cause. This will be done
+    /// for the first encounter of an exceptional completion, given that tasks
+    /// are started in the order they were submitted and joined in the same\
+    /// order.
+    /// @return List of [CompletableFuture] objects, each representing a
+    /// submitted task. The list will contain the same number of futures as the
+    /// number of tasks submitted to the executor.
     public List<CompletableFuture<Void>> executeAsync(
             final boolean blockUntilDone,
             final long blockTimeoutMillis,
@@ -289,20 +269,18 @@ public class BlockingExecutor extends ThreadPoolExecutor {
         }
     }
 
-    /**
-     * This method indicates if any task was ever submitted to this executor.
-     * This is useful during tests in order to assert that the pool was
-     * essentially not interacted with. An example would be if we have a test
-     * where we want to assert that some production logic will never submit a
-     * task to the executor given some condition, then we can use this method
-     * to assert that. This method does not reflect the current state of the
-     * queue, meaning the queue might be empty due to a call to the
-     * {@link #executeSerially()} method, but this method will still return
-     * true if any task was submitted before that.
-     *
-     * @return boolean value, true if any task was ever submitted, false
-     * otherwise
-     */
+    /// This method indicates if any task was ever submitted to this executor.
+    /// This is useful during tests in order to assert that the pool was
+    /// essentially not interacted with. An example would be if we have a test
+    /// where we want to assert that some production logic will never submit a
+    /// task to the executor given some condition, then we can use this method
+    /// to assert that. This method does not reflect the current state of the
+    /// queue, meaning the queue might be empty due to a call to the
+    /// [#executeSerially()] method, but this method will still return
+    /// true if any task was submitted before that.
+    ///
+    /// @return boolean value, true if any task was ever submitted, false
+    /// otherwise
     public boolean wasAnyTaskSubmitted() {
         return tasksSubmitted > 0;
     }
@@ -330,18 +308,14 @@ public class BlockingExecutor extends ThreadPoolExecutor {
         return super.shutdownNow();
     }
 
-    /**
-     * Operation currently not supported!
-     */
+    /// Operation currently not supported!
     @Override
     @NonNull
     public <T> T invokeAny(@NonNull final Collection<? extends Callable<T>> tasks) {
         throw new UnsupportedOperationException("Operation not supported, to be extended as needed");
     }
 
-    /**
-     * Operation currently not supported!
-     */
+    /// Operation currently not supported!
     @Override
     @NonNull
     public <T> T invokeAny(
@@ -349,18 +323,14 @@ public class BlockingExecutor extends ThreadPoolExecutor {
         throw new UnsupportedOperationException("Operation not supported, to be extended as needed");
     }
 
-    /**
-     * Operation currently not supported!
-     */
+    /// Operation currently not supported!
     @Override
     @NonNull
     public <T> List<Future<T>> invokeAll(@NonNull final Collection<? extends Callable<T>> tasks) {
         throw new UnsupportedOperationException("Operation not supported, to be extended as needed");
     }
 
-    /**
-     * Operation currently not supported!
-     */
+    /// Operation currently not supported!
     @Override
     @NonNull
     public <T> List<Future<T>> invokeAll(

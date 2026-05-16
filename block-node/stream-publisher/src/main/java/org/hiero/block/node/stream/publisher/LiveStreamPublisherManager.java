@@ -131,8 +131,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         dataReadyLatch = dataReadyLock.newCondition();
         NodeConfig nodeConfiguration = serverContext.configuration().getConfigData(NodeConfig.class);
         earliestManagedBlock = nodeConfiguration.earliestManagedBlock();
-        scheduledExecutor =
-                threadManager.createVirtualThreadScheduledExecutor(1, null, this::uncaughtScheduledExecutorException);
+        int threadCount = Runtime.getRuntime().availableProcessors();
+        // Ensure at least 2 threads for scheduled tasks so we do not have
+        // excessive contention with the idle detector task.
+        threadCount = threadCount < 2 ? 2 : threadCount;
+        scheduledExecutor = threadManager.createVirtualThreadScheduledExecutor(
+                threadCount, null, this::uncaughtScheduledExecutorException);
         publisherConfig = serverContext.configuration().getConfigData(PublisherConfig.class);
         maxBlocksBeforeStalled = publisherConfig.MaxFutureBlocksBeforeStalled();
         staleResendPruneBuffer = publisherConfig.staleResendPruneBuffer();
@@ -311,6 +315,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         } finally {
             dataReadyLock.unlock();
         }
+    }
+
+    @Override
+    public ScheduledFuture<?> scheduleAfterDelay(final Runnable taskToSchedule, final long delayInNanoseconds) {
+        return scheduledExecutor.schedule(taskToSchedule, delayInNanoseconds, TimeUnit.NANOSECONDS);
+    }
+
+    @Override
+    public PublisherConfig configuration() {
+        return publisherConfig;
     }
 
     /// {@inheritDoc}
