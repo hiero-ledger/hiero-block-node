@@ -169,6 +169,12 @@ public class NetworkCapacityServer {
 
         @Override
         public void onComplete() {
+            // Brief pause so the last ACK write can flush before the response pipeline closes.
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             System.out.println("Stream completed");
             metrics.reportFinal();
         }
