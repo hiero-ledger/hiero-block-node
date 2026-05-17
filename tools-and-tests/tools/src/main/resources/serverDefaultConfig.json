@@ -2,14 +2,14 @@
   "initialWindowSize": 8388608,
   "maxFrameSize": 8388608,
   "maxConcurrentStreams": 8,
-  "flowControlTimeoutMillis": 1000,
-  "sendBufferSize": 131072,
-  "receiveBufferSize": 131072,
+  "flowControlTimeoutMillis": 500,
+  "sendBufferSize": 8388608,
+  "receiveBufferSize": 8388608,
   "maxMessageSizeBytes": 131072000,
   "tcpNoDelay": true,
   "maxEmptyFrames": 10,
   "maxRapidResets": 50,
   "rapidResetTimeWindowMillis": 10000,
   "backlogSize": 8192,
-  "writeQueueLength": 8192
+  "writeQueueLength": 32768
 }
