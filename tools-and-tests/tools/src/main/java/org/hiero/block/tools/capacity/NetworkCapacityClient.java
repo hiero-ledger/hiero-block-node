@@ -100,7 +100,8 @@ public class NetworkCapacityClient {
 
     private void streamBlocksFromFolder(BlockStreamPublishClient publishClient) throws IOException {
         List<Path> blockFiles = Files.list(recordingFolder)
-                .filter(path -> path.toString().endsWith(".blk.gz") || path.toString().endsWith(".blk"))
+                .filter(path ->
+                        path.toString().endsWith(".blk.gz") || path.toString().endsWith(".blk"))
                 .sorted()
                 .collect(Collectors.toList());
 
@@ -152,6 +153,12 @@ public class NetworkCapacityClient {
             metrics.reportPeriodic();
         }
 
+        // Wait for all ACKs to arrive before half-closing the send side.
+        // The last ACK is in-flight from the server while we finish the send loop.
+        long ackDeadline = System.currentTimeMillis() + 2_000;
+        while (metrics.getTotalBlocksAcked() < metrics.getTotalBlocks() && System.currentTimeMillis() < ackDeadline) {
+            LockSupport.parkNanos(10_000_000L);
+        }
         requestPipeline.onComplete();
 
         try {

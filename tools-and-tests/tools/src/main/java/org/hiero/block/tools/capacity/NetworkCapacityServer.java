@@ -139,8 +139,7 @@ public class NetworkCapacityServer {
                 if (items.getLast().hasBlockProof() && hasReceivedBlockHeader) {
                     metrics.incrementBlocks();
                     System.out.printf(
-                            "[SERVER] Completed block %d (Total %d).%n",
-                            currentBlockNumber, metrics.getTotalBlocks());
+                            "[SERVER] Completed block %d (Total %d).%n", currentBlockNumber, metrics.getTotalBlocks());
 
                     PublishStreamResponse response = PublishStreamResponse.newBuilder()
                             .acknowledgement(PublishStreamResponse.BlockAcknowledgement.newBuilder()
