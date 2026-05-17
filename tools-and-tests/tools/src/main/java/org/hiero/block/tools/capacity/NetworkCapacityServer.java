@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.tools.capacity;
 
-import com.hedera.hapi.block.stream.BlockItem;
+import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
+import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.grpc.Pipeline;
-import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.grpc.Pipelines;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
@@ -13,14 +15,12 @@ import io.helidon.webserver.WebServerConfig;
 import io.helidon.webserver.http2.Http2Config;
 import java.net.SocketException;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.Flow;
-import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
-import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.internal.BlockItemUnparsed;
+import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.tools.config.HelidonWebServerConfig;
 
 public class NetworkCapacityServer {
@@ -80,84 +80,75 @@ public class NetworkCapacityServer {
         }
     }
 
-    private static record RequestOptions(Optional<String> authority, String contentType)
-            implements ServiceInterface.RequestOptions {}
-
-    private static class TestPublishInterface implements BlockStreamPublishServiceInterface {
-        @NonNull
+    /// Implements the publish service using the same open() + unparsed-request pattern as the real
+    /// BN StreamPublisherPlugin, avoiding full BlockItem deserialization on the server side.
+    private class TestPublishInterface implements BlockStreamPublishServiceInterface {
         @Override
-        public Pipeline<? super PublishStreamRequest> publishBlockStream(
-                @NonNull final Pipeline<? super PublishStreamResponse> replies,
-                @NonNull final RequestOptions requestOptions) {
-            return BlockStreamPublishServiceInterface.super.publishBlockStream(replies, requestOptions);
+        @NonNull
+        public Pipeline<? super Bytes> open(
+                @NonNull final Method method,
+                @NonNull final RequestOptions options,
+                @NonNull final Pipeline<? super Bytes> replies) {
+            return Pipelines.<PublishStreamRequestUnparsed, PublishStreamResponse>bidiStreaming()
+                    .mapRequest(bytes -> PublishStreamRequestUnparsed.PROTOBUF.parse(
+                            bytes.toReadableSequentialData(),
+                            false,
+                            true,
+                            config.maxMessageSizeBytes() / 8,
+                            config.maxMessageSizeBytes()))
+                    .method(StreamHandler::new)
+                    .respondTo(replies)
+                    .mapResponse(PublishStreamResponse.PROTOBUF::toBytes)
+                    .build();
         }
     }
 
-    private class StreamHandler implements Pipeline<PublishStreamRequest> {
-        private final Pipeline<PublishStreamResponse> replies;
-        private Flow.Subscription subscription;
+    private class StreamHandler implements Pipeline<PublishStreamRequestUnparsed> {
+        private final Pipeline<? super PublishStreamResponse> replies;
         private long currentBlockNumber = 0;
-        private final List<BlockItem> currentBlockItems = new ArrayList<>();
         private boolean hasReceivedBlockHeader = false;
 
-        public StreamHandler(Pipeline<PublishStreamResponse> replies) {
+        public StreamHandler(Pipeline<? super PublishStreamResponse> replies) {
             this.replies = replies;
-        }
-
-        @Override
-        public void onSubscribe(Flow.Subscription subscription) {
-            this.subscription = subscription;
-            subscription.request(Long.MAX_VALUE);
             System.out.println("Client connected - ready to receive");
         }
 
         @Override
-        public void clientEndStreamReceived() {
-            Pipeline.super.clientEndStreamReceived();
-            System.out.println("Client sent EndStream response");
+        public void onSubscribe(Flow.Subscription subscription) {
+            // Subscription demand is managed by the Pipelines framework
         }
 
         @Override
-        public void onNext(final PublishStreamRequest req) {
+        public void onNext(final PublishStreamRequestUnparsed req) {
             try {
-                // Count serialized payload bytes as received
-                int requestLength = PublishStreamRequest.PROTOBUF.measureRecord(req);
+                int requestLength = PublishStreamRequestUnparsed.PROTOBUF.measureRecord(req);
                 metrics.addBytes(requestLength);
                 metrics.reportPeriodic();
 
-                BlockItemSet blockItems = req.blockItems();
-                if (!blockItems.blockItems().isEmpty()) {
-                    // Detect start of a block
-                    if (blockItems.blockItems().getFirst().hasBlockHeader()) {
-                        currentBlockNumber =
-                                blockItems.blockItems().getFirst().blockHeader().number();
-                        hasReceivedBlockHeader = true;
-                        currentBlockItems.clear();
-                        System.out.printf("[SERVER] Receiving block %d%n", currentBlockNumber);
-                    }
+                if (!req.hasBlockItems()) return;
 
-                    // Accumulate items
-                    currentBlockItems.addAll(blockItems.blockItems());
+                List<BlockItemUnparsed> items = req.blockItems().blockItems();
+                if (items.isEmpty()) return;
 
-                    // Detect end of a block
-                    if (blockItems.blockItems().getLast().hasBlockProof() && hasReceivedBlockHeader) {
-                        metrics.incrementBlocks();
-                        System.out.printf(
-                                "[SERVER] Completed block %d (Total %d).%n",
-                                currentBlockNumber, metrics.getTotalBlocks());
+                if (items.getFirst().hasBlockHeader()) {
+                    currentBlockNumber = parseBlockNumber(items.getFirst());
+                    hasReceivedBlockHeader = true;
+                    System.out.printf("[SERVER] Receiving block %d%n", currentBlockNumber);
+                }
 
-                        // Send acknowledgement
-                        PublishStreamResponse response = PublishStreamResponse.newBuilder()
-                                .acknowledgement(PublishStreamResponse.BlockAcknowledgement.newBuilder()
-                                        .blockNumber(currentBlockNumber)
-                                        .build())
-                                .build();
-                        replies.onNext(response);
+                if (items.getLast().hasBlockProof() && hasReceivedBlockHeader) {
+                    metrics.incrementBlocks();
+                    System.out.printf(
+                            "[SERVER] Completed block %d (Total %d).%n",
+                            currentBlockNumber, metrics.getTotalBlocks());
 
-                        // Reset for next block
-                        currentBlockItems.clear();
-                        hasReceivedBlockHeader = false;
-                    }
+                    PublishStreamResponse response = PublishStreamResponse.newBuilder()
+                            .acknowledgement(PublishStreamResponse.BlockAcknowledgement.newBuilder()
+                                    .blockNumber(currentBlockNumber)
+                                    .build())
+                            .build();
+                    replies.onNext(response);
+                    hasReceivedBlockHeader = false;
                 }
             } catch (RuntimeException e) {
                 if (socketClosed(e)) {
@@ -179,7 +170,17 @@ public class NetworkCapacityServer {
         @Override
         public void onComplete() {
             System.out.println("Stream completed");
-            metrics.reportFinal(); // Single, authoritative final report for this stream
+            metrics.reportFinal();
+        }
+
+        private long parseBlockNumber(BlockItemUnparsed headerItem) {
+            try {
+                BlockHeader header = BlockHeader.PROTOBUF.parse(
+                        headerItem.blockHeaderOrThrow().toReadableSequentialData());
+                return header.number();
+            } catch (ParseException e) {
+                return currentBlockNumber + 1;
+            }
         }
 
         private boolean socketClosed(Throwable throwable) {

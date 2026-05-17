@@ -15,6 +15,9 @@ message HelidonWebClientConfig {
   bool priorKnowledge = 10;
   uint32 serverMaxMessageSizeBytes = 12;
   uint32 delayBetweenBlocksMs = 13;
+  // gRPC message encoding for outgoing requests: "identity" (no compression) or "gzip".
+  // Defaults to "identity" when empty or unset.
+  string grpcEncoding = 14;
 }
 
 message HelidonWebServerConfig {
