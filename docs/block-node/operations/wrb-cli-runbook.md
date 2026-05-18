@@ -47,7 +47,7 @@ For convenience, you can set up aliases to simplify command invocations:
 
 ```bash
 # Add to ~/.bashrc or ~/.bash_profile
-alias bntools='java -jar /mnt/wrb-operations/tools-0.35.0-SNAPSHOT-all.jar'
+alias bntools='java -jar /mnt/wrb-operations/tools-0.35.0-SNAPSHOT-all.jar '
 
 # Common operations with JVM args
 alias bntools-large='java -Xmx32g -Xms16g -jar /mnt/wrb-operations/tools-0.35.0-SNAPSHOT-all.jar'
