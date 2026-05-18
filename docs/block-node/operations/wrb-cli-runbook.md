@@ -668,7 +668,7 @@ java -Xms20g -Xmx20g -XX:+UseZGC -jar tools.jar --network testnet blocks validat
 ### Mainnet Production Setup
 
 **Hardware**:
-- 32-core Xeon server
+- 32-core server
 - 128GB RAM
 - 20TB ZFS RAID10 SSD array
 
