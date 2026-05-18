@@ -13,7 +13,7 @@ This runbook documents the setup and operational workflows for the Wrapped Recor
 ### Required Tools
 
 ```bash
-# Install Java 25+ (or Java 21+ minimum)
+# Install Java 25+
 sudo apt-get update
 sudo apt-get install openjdk-25-jdk
 
