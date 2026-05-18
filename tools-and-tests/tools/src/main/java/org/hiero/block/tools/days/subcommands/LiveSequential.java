@@ -1384,7 +1384,8 @@ public class LiveSequential implements Runnable {
             if (group == null || group.isEmpty()) {
                 System.out.println("[live-sequential] No files found for block " + nextBlockNumber + " at time "
                         + blockTime + ", fixing block times...");
-                int fixedCount = FixBlockTime.fixBlockTimeRange(MetadataFiles.BLOCK_TIMES_FILE, nextBlockNumber, nextBlockNumber + 100);
+                int fixedCount = FixBlockTime.fixBlockTimeRange(
+                        MetadataFiles.BLOCK_TIMES_FILE, nextBlockNumber, nextBlockNumber + 100);
                 if (fixedCount > 0) {
                     // Block times were fixed, reload and retry
                     state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
