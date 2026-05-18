@@ -533,10 +533,10 @@ ls -d wrappedBlocks/*/ | wc -l
 
 ### Graceful Shutdown
 
-**SIGTERM (recommended)**:
+**SIGINT (recommended)**:
 
 ```bash
-kill <PID>
+kill -INT <PID>
 ```
 
 - Allows checkpoint save
