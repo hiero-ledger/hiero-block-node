@@ -13,9 +13,9 @@ This runbook documents the setup and operational workflows for the Wrapped Recor
 ### Required Tools
 
 ```bash
-# Install Java 21+
+# Install Java 25+ (or Java 21+ minimum)
 sudo apt-get update
-sudo apt-get install openjdk-21-jdk
+sudo apt-get install openjdk-25-jdk
 
 # Install zstd (required for decompression)
 sudo apt-get install zstd
@@ -40,6 +40,24 @@ ls tools-and-tests/tools/build/libs/tools-*-all.jar
 ```
 
 The shadow jar is self-contained and can be copied to your deployment server.
+
+### Optional: Command Aliases
+
+For convenience, you can set up aliases to simplify command invocations:
+
+```bash
+# Add to ~/.bashrc or ~/.bash_profile
+alias bntools='java -jar /mnt/wrb-operations/tools-0.35.0-SNAPSHOT-all.jar'
+
+# Common operations with JVM args
+alias bntools-large='java -Xmx32g -Xms16g -jar /mnt/wrb-operations/tools-0.35.0-SNAPSHOT-all.jar'
+
+# Then use as:
+bntools --network testnet metadata update
+bntools-large --network mainnet blocks wrap --input-dir compressedDays
+```
+
+**Note**: Commands in this runbook show the full `java -jar` syntax for clarity, but aliases can reduce typing for frequent operations.
 
 ---
 
@@ -98,12 +116,20 @@ All commands accept `--network <mainnet|testnet>`:
 **Command**:
 
 ```bash
+# Optional: Use nohup for long-running commands to continue after logout
 nohup java -jar tools-<version>-all.jar \
   --network testnet \
   mirror generateAddressBook \
   -o wrappedBlocks/addressBookHistory.json \
   --show-changes \
   > addressbook.log 2>&1 &
+
+# Or run directly (foreground):
+java -jar tools-<version>-all.jar \
+  --network testnet \
+  mirror generateAddressBook \
+  -o wrappedBlocks/addressBookHistory.json \
+  --show-changes
 ```
 
 **Output**: `wrappedBlocks/addressBookHistory.json` contains all address book updates.
