@@ -26,10 +26,11 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
 
         workingDir(layout.projectDirectory)
         // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
+        val projectDirPath = layout.projectDirectory.asFile.absolutePath.replace("\\", "/")
         commandLine(
             "sh",
             "-c",
-            "${layout.projectDirectory}/scripts/build-bn-proto.sh -t v$cnVersion -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i true -b ${layout.projectDirectory}/src/main/proto/",
+            "$projectDirPath/scripts/build-bn-proto.sh -t v$cnVersion -v ${project.version} -o $projectDirPath/block-node-protobuf -i true -b $projectDirPath/src/main/proto/",
         )
     }
 
@@ -41,14 +42,15 @@ val cleanUpAfterBlockNodeProtoArtifact: TaskProvider<Exec> =
         workingDir(layout.projectDirectory)
 
         // clean up intermediate files generated from build-bn-proto.sh run
+        val projectDirPath = layout.projectDirectory.asFile.absolutePath.replace("\\", "/")
         commandLine(
             "rm",
             "-rf",
-            "${layout.projectDirectory}/block-node-protobuf",
+            "$projectDirPath/block-node-protobuf",
             "&&",
             "rm",
             "-rf",
-            "${layout.projectDirectory}/hiero-consensus-node",
+            "$projectDirPath/hiero-consensus-node",
         )
     }
 
