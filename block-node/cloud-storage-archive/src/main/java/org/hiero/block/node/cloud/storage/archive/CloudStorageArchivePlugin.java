@@ -341,6 +341,14 @@ public class CloudStorageArchivePlugin implements BlockNodePlugin, BlockNotifica
         LOGGER.log(TRACE, "Cloud storage archive plugin stopped");
     }
 
+    boolean isRecoveryComplete() {
+        return recoveryFuture != null && recoveryFuture.isDone();
+    }
+
+    long recoveredNextBlockNumber() throws InterruptedException, ExecutionException {
+        return recoveryFuture.get().nextBlockNumber();
+    }
+
     /// Holder for all cloud storage archive metrics.
     public record MetricsHolder(
             LongCounter.Measurement blocksWritten,
