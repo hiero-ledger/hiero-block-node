@@ -27,5 +27,7 @@ public record NodeConfig(
         @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock,
         @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/app-state-data.bin") Path appStateDataFilePath,
         @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long appStateUpdateScanInterval,
-        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int appStateUpdateInitialDelay) {}
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int appStateUpdateInitialDelay,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/block-ranges-data.bin") Path blockRangesStateFilePath,
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(1) int blockRangesSaveInterval) {}
 // spotless:on

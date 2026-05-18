@@ -138,6 +138,8 @@ dependencies {
     // Extended functionality
     blockNodePlugins(project(":backfill"))
     blockNodePlugins(project(":s3-archive"))
+
+    testFixturesImplementation(project(":base"))
 }
 
 /** Sets block node storage environment variables for the given data directory. */

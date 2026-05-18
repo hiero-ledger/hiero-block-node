@@ -259,6 +259,33 @@ public abstract class PluginTestBase<
                 .build();
     }
 
+    private final org.hiero.block.node.base.ranges.ConcurrentLongRangeSet testAvailableBlocks = new org.hiero.block.node.base.ranges.ConcurrentLongRangeSet();
+
+    @Override
+    public void addBlock(long blockNumber) {
+        testAvailableBlocks.add(blockNumber);
+    }
+
+    @Override
+    public void addRange(long start, long end) {
+        testAvailableBlocks.add(start, end);
+    }
+
+    @Override
+    public void removeBlock(long blockNumber) {
+        testAvailableBlocks.remove(blockNumber);
+    }
+
+    @Override
+    public void removeRange(long start, long end) {
+        testAvailableBlocks.remove(start, end);
+    }
+
+    @Override
+    public org.hiero.block.node.spi.historicalblocks.BlockRangeSet availableBlocks() {
+        return testAvailableBlocks;
+    }
+
     /**
      * Allow plugins to update the TssData for this BlockNodeApp
      *
