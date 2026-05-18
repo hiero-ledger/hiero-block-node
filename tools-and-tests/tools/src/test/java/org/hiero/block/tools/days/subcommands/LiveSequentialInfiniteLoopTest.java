@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import org.hiero.block.tools.mirrornode.FixBlockTime;
 import org.junit.jupiter.api.Test;

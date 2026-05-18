@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.DataInputStream;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -35,8 +34,10 @@ class DayListingFileWriterTest {
 
         // First write: Create a file with 2 entries
         try (DayListingFileWriter writer = new DayListingFileWriter(tempDir, year, month, day)) {
-            writer.writeRecordFile(createTestRecordFile("record0.0.3/2024-01-15T10_00_00.123456789Z.rcd.gz", 2024, 1, 15, 10, 0, 0));
-            writer.writeRecordFile(createTestRecordFile("record0.0.3/2024-01-15T10_00_01.987654321Z.rcd.gz", 2024, 1, 15, 10, 0, 1));
+            writer.writeRecordFile(
+                    createTestRecordFile("record0.0.3/2024-01-15T10_00_00.123456789Z.rcd.gz", 2024, 1, 15, 10, 0, 0));
+            writer.writeRecordFile(
+                    createTestRecordFile("record0.0.3/2024-01-15T10_00_01.987654321Z.rcd.gz", 2024, 1, 15, 10, 0, 1));
         }
 
         Path listingFile = ListingRecordFile.getFileForDay(tempDir, year, month, day);
@@ -52,7 +53,8 @@ class DayListingFileWriterTest {
         // Second write: Write 1 entry to the same file
         // Without TRUNCATE_EXISTING, this would append and corrupt the file
         try (DayListingFileWriter writer = new DayListingFileWriter(tempDir, year, month, day)) {
-            writer.writeRecordFile(createTestRecordFile("record0.0.3/2024-01-15T10_00_02.111111111Z.rcd.gz", 2024, 1, 15, 10, 0, 2));
+            writer.writeRecordFile(
+                    createTestRecordFile("record0.0.3/2024-01-15T10_00_02.111111111Z.rcd.gz", 2024, 1, 15, 10, 0, 2));
         }
 
         long secondSize = Files.size(listingFile);
@@ -76,9 +78,12 @@ class DayListingFileWriterTest {
 
         // Write 3 entries
         try (DayListingFileWriter writer = new DayListingFileWriter(tempDir, year, month, day)) {
-            writer.writeRecordFile(createTestRecordFile("record0.0.3/2024-03-10T08_00_00.000000000Z.rcd.gz", 2024, 3, 10, 8, 0, 0));
-            writer.writeRecordFile(createTestRecordFile("record0.0.3/2024-03-10T08_00_01.000000000Z.rcd.gz", 2024, 3, 10, 8, 0, 1));
-            writer.writeRecordFile(createTestRecordFile("record0.0.3/2024-03-10T08_00_02.000000000Z.rcd.gz", 2024, 3, 10, 8, 0, 2));
+            writer.writeRecordFile(
+                    createTestRecordFile("record0.0.3/2024-03-10T08_00_00.000000000Z.rcd.gz", 2024, 3, 10, 8, 0, 0));
+            writer.writeRecordFile(
+                    createTestRecordFile("record0.0.3/2024-03-10T08_00_01.000000000Z.rcd.gz", 2024, 3, 10, 8, 0, 1));
+            writer.writeRecordFile(
+                    createTestRecordFile("record0.0.3/2024-03-10T08_00_02.000000000Z.rcd.gz", 2024, 3, 10, 8, 0, 2));
         }
 
         Path listingFile = ListingRecordFile.getFileForDay(tempDir, year, month, day);
@@ -91,12 +96,13 @@ class DayListingFileWriterTest {
         }
     }
 
-    private ListingRecordFile createTestRecordFile(String path, int year, int month, int day, int hour, int minute, int second) {
+    private ListingRecordFile createTestRecordFile(
+            String path, int year, int month, int day, int hour, int minute, int second) {
         return new ListingRecordFile(
                 path,
                 LocalDateTime.of(year, month, day, hour, minute, second),
                 1000, // sizeBytes
                 "00112233445566778899aabbccddeeff" // md5Hex (32 chars)
-        );
+                );
     }
 }
