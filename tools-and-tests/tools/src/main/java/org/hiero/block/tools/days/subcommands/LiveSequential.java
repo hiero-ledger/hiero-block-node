@@ -1384,9 +1384,17 @@ public class LiveSequential implements Runnable {
             if (group == null || group.isEmpty()) {
                 System.out.println("[live-sequential] No files found for block " + nextBlockNumber + " at time "
                         + blockTime + ", fixing block times...");
-                FixBlockTime.fixBlockTimeRange(MetadataFiles.BLOCK_TIMES_FILE, nextBlockNumber, nextBlockNumber + 100);
-                state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
-                return null;
+                int fixedCount = FixBlockTime.fixBlockTimeRange(MetadataFiles.BLOCK_TIMES_FILE, nextBlockNumber, nextBlockNumber + 100);
+                if (fixedCount > 0) {
+                    // Block times were fixed, reload and retry
+                    state.blockTimeReader = new BlockTimeReader(MetadataFiles.BLOCK_TIMES_FILE);
+                    return null;
+                } else {
+                    // No block times were fixed, files are genuinely missing or not uploaded yet
+                    throw new RuntimeException("No record files found for block " + nextBlockNumber
+                            + " at time " + blockTime + " and block time could not be fixed. "
+                            + "The block may not be available yet (live edge) or may be missing from the network.");
+                }
             }
         }
 
