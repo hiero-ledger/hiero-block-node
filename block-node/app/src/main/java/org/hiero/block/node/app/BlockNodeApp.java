@@ -66,9 +66,15 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.metrics.ObservableGauge;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
+import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 
 /** Main class for the block node server */
-public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
+public class BlockNodeApp implements HealthFacility, ApplicationStateFacility, BlockNotificationHandler {
     /** Constant mapped to PbjProtocolProvider.CONFIG_NAME in the PBJ Helidon Plugin */
     public static final String PBJ_PROTOCOL_PROVIDER_CONFIG_NAME = "pbj";
     /** Metric key for the oldest historical block available */
@@ -90,6 +96,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private final ServerConfig serverConfig;
     /** The historical block node facility */
     private final HistoricalBlockFacilityImpl historicalBlockFacility;
+    /** The set of available blocks. */
+    private final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
+    /** Atomic integer to keep track of updates since last disk persistence. */
+    private final AtomicInteger blocksSinceLastSave = new AtomicInteger(0);
     /** Should the shutdown() method exit the JVM. */
     private final boolean shouldExitJvmOnShutdown;
 
@@ -302,6 +312,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         webServer.start();
         // start the ApplicationStateFacility
         startApplicationStateFacility();
+        // Register BlockNodeApp as notification handler to listen to persisted notifications
+        blockNodeContext.blockMessaging().registerBlockNotificationHandler(this, false, "BlockNodeApp");
         // start the plugins
         startPlugins(loadedPlugins);
         // mark the server as started
@@ -436,6 +448,16 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
         // ==== LOAD APPLICATION STATE =================================================================================
         loadApplicationState(blockNodeContext.configuration());
+        if (availableBlocks.size() == 0) {
+            BlockRangeSet fallbackRanges = historicalBlockFacility.getCombinedProvidersRangeSet();
+            if (fallbackRanges != null) {
+                fallbackRanges.streamRanges().forEach(range -> {
+                    availableBlocks.add(range.start(), range.end());
+                });
+                LOGGER.log(INFO, "Populated initial block ranges from providers: {0} blocks", availableBlocks.size());
+                persistBlockRanges();
+            }
+        }
 
         // Flush any state loaded from disk (TssData queue + pending address book) into blockNodeContext
         // synchronously now, so plugins see the correct context when startPlugins() is called next.
@@ -486,6 +508,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Thread.currentThread().interrupt();
             }
         }
+        persistBlockRanges();
     }
 
     /**
@@ -641,6 +664,104 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Files.createDirectories(parent);
             } catch (IOException e) {
                 LOGGER.log(ERROR, "Failed to create RSA bootstrap directory: " + parent, e);
+            }
+        }
+        loadBlockRanges(configuration);
+    }
+
+    private void loadBlockRanges(Configuration configuration) {
+        final Path blockRangesPath =
+                configuration.getConfigData(NodeConfig.class).blockRangesStateFilePath();
+        if (Files.exists(blockRangesPath)) {
+            try {
+                byte[] data = Files.readAllBytes(blockRangesPath);
+                if (data.length >= 4) {
+                    ByteBuffer buffer = ByteBuffer.wrap(data);
+                    int rangeCount = buffer.getInt();
+                    for (int i = 0; i < rangeCount; i++) {
+                        if (buffer.remaining() >= 16) {
+                            long start = buffer.getLong();
+                            long end = buffer.getLong();
+                            availableBlocks.add(start, end);
+                        }
+                    }
+                    LOGGER.log(INFO, "Loaded {0} block ranges containing {1} blocks from {2}", rangeCount, availableBlocks.size(), blockRangesPath);
+                }
+            } catch (IOException e) {
+                LOGGER.log(ERROR, "Failed to read block ranges from file: " + blockRangesPath, e);
+            }
+        }
+    }
+
+    private void persistBlockRanges() {
+        if (blockNodeContext == null) return;
+        final Path blockRangesPath =
+                blockNodeContext.configuration().getConfigData(NodeConfig.class).blockRangesStateFilePath();
+        try {
+            Files.createDirectories(blockRangesPath.getParent());
+            List<LongRange> ranges = availableBlocks.streamRanges().toList();
+            int rangeCount = ranges.size();
+            ByteBuffer buffer = ByteBuffer.allocate(4 + rangeCount * 16);
+            buffer.putInt(rangeCount);
+            for (LongRange range : ranges) {
+                buffer.putLong(range.start());
+                buffer.putLong(range.end());
+            }
+            Files.write(blockRangesPath, buffer.array());
+            LOGGER.log(INFO, "Persisted block ranges containing {0} blocks to {1}", availableBlocks.size(), blockRangesPath);
+        } catch (IOException e) {
+            LOGGER.log(
+                    WARNING,
+                    "Failed to persist block ranges to %s: %s".formatted(blockRangesPath, e),
+                    e);
+        }
+    }
+
+    @Override
+    public void addBlock(long blockNumber) {
+        availableBlocks.add(blockNumber);
+        triggerSaveOnInterval();
+    }
+
+    @Override
+    public void addRange(long start, long end) {
+        availableBlocks.add(start, end);
+        triggerSaveOnInterval();
+    }
+
+    @Override
+    public void removeBlock(long blockNumber) {
+        availableBlocks.remove(blockNumber);
+        triggerSaveOnInterval();
+    }
+
+    @Override
+    public void removeRange(long start, long end) {
+        availableBlocks.remove(start, end);
+        triggerSaveOnInterval();
+    }
+
+    @Override
+    public BlockRangeSet availableBlocks() {
+        return availableBlocks;
+    }
+
+    @Override
+    public void handlePersisted(final PersistedNotification notification) {
+        if (notification != null && notification.succeeded()) {
+            addBlock(notification.blockNumber());
+        }
+    }
+
+    private void triggerSaveOnInterval() {
+        NodeConfig config = blockNodeContext.configuration().getConfigData(NodeConfig.class);
+        int interval = config.blockRangesSaveInterval();
+        if (blocksSinceLastSave.incrementAndGet() >= interval) {
+            blocksSinceLastSave.set(0);
+            if (applicationStateExecutor != null) {
+                applicationStateExecutor.submit(this::persistBlockRanges);
+            } else {
+                persistBlockRanges();
             }
         }
     }

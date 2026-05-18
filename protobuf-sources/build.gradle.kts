@@ -25,11 +25,12 @@ val generateBlockNodeProtoArtifact: TaskProvider<Exec> =
         group = "protobuf"
 
         workingDir(layout.projectDirectory)
+        val projectDirUnix = layout.projectDirectory.toString().replace('\\', '/')
         // run build-bn-proto.sh skipping inclusion of BN API as it messes up proto considerations
         commandLine(
             "sh",
             "-c",
-            "${layout.projectDirectory}/scripts/build-bn-proto.sh -t v$cnVersion -v ${project.version} -o ${layout.projectDirectory}/block-node-protobuf -i true -b ${layout.projectDirectory}/src/main/proto/",
+            "$projectDirUnix/scripts/build-bn-proto.sh -t v$cnVersion -v ${project.version} -o $projectDirUnix/block-node-protobuf -i true -b $projectDirUnix/src/main/proto/",
         )
     }
 
