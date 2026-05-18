@@ -6,13 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import io.minio.GetObjectArgs;
-import io.minio.ListObjectsArgs;
-import io.minio.MakeBucketArgs;
-import io.minio.MinioClient;
-import io.minio.PutObjectArgs;
-import io.minio.errors.MinioException;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -41,12 +34,12 @@ public class S3ClientTest {
     private static final String MINIO_ROOT_PASSWORD = "minioadmin";
     private static final String REGION_NAME = "us-east-1";
     private GenericContainer<?> minioContainer;
-    private MinioClient minioClient;
+    private S3Client adminS3Client;
     private String endpoint;
 
     @SuppressWarnings({"resource", "HttpUrlsUsage"})
     @BeforeAll
-    void setup() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
+    void setup() throws S3ClientException, IOException, GeneralSecurityException {
         // Start MinIO container
         minioContainer = new GenericContainer<>("minio/minio:latest")
                 .withCommand("server /data")
@@ -54,18 +47,21 @@ public class S3ClientTest {
                 .withEnv("MINIO_ROOT_USER", MINIO_ROOT_USER)
                 .withEnv("MINIO_ROOT_PASSWORD", MINIO_ROOT_PASSWORD);
         minioContainer.start();
-        // Initialize MinIO client
+        // Initialize S3 admin client
         endpoint = "http://" + minioContainer.getHost() + ":" + minioContainer.getMappedPort(MINIO_ROOT_PORT);
-        minioClient = MinioClient.builder()
-                .endpoint(endpoint)
-                .credentials(MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)
-                .build();
+        adminS3Client = new S3Client(REGION_NAME, endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD);
         // Create a bucket
-        minioClient.makeBucket(MakeBucketArgs.builder().bucket(BUCKET_NAME).build());
+        adminS3Client.createBucket();
     }
 
     @AfterAll
     void teardown() {
+        if (adminS3Client != null) {
+            try {
+                adminS3Client.close();
+            } catch (final Exception ignored) {
+            }
+        }
         if (minioContainer != null) {
             minioContainer.stop();
         }
@@ -78,7 +74,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test listObjects() correctly returns existing objects in a bucket")
-    void testList() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
+    void testList() throws S3ClientException, IOException, GeneralSecurityException {
         // Setup
         final String content = "Hello, MinIO!";
         final String keyPrefix = "block-";
@@ -89,20 +85,11 @@ public class S3ClientTest {
                 keyPrefix.concat("3.txt"),
                 keyPrefix.concat("4.txt"));
         // verify that the bucket is empty before the test
-        final boolean preCheck = minioClient
-                .listObjects(ListObjectsArgs.builder()
-                        .bucket(BUCKET_NAME)
-                        .prefix(keyPrefix)
-                        .maxKeys(100)
-                        .build())
-                .iterator()
-                .hasNext();
+        final boolean preCheck = !adminS3Client.listObjects(keyPrefix, 100).isEmpty();
         assertThat(preCheck).isFalse();
         // upload objects to the bucket
         for (final String object : expected) {
-            minioClient.putObject(PutObjectArgs.builder().bucket(BUCKET_NAME).object(object).stream(
-                            new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)), content.length(), -1)
-                    .build());
+            adminS3Client.uploadObject(object, "STANDARD", content.getBytes(StandardCharsets.UTF_8), "text/plain");
         }
         try (final S3Client s3Client = client()) {
             // Call
@@ -138,23 +125,16 @@ public class S3ClientTest {
      * S3Client works correctly. We manually build 3 parts of a file and then
      * proceed to upload them using the multipart upload API of the S3Client.
      * Then we verify that the data exists in the bucket by downloading it
-     * via the MinIO client and checking that the content matches what we
+     * via the S3Client and checking that the content matches what we
      * uploaded.
      */
     @Test
     @DisplayName("Test multipart upload")
-    void testMultipartUpload() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
+    void testMultipartUpload() throws S3ClientException, IOException, GeneralSecurityException {
         // Setup
         final String key = "testMultipartUploadSuccess.txt";
         // check that the object does not exist before the test
-        final boolean preCheck = minioClient
-                .listObjects(ListObjectsArgs.builder()
-                        .bucket(BUCKET_NAME)
-                        .prefix(key)
-                        .maxKeys(100)
-                        .build())
-                .iterator()
-                .hasNext();
+        final boolean preCheck = !adminS3Client.listObjects(key, 100).isEmpty();
         assertThat(preCheck).isFalse();
         final Random random = new Random(23131535653443L);
         final byte[] part1 = new byte[5 * 1024 * 1024];
@@ -173,11 +153,8 @@ public class S3ClientTest {
             s3Client.completeMultipartUpload(key, uploadId, eTags);
         }
         // Assert
-        // download with a minio client
-        byte[] actual = minioClient
-                .getObject(
-                        GetObjectArgs.builder().bucket(BUCKET_NAME).object(key).build())
-                .readAllBytes();
+        // download with a client
+        byte[] actual = adminS3Client.downloadObject(key);
         // Verify the content
         byte[] expected = new byte[part1.length + part2.length + part3.length];
         System.arraycopy(part1, 0, expected, 0, part1.length);
@@ -193,19 +170,12 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test upload of a large file")
-    void testUploadFile() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
+    void testUploadFile() throws S3ClientException, IOException, GeneralSecurityException {
         // Setup
         final int testContentSize = 8 * 1024 * 1024 + 826;
         final String key = "uploadOfLargeFileSuccessful.txt";
         // check that the object does not exist before the test
-        final boolean preCheck = minioClient
-                .listObjects(ListObjectsArgs.builder()
-                        .bucket(BUCKET_NAME)
-                        .prefix(key)
-                        .maxKeys(100)
-                        .build())
-                .iterator()
-                .hasNext();
+        final boolean preCheck = !adminS3Client.listObjects(key, 100).isEmpty();
         assertThat(preCheck).isFalse();
         // create sample string data
         final StringBuilder contentBuilder = new StringBuilder();
@@ -232,11 +202,8 @@ public class S3ClientTest {
         try (final S3Client s3Client = client()) {
             s3Client.uploadFile(key, "STANDARD", parts.iterator(), "plain/text");
         }
-        // download with a minio client
-        final byte[] actual = minioClient
-                .getObject(
-                        GetObjectArgs.builder().bucket(BUCKET_NAME).object(key).build())
-                .readAllBytes();
+        // download with a client
+        final byte[] actual = adminS3Client.downloadObject(key);
         // Verify the content
         assertThat(actual)
                 .hasSameSizeAs(expected)
@@ -255,33 +222,21 @@ public class S3ClientTest {
     @Test
     @DisplayName("Test upload and download of a text file")
     void testTextFileUploadAndDownload()
-            throws S3ClientException, IOException, GeneralSecurityException, MinioException {
+            throws S3ClientException, IOException, GeneralSecurityException {
         // Setup
         final String key = "uploadSimpleTextFile.txt";
         final String expected = "Hello, MinIO!";
         // verify that the file does not exist in the bucket before the test
-        final boolean preCheck = minioClient
-                .listObjects(ListObjectsArgs.builder()
-                        .bucket(BUCKET_NAME)
-                        .prefix(key)
-                        .maxKeys(100)
-                        .build())
-                .iterator()
-                .hasNext();
+        final boolean preCheck = !adminS3Client.listObjects(key, 100).isEmpty();
         assertThat(preCheck).isFalse();
         try (final S3Client s3Client = client()) {
             // upload text file via the client
             assertDoesNotThrow(() -> s3Client.uploadTextFile(key, "STANDARD", expected));
-            // check download with minio client
+            // check download with admin client
             assertEquals(
                     expected,
                     new String(
-                            minioClient
-                                    .getObject(GetObjectArgs.builder()
-                                            .bucket(BUCKET_NAME)
-                                            .object(key)
-                                            .build())
-                                    .readAllBytes(),
+                            adminS3Client.downloadObject(key),
                             StandardCharsets.UTF_8),
                     "Downloaded content does not match expected content");
             // check download with s3 client
@@ -296,7 +251,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test listMultipartUpload() will correctly return existing multipart uploads")
-    void testListMultipartUploads() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
+    void testListMultipartUploads() throws S3ClientException, IOException, GeneralSecurityException {
         // Setup
         final String key = "testListMultipartUploads.txt";
         try (final S3Client s3Client = client()) {
@@ -332,7 +287,7 @@ public class S3ClientTest {
     @Test
     @DisplayName("Test listMultipartUpload() will correctly return existing multipart uploads")
     void testListMultipartUploadsMultiKeyValue()
-            throws S3ClientException, IOException, GeneralSecurityException, MinioException {
+            throws S3ClientException, IOException, GeneralSecurityException {
         // Setup
         final String key1 = "testListMultipartUploads1.txt";
         final String key2 = "testListMultipartUploads2.txt";
@@ -367,7 +322,7 @@ public class S3ClientTest {
      */
     @Test
     @DisplayName("Test abortMultipartUpload() will correctly abort an existing multipart upload")
-    void testAbortMultipartUpload() throws S3ClientException, IOException, GeneralSecurityException, MinioException {
+    void testAbortMultipartUpload() throws S3ClientException, IOException, GeneralSecurityException {
         // Setup
         final String key = "testAbortMultipartUpload.txt";
         try (final S3Client s3Client = client()) {
@@ -410,7 +365,7 @@ public class S3ClientTest {
     @Test
     @DisplayName("Test abortMultipartUpload() will correctly abort an existing multipart upload with multiple parts")
     void testAbortMultipartUploadMultiKeyValue()
-            throws S3ClientException, IOException, GeneralSecurityException, MinioException {
+            throws S3ClientException, IOException, GeneralSecurityException {
         // Setup
         final String key1 = "testAbortMultipartUploads1.txt";
         final String key2 = "testAbortMultipartUploads2.txt";

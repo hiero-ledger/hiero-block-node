@@ -20,6 +20,5 @@ testModuleInfo {
     requires("org.assertj.core")
     requires("org.mockito")
     requires("org.testcontainers")
-    requires("io.minio")
     requires("org.hiero.block.protobuf.pbj")
 }

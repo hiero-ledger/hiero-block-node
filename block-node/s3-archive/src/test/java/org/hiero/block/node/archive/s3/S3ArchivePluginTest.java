@@ -10,14 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.minio.BucketExistsArgs;
-import io.minio.DownloadObjectArgs;
-import io.minio.GetObjectArgs;
-import io.minio.ListObjectsArgs;
-import io.minio.MakeBucketArgs;
-import io.minio.MinioClient;
-import io.minio.RemoveBucketArgs;
-import io.minio.errors.MinioException;
+import org.hiero.block.node.base.s3.S3Client;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -67,13 +60,13 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
     private static final String MINIO_ROOT_PASSWORD = "minioadmin";
     private static final Duration ONE_DAY = Duration.of(1, ChronoUnit.DAYS);
     private static final long TASK_AWAIT_NANOS = 500_000_000L;
-    private final MinioClient minioClient;
+    private final S3Client adminS3Client;
 
     /** The custom log handler used to capture log messages. */
     private final TestLogHandler logHandler;
 
     @SuppressWarnings("resource")
-    public S3ArchivePluginTest() throws GeneralSecurityException, IOException, MinioException {
+    public S3ArchivePluginTest() throws IOException {
         super(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
         // set-up logger
         Logger logger = Logger.getLogger(S3ArchivePlugin.class.getName());
@@ -89,12 +82,9 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
                 .withEnv("MINIO_ROOT_USER", MINIO_ROOT_USER)
                 .withEnv("MINIO_ROOT_PASSWORD", MINIO_ROOT_PASSWORD);
         minioContainer.start();
-        // Initialize MinIO client
+        // Initialize S3 admin client
         String endpoint = "http://" + minioContainer.getHost() + ":" + minioContainer.getMappedPort(MINIO_ROOT_PORT);
-        minioClient = MinioClient.builder()
-                .endpoint(endpoint)
-                .credentials(MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)
-                .build();
+        adminS3Client = new S3Client("us-east-1", endpoint, BUCKET_NAME, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD);
         // Create a bucket
         createTestBucket();
         // Initialize the plugin and set any required configuration
@@ -249,19 +239,18 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
         assertEquals(0, skippedBatchesLogs, "Should appear 0 times");
     }
 
-    private void createTestBucket() throws GeneralSecurityException, IOException, MinioException {
-        minioClient.makeBucket(MakeBucketArgs.builder().bucket(BUCKET_NAME).build());
+    private void createTestBucket() throws IOException {
+        adminS3Client.createBucket();
         assertTrue(testBucketExists());
     }
 
-    private void removeTestBucket() throws GeneralSecurityException, IOException, MinioException {
-        minioClient.removeBucket(RemoveBucketArgs.builder().bucket(BUCKET_NAME).build());
+    private void removeTestBucket() throws IOException {
+        adminS3Client.deleteBucket();
         assertFalse(testBucketExists());
     }
 
-    private boolean testBucketExists() throws GeneralSecurityException, IOException, MinioException {
-        return minioClient.bucketExists(
-                BucketExistsArgs.builder().bucket(BUCKET_NAME).build());
+    private boolean testBucketExists() throws IOException {
+        return adminS3Client.bucketExists();
     }
 
     /**
@@ -271,22 +260,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
      */
     private Set<String> getAllObjects() {
         try {
-            return StreamSupport.stream(
-                            minioClient
-                                    .listObjects(ListObjectsArgs.builder()
-                                            .bucket(BUCKET_NAME)
-                                            .recursive(true)
-                                            .build())
-                                    .spliterator(),
-                            false)
-                    .map(result -> {
-                        try {
-                            return result.get().objectName();
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                    })
-                    .collect(Collectors.toSet());
+            return new java.util.HashSet<>(adminS3Client.listObjects("", 1000));
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -300,12 +274,8 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
     private String getLastArchivedBlockFile() {
         try {
             // read the lastest block file and check its content
-            return new String(minioClient
-                    .getObject(GetObjectArgs.builder()
-                            .bucket(BUCKET_NAME)
-                            .object(LATEST_ARCHIVED_BLOCK_FILE)
-                            .build())
-                    .readAllBytes());
+            byte[] bytes = adminS3Client.downloadObject(LATEST_ARCHIVED_BLOCK_FILE);
+            return bytes == null ? null : new String(bytes, StandardCharsets.UTF_8);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -319,11 +289,8 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
      */
     private void downloadFile(String objectName, Path destFile) {
         try {
-            minioClient.downloadObject(DownloadObjectArgs.builder()
-                    .bucket(BUCKET_NAME)
-                    .object(objectName)
-                    .filename(destFile.toAbsolutePath().toString())
-                    .build());
+            byte[] bytes = adminS3Client.downloadObject(objectName);
+            Files.write(destFile, bytes);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

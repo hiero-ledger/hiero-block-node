@@ -812,6 +812,155 @@ public final class S3Client implements AutoCloseable {
     }
 
     /**
+     * Creates the bucket configured for this S3Client.
+     *
+     * @throws S3ResponseException if a non-200 response is received from S3
+     * @throws IOException if an error occurs during the HTTP call
+     */
+    public void createBucket() throws S3ResponseException, IOException {
+        final String url = endpoint + bucketName;
+        final HttpResponse<InputStream> response =
+                request(url, PUT, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
+        final int responseStatusCode = response.statusCode();
+        try (final InputStream in = response.body()) {
+            if (responseStatusCode != 200) {
+                final byte[] responseBody = in.readNBytes(ERROR_BODY_MAX_LENGTH);
+                throw new S3ResponseException(responseStatusCode, responseBody, response.headers(), "Failed to create bucket: " + bucketName);
+            }
+        }
+    }
+
+    /**
+     * Deletes the bucket configured for this S3Client.
+     *
+     * @throws S3ResponseException if a non-200/204 response is received from S3
+     * @throws IOException if an error occurs during the HTTP call
+     */
+    public void deleteBucket() throws S3ResponseException, IOException {
+        final String url = endpoint + bucketName;
+        final HttpResponse<InputStream> response =
+                request(url, DELETE, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
+        final int responseStatusCode = response.statusCode();
+        try (final InputStream in = response.body()) {
+            if (responseStatusCode != 200 && responseStatusCode != 204) {
+                final byte[] responseBody = in.readNBytes(ERROR_BODY_MAX_LENGTH);
+                throw new S3ResponseException(responseStatusCode, responseBody, response.headers(), "Failed to delete bucket: " + bucketName);
+            }
+        }
+    }
+
+    /**
+     * Checks if the bucket configured for this S3Client exists.
+     *
+     * @return true if the bucket exists, false if it does not
+     * @throws S3ResponseException if an unexpected error response is received from S3
+     * @throws IOException if an error occurs during the HTTP call
+     */
+    public boolean bucketExists() throws S3ResponseException, IOException {
+        // Send a GET request to list objects with max-keys=0 to check bucket existence
+        final String url = endpoint + bucketName + "/?max-keys=0";
+        final HttpResponse<InputStream> response =
+                request(url, GET, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
+        final int responseStatusCode = response.statusCode();
+        try (final InputStream in = response.body()) {
+            if (responseStatusCode == 200) {
+                return true;
+            } else if (responseStatusCode == 404) {
+                return false;
+            } else {
+                final byte[] responseBody = in.readNBytes(ERROR_BODY_MAX_LENGTH);
+                throw new S3ResponseException(responseStatusCode, responseBody, response.headers(), "Failed to check if bucket exists: " + bucketName);
+            }
+        }
+    }
+
+    /**
+     * Deletes an object in the S3 bucket.
+     *
+     * @param key the object key, cannot be blank
+     * @throws S3ResponseException if a non-200/204 response is received from S3
+     * @throws IOException if an error occurs during the HTTP call
+     */
+    public void deleteObject(@NonNull final String key) throws S3ResponseException, IOException {
+        Preconditions.requireNotBlank(key);
+        final String url = endpoint + bucketName + "/" + urlEncode(key, true);
+        final HttpResponse<InputStream> response =
+                request(url, DELETE, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
+        final int responseStatusCode = response.statusCode();
+        try (final InputStream in = response.body()) {
+            if (responseStatusCode != 200 && responseStatusCode != 204) {
+                final byte[] responseBody = in.readNBytes(ERROR_BODY_MAX_LENGTH);
+                throw new S3ResponseException(responseStatusCode, responseBody, response.headers(), "Failed to delete object: key=" + key);
+            }
+        }
+    }
+
+    /**
+     * Uploads an object to S3 as a byte array (single part).
+     *
+     * @param key the key for the object in S3, cannot be blank
+     * @param storageClass the storage class, cannot be blank
+     * @param contentData the bytes to upload, cannot be null
+     * @param contentType the content type, cannot be blank
+     * @throws S3ResponseException if a non-200 response is received from S3
+     * @throws IOException if an error occurs during the HTTP call
+     */
+    public void uploadObject(
+            @NonNull final String key,
+            @NonNull final String storageClass,
+            @NonNull final byte[] contentData,
+            @NonNull final String contentType)
+            throws S3ResponseException, IOException {
+        Preconditions.requireNotBlank(key);
+        Preconditions.requireNotBlank(storageClass);
+        Objects.requireNonNull(contentData);
+        Preconditions.requireNotBlank(contentType);
+
+        final Map<String, String> headers = new HashMap<>();
+        headers.put("content-length", Integer.toString(contentData.length));
+        headers.put("content-type", contentType);
+        headers.put("x-amz-storage-class", storageClass);
+        headers.put("x-amz-content-sha256", base64(sha256(contentData)));
+
+        final String url = endpoint + bucketName + "/" + urlEncode(key, true);
+        final HttpResponse<InputStream> response =
+                request(url, PUT, headers, contentData, BodyHandlers.ofInputStream());
+        final int responseStatusCode = response.statusCode();
+        try (final InputStream in = response.body()) {
+            if (responseStatusCode != 200) {
+                final byte[] responseBody = in.readNBytes(ERROR_BODY_MAX_LENGTH);
+                throw new S3ResponseException(responseStatusCode, responseBody, response.headers(), "Failed to upload object: key=" + key);
+            }
+        }
+    }
+
+    /**
+     * Downloads an object from S3 as a byte array.
+     *
+     * @param key the object key, cannot be blank
+     * @return the bytes of the object, or null if the object does not exist
+     * @throws S3ResponseException if a non-200/404 response is received from S3
+     * @throws IOException if an error occurs during the HTTP call
+     */
+    public byte[] downloadObject(@NonNull final String key) throws S3ResponseException, IOException {
+        Preconditions.requireNotBlank(key);
+        final String url = endpoint + bucketName + "/" + urlEncode(key, true);
+        final HttpResponse<InputStream> response =
+                request(url, GET, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
+        final int responseStatusCode = response.statusCode();
+        try (final InputStream in = response.body()) {
+            if (responseStatusCode == 404) {
+                return null;
+            } else if (responseStatusCode != 200) {
+                final byte[] responseBody = in.readNBytes(ERROR_BODY_MAX_LENGTH);
+                throw new S3ResponseException(responseStatusCode, responseBody, response.headers(), "Failed to download object: key=" + key);
+            } else {
+                return in.readAllBytes();
+            }
+        }
+    }
+
+    /**
      * This method parses an XML document from an input stream. Uses the
      * configured {@link DocumentBuilderFactory}.
      *

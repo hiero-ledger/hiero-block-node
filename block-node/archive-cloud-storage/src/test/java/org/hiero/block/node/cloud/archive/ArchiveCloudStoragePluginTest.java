@@ -13,14 +13,7 @@ import com.hedera.pbj.runtime.OneOf;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
-import io.minio.BucketExistsArgs;
-import io.minio.ListObjectsArgs;
-import io.minio.MakeBucketArgs;
-import io.minio.MinioClient;
-import io.minio.RemoveObjectArgs;
-import io.minio.Result;
-import io.minio.errors.MinioException;
-import io.minio.messages.Item;
+// Removed Minio imports
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
@@ -81,23 +74,19 @@ class ArchiveCloudStoragePluginTest {
             .withEnv("MINIO_ROOT_USER", MINIO_USER)
             .withEnv("MINIO_ROOT_PASSWORD", MINIO_PASSWORD);
 
-    /// The MinIO client connected to [MINIO_CONTAINER].
-    private static MinioClient minioClient;
+    /// The S3 client connected to [MINIO_CONTAINER].
+    private static org.hiero.block.node.base.s3.S3Client adminS3Client;
 
     /// The HTTP endpoint of [MINIO_CONTAINER].
     private static String minioEndpoint;
 
     @BeforeAll
-    static void startMinio() throws GeneralSecurityException, IOException, MinioException {
+    static void startMinio() throws IOException {
         MINIO_CONTAINER.start();
         minioEndpoint = "http://" + MINIO_CONTAINER.getHost() + ":" + MINIO_CONTAINER.getMappedPort(MINIO_PORT);
-        minioClient = MinioClient.builder()
-                .endpoint(minioEndpoint)
-                .credentials(MINIO_USER, MINIO_PASSWORD)
-                .build();
-        minioClient.makeBucket(MakeBucketArgs.builder().bucket(BUCKET_NAME).build());
-        assertTrue(minioClient.bucketExists(
-                BucketExistsArgs.builder().bucket(BUCKET_NAME).build()));
+        adminS3Client = new org.hiero.block.node.base.s3.S3Client("us-east-1", minioEndpoint, BUCKET_NAME, MINIO_USER, MINIO_PASSWORD);
+        adminS3Client.createBucket();
+        assertTrue(adminS3Client.bucketExists());
     }
 
     @AfterAll
@@ -108,24 +97,14 @@ class ArchiveCloudStoragePluginTest {
     /// Removes all objects from the test bucket before each test so tests do not see each other's uploads.
     @BeforeEach
     void clearBucket() throws Exception {
-        for (final Result<Item> result : minioClient.listObjects(
-                ListObjectsArgs.builder().bucket(BUCKET_NAME).recursive(true).build())) {
-            minioClient.removeObject(RemoveObjectArgs.builder()
-                    .bucket(BUCKET_NAME)
-                    .object(result.get().objectName())
-                    .build());
+        for (final String object : adminS3Client.listObjects("", 1000)) {
+            adminS3Client.deleteObject(object);
         }
     }
 
     /// Returns all object keys currently in the test bucket.
     private static Set<String> getAllObjects() throws Exception {
-        final Iterable<Result<Item>> results = minioClient.listObjects(
-                ListObjectsArgs.builder().bucket(BUCKET_NAME).recursive(true).build());
-        final Set<String> keys = new HashSet<>();
-        for (final Result<Item> result : results) {
-            keys.add(result.get().objectName());
-        }
-        return keys;
+        return new HashSet<>(adminS3Client.listObjects("", 1000));
     }
 
     /// Returns the config map used to initialise the plugin under test with a 10 MB part size.
