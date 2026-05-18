@@ -275,7 +275,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
         try {
             // read the lastest block file and check its content
             byte[] bytes = adminS3Client.downloadObject(LATEST_ARCHIVED_BLOCK_FILE);
-            return bytes == null ? null : new String(bytes, StandardCharsets.UTF_8);
+            return bytes == null ? null : new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
