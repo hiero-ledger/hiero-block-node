@@ -29,7 +29,7 @@ import org.hiero.block.node.base.Loggable;
 public record ServerConfig(
         @Loggable @ConfigProperty(defaultValue = "131_072_000")
             @Min(1_048_576) @Max(1_610_612_736) int maxMessageSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "8_388_608")
+        @Loggable @ConfigProperty(defaultValue = "131_072")
             @Min(32768) @Max(Integer.MAX_VALUE) int socketSendBufferSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "8_388_608")
             @Min(32768) @Max(Integer.MAX_VALUE) int socketReceiveBufferSizeBytes,
@@ -41,5 +41,5 @@ public record ServerConfig(
         @Loggable @ConfigProperty(defaultValue = "30") int idleConnectionTimeoutMinutes,
         @Loggable @ConfigProperty(defaultValue = "true") boolean tcpNoDelay,
         @Loggable @ConfigProperty(defaultValue = "8_192") int backlogSize,
-        @Loggable @ConfigProperty(defaultValue = "32_768") int writeQueueLength) {}
+        @Loggable @ConfigProperty(defaultValue = "8_192") int writeQueueLength) {}
 // spotless:on
