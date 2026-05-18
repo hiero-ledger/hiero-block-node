@@ -7,6 +7,8 @@ import static java.lang.System.Logger.Level.WARNING;
 
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.pbj.runtime.ParseException;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -162,7 +164,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             outer:
             while (nextUrl != null) {
                 final MirrorNodeNodesResponse response = fetchAndParseWithRetry(client, nextUrl);
-                for (final MirrorNodeNodesResponse.NodeEntry entry : response.nodes()) {
+                for (final NodeEntry entry : response.nodes()) {
                     // A non-null timestamp.to means this entry has been superseded — all subsequent
                     // entries (in descending order) are also historical; stop here.
                     if (entry.timestamp() != null && entry.timestamp().to() != null) {
@@ -183,7 +185,8 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                     addresses.add(addr);
                 }
                 // Mirror Node may return a relative path; resolve it against the configured base URL.
-                final String rawNext = response.nextLink();
+                final String rawNext =
+                        response.links() == null ? null : response.links().next();
                 nextUrl = (rawNext == null)
                         ? null
                         : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
@@ -232,11 +235,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 if (response.statusCode() != 200) {
                     throw new IOException("HTTP " + response.statusCode() + " from " + url);
                 }
-                return MirrorNodeNodesResponse.parse(response.body());
+                return MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(response.body()));
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 lastCause = ie;
-            } catch (IOException | RuntimeException e) {
+            } catch (IOException | RuntimeException | ParseException e) {
                 lastCause = e;
             }
         }
