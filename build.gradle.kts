@@ -43,5 +43,8 @@ subprojects {
 
         // Docker 29 requires API >= 1.44
         systemProperty("api.version", "1.44")
+
+        // Fix Windows Testcontainers JNA JPMS issue on Java 25
+        jvmArgs("--add-reads", "com.github.dockerjava.transport=com.sun.jna")
     }
 }

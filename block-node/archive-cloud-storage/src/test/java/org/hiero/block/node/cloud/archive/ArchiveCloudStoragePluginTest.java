@@ -85,7 +85,18 @@ class ArchiveCloudStoragePluginTest {
         MINIO_CONTAINER.start();
         minioEndpoint = "http://" + MINIO_CONTAINER.getHost() + ":" + MINIO_CONTAINER.getMappedPort(MINIO_PORT);
         adminS3Client = new org.hiero.block.node.base.s3.S3Client("us-east-1", minioEndpoint, BUCKET_NAME, MINIO_USER, MINIO_PASSWORD);
-        adminS3Client.createBucket();
+        for (int i = 0; i < 20; i++) {
+            try {
+                adminS3Client.createBucket();
+                break;
+            } catch (org.hiero.block.node.base.s3.S3ResponseException e) {
+                if (e.getResponseStatusCode() == 503 && i < 19) {
+                    java.util.concurrent.locks.LockSupport.parkNanos(250_000_000L); // wait 250ms
+                } else {
+                    throw e;
+                }
+            }
+        }
         assertTrue(adminS3Client.bucketExists());
     }
 

@@ -250,7 +250,18 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
     }
 
     private void createTestBucket() throws Exception {
-        adminS3Client.createBucket();
+        for (int i = 0; i < 20; i++) {
+            try {
+                adminS3Client.createBucket();
+                break;
+            } catch (org.hiero.block.node.base.s3.S3ResponseException e) {
+                if (e.getResponseStatusCode() == 503 && i < 19) {
+                    parkNanos(TASK_AWAIT_NANOS / 2); // wait 250ms
+                } else {
+                    throw e;
+                }
+            }
+        }
         assertTrue(testBucketExists());
     }
 
