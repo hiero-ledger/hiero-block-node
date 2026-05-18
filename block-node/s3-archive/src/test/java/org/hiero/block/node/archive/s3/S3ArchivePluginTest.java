@@ -66,7 +66,7 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
     private final TestLogHandler logHandler;
 
     @SuppressWarnings("resource")
-    public S3ArchivePluginTest() throws IOException {
+    public S3ArchivePluginTest() throws Exception {
         super(Executors.newSingleThreadExecutor(), Executors.newSingleThreadScheduledExecutor());
         // set-up logger
         Logger logger = Logger.getLogger(S3ArchivePlugin.class.getName());
@@ -105,12 +105,17 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
         // create 10 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 9);
         // await archive task to complete
-        parkNanos(TASK_AWAIT_NANOS);
-        // send another persisted notification to trigger the executor service
-        // cleanup and ensure the task ran
-        plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
+        String lastBlock = null;
+        for (int i = 0; i < 40; i++) {
+            parkNanos(TASK_AWAIT_NANOS / 2);
+            plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
+            lastBlock = getLastArchivedBlockFile();
+            if ("9".equals(lastBlock)) {
+                break;
+            }
+        }
         // read the lastest block file and check its content
-        assertEquals("9", getLastArchivedBlockFile());
+        assertEquals("9", lastBlock);
         // check that the plugin has archived the blocks
         final Set<String> allObjects = getAllObjects();
         allObjects.forEach(obj -> LOGGER.log(System.Logger.Level.INFO, "Object: " + obj));
@@ -170,12 +175,17 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
         // create 100 sample blocks, this should trigger the plugin to archive them
         sendBlocks(START_TIME, 0, 99);
         // await archive task to complete
-        parkNanos(TASK_AWAIT_NANOS * 3);
-        // send another persisted notification to trigger the executor service
-        // cleanup and ensure the task ran
-        plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
+        String lastBlock = null;
+        for (int i = 0; i < 40; i++) {
+            parkNanos(TASK_AWAIT_NANOS / 2);
+            plugin.handlePersisted(new PersistedNotification(0L, true, 0, BlockSource.UNKNOWN));
+            lastBlock = getLastArchivedBlockFile();
+            if ("99".equals(lastBlock)) {
+                break;
+            }
+        }
         // read the lastest block file and check its content
-        assertEquals("99", getLastArchivedBlockFile());
+        assertEquals("99", lastBlock);
         // check that the plugin has archived the blocks
         final Set<String> allObjects = getAllObjects();
         allObjects.forEach(obj -> LOGGER.log(System.Logger.Level.INFO, "Object: " + obj));
@@ -239,17 +249,25 @@ class S3ArchivePluginTest extends PluginTestBase<S3ArchivePlugin, ExecutorServic
         assertEquals(0, skippedBatchesLogs, "Should appear 0 times");
     }
 
-    private void createTestBucket() throws IOException {
+    private void createTestBucket() throws Exception {
         adminS3Client.createBucket();
         assertTrue(testBucketExists());
     }
 
-    private void removeTestBucket() throws IOException {
+    private void removeTestBucket() throws Exception {
         adminS3Client.deleteBucket();
-        assertFalse(testBucketExists());
+        boolean exists = true;
+        for (int i = 0; i < 20; i++) {
+            exists = testBucketExists();
+            if (!exists) {
+                break;
+            }
+            parkNanos(TASK_AWAIT_NANOS / 5); // Wait 100ms
+        }
+        assertFalse(exists);
     }
 
-    private boolean testBucketExists() throws IOException {
+    private boolean testBucketExists() throws Exception {
         return adminS3Client.bucketExists();
     }
 

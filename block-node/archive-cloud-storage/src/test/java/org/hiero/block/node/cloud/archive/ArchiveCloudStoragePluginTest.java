@@ -81,7 +81,7 @@ class ArchiveCloudStoragePluginTest {
     private static String minioEndpoint;
 
     @BeforeAll
-    static void startMinio() throws IOException {
+    static void startMinio() throws Exception {
         MINIO_CONTAINER.start();
         minioEndpoint = "http://" + MINIO_CONTAINER.getHost() + ":" + MINIO_CONTAINER.getMappedPort(MINIO_PORT);
         adminS3Client = new org.hiero.block.node.base.s3.S3Client("us-east-1", minioEndpoint, BUCKET_NAME, MINIO_USER, MINIO_PASSWORD);

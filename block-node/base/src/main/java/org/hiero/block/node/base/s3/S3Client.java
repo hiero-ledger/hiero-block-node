@@ -593,6 +593,7 @@ public final class S3Client implements AutoCloseable {
                 case PUT -> requestBuilder.PUT(HttpRequest.BodyPublishers.ofByteArray(requestBody));
                 case GET -> requestBuilder.GET();
                 case DELETE -> requestBuilder.DELETE();
+                case "HEAD" -> requestBuilder.method("HEAD", HttpRequest.BodyPublishers.noBody());
                 default -> throw new IllegalArgumentException("Unsupported HTTP method: " + httpMethod);
             };
             requestBuilder = requestBuilder.headers(localHeaders.entrySet().stream()
@@ -841,6 +842,7 @@ public final class S3Client implements AutoCloseable {
         final HttpResponse<InputStream> response =
                 request(url, DELETE, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
         final int responseStatusCode = response.statusCode();
+        System.out.println("DEBUG: deleteBucket " + url + " returned status " + responseStatusCode);
         try (final InputStream in = response.body()) {
             if (responseStatusCode != 200 && responseStatusCode != 204) {
                 final byte[] responseBody = in.readNBytes(ERROR_BODY_MAX_LENGTH);
@@ -857,18 +859,18 @@ public final class S3Client implements AutoCloseable {
      * @throws IOException if an error occurs during the HTTP call
      */
     public boolean bucketExists() throws S3ResponseException, IOException {
-        // Send a GET request to list objects with max-keys=0 to check bucket existence
-        final String url = endpoint + bucketName + "/?max-keys=0";
+        final String url = endpoint + bucketName;
         final HttpResponse<InputStream> response =
-                request(url, GET, Collections.emptyMap(), null, BodyHandlers.ofInputStream());
+                request(url, "HEAD", Collections.emptyMap(), null, BodyHandlers.ofInputStream());
         final int responseStatusCode = response.statusCode();
+        System.out.println("DEBUG: bucketExists HEAD " + url + " returned status " + responseStatusCode);
         try (final InputStream in = response.body()) {
             if (responseStatusCode == 200) {
                 return true;
             } else if (responseStatusCode == 404) {
                 return false;
             } else {
-                final byte[] responseBody = in.readNBytes(ERROR_BODY_MAX_LENGTH);
+                final byte[] responseBody = in.readAllBytes();
                 throw new S3ResponseException(responseStatusCode, responseBody, response.headers(), "Failed to check if bucket exists: " + bucketName);
             }
         }
