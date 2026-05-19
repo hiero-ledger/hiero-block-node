@@ -5,8 +5,9 @@
   "maxHeaderListSize": -1,
   "pingEnabled": false,
   "pingTimeoutMillis": 500,
-  "readTimeoutMillis": 10000,
+  "readTimeoutMillis": 30000,
   "priorKnowledge": false,
-  "serverMaxMessageSizeBytes": 1048576,
-  "delayBetweenBlocksMs": 10
+  "serverMaxMessageSizeBytes": 37748736,
+  "delayBetweenBlocksMs": 0,
+  "grpcEncoding": "identity"
 }

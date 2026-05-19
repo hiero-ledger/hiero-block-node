@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Flow;
@@ -67,8 +68,9 @@ public class NetworkCapacityClient {
         Duration timeoutDuration = Duration.ofMillis(config.readTimeoutMillis());
         Tls tls = Tls.builder().enabled(false).build();
 
-        PbjGrpcClientConfig grpcConfig =
-                new PbjGrpcClientConfig(timeoutDuration, tls, Optional.empty(), "application/grpc");
+        String encoding = config.grpcEncoding().isBlank() ? "identity" : config.grpcEncoding();
+        PbjGrpcClientConfig grpcConfig = new PbjGrpcClientConfig(
+                timeoutDuration, tls, Optional.empty(), "application/grpc", encoding, Set.of("identity", "gzip"));
 
         Http2ClientProtocolConfig http2Config = Http2ClientProtocolConfig.builder()
                 .flowControlBlockTimeout(Duration.ofMillis(config.flowControlTimeoutMillis()))
@@ -98,7 +100,8 @@ public class NetworkCapacityClient {
 
     private void streamBlocksFromFolder(BlockStreamPublishClient publishClient) throws IOException {
         List<Path> blockFiles = Files.list(recordingFolder)
-                .filter(path -> path.toString().endsWith(".blk.gz"))
+                .filter(path ->
+                        path.toString().endsWith(".blk.gz") || path.toString().endsWith(".blk"))
                 .sorted()
                 .collect(Collectors.toList());
 
@@ -109,20 +112,53 @@ public class NetworkCapacityClient {
 
         System.out.printf("Found %d block files to stream.%n", blockFiles.size());
 
+        // Phase 1: Pre-build all batches before opening the gRPC stream.
+        // This separates parsing overhead from network measurement time, emulating how the
+        // real CN generates live blocks rather than reading from disk during streaming.
+        System.out.println("Preparing block batches (parsing block files)...");
+        List<PreparedBlock> preparedBlocks = new ArrayList<>();
+        for (Path blockFile : blockFiles) {
+            try {
+                PreparedBlock prepared = prepareBlockBatches(blockFile);
+                preparedBlocks.add(prepared);
+                System.out.printf(
+                        "Prepared block %d from %s: %d batches, %d bytes%n",
+                        prepared.blockNumber(),
+                        blockFile.getFileName(),
+                        prepared.batches().size(),
+                        prepared.rawDataSizeBytes());
+            } catch (RuntimeException | ParseException e) {
+                System.err.printf("Error preparing file %s due to %s%n", blockFile, e);
+            }
+        }
+        System.out.printf("All %d blocks prepared. Starting network stream.%n", preparedBlocks.size());
+
+        // Phase 2: Open gRPC connection and stream all pre-built batches.
         CompletableFuture<Void> streamingComplete = new CompletableFuture<>();
         ResponseHandler responseHandler = new ResponseHandler(streamingComplete);
         Pipeline<PublishStreamRequest> requestPipeline = publishClient.publishBlockStream(responseHandler);
 
-        for (Path blockFile : blockFiles) {
-            try {
-                streamBlockFile(blockFile, requestPipeline);
-                // small block delay between each block file
-                LockSupport.parkNanos(config.delayBetweenBlocksMs() * 1_000_000L);
-            } catch (RuntimeException | ParseException e) {
-                System.err.printf("Error streaming file %s due to %s%n", blockFile, e);
+        for (PreparedBlock prepared : preparedBlocks) {
+            System.out.printf(
+                    "Streaming block %d (%d batches, %d bytes)%n",
+                    prepared.blockNumber(), prepared.batches().size(), prepared.rawDataSizeBytes());
+
+            for (PreparedBatch batch : prepared.batches()) {
+                metrics.addBytes(batch.sizeBytes());
+                requestPipeline.onNext(batch.request());
             }
+
+            LockSupport.parkNanos(config.delayBetweenBlocksMs() * 1_000_000L);
+            metrics.incrementBlocks();
+            metrics.reportPeriodic();
         }
 
+        // Wait for all ACKs to arrive before half-closing the send side.
+        // The last ACK is in-flight from the server while we finish the send loop.
+        long ackDeadline = System.currentTimeMillis() + 2_000;
+        while (metrics.getTotalBlocksAcked() < metrics.getTotalBlocks() && System.currentTimeMillis() < ackDeadline) {
+            LockSupport.parkNanos(10_000_000L);
+        }
         requestPipeline.onComplete();
 
         try {
@@ -132,36 +168,36 @@ public class NetworkCapacityClient {
         }
     }
 
-    private void streamBlockFile(Path blockFile, Pipeline<PublishStreamRequest> requestPipeline)
-            throws IOException, ParseException {
+    private PreparedBlock prepareBlockBatches(Path blockFile) throws IOException, ParseException {
         byte[] blockData;
-        try (final var gzipInputStream = new GZIPInputStream(Files.newInputStream(blockFile))) {
-            blockData = gzipInputStream.readAllBytes();
+        if (blockFile.toString().endsWith(".blk.gz")) {
+            try (final var gzipInputStream = new GZIPInputStream(Files.newInputStream(blockFile))) {
+                blockData = gzipInputStream.readAllBytes();
+            }
+        } else {
+            blockData = Files.readAllBytes(blockFile);
         }
+
         Block block = Block.PROTOBUF.parse(
                 Bytes.wrap(blockData).toReadableSequentialData(),
                 false,
                 false,
                 Codec.DEFAULT_MAX_DEPTH,
                 ProtobufParsingConstants.MAX_PARSE_SIZE);
+
         long blockNumber = block.items().getFirst().blockHeader().number();
-
         List<BlockItem> items = block.items();
-        System.out.printf("Streaming block from file: %s (%d items)%n", blockFile.getFileName(), items.size());
-
         final long maxMessageSizeBytes = config.serverMaxMessageSizeBytes();
-        int batchCount = 0;
+        List<PreparedBatch> batches = new ArrayList<>();
 
         for (int i = 0; i < items.size(); ) {
             List<BlockItem> batch = new ArrayList<>();
             long currentBatchSizeBytes = 0;
 
-            // Build batch until we approach the max message size
             while (i < items.size()) {
                 BlockItem item = items.get(i);
                 int itemSizeBytes = BlockItem.PROTOBUF.measureRecord(item);
 
-                // If adding this item would exceed max size and batch is not empty, break
                 if (!batch.isEmpty() && currentBatchSizeBytes + itemSizeBytes > maxMessageSizeBytes) {
                     break;
                 }
@@ -171,22 +207,19 @@ public class NetworkCapacityClient {
                 i++;
             }
 
-            // Send the batch
             BlockItemSet itemSet = BlockItemSet.newBuilder().blockItems(batch).build();
             PublishStreamRequest request =
                     PublishStreamRequest.newBuilder().blockItems(itemSet).build();
-            // Count serialized payload bytes (consistent with server)
-            int requestLength = PublishStreamRequest.PROTOBUF.measureRecord(request);
-            metrics.addBytes(requestLength);
-            requestPipeline.onNext(request);
-            batchCount++;
+            int requestSize = PublishStreamRequest.PROTOBUF.measureRecord(request);
+            batches.add(new PreparedBatch(request, requestSize));
         }
 
-        System.out.printf(
-                "Sent %d batches for block %d with size %d bytes.%n", batchCount, blockNumber, blockData.length);
-        metrics.incrementBlocks();
-        metrics.reportPeriodic();
+        return new PreparedBlock(blockNumber, blockData.length, batches);
     }
+
+    private record PreparedBlock(long blockNumber, int rawDataSizeBytes, List<PreparedBatch> batches) {}
+
+    private record PreparedBatch(PublishStreamRequest request, int sizeBytes) {}
 
     private class ResponseHandler implements Pipeline<PublishStreamResponse> {
         private final CompletableFuture<Void> completionFuture;
