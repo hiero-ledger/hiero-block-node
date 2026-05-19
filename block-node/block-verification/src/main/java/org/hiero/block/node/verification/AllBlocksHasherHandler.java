@@ -2,7 +2,6 @@
 package org.hiero.block.node.verification;
 
 import static java.lang.System.Logger.Level.INFO;
-import static java.lang.System.Logger.Level.TRACE;
 import static java.lang.System.Logger.Level.WARNING;
 import static java.util.Objects.requireNonNull;
 import static org.hiero.block.common.hasher.HashingUtilities.EMPTY_TREE_HASH;
@@ -13,6 +12,7 @@ import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,9 +20,10 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.common.hasher.StreamingHasher;
+import org.hiero.block.internal.AllPreviousBlocksRootHashHasherSnapshot;
+import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.blockmessaging.BlockItems;
@@ -48,12 +49,14 @@ import org.hiero.block.node.verification.session.VerificationSession;
 ///
 /// This class is available/functional only when a node has complete historical block store from genesis.
 public class AllBlocksHasherHandler {
-
     private static final System.Logger LOGGER = System.getLogger(AllBlocksHasherHandler.class.getName());
     /// Empty tree hash: SHA384(0x00), matching the CN's IncrementalStreamingHasher for an empty tree.
     public static final byte[] ZERO_BLOCK_HASH = EMPTY_TREE_HASH;
     /// Expected size of a block hash in bytes.
     public static final int BLOCK_HASH_LENGTH = ZERO_BLOCK_HASH.length;
+    /// The initial value of the [#persistenceThresholdCounter], while this value is
+    /// present, persistence is inactive. This is during init, on start go to 0 as default value.
+    private static final int UNINITIALIZED_PERSISTENCE_THRESHOLD = -1;
     /// Streaming hasher for all previous blocks hashes.
     private StreamingHasher hasher;
     /// The previous block hash, used for verification of the current block.
@@ -65,7 +68,9 @@ public class AllBlocksHasherHandler {
     /// path to persist the hasher state
     private Path hasherPath;
     /// available blocks from historical block provider
-    private BlockRangeSet available;
+    private BlockRangeSet availableBlocks;
+    /// A threshold counter, which resets after threshold is passed, to signal persistence of hasher snapshot
+    private final AtomicInteger persistenceThresholdCounter;
 
     /// Maintains and persists a streaming Merkle hasher over all previous block hashes
     ///
@@ -81,33 +86,40 @@ public class AllBlocksHasherHandler {
     public AllBlocksHasherHandler(@NonNull final VerificationConfig verificationConfig, BlockNodeContext context) {
         this.verificationConfig = requireNonNull(verificationConfig, "verificationConfig must not be null");
         this.context = requireNonNull(context, "context must not be null");
+        this.persistenceThresholdCounter = new AtomicInteger(UNINITIALIZED_PERSISTENCE_THRESHOLD);
         init();
     }
 
     /// Compute the root hash of all previous blocks.
     /// @return the root hash as a byte array
     public byte[] computeRootHash() {
-        if (hasher == null) {
+        final byte[] result;
+        if (isAvailable()) {
+            if (hasher.leafCount() == 0) {
+                result = ZERO_BLOCK_HASH;
+            } else {
+                result = hasher.computeRootHash();
+            }
+        } else {
             LOGGER.log(INFO, "hasher is not available, cannot compute root hash of all previous blocks.");
-            return null;
+            result = null;
         }
-        if (hasher.leafCount() == 0) {
-            return ZERO_BLOCK_HASH;
-        }
-        return hasher.computeRootHash();
+        return result;
     }
 
-    /// Get the last block hash.
-    /// @return the last block hash as a byte array
+    /// Get the last block hash if hasher available.
+    /// @return the last block hash as a byte array if hasher is available, otherwise `null`
     public byte[] lastBlockHash() {
-        if (hasher == null) {
+        final byte[] result;
+        if (isAvailable()) {
+            result = lastBlockHash;
+        } else {
             LOGGER.log(INFO, "hasher is not available, cannot know previous root hash");
-            return null;
+            result = null;
         }
-        return lastBlockHash;
+        return result;
     }
 
-    /// *
     /// Check if the hasher is available.
     /// @return true if available, false otherwise
     public boolean isAvailable() {
@@ -117,203 +129,206 @@ public class AllBlocksHasherHandler {
     /// Get the number of blocks in the hasher.
     /// @return the number of blocks
     public long getNumberOfBlocks() {
-        if (hasher == null) {
+        final long result;
+        if (isAvailable()) {
+            result = hasher.leafCount();
+        } else {
             LOGGER.log(INFO, "hasher is not available, cannot know number of blocks");
-            return -1;
+            result = -1;
         }
-        return hasher.leafCount();
+        return result;
     }
 
     private void init() {
         if (verificationConfig.allBlocksHasherEnabled()) {
             try {
                 // 1. Initial Setup
-                hasherPath = requireNonNull(verificationConfig.allBlocksHasherFilePath());
-                hasher = new StreamingHasher();
+                hasherPath = verificationConfig.allBlocksHasherFilePath().toAbsolutePath();
                 Files.createDirectories(hasherPath.getParent());
-                available = context.historicalBlockProvider().availableBlocks();
-
+                hasher = new StreamingHasher();
+                availableBlocks = context.historicalBlockProvider().availableBlocks();
                 // 2. Load Data
-                if (available.size() == 0) {
+                if (availableBlocks.size() == 0) {
                     initGenesis();
                 } else if (Files.exists(hasherPath)) {
                     loadFromFile();
-                    syncBlockHashesFromStore(getNumberOfBlocks(), available.max());
-                } else {
-                    // @todo(TBD) This is excessively expensive. We should have a config
-                    //    flag to enable this.
-                    fullyRebuildFromStore();
+                    syncBlockHashesFromStore(getNumberOfBlocks(), availableBlocks.max());
+                } else if (verificationConfig.rebuildAllBlocksHasherFromStore()) {
+                    fullyBuildFromStore();
                 }
                 // 3. Validate hasher state matches available blocks
                 validateState();
-
                 // 4. Persist initial state
                 persistHasherSnapshot();
-
-            } catch (IOException | NoSuchAlgorithmException | IllegalStateException | ParseException e) {
+            } catch (final RuntimeException | IOException | NoSuchAlgorithmException | ParseException e) {
                 LOGGER.log(WARNING, "Falling back to footer values. Reason: %s".formatted(e.getMessage()), e);
                 this.hasher = null; // Ensure we return null on failure
             }
         }
     }
 
-    public void start() {
-        if (hasher != null) {
-            startPersistenceScheduler();
+    void start() {
+        if (isAvailable()) {
+            persistenceThresholdCounter.set(0);
         }
-    }
-
-    private void startPersistenceScheduler() {
-        // Two threads: one for autonomous backfill, one for on-demand backfill
-        // Scheduler for periodic tasks.
-        ScheduledExecutorService scheduler = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(
-                        2, // Two threads: one for autonomous backfill, one for on-demand backfill
-                        "AllBlocksHasherHandler-Persistence",
-                        (t, e) -> LOGGER.log(INFO, "Uncaught exception in thread: %s".formatted(t.getName()), e));
-
-        scheduler.scheduleAtFixedRate(
-                this::persistHasherSnapshot,
-                1000, // initial delay of 1 second should be plenty of time to start up
-                verificationConfig.allBlocksHasherPersistenceInterval() * 1000L, // convert seconds to milliseconds
-                TimeUnit.MILLISECONDS);
     }
 
     private void persistHasherSnapshot() {
-
-        if (hasher == null) {
-            LOGGER.log(INFO, "hasher is not available, cannot persist hasher snapshot.");
-            return;
-        }
-
-        final Path hasherFilePath = verificationConfig.allBlocksHasherFilePath().toAbsolutePath();
-        final Path dir =
-                requireNonNull(hasherFilePath.getParent(), "Hasher snapshot path must have a parent directory");
-
-        LOGGER.log(
-                TRACE,
-                "Persisting all blocks hasher with {0} leaves snapshot to {1}",
-                hasher.leafCount(),
-                hasherFilePath);
-
-        final AllPreviousBlocksRootHashHasherSnapshot snapshot = AllPreviousBlocksRootHashHasherSnapshot.newBuilder()
-                .lastRootHash(Bytes.wrap(lastBlockHash))
-                .leafCount(hasher.leafCount())
-                .intermediateHashes(hasher.intermediateHashingState().stream()
-                        .map(Bytes::wrap)
-                        .toList())
-                .build();
-
-        final byte[] serializedSnapshot = AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF
-                .toBytes(snapshot)
-                .toByteArray();
-
-        Path tmp = null;
-        try {
-            Files.createDirectories(dir);
-
-            tmp = Files.createTempFile(dir, hasherFilePath.getFileName().toString(), ".tmp");
-
-            Files.write(tmp, serializedSnapshot, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
-
+        if (isAvailable()) {
+            final AllPreviousBlocksRootHashHasherSnapshot snapshot =
+                    AllPreviousBlocksRootHashHasherSnapshot.newBuilder()
+                            .lastRootHash(Bytes.wrap(lastBlockHash))
+                            .leafCount(hasher.leafCount())
+                            .intermediateHashes(hasher.intermediateHashingState().stream()
+                                    .map(Bytes::wrap)
+                                    .toList())
+                            .build();
+            final byte[] serializedSnapshot = AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF
+                    .toBytes(snapshot)
+                    .toByteArray();
+            Path tmp = null;
             try {
-                Files.move(tmp, hasherFilePath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException e) {
-                // Some filesystems do not support ATOMIC_MOVE; still keep replace semantics.
-                Files.move(tmp, hasherFilePath, StandardCopyOption.REPLACE_EXISTING);
-            }
-
-        } catch (IOException e) {
-            LOGGER.log(WARNING, "Failed to persist hasher snapshot to %s".formatted(hasherFilePath), e);
-        } finally {
-            if (tmp != null) {
+                tmp = Files.createTempFile(
+                        hasherPath.getParent(), hasherPath.getFileName().toString(), ".tmp");
+                Files.write(tmp, serializedSnapshot, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
                 try {
-                    Files.deleteIfExists(tmp);
-                } catch (IOException ignored) {
+                    Files.move(tmp, hasherPath, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (final AtomicMoveNotSupportedException e) {
+                    // Some filesystems do not support ATOMIC_MOVE; still keep replace semantics.
+                    Files.move(tmp, hasherPath, StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (final IOException e) {
+                LOGGER.log(WARNING, "Failed to persist hasher snapshot to %s".formatted(hasherPath), e);
+            } finally {
+                if (tmp != null) {
+                    try {
+                        Files.deleteIfExists(tmp);
+                    } catch (final IOException e) {
+                        LOGGER.log(INFO, "Failed to delete temporary file %s".formatted(tmp), e);
+                    }
                 }
             }
         }
     }
 
-    // When starting a fresh node.
+    /// Initialize a new streaming hasher from genesis.
     private void initGenesis() throws IOException {
         Files.deleteIfExists(hasherPath);
         Files.createFile(hasherPath);
         this.lastBlockHash = ZERO_BLOCK_HASH; // genesis: no previous block
     }
 
-    // when loading from existing file.
+    /// Load persisted snapshot from a file and initialize the streaming hasher.
     private void loadFromFile() throws IOException, ParseException, NoSuchAlgorithmException {
-        final Path hasherFilePath = verificationConfig.allBlocksHasherFilePath().toAbsolutePath();
-        try (var inputStream = new BufferedInputStream(Files.newInputStream(hasherFilePath))) {
-            Bytes snapshotBytes = Bytes.wrap(inputStream.readAllBytes());
-            var snapshot = AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF.parse(snapshotBytes);
-            long leafCount = snapshot.leafCount();
-            List<byte[]> intermediateHashes = snapshot.intermediateHashes().stream()
+        try (final InputStream is = new BufferedInputStream(Files.newInputStream(hasherPath))) {
+            final Bytes snapshotBytes = Bytes.wrap(is.readAllBytes());
+            final AllPreviousBlocksRootHashHasherSnapshot snapshot =
+                    AllPreviousBlocksRootHashHasherSnapshot.PROTOBUF.parse(snapshotBytes);
+            final long leafCount = snapshot.leafCount();
+            final List<byte[]> intermediateHashes = snapshot.intermediateHashes().stream()
                     .map(Bytes::toByteArray)
                     .toList();
-
             hasher = new StreamingHasher(intermediateHashes, leafCount);
             lastBlockHash = snapshot.lastRootHash().toByteArray();
         }
     }
 
-    // when needing to rebuild from historical block provider.
-    private void fullyRebuildFromStore() throws ParseException {
-        if (available.streamRanges().count() == 1 && available.min() == 0) {
-            syncBlockHashesFromStore(0, available.max());
+    /// Completely build the hasher using local storage.
+    /// When fully building, we need to start from genesis (0) and continue up
+    /// to the latest available block. If a complete and contiguous chain of
+    /// blocks exists, we can attempt the build, otherwise we cannot.
+    /// @throws ParseException if any block fails to parse, we cannot continue
+    private void fullyBuildFromStore() throws ParseException {
+        // Only attempt to fully rebuild from store if we have a full, contiguous chain of
+        // available blocks starting from genesis up to available max
+        final long max = availableBlocks.max();
+        if (availableBlocks.contains(0L, max)) {
+            syncBlockHashesFromStore(0, max);
         } else {
             LOGGER.log(
                     INFO,
                     "Cannot rebuild hasher from store: requires a single contiguous range starting from genesis. "
                             + "Found {0} range(s) starting at block {1}. Will fall back to block footer values.",
-                    available.streamRanges().count(),
-                    available.min());
+                    availableBlocks.streamRanges().count(),
+                    availableBlocks.min());
         }
     }
 
-    // update the hasher from historical block provider.
+    /// Update the hasher from local history.
+    /// We provide the first and last block we need to update with. If we are
+    /// unable to get any of the blocks in that range, we have to stop, as we
+    /// need a contiguous and complete update to succeed.
+    /// @param start the starting point of the update (inclusive)
+    /// @param end the final point of the update (inclusive)
     private void syncBlockHashesFromStore(long start, long end) throws ParseException {
-        for (long i = start; i <= end; i++) {
-            appendLatestHashToAllPreviousBlocksStreamingHasher(calculateBlockHashFromBlockNumber(i));
+        for (long blockNumber = start; blockNumber <= end; blockNumber++) {
+            final byte[] nextHash = calculateBlockHashFromBlockNumber(blockNumber);
+            if (nextHash != null) {
+                appendLatestHashToAllPreviousBlocksStreamingHasher(nextHash, blockNumber);
+            } else {
+                // exit prematurely, we cannot continue initializing
+                break;
+            }
         }
     }
 
     /// Calculate the block hash for a given block number, using block footer values as authoritative source.
     /// If the block cannot be read (historical storage is _not_ guaranteed), then
     /// this method will return an empty byte array.
-    ///
     /// @param blockNumber the block number to calculate the hash for
     /// @return the calculated block hash
     /// @throws ParseException if there is an error parsing the block or its items.
     private byte[] calculateBlockHashFromBlockNumber(long blockNumber) throws ParseException {
+        byte[] blockHash = null;
         final HistoricalBlockFacility blockProvider = context.historicalBlockProvider();
         if (blockProvider != null) {
-            try (final BlockAccessor blockReader = blockProvider.block(blockNumber)) {
-                if (blockReader != null) {
-                    final BlockUnparsed block = blockReader.blockUnparsed();
-                    // is safe to assume first item is always block header
-                    final BlockHeader blockHeader = BlockHeader.PROTOBUF.parse(
-                            block.blockItems().getFirst().blockHeader());
-                    BlockItems blockItemsMessage = new BlockItems(block.blockItems(), blockNumber, true, true);
-                    // Pass null, null so the session uses the block footer's authoritative values
-                    final VerificationSession session = HapiVersionSessionFactory.createSession(
-                            blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion(), null, null, null);
-                    final VerificationNotification result = session.processBlockItems(blockItemsMessage);
-                    return result.blockHash().toByteArray();
-                } else {
-                    return new byte[0];
+            try (final BlockAccessor accessor = blockProvider.block(blockNumber)) {
+                if (accessor != null) {
+                    // if failure to read occurs, the reader will return null
+                    final BlockUnparsed block = accessor.blockUnparsed();
+                    if (block != null) {
+                        final BlockHeader blockHeader = parseHeader(block);
+                        if (blockHeader != null) {
+                            final BlockItems blockItemsMessage =
+                                    new BlockItems(block.blockItems(), blockNumber, true, true);
+                            // Pass null, null so the session uses the block footer's authoritative values
+                            final VerificationSession session = HapiVersionSessionFactory.createSession(
+                                    blockNumber, BlockSource.HISTORY, blockHeader.hapiProtoVersion(), null, null, null);
+                            final VerificationNotification result = session.processBlockItems(blockItemsMessage);
+                            if (result != null && result.success()) {
+                                blockHash = result.blockHash().toByteArray();
+                            }
+                        }
+                    }
                 }
             }
-        } else {
-            return new byte[0];
+        }
+        return blockHash;
+    }
+
+    private BlockHeader parseHeader(final BlockUnparsed block) throws ParseException {
+        try {
+            BlockHeader result = null;
+            if (block != null) {
+                if (block.blockItems() != null) {
+                    if (!block.blockItems().isEmpty()) {
+                        final BlockItemUnparsed first = block.blockItems().getFirst();
+                        if (first != null && first.hasBlockHeader()) {
+                            result = BlockHeader.PROTOBUF.parse(first.blockHeader());
+                        }
+                    }
+                }
+            }
+            return result;
+        } catch (final RuntimeException ignored) {
+            return null;
         }
     }
 
     /// Validate that the streaming hasher state matches the expected max block.
     /// maxBlock is inclusive and counts from 0, so N blocks produces leaf count N.
     private void validateState() {
-        long maxBlock = available.max();
+        long maxBlock = availableBlocks.max();
         if ((hasher.leafCount() - 1) != maxBlock) {
             LOGGER.log(
                     WARNING,
@@ -323,12 +338,26 @@ public class AllBlocksHasherHandler {
             this.hasher = null; // Invalidate hasher on mismatch
         }
     }
-    /// *
-    /// Append the latest block hash to the streaming hasher for all previous blocks.     *
+
+    /// Append the latest block hash to the streaming hasher for all previous blocks.
+    /// We can only do so if the hasher [#isAvailable()] and the hash we provide
+    /// is the next one in line.
     /// @param blockHashBytes the latest block hash to append
-    public void appendLatestHashToAllPreviousBlocksStreamingHasher(@NonNull final byte[] blockHashBytes) {
-        if (hasher != null) {
+    public void appendLatestHashToAllPreviousBlocksStreamingHasher(
+            @NonNull final byte[] blockHashBytes, final long blockNumber) {
+        if (isAvailable()) {
+            // @todo(2461) use blockNumber
             hasher.addNodeByHash(blockHashBytes);
+            if (persistenceThresholdCounter.get() > UNINITIALIZED_PERSISTENCE_THRESHOLD) {
+                final int incremented = persistenceThresholdCounter.incrementAndGet();
+                final int threshold = verificationConfig.allBlocksHasherPersistenceInterval();
+                // if we are passed the threshold and no one else has changed the atomic value (CAS must fail), then
+                // we can go on and persist
+                if (incremented >= threshold
+                        && persistenceThresholdCounter.compareAndSet(incremented, incremented - threshold)) {
+                    persistHasherSnapshot();
+                }
+            }
         }
         this.lastBlockHash = blockHashBytes;
     }

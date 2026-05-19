@@ -167,8 +167,6 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
         // initialize metrics
         initMetrics(context);
         LOGGER.log(DEBUG, "VerificationServicePlugin initialized successfully.");
-        // initialize all previous blocks hasher if enabled and available
-        initAllBlocksHasherIfEnabled();
     }
 
     private void initAllBlocksHasherIfEnabled() {
@@ -195,13 +193,14 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     /// {@inheritDoc}
     @Override
     public void start() {
+        // initialize and start all previous blocks hasher if enabled and available
+        initAllBlocksHasherIfEnabled();
+        allBlocksHasherHandler.start();
         // register to listen to incoming block items
         // specify that we are cpu intensive and should be run on a separate non-virtual thread
         context.blockMessaging().registerBlockItemHandler(this, true, VerificationServicePlugin.class.getSimpleName());
         // we do not need to unregister the handler as it will be unregistered when the message service is stopped
         LOGGER.log(DEBUG, "VerificationServicePlugin started successfully.");
-
-        allBlocksHasherHandler.start();
     }
 
     // ==== BlockItemHandler Methods ===================================================================================
@@ -281,7 +280,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                         this.previousVerifiedBlockNumber = currentBlockNumber;
                         // Update streamingHasherAllPreviousBlocks
                         allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
-                                this.previousBlockHash.toByteArray());
+                                this.previousBlockHash.toByteArray(), notification.blockNumber());
                     } else {
                         LOGGER.log(INFO, "Verification failed for block={0}", currentBlockNumber);
                         sendFailureNotification(currentBlockNumber, BlockSource.PUBLISHER);
@@ -308,17 +307,22 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
     }
 
     private Bytes getRootOfAllPreviousBlocks() {
+        final Bytes rootHash;
         if (allBlocksHasherHandler != null && allBlocksHasherHandler.isAvailable()) {
             if (allBlocksHasherHandler.getNumberOfBlocks() != currentBlockNumber
                     && (currentBlockNumber <= previousVerifiedBlockNumber || previousVerifiedBlockNumber == -1)) {
                 // Backfill, re-send, or startup: defer to the block footer's values.
                 // Forward gaps fall through to computeRootHash() instead — returning the wrong
                 // root so verification fails and forces the publisher to resend the missing block.
-                return null;
+                rootHash = null;
+            } else {
+                final byte[] computedRootHash = allBlocksHasherHandler.computeRootHash();
+                rootHash = computedRootHash == null ? null : Bytes.wrap(computedRootHash);
             }
-            return Bytes.wrap(allBlocksHasherHandler.computeRootHash());
+        } else {
+            rootHash = null;
         }
-        return null;
+        return rootHash;
     }
 
     private void persistTssParameters() {
@@ -420,7 +424,7 @@ public class VerificationServicePlugin implements BlockNodePlugin, BlockItemHand
                             this.previousBlockHash = backfillNotification.blockHash();
                             this.previousVerifiedBlockNumber = notification.blockNumber();
                             allBlocksHasherHandler.appendLatestHashToAllPreviousBlocksStreamingHasher(
-                                    backfillNotification.blockHash().toByteArray());
+                                    backfillNotification.blockHash().toByteArray(), backfillNotification.blockNumber());
                         }
                     }
                     // send the verification notification for the backfilled block
