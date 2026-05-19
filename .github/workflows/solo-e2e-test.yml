@@ -70,7 +70,7 @@ on:
         type: string
         default: "5"
       test-definition:
-        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation"
+        description: "Test definitions (comma-separated): smoke-test, basic-load, node-restart-resilience, full-history-backfill, tss-signature-transition, wrb-cli-hash-validation, wrb-cli-wrapping-validation"
         type: string
         default: "none"
     outputs:
@@ -239,6 +239,11 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "25.0.2"
+
+      - name: Install zstd
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zstd
 
       # Resolve 'latest' versions to actual GA releases
       - name: Resolve component versions

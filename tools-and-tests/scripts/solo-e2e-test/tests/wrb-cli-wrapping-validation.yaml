@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB CLI Wrapping Validation Test (#2774)
+#
+# Phase 2: Validates that WRB CLI wrapping produces identical blocks to
+# the Consensus Node. Extracts record files from MinIO/CN, wraps them
+# using the WRB CLI `blocks wrap` command, and compares the wrapped
+# blocks to CN blocks.
+#
+# Validations performed:
+#   - CLI can wrap record files into blocks
+#   - Wrapped block structure matches CN block structure
+#   - Wrapped block contents match CN block contents
+#   - Block hashes are consistent
+#   - Item ordering matches
+#
+# Prerequisites:
+#   - Single topology deployed (1 CN, 1 BN)
+#   - Port forwards active (task port-forward)
+#   - Record files available in MinIO/CN
+#
+# Usage:
+#   task test:run TEST_FILE=tests/wrb-cli-wrapping-validation.yaml
+
+name: wrb-cli-wrapping-validation
+description: "Validate WRB CLI wrapping produces blocks identical to CN"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm nodes are running"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CN to produce blocks and record files"
+    delay: 10
+    args:
+      seconds: 120
+
+  - id: pre-validation-metrics
+    type: print-metrics
+    description: "Capture pre-validation state"
+    delay: 135
+    args:
+      target: all
+
+  - id: build-tools-jar
+    type: command
+    description: "Build tools shadow jar"
+    delay: 140
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh build"
+
+  - id: extract-record-files
+    type: command
+    description: "Extract record files from MinIO/CN"
+    delay: 145
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh extract"
+
+  - id: wrap-blocks
+    type: command
+    description: "Wrap record files with WRB CLI"
+    delay: 150
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh wrap"
+
+  - id: compare-blocks
+    type: command
+    description: "Compare CLI-wrapped blocks to CN blocks"
+    delay: 155
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh compare"
+
+  - id: final-status
+    type: network-status
+    description: "Post-validation network status"
+    delay: 160
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: all
