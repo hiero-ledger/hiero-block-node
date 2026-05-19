@@ -341,7 +341,12 @@ public abstract class PluginTestBase<
     }
 
     @Override
-    public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
+    public void addStoredBlockRange(LongRange blockRange) {
+        // Do nothing
+    }
+
+    @Override
+    public void addAvailableBlockRange(LongRange blockRange) {
         // Do nothing
     }
 }

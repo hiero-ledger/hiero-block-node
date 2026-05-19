@@ -47,8 +47,8 @@ import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
 import org.hiero.block.api.BlockRange;
-import org.hiero.block.api.BlockRangesState;
 import org.hiero.block.api.TssData;
+import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -64,7 +64,6 @@ import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.block.node.spi.threading.ThreadPoolManager;
@@ -418,18 +417,16 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     @Override
-    public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
-        // Every range is stored; only AVAILABLE ranges are both stored and available.
+    public void addStoredBlockRange(LongRange blockRange) {
         storedBlocks.add(blockRange);
-        if (blockRangeType == BlockRangeType.AVAILABLE) {
-            availableBlocks.add(blockRange);
-        }
         storedBlockCount.addAndGet(blockRange.size());
     }
 
     @Override
-    public BlockRangeSet storedBlocks() {
-        return storedBlocks;
+    public void addAvailableBlockRange(LongRange blockRange) {
+        storedBlocks.add(blockRange);
+        availableBlocks.add(blockRange);
+        storedBlockCount.addAndGet(blockRange.size());
     }
 
     /**

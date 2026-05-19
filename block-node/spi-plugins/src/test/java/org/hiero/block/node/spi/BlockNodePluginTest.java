@@ -16,7 +16,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.List;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -67,7 +66,12 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
+        public void addStoredBlockRange(LongRange blockRange) {
+            // do nothing
+        }
+
+        @Override
+        public void addAvailableBlockRange(LongRange blockRange) {
             // do nothing
         }
     }
@@ -99,14 +103,19 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
+        public void addStoredBlockRange(LongRange blockRange) {
+            // do nothing
+        }
+
+        @Override
+        public void addAvailableBlockRange(LongRange blockRange) {
             // do nothing
         }
     }
 
     private static class TestApplicationStateFacilityWithRange implements ApplicationStateFacility {
-        LongRange lastRange;
-        BlockRangeType lastType;
+        LongRange lastStoredRange;
+        LongRange lastAvailableRange;
 
         @Override
         public void updateTssData(TssData tssData) {
@@ -119,9 +128,13 @@ public class BlockNodePluginTest {
         }
 
         @Override
-        public void addBlockRange(LongRange blockRange, BlockRangeType blockRangeType) {
-            this.lastRange = blockRange;
-            this.lastType = blockRangeType;
+        public void addStoredBlockRange(LongRange blockRange) {
+            this.lastStoredRange = blockRange;
+        }
+
+        @Override
+        public void addAvailableBlockRange(LongRange blockRange) {
+            this.lastAvailableRange = blockRange;
         }
     }
 
@@ -134,36 +147,29 @@ public class BlockNodePluginTest {
     }
 
     @Test
-    @DisplayName("Test ApplicationStateFacility.storedBlocks() default implementation returns empty set")
-    void testStoredBlocksDefaultReturnsEmpty() {
-        assertEquals(BlockRangeSet.EMPTY, new TestApplicationStateFacilityDefault().storedBlocks());
+    @DisplayName("Test ApplicationStateFacility.addStoredBlockRange() does not throw on no-op implementation")
+    void testAddStoredBlockRangeDefault() {
+        assertDoesNotThrow(() -> new TestApplicationStateFacilityDefault().addStoredBlockRange(new LongRange(0, 9)));
     }
 
     @Test
-    @DisplayName("Test ApplicationStateFacility.addBlockRange() does not throw on no-op implementation")
-    void testAddBlockRangeDefault() {
-        assertDoesNotThrow(() -> new TestApplicationStateFacilityDefault()
-                .addBlockRange(new LongRange(0, 9), ApplicationStateFacility.BlockRangeType.STORED));
-    }
-
-    @Test
-    @DisplayName("Test ApplicationStateFacility.addBlockRange() records STORED range and type")
-    void testAddBlockRangeStored() {
+    @DisplayName("Test ApplicationStateFacility.addStoredBlockRange() records stored range")
+    void testAddStoredBlockRange() {
         TestApplicationStateFacilityWithRange facility = new TestApplicationStateFacilityWithRange();
         LongRange range = new LongRange(0, 9);
-        facility.addBlockRange(range, ApplicationStateFacility.BlockRangeType.STORED);
-        assertEquals(range, facility.lastRange);
-        assertEquals(ApplicationStateFacility.BlockRangeType.STORED, facility.lastType);
+        facility.addStoredBlockRange(range);
+        assertEquals(range, facility.lastStoredRange);
+        assertNull(facility.lastAvailableRange);
     }
 
     @Test
-    @DisplayName("Test ApplicationStateFacility.addBlockRange() records AVAILABLE range and type")
-    void testAddBlockRangeAvailable() {
+    @DisplayName("Test ApplicationStateFacility.addAvailableBlockRange() records available range")
+    void testAddAvailableBlockRange() {
         TestApplicationStateFacilityWithRange facility = new TestApplicationStateFacilityWithRange();
         LongRange range = new LongRange(10, 99);
-        facility.addBlockRange(range, ApplicationStateFacility.BlockRangeType.AVAILABLE);
-        assertEquals(range, facility.lastRange);
-        assertEquals(ApplicationStateFacility.BlockRangeType.AVAILABLE, facility.lastType);
+        facility.addAvailableBlockRange(range);
+        assertEquals(range, facility.lastAvailableRange);
+        assertNull(facility.lastStoredRange);
     }
 
     private static class TestBlockNodePlugin implements BlockNodePlugin {

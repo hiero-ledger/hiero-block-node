@@ -26,17 +26,11 @@ import org.hiero.block.node.base.Loggable;
  */
 @ConfigData("app.state")
 public record ApplicationStateConfig(
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/tss-bootstrap-roster.json")
-        Path tssBootstrapFilePath,
-
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/rsa-bootstrap-roster.json")
-        Path rsaBootstrapFilePath,
-
-        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/block-ranges.json")
-        Path blockRangesFilePath,
-
-        @Loggable @ConfigProperty(defaultValue = "500") @Min(100)
-        long updateScanInterval,
-
-        @Loggable @ConfigProperty(defaultValue = "100") @Min(100)
-        int updateInitialDelay) {}
+        // spotless:off
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/tss-bootstrap-roster.json") Path tssBootstrapFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/rsa-bootstrap-roster.json") Path rsaBootstrapFilePath,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/block-ranges.json") Path blockRangesFilePath,
+        @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long updateScanInterval,
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int updateInitialDelay) {
+        // spotless:on
+}
