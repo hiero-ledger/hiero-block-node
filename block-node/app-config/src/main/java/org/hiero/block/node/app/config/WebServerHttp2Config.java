@@ -23,7 +23,7 @@ import org.hiero.block.node.base.Loggable;
 // spotless:off
 @ConfigData("server.http2")
 public record WebServerHttp2Config(
-        @Loggable @ConfigProperty(defaultValue = "1000") int flowControlTimeout,
+        @Loggable @ConfigProperty(defaultValue = "500") int flowControlTimeout,
         @Loggable @ConfigProperty(defaultValue = "8_388_608") int initialWindowSize,
         @Loggable @ConfigProperty(defaultValue = "8") long maxConcurrentStreams,
         @Loggable @ConfigProperty(defaultValue = "10") int maxEmptyFrames,

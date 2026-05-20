@@ -31,7 +31,7 @@ public record ServerConfig(
             @Min(1_048_576) @Max(1_610_612_736) int maxMessageSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "131_072")
             @Min(32768) @Max(Integer.MAX_VALUE) int socketSendBufferSizeBytes,
-        @Loggable @ConfigProperty(defaultValue = "131_072")
+        @Loggable @ConfigProperty(defaultValue = "8_388_608")
             @Min(32768) @Max(Integer.MAX_VALUE) int socketReceiveBufferSizeBytes,
         @Loggable @ConfigProperty(defaultValue = "40840")
             @Min(1024) @Max(65_535) int port,
