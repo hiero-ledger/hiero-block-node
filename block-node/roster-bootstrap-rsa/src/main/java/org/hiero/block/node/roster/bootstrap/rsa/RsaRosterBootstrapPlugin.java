@@ -69,7 +69,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     /// The ScheduledExecutorService used by the RosterBootstrapPlugin to query peer Mirror Nodes for a Node
     /// Address Book
-    private ScheduledExecutorService queryMNExecutor;
+    private ScheduledExecutorService queryMnExecutor;
     private ScheduledFuture<?> scheduledFuture;
 
     private volatile BlockNodeContext context;
