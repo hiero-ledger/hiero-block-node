@@ -901,6 +901,8 @@ class LiveStreamPublisherManagerTest {
                 // As a pre-check, we expect no onComplete calls
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
                 publisherHandler.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that no more responses are sent
                 assertThat(onNextCalls).isEmpty();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
@@ -1005,6 +1007,8 @@ class LiveStreamPublisherManagerTest {
                 // We need to send any request or trigger any pipeline method
                 // to do the actual shutdown
                 publisherHandler2.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the response pipeline has received no responses and the shared metrics is not updated.
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
@@ -1072,6 +1076,8 @@ class LiveStreamPublisherManagerTest {
                 // We need to send any request or trigger any pipeline method
                 // to do the actual shutdown
                 publisherHandler2.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the response pipeline of the first publisher has received no responses.
                 // Also no metrics for resends is updated
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
@@ -1398,6 +1404,8 @@ class LiveStreamPublisherManagerTest {
                 // to do the actual shutdown
                 publisherHandler.onNext(
                         TestBlockBuilder.generateBlockWithNumber(0L).asPublishStreamRequestUnparsed());
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the latest known block number is still -1L, it was not updated
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestPersistedFromManager);
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
@@ -1407,6 +1415,8 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
                 publisherHandler2.onNext(
                         TestBlockBuilder.generateBlockWithNumber(0L).asPublishStreamRequestUnparsed());
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the response pipeline has received a PERSISTENCE_FAILED
                 assertThat(responsePipeline2.getOnNextCalls())
                         .hasSize(1)
@@ -1614,6 +1624,8 @@ class LiveStreamPublisherManagerTest {
                         .build();
                 // Now we send the end stream request to the publisher handler.
                 publisherHandler.onNext(endStreamRequest);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
                         .isEqualTo(1);
                 // Now we must assert that the publisher has shutdown
@@ -1682,6 +1694,8 @@ class LiveStreamPublisherManagerTest {
                         .build();
                 // Now we send the end stream request to the publisher handler.
                 publisherHandler.onNext(endStreamRequest);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Now we must assert that the publisher has shutdown
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
