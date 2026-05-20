@@ -133,7 +133,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             queryMNExecutor = context.threadPoolManager()
                     .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
 
-            // Schedule periodic checking of bn peers for their TssData
+            // Schedule periodic checking of mirror node for address book data
             scheduledFuture = queryMNExecutor.scheduleAtFixedRate(
                     this::fetchFromMirrorNode, 0, config.mirrorNodeQueryInterval(), TimeUnit.MILLISECONDS);
         } else {
