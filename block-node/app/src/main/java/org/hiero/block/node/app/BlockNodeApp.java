@@ -40,7 +40,6 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.LogManager;
 import java.util.stream.Collectors;
@@ -118,9 +117,6 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /** Blocks reported as available by BlockProviderPlugin implementations */
     final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
-
-    /** Running total of stored block numbers, used to trigger periodic persistence */
-    private final AtomicLong storedBlockCount = new AtomicLong(0);
 
     /** Block count at the time of the last scheduled persist; only read/written by the scanner thread */
     private long lastPersistedBlockCount = 0;
@@ -419,14 +415,12 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     @Override
     public void addStoredBlockRange(LongRange blockRange) {
         storedBlocks.add(blockRange);
-        storedBlockCount.addAndGet(blockRange.size());
     }
 
     @Override
     public void addAvailableBlockRange(LongRange blockRange) {
-        storedBlocks.add(blockRange);
         availableBlocks.add(blockRange);
-        storedBlockCount.addAndGet(blockRange.size());
+        addStoredBlockRange(blockRange);
     }
 
     /**
@@ -508,7 +502,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         }
 
         // Persist block ranges whenever the running total crosses a BLOCK_RANGE_PERSIST_INTERVAL boundary.
-        final long current = storedBlockCount.get();
+        final long current = storedBlocks.size();
         if (current / BLOCK_RANGE_PERSIST_INTERVAL > lastPersistedBlockCount / BLOCK_RANGE_PERSIST_INTERVAL) {
             persistBlockRanges();
             lastPersistedBlockCount = current;
