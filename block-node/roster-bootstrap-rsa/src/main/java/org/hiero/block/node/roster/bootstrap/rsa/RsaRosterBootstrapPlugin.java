@@ -264,7 +264,8 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         LOGGER.log(
                 ERROR,
                 "RSA address book could not be created — Mirror Node API unavailable at {0}. BN cannot verify WRB proofs. Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable.",
-                config.mirrorNodeBaseUrl(), lastCause);
+                config.mirrorNodeBaseUrl(),
+                lastCause);
         return null;
     }
 

@@ -134,7 +134,6 @@ class RsaRosterBootstrapPluginTest
             // Address book must remain null — no Mirror Node fetch was attempted
             assertNull(blockNodeContext.nodeAddressBook());
         }
-
     }
 
     // -------------------------------------------------------------------------
