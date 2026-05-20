@@ -30,10 +30,10 @@ class MirrorNodeNodesResponseTest {
         final MirrorNodeNodesResponse response =
                 MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, Codec.DEFAULT_MAX_SIZE);
         assertEquals(1, response.nodes().size());
-        assertEquals(0L, response.nodes().get(0).nodeId());
-        assertEquals("0xdeadbeef", response.nodes().get(0).publicKey());
+        assertEquals(0L, response.nodes().getFirst().nodeId());
+        assertEquals("0xdeadbeef", response.nodes().getFirst().publicKey());
         assertNotNull(response.links());
-        assertTrue(response.links().next().isEmpty());
+        assertTrue(response.links().next().isBlank());
     }
 
     @Test
@@ -54,6 +54,7 @@ class MirrorNodeNodesResponseTest {
         assertEquals("aabbcc", response.nodes().get(0).publicKey());
         assertEquals(1L, response.nodes().get(1).nodeId());
         assertEquals("ddeeff", response.nodes().get(1).publicKey());
+        assertNotNull(response.links());
         assertEquals(
                 "/api/v1/network/nodes?limit=100&order=asc&node.id=gt:1",
                 response.links().next());
@@ -70,7 +71,7 @@ class MirrorNodeNodesResponseTest {
                 """;
         final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json));
         assertEquals(1, response.nodes().size());
-        assertNull(response.nodes().get(0).publicKey());
+        assertTrue(response.nodes().getFirst().publicKey().isBlank());
     }
 
     @Test
@@ -85,7 +86,7 @@ class MirrorNodeNodesResponseTest {
         final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json));
         assertEquals(List.of(), response.nodes());
         assertNotNull(response.links());
-        assertTrue(response.links().next().isEmpty());
+        assertTrue(response.links().next().isBlank());
     }
 
     @Test
@@ -100,7 +101,7 @@ class MirrorNodeNodesResponseTest {
                 MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), false, Codec.DEFAULT_MAX_SIZE);
         assertEquals(List.of(), response.nodes());
         assertNotNull(response.links());
-        assertTrue(response.links().next().isEmpty());
+        assertTrue(response.links().next().isBlank());
     }
 
     @Test
@@ -127,7 +128,7 @@ class MirrorNodeNodesResponseTest {
                 """;
         final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json));
         assertNotNull(response.links());
-        assertTrue(response.links().next().isEmpty());
+        assertTrue(response.links().next().isBlank());
     }
 
     @Test
@@ -170,7 +171,7 @@ class MirrorNodeNodesResponseTest {
                 MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json), true, Codec.DEFAULT_MAX_SIZE);
         assertEquals(2, response.nodes().size());
 
-        final NodeEntry active = response.nodes().get(0);
+        final NodeEntry active = response.nodes().getFirst();
         assertNotNull(active.timestamp());
         assertEquals("1000000000.000000000", active.timestamp().from());
         assertTrue(active.timestamp().to().isEmpty(), "Active entry must have null to");
@@ -190,6 +191,6 @@ class MirrorNodeNodesResponseTest {
                 }
                 """;
         final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json));
-        assertNull(response.nodes().get(0).timestamp(), "Absent timestamp field must be null");
+        assertNull(response.nodes().getFirst().timestamp(), "Absent timestamp field must be null");
     }
 }

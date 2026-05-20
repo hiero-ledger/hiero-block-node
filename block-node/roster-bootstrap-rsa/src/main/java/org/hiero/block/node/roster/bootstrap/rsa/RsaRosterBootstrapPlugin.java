@@ -167,10 +167,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 for (final NodeEntry entry : response.nodes()) {
                     // A non-null timestamp.to means this entry has been superseded — all subsequent
                     // entries (in descending order) are also historical; stop here.
-                    if (entry.timestamp() != null && entry.timestamp().to() != null) {
+                    if (entry.timestamp() != null && !entry.timestamp().to().isBlank()) {
                         break outer;
                     }
-                    if (entry.publicKey() == null || entry.publicKey().isBlank()) {
+                    if (entry.publicKey().isBlank()) {
                         LOGGER.log(WARNING, "Mirror Node: node {0} has no public_key — skipped", entry.nodeId());
                         continue;
                     }
@@ -187,7 +187,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 // Mirror Node may return a relative path; resolve it against the configured base URL.
                 final String rawNext =
                         response.links() == null ? null : response.links().next();
-                nextUrl = (rawNext == null)
+                nextUrl = (rawNext == null || rawNext.isBlank())
                         ? null
                         : rawNext.startsWith("http") ? rawNext : config.mirrorNodeBaseUrl() + rawNext;
             }
