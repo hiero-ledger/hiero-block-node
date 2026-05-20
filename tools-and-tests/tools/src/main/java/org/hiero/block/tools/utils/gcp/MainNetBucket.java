@@ -449,7 +449,9 @@ public class MainNetBucket {
         BlobId blobId = BlobId.of(bucketName, path);
         try {
             var blob = STORAGE.get(blobId, Storage.BlobGetOption.fields(BlobField.NAME));
-            return blob != null && blob.exists();
+            // Just check if blob is non-null instead of calling exists()
+            // exists() may trigger additional IAM policy checks (storage.objects.getIamPolicy)
+            return blob != null;
         } catch (Exception e) {
             //noinspection CallToPrintStackTrace
             e.printStackTrace();
