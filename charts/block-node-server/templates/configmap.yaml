@@ -9,6 +9,9 @@ metadata:
 data:
   VERSION: {{ include "hiero-block-node.appVersion" .  | quote }}
   JAVA_TOOL_OPTIONS: {{ printf "%s %s" (include "hiero-block-node.javaToolOptions" .) (default "" (index .Values.blockNode.config "JAVA_TOOL_OPTIONS")) | trim | quote }}
+  {{- if .Values.blockNode.rsaBootstrap.enabled }}
+  APP_STATE_RSA_BOOTSTRAP_FILE_PATH: {{ .Values.blockNode.rsaBootstrap.filePath | quote }}
+  {{- end }}
 {{- range $key, $value := .Values.blockNode.config }}
 {{- if ne $key "JAVA_TOOL_OPTIONS" }}
   {{ $key }}: {{ $value | quote }}
