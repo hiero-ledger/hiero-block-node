@@ -65,7 +65,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             MetricKey.of("roster_load_duration_ms", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
     /// Max Mirror Node fetch retries before fail-fast.
-    private static final int MAX_RETRIES = 3;
+    private static final int MAX_RETRIES = 8; // This allows for roughly checking over an 8.5 minute window of time
 
     private volatile BlockNodeContext context;
     private RsaRosterBootstrapConfig config;
