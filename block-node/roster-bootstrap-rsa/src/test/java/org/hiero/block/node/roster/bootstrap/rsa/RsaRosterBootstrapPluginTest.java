@@ -4,7 +4,6 @@ package org.hiero.block.node.roster.bootstrap.rsa;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.hedera.hapi.node.base.NodeAddress;
@@ -15,12 +14,14 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
+import org.hiero.block.node.spi.BlockNodeContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,14 +39,14 @@ import org.junit.jupiter.api.Test;
 /// - If it is null: fetch from the Mirror Node, call `applicationStateFacility.updateAddressBook()`,
 ///   and let `BlockNodeApp` persist and broadcast the result.
 ///
-/// ## Simulating file pre-load in tests
+/// ## Simulating file preload in tests
 ///
 /// In production, `BlockNodeApp.loadApplicationState()` reads the RSA bootstrap file, builds a
 /// `NodeAddressBook`, stages it as a pending update, and the `applicationStateExecutor` scheduler
 /// fires a scan tick that rebuilds the `BlockNodeContext` and calls `onContextUpdate` on every
 /// plugin before `start()` is invoked.
 ///
-/// In tests we skip the scheduler entirely by calling `updateAddressBook(book)` directly after
+/// In tests, we skip the scheduler entirely by calling `updateAddressBook(book)` directly after
 /// `doInit()`. This synchronously updates `blockNodeContext` and calls `plugin.onContextUpdate()`,
 /// so by the time `doStart()` runs the plugin's internal `context` reference already holds the
 /// address book — exactly as it would in production after the scanner tick fires.
@@ -99,7 +100,7 @@ class RsaRosterBootstrapPluginTest
             final NodeAddressBook loaded = blockNodeContext.nodeAddressBook();
             assertNotNull(loaded);
             assertEquals(3, loaded.nodeAddress().size());
-            assertEquals("hexkey0", loaded.nodeAddress().get(0).rsaPubKey());
+            assertEquals("hexkey0", loaded.nodeAddress().getFirst().rsaPubKey());
         }
 
         @Test
@@ -134,20 +135,6 @@ class RsaRosterBootstrapPluginTest
             assertNull(blockNodeContext.nodeAddressBook());
         }
 
-        @Test
-        @DisplayName("Unreachable Mirror Node (invalid URL) throws at start() when no book pre-loaded")
-        void unreachableMirrorNodeThrows() {
-            // No preloaded address book — plugin must fetch from Mirror Node and fail
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> start(
-                            new RsaRosterBootstrapPlugin(),
-                            new SimpleInMemoryHistoricalBlockFacility(),
-                            Map.of(
-                                    "roster.bootstrap.rsa.mirrorNodeBaseUrl", "http://localhost:1",
-                                    "roster.bootstrap.rsa.mirrorNodeConnectTimeoutSeconds", "1",
-                                    "roster.bootstrap.rsa.mirrorNodeReadTimeoutSeconds", "1")));
-        }
     }
 
     // -------------------------------------------------------------------------
@@ -197,24 +184,37 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("Single-page response loads all nodes into the address book")
-        void singlePageLoadsAllNodes() {
+        void singlePageLoadsAllNodes() throws InterruptedException {
             registerStaticHandler(
                     "/api/v1/network/nodes",
                     200,
                     "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\"},{\"node_id\":2,\"public_key\":\"ddeeff\"}],\"links\":{\"next\":null}}");
 
-            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            CountDownLatch latch = new CountDownLatch(1);
+
+            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
+
+                @Override
+                public void onContextUpdate(BlockNodeContext context) {
+                    super.onContextUpdate(context);
+                    latch.countDown();
+                }
+            };
+
+            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            latch.await();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
             assertEquals(2, book.nodeAddress().size());
-            assertEquals(1L, book.nodeAddress().get(0).nodeId());
-            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+            assertEquals(1L, book.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
         }
 
         @Test
         @DisplayName("Paginated response collects nodes from all pages")
-        void paginatedResponseCollectsAllNodes() {
+        void paginatedResponseCollectsAllNodes() throws InterruptedException {
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
                 final String body = callCount.getAndIncrement() == 0
@@ -227,7 +227,20 @@ class RsaRosterBootstrapPluginTest
                 }
             });
 
-            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            CountDownLatch latch = new CountDownLatch(1);
+
+            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
+
+                @Override
+                public void onContextUpdate(BlockNodeContext context) {
+                    super.onContextUpdate(context);
+                    latch.countDown();
+                }
+            };
+
+            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            latch.await();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -238,7 +251,7 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("Nodes with blank or null public_key are skipped; 0x prefix is stripped")
-        void blankKeySkippedAndOxPrefixStripped() {
+        void blankKeySkippedAndOxPrefixStripped() throws InterruptedException {
             registerStaticHandler(
                     "/api/v1/network/nodes",
                     200,
@@ -248,18 +261,31 @@ class RsaRosterBootstrapPluginTest
                             + "{\"node_id\":3,\"public_key\":null}"
                             + "],\"links\":{\"next\":null}}");
 
-            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            CountDownLatch latch = new CountDownLatch(1);
+
+            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
+
+                @Override
+                public void onContextUpdate(BlockNodeContext context) {
+                    super.onContextUpdate(context);
+                    latch.countDown();
+                }
+            };
+
+            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            latch.await();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
             assertEquals(1, book.nodeAddress().size());
-            assertEquals(2L, book.nodeAddress().get(0).nodeId());
-            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+            assertEquals(2L, book.nodeAddress().getFirst().nodeId());
+            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
         }
 
         @Test
         @DisplayName("Only active entries (timestamp.to=null) are collected; superseded entries stop pagination")
-        void mixedActiveAndHistoricalEntriesOnlyLoadsActive() {
+        void mixedActiveAndHistoricalEntriesOnlyLoadsActive() throws InterruptedException {
             // Single handler serves page 1 on first call and records subsequent calls.
             // Page 1 contains two active entries followed by one superseded (historical) entry.
             // The plugin must stop at the historical entry and never request page 2.
@@ -286,7 +312,20 @@ class RsaRosterBootstrapPluginTest
                 exchange.close();
             });
 
-            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            CountDownLatch latch = new CountDownLatch(1);
+
+            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
+
+                @Override
+                public void onContextUpdate(BlockNodeContext context) {
+                    super.onContextUpdate(context);
+                    latch.countDown();
+                }
+            };
+
+            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            latch.await();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -301,7 +340,7 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("HTTP 500 triggers retry and succeeds on the next attempt")
-        void http500TriggersRetryThenSucceeds() {
+        void http500TriggersRetryThenSucceeds() throws InterruptedException {
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
                 if (callCount.getAndIncrement() == 0) {
@@ -318,12 +357,25 @@ class RsaRosterBootstrapPluginTest
                 exchange.close();
             });
 
-            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            CountDownLatch latch = new CountDownLatch(1);
+
+            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
+
+                @Override
+                public void onContextUpdate(BlockNodeContext context) {
+                    super.onContextUpdate(context);
+                    latch.countDown();
+                }
+            };
+
+            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+
+            latch.await();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
             assertEquals(1, book.nodeAddress().size());
-            assertEquals("aabbcc", book.nodeAddress().get(0).rsaPubKey());
+            assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
         }
     }
 

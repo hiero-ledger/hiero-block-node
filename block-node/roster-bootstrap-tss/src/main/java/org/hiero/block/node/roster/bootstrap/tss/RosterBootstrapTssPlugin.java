@@ -170,10 +170,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
 
         // Schedule periodic checking of bn peers for their TssData
         queryPeerExecutor.scheduleAtFixedRate(
-                this::queryPeerTssData,
-                rosterBootstrapTssConfig.queryPeerInitialDelay(),
-                rosterBootstrapTssConfig.queryPeerInterval(),
-                TimeUnit.MILLISECONDS);
+                this::queryPeerTssData, 0, rosterBootstrapTssConfig.queryPeerInterval(), TimeUnit.MILLISECONDS);
     }
 
     /// {@inheritDoc}

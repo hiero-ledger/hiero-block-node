@@ -3,6 +3,7 @@ package org.hiero.block.node.roster.bootstrap.rsa;
 
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
+import com.swirlds.config.api.validation.annotation.Min;
 import org.hiero.block.node.base.Loggable;
 
 /// Configuration for the RSA roster bootstrap plugin.
@@ -19,6 +20,10 @@ import org.hiero.block.node.base.Loggable;
 @ConfigData("roster.bootstrap.rsa")
 public record RsaRosterBootstrapConfig(
         @Loggable @ConfigProperty(defaultValue = "") String mirrorNodeBaseUrl,
+
+        @Loggable @ConfigProperty(defaultValue = "10000") @Min(100)
+        int mirrorNodeQueryInterval,
+
         @Loggable @ConfigProperty(defaultValue = "5") int mirrorNodeConnectTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "10") int mirrorNodeReadTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "100") int mirrorNodePageSize) {}

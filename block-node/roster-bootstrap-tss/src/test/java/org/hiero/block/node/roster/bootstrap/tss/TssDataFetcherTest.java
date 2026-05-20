@@ -50,7 +50,6 @@ class TssDataFetcherTest {
         return new RosterBootstrapTssConfig(
                 "", // blockNodeSourcesPath
                 500, // queryPeerInterval
-                1_000, // queryPeerInitialDelay
                 104_857_600, // maxIncomingBufferSize (100 MB default)
                 false // enableTLS
                 );

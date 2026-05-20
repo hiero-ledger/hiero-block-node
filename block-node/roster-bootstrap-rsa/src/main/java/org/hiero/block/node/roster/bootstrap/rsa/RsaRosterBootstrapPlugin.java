@@ -17,6 +17,9 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -64,8 +67,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     static final MetricKey<ObservableGauge> METRIC_ROSTER_LOAD_DURATION_MS =
             MetricKey.of("roster_load_duration_ms", ObservableGauge.class).addCategory(METRICS_CATEGORY);
 
-    /// Max Mirror Node fetch retries before fail-fast.
-    private static final int MAX_RETRIES = 8; // This allows for roughly checking over an 8.5 minute window of time
+    /// The ScheduledExecutorService used by the RosterBootstrapPlugin to query peer Mirror Nodes for a Node
+    /// Address Book
+    private ScheduledExecutorService queryMNExecutor;
+    private ScheduledFuture<?> scheduledFuture;
 
     private volatile BlockNodeContext context;
     private RsaRosterBootstrapConfig config;
@@ -123,21 +128,30 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                                 + " Provide rsa-bootstrap-roster.json or set roster.bootstrap.rsa.mirrorNodeBaseUrl.");
                 return;
             }
-            LOGGER.log(INFO, "RSA bootstrap file not found, querying Mirror Node at {0}", config.mirrorNodeBaseUrl());
-            book = fetchFromMirrorNode();
-            // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
-            applicationStateFacility.updateAddressBook(book);
-            addressBookSource = "Mirror Node";
-        }
+            // Set up the asynchronous node address book fetcher
+            // Create thread executors via threadPoolManager.
+            queryMNExecutor = context.threadPoolManager()
+                    .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
 
-        rosterEntriesLoaded = book.nodeAddress().size();
-        rosterLoadDurationMs = System.currentTimeMillis() - startMs;
-        LOGGER.log(
-                INFO,
-                "RSA roster available: {0} entries obtained from {1} loaded in {2}ms",
-                rosterEntriesLoaded,
-                addressBookSource,
-                rosterLoadDurationMs);
+            // Schedule periodic checking of bn peers for their TssData
+            scheduledFuture = queryMNExecutor.scheduleAtFixedRate(
+                    this::fetchFromMirrorNode, 0, config.mirrorNodeQueryInterval(), TimeUnit.MILLISECONDS);
+        } else {
+            rosterEntriesLoaded = book.nodeAddress().size();
+            rosterLoadDurationMs = System.currentTimeMillis() - startMs;
+            LOGGER.log(
+                    INFO,
+                    "RSA roster available: {0} entries obtained from {1} loaded in {2}ms",
+                    rosterEntriesLoaded,
+                    addressBookSource,
+                    rosterLoadDurationMs);
+        }
+    }
+
+    /// {@inheritDoc}
+    @Override
+    public void stop() {
+        shutdownExecutor();
     }
 
     // -------------------------------------------------------------------------
@@ -146,10 +160,9 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     /// Fetches the node address book from the Mirror Node REST API with pagination and retries.
     ///
-    /// @return a non-empty `NodeAddressBook`
     /// @throws IllegalStateException if the Mirror Node is unreachable after retries or returns
     ///     no usable entries
-    private NodeAddressBook fetchFromMirrorNode() {
+    private void fetchFromMirrorNode() {
         try (final HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
                 .build()) {
@@ -163,7 +176,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
             outer:
             while (nextUrl != null) {
-                final MirrorNodeNodesResponse response = fetchAndParseWithRetry(client, nextUrl);
+                final MirrorNodeNodesResponse response = fetchAndParse(client, nextUrl);
+                if (response == null) {
+                    return;
+                }
                 for (final NodeEntry entry : response.nodes()) {
                     // A non-null timestamp.to means this entry has been superseded — all subsequent
                     // entries (in descending order) are also historical; stop here.
@@ -193,62 +209,85 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             }
 
             if (addresses.isEmpty()) {
-                throw new IllegalStateException(
-                        "Mirror Node returned zero nodes with a non-blank public_key from " + config.mirrorNodeBaseUrl()
-                                + ". Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable.");
+                LOGGER.log(
+                        WARNING,
+                        "Mirror Node returned zero nodes with a non-blank public_key from {0}. Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable.",
+                        config.mirrorNodeBaseUrl());
+                return;
             }
 
-            return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
+            NodeAddressBook book =
+                    NodeAddressBook.newBuilder().nodeAddress(addresses).build();
+
+            // We found an address book stop the mirror node requests
+            scheduledFuture.cancel(true);
+
+            // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
+            applicationStateFacility.updateAddressBook(book);
+            String addressBookSource = "Mirror Node";
+            rosterEntriesLoaded = book.nodeAddress().size();
+            LOGGER.log(
+                    INFO,
+                    "RSA roster available: {0} entries obtained from {1}",
+                    rosterEntriesLoaded,
+                    addressBookSource,
+                    rosterLoadDurationMs);
         }
     }
 
     /// Performs a single HTTP GET with exponential-backoff retries. The response body is
-    /// parsed into a `MirrorNodeNodesResponse` inside the retry loop so that malformed JSON
-    /// (e.g. an HTML error page returned as HTTP 200) is treated as a retryable failure
-    /// rather than crashing the plugin immediately.
+    /// parsed into a `MirrorNodeNodesResponse`
     ///
     /// @param client the HTTP client to use
     /// @param url the URL to fetch and parse
     /// @return the parsed Mirror Node response
     /// @throws IllegalStateException if all retries are exhausted
-    private MirrorNodeNodesResponse fetchAndParseWithRetry(final HttpClient client, final String url) {
-        long delayMs = 1_000L;
-        Exception lastCause = null;
-        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            if (attempt > 0) {
-                LOGGER.log(WARNING, "Mirror Node fetch retry {0}/{1}: {2}", attempt, MAX_RETRIES - 1, url);
-                try {
-                    Thread.sleep(delayMs);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new IllegalStateException("Interrupted while waiting for Mirror Node retry", ie);
-                }
-                delayMs *= 2;
+    private MirrorNodeNodesResponse fetchAndParse(final HttpClient client, final String url) {
+        Exception lastCause;
+        try {
+            final HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(config.mirrorNodeReadTimeoutSeconds()))
+                    .GET()
+                    .build();
+            final HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw new IOException("HTTP " + response.statusCode() + " from " + url);
             }
-            try {
-                final HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .timeout(Duration.ofSeconds(config.mirrorNodeReadTimeoutSeconds()))
-                        .GET()
-                        .build();
-                final HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() != 200) {
-                    throw new IOException("HTTP " + response.statusCode() + " from " + url);
-                }
-                return MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(response.body()));
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                lastCause = ie;
-            } catch (IOException | RuntimeException | ParseException e) {
-                lastCause = e;
-            }
+            return MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(response.body()));
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            lastCause = ie;
+        } catch (IOException | RuntimeException | ParseException e) {
+            lastCause = e;
         }
         LOGGER.log(
                 ERROR,
-                "RSA address book could not be created — Mirror Node API unavailable after {0} attempts at {1}."
-                        + " BN cannot verify WRB proofs. Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable.",
-                MAX_RETRIES,
-                config.mirrorNodeBaseUrl());
-        throw new IllegalStateException("Mirror Node unreachable after " + MAX_RETRIES + " attempts", lastCause);
+                "RSA address book could not be created — Mirror Node API unavailable at {0}. BN cannot verify WRB proofs. Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable.",
+                config.mirrorNodeBaseUrl(), lastCause);
+        return null;
+    }
+
+    /// UncaughtExceptionHandler for logging uncaught exceptions
+    private void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
+        LOGGER.log(
+                WARNING, "Uncaught exception in RsaRosterBootstrapPlugin thread {0}: {1}", thread.getName(), throwable);
+    }
+
+    /// Shutdown the executor
+    private void shutdownExecutor() {
+        if (queryMNExecutor != null) {
+            queryMNExecutor.shutdown();
+            try {
+                if (!queryMNExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    final String executorTerminationMsg =
+                            "queryMNExecutor did not terminate in time, calling shutdownNow()";
+                    queryMNExecutor.shutdownNow();
+                    LOGGER.log(INFO, executorTerminationMsg);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 }
