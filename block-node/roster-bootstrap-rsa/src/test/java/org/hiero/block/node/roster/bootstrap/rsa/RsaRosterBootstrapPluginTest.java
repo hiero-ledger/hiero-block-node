@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
@@ -202,7 +203,7 @@ class RsaRosterBootstrapPluginTest
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
-            latch.await();
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -239,7 +240,7 @@ class RsaRosterBootstrapPluginTest
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
-            latch.await();
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -273,7 +274,7 @@ class RsaRosterBootstrapPluginTest
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
-            latch.await();
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -324,7 +325,7 @@ class RsaRosterBootstrapPluginTest
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
-            latch.await();
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -369,7 +370,7 @@ class RsaRosterBootstrapPluginTest
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
-            latch.await();
+            assertTrue(latch.await(11, TimeUnit.SECONDS));
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);

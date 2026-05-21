@@ -130,11 +130,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             }
             // Set up the asynchronous node address book fetcher
             // Create thread executors via threadPoolManager.
-            queryMNExecutor = context.threadPoolManager()
-                    .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
+            queryMnExecutor = context.threadPoolManager()
+                    .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
 
             // Schedule periodic checking of mirror node for address book data
-            scheduledFuture = queryMNExecutor.scheduleAtFixedRate(
+            scheduledFuture = queryMnExecutor.scheduleAtFixedRate(
                     this::fetchFromMirrorNode, 0, config.mirrorNodeQueryInterval(), TimeUnit.MILLISECONDS);
         } else {
             rosterEntriesLoaded = book.nodeAddress().size();
@@ -219,17 +219,17 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             NodeAddressBook book =
                     NodeAddressBook.newBuilder().nodeAddress(addresses).build();
 
+            // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
+            applicationStateFacility.updateAddressBook(book);
+
             // We found an address book stop the mirror node requests
             scheduledFuture.cancel(true);
 
-            // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
-            applicationStateFacility.updateAddressBook(book);
             String addressBookSource = "Mirror Node";
-            rosterEntriesLoaded = book.nodeAddress().size();
             LOGGER.log(
                     INFO,
                     "RSA roster available: {0} entries obtained from {1}",
-                    rosterEntriesLoaded,
+                    book.nodeAddress().size(),
                     addressBookSource,
                     rosterLoadDurationMs);
         }
@@ -271,19 +271,18 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
     /// UncaughtExceptionHandler for logging uncaught exceptions
     private void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
-        LOGGER.log(
-                WARNING, "Uncaught exception in RsaRosterBootstrapPlugin thread {0}: {1}", thread.getName(), throwable);
+        LOGGER.log(WARNING, "Uncaught exception in RsaRosterBootstrapPlugin thread {0}", thread.getName(), throwable);
     }
 
     /// Shutdown the executor
     private void shutdownExecutor() {
-        if (queryMNExecutor != null) {
-            queryMNExecutor.shutdown();
+        if (queryMnExecutor != null) {
+            queryMnExecutor.shutdown();
             try {
-                if (!queryMNExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                if (!queryMnExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
                     final String executorTerminationMsg =
                             "queryMNExecutor did not terminate in time, calling shutdownNow()";
-                    queryMNExecutor.shutdownNow();
+                    queryMnExecutor.shutdownNow();
                     LOGGER.log(INFO, executorTerminationMsg);
                 }
             } catch (InterruptedException e) {
