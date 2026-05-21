@@ -51,7 +51,7 @@ This document describes a revised design of that architecture. The previous desi
   <dd>The LMAX Disruptor ring buffer used by the <code>BlockMessagingFacility</code> plugin as the underlying transport for both block-item distribution and block-notification events between plugins.</dd>
 
   <dt>BlockProviderPlugin</dt>
-  <dd>A specialization of <code>BlockNodePlugin</code> that contributes a source of historical blocks (e.g., file system, S3, RAM cache). The <code>HistoricalBlockFacility</code> plugin composes all registered providers in priority order.</dd>
+  <dd>A plugin that also implements the BlockSource interface and registers that interface as a JPMS service. Plugins that require a BlockSource will add `uses org.hiero.block.node.spi.BlockSource` to their module info file. There can be many BlockSources. It is up to the plugin to decide how to sort/choose the BlockSources they need to use.
 
   <dt>isReady()</dt>
   <dd>A method on <code>BlockNodePlugin</code> that returns <code>true</code> when the plugin is fully initialized and ready to serve its callers. Facility plugins expose this so dependent plugins can spin-wait in <code>start()</code> before attempting to use the facility.</dd>

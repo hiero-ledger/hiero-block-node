@@ -346,20 +346,21 @@ flowchart LR
     STOR[Storage Plugin] -->|sendBlockPersisted| BN
     BN --> SUB2[Subscriber Plugin]
     BN --> PUB2[Publisher Plugin]
+    BN --> STOR[Storage Plugin]
     BN --> N2[... Plugin N]
 ```
 
 ### Module Dependency Structure
+Plugins can be built internally, byt the community, or by private thirdParties.
 
 ```mermaid
 flowchart TD
     APP[block-node/app] -->|uses| SPI[block-node/spi-plugins]
     MSG[block-node/facility-messaging] -->|provides BlockMessagingFacility| SPI
     HIST[block-node/blocks-file-recent\nblock-node/blocks-file-historic\nblock-node/s3-archive] -->|provides BlockProviderPlugin| SPI
-    HEALTH[block-node/health] -->|provides BlockNodePlugin| SPI
-    PUB[block-node/stream-publisher] -->|provides BlockNodePlugin| SPI
-    SUB[block-node/stream-subscriber] -->|provides BlockNodePlugin| SPI
-    VER[block-node/block-verification] -->|provides BlockNodePlugin| SPI
+    CORE[block-node/xxx] -->|provides BlockNodePlugin| SPI
+    COMM[block-node/xxx] -->|provides BlockNodePlugin| SPI
+    PRIV[yyy/xxx] -->|provides BlockNodePlugin| SPI
     BAS[block-node/base\nblock-node/block-access-service\nblock-node/backfill\nblock-node/...] -->|provides BlockNodePlugin| SPI
     APP -->|runtime classpath| MSG & HIST & HEALTH & PUB & SUB & VER & BAS
 ```
@@ -375,41 +376,3 @@ The plugin architecture itself has no configuration. Each plugin declares its ow
 | `application.properties` (classpath) | Lowest   | `publisher.maxConnections=10`             |
 
 Environment variable mapping: `BLOCK_NODE_` prefix is stripped, remaining text is lowercased with `_` converted to `.` to match property key format.
-
-## Metrics
-
-No metrics are defined by the plugin framework itself. Each plugin is expected to register its metrics in `init()` using `context.metricRegistry()`. The standard category name for all block node metrics is defined as a constant on `BlockNodePlugin`:
-
-```java
-String METRICS_CATEGORY = "blocknode";
-```
-
-The application registers two observable gauges at startup using this category:
-- `blocknode.oldestBlockNumber` — oldest block available across all providers.
-- `blocknode.newestBlockNumber` — newest block available across all providers.
-
-## Exceptions
-
-|                      Condition                       |                                          Behavior                                           |
-|------------------------------------------------------|---------------------------------------------------------------------------------------------|
-| No `BlockMessagingFacility` provider found           | `BlockNodeApp` throws `IllegalStateException` at startup; node does not start.              |
-| A plugin's `init()` throws                           | The exception propagates out of `BlockNodeApp.init()`; the node does not start.             |
-| A plugin's `start()` throws                          | The exception propagates; partially started plugins are not automatically stopped.          |
-| A plugin's `stop()` throws                           | The exception is logged; remaining plugins are still stopped.                               |
-| A `NoBackPressureBlockItemHandler` falls 80% behind  | `onTooFarBehindError()` is called on that handler; the publisher is not blocked.            |
-| A back-pressure `BlockItemHandler` falls behind      | The publisher thread blocks until the handler catches up, applying flow control end-to-end. |
-| `ApplicationStateFacility.updateAddressBook()` fails | Returns `false`; the caller is responsible for retry logic.                                 |
-
-## Acceptance Tests
-
-- **Plugin discovery**: Starting the node with N plugins registered in `module-info.java` results in exactly N plugins having their `init()` and `start()` called, as confirmed by log output or a version-listing endpoint.
-- **Plugin isolation**: Removing a plugin's JAR from the module path causes the node to start without that plugin's functionality, without compile errors or startup failures in unrelated plugins.
-- **Lifecycle ordering**: `configDataTypes()` is called for all plugins before `init()` is called for any plugin. `init()` is called for all plugins before `start()` is called for any plugin.
-- **Context update propagation**: Calling `applicationStateFacility.updateTssData(newData)` results in `onContextUpdate()` being called on every loaded plugin with a context whose `tssData()` field equals `newData`.
-- **Back-pressure**: A block-item handler that sleeps for 100 ms per batch reduces the observed throughput of `sendBlockItems()` to match, without deadlock or data loss.
-- **No-back-pressure skip**: A `NoBackPressureBlockItemHandler` that processes slowly receives `onTooFarBehindError()` calls under sustained load without causing the publisher to block.
-- **Configuration scoping**: A plugin's `@ConfigData` record is populated from its declared property keys; unrelated keys from other plugins do not affect its values.
-- **Graceful shutdown**: Calling `serverHealth.shutdown(...)` results in `stop()` being called on every plugin, the web server closing, and the JVM exiting with code 0.
-- **HTTP route registration**: A plugin that calls `serviceBuilder.registerHttpService("/foo", ...)` in `init()` has its handler reachable at `GET /foo` once `start()` completes.
-- **gRPC route registration**: A plugin that calls `serviceBuilder.registerGrpcService(...)` has its service reachable via HTTP/2 gRPC once `start()` completes.
-- **Block provider priority**: When two `BlockProviderPlugin` implementations both have a block at number N, the provider with the higher `defaultPriority()` value is the one whose `BlockAccessor` is returned by `HistoricalBlockFacility.block(N)`.
