@@ -32,6 +32,9 @@ spec:
       serviceAccountName: {{ include "hiero-block-node.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if and .Values.blockNode.rsaBootstrap.enabled (not .Values.blockNode.rsaBootstrap.rosterBase64) }}
+        {{- fail "blockNode.rsaBootstrap.enabled is true but rosterBase64 is empty" }}
+      {{- end }}
       {{- if .Values.hostNetwork }}
       hostNetwork: true
       dnsPolicy: {{ default "ClusterFirstWithHostNet" .Values.dnsPolicy }}
@@ -77,7 +80,6 @@ spec:
         {{- with .Values.blockNode.initContainers }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-
         {{- if .Values.blockNode.rsaBootstrap.enabled }}
         - name: write-rsa-bootstrap-roster
           image: {{ .Values.blockNode.rsaBootstrap.image | quote }}
@@ -96,7 +98,6 @@ spec:
             - name: {{ default "verification-storage" .Values.blockNode.persistence.verification.volumeName }}
               mountPath: {{ .Values.blockNode.rsaBootstrap.mountPath | quote }}
         {{- end }}
-
         {{- if .Values.plugins.names }}
         - name: copy-core-modules
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -219,80 +220,80 @@ spec:
       {{- end }}
       {{- $hostPorts := default (dict) .Values.blockNode.hostPorts }}
       containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
+      - name: {{ .Chart.Name }}
+        securityContext:
           {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+          - name: http
+            containerPort: {{ .Values.service.port }}
             {{- if hasKey $hostPorts "http" }}
-              hostPort: {{ index $hostPorts "http" }}
+            hostPort: {{ index $hostPorts "http" }}
             {{- end }}
-              protocol: TCP
-            - name: metrics
-              containerPort: {{ .Values.blockNode.metrics.port }}
+            protocol: TCP
+          - name: metrics
+            containerPort: {{ .Values.blockNode.metrics.port }}
             {{- if hasKey $hostPorts "metrics" }}
-              hostPort: {{ index $hostPorts "metrics" }}
+            hostPort: {{ index $hostPorts "metrics" }}
             {{- end }}
-              protocol: TCP
-          envFrom:
-            - configMapRef:
-                name: {{ include "hiero-block-node.fullname" . }}-config
+            protocol: TCP
+        envFrom:
+          - configMapRef:
+              name: {{ include "hiero-block-node.fullname" . }}-config
           {{- if .Values.blockNode.secret }}
-            - secretRef:
-                name: {{ include "hiero-block-node.fullname" . }}-secret
+          - secretRef:
+              name: {{ include "hiero-block-node.fullname" . }}-secret
           {{- else if .Values.blockNode.secretRef }}
-            - secretRef:
-                name: {{ .Values.blockNode.secretRef }}
+          - secretRef:
+              name: {{ .Values.blockNode.secretRef }}
           {{- end }}
-          volumeMounts:
-            - name: logging-config
-              mountPath: {{ .Values.blockNode.logs.configMountPath }}
-              readOnly: true
-            - name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
-              mountPath: {{ .Values.blockNode.persistence.logging.mountPath }}
-            - name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
-              mountPath: {{ .Values.blockNode.persistence.archive.mountPath }}
-              subPath: {{ .Values.blockNode.persistence.archive.subPath }}
-            - name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
-              mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
-              subPath: {{ .Values.blockNode.persistence.live.subPath }}
-            - name: {{ default "verification-storage" .Values.blockNode.persistence.verification.volumeName }}
-              mountPath: {{ .Values.blockNode.persistence.verification.mountPath }}
+        volumeMounts:
+          - name: logging-config
+            mountPath: {{ .Values.blockNode.logs.configMountPath }}
+            readOnly: true
+          - name: {{ default "logging-storage" .Values.blockNode.persistence.logging.volumeName }}
+            mountPath: {{ .Values.blockNode.persistence.logging.mountPath }}
+          - name: {{ default "archive-storage" .Values.blockNode.persistence.archive.volumeName }}
+            mountPath: {{ .Values.blockNode.persistence.archive.mountPath }}
+            subPath: {{ .Values.blockNode.persistence.archive.subPath }}
+          - name: {{ default "live-storage" .Values.blockNode.persistence.live.volumeName }}
+            mountPath: {{ .Values.blockNode.persistence.live.mountPath }}
+            subPath: {{ .Values.blockNode.persistence.live.subPath }}
+          - name: {{ default "verification-storage" .Values.blockNode.persistence.verification.volumeName }}
+            mountPath: {{ .Values.blockNode.persistence.verification.mountPath }}
           {{- if and .Values.blockNode.backfill .Values.blockNode.backfill.sources }}
-            - name: block-node-sources
-              mountPath: {{ .Values.blockNode.backfill.path }}
-              readOnly: true
+          - name: block-node-sources
+            mountPath: {{ .Values.blockNode.backfill.path }}
+            readOnly: true
           {{- end }}
           {{- if or .Values.plugins.names .Values.blockNode.persistence.plugins.existingClaim }}
-            - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
-              mountPath: /opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/plugins
-              readOnly: true
+          - name: {{ default "plugins-storage" .Values.blockNode.persistence.plugins.volumeName }}
+            mountPath: /opt/hiero/block-node/app-{{ include "hiero-block-node.appVersion" . }}/plugins
+            readOnly: true
           {{- end }}
         {{- with  .Values.resources }}
         {{- if not (and .limits .requests) }}
           {{- fail "Both resource requests and limits must be specified for containers" }}
         {{- end }}
-          resources:
+        resources:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-          livenessProbe:
-            httpGet:
-              path: {{ .Values.blockNode.health.liveness.endpoint }}
-              port: {{ .Values.service.port }}
-            initialDelaySeconds: {{ .Values.blockNode.health.liveness.initialDelaySeconds }}
-            periodSeconds: {{ .Values.blockNode.health.liveness.periodSeconds }}
-            timeoutSeconds: {{ .Values.blockNode.health.liveness.timeoutSeconds }}
-            successThreshold: {{ .Values.blockNode.health.liveness.successThreshold }}
-            failureThreshold: {{ .Values.blockNode.health.liveness.failureThreshold }}
-          readinessProbe:
-            httpGet:
-              path: {{ .Values.blockNode.health.readiness.endpoint }}
-              port: {{ .Values.service.port }}
-            initialDelaySeconds: {{ .Values.blockNode.health.readiness.initialDelaySeconds }}
-            timeoutSeconds: {{ .Values.blockNode.health.readiness.timeoutSeconds }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.blockNode.health.liveness.endpoint }}
+            port: {{ .Values.service.port }}
+          initialDelaySeconds: {{ .Values.blockNode.health.liveness.initialDelaySeconds }}
+          periodSeconds: {{ .Values.blockNode.health.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.blockNode.health.liveness.timeoutSeconds }}
+          successThreshold: {{ .Values.blockNode.health.liveness.successThreshold }}
+          failureThreshold: {{ .Values.blockNode.health.liveness.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.blockNode.health.readiness.endpoint }}
+            port: {{ .Values.service.port }}
+          initialDelaySeconds: {{ .Values.blockNode.health.readiness.initialDelaySeconds }}
+          timeoutSeconds: {{ .Values.blockNode.health.readiness.timeoutSeconds }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

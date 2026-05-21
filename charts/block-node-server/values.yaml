@@ -33,7 +33,7 @@ securityContext: {}
   #   drop:
   #   - ALL
   # readOnlyRootFilesystem: true
-# runAsNonRoot: true
+  # runAsNonRoot: true
 # runAsUser: 1000
 
 hostNetwork: false
@@ -44,7 +44,7 @@ service:
   type: ClusterIP
   port: 40840
   annotations: {}
-  # metallb.io/address-pool: public-address-pool
+    # metallb.io/address-pool: public-address-pool
 
 loadBalancer:
   enabled: false
@@ -62,14 +62,14 @@ loadBalancer:
   loadBalancerSourceRanges: []
     # - 203.0.113.0/24  # your clients
     # - 35.191.0.0/16   # GCP health check (example)
-  # - 130.211.0.0/22  # GCP health check (example)
+    # - 130.211.0.0/22  # GCP health check (example)
 
 ingress:
   enabled: false
   className: ""
   annotations: {}
     # kubernetes.io/ingress.class: nginx
-  # kubernetes.io/tls-acme: "true"
+    # kubernetes.io/tls-acme: "true"
   hosts:
     - host: chart-example.local
       paths:
@@ -158,10 +158,10 @@ blockNode:
 
     # Path where the init container writes the decoded roster file.
     # This path is also exposed to the block node through APP_STATE_RSA_BOOTSTRAP_FILE_PATH.
-    filePath: "/opt/hiero/block-node/verification/rsa-bootstrap-roster.json"
+    filePath: "/opt/hiero/block-node/node/rsa-bootstrap-roster.json"
 
     # Existing mounted verification PVC path used to persist the generated file.
-    mountPath: "/opt/hiero/block-node/verification"
+    mountPath: "/opt/hiero/block-node/node"
 
     # Image used by the init container to decode/write the roster.
     image: "busybox"
