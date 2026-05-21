@@ -36,7 +36,7 @@ This document describes a revised design of that architecture. The previous desi
   <dd>Any class that implements <code>BlockNodePlugin</code> and is registered as a Java module service. Plugins are the unit of extension — each adds a distinct capability to the running Block Node.</dd>
 
   <dt>Facility Plugin</dt>
-  <dd>A plugin that also implements a facility-specific interface (e.g., <code>BlockMessagingFacility</code>, <code>HistoricalBlockFacility</code>, <code>ApplicationStateFacility</code>) and registers that interface as a JPMS service. Other plugins that depend on the facility discover it via <code>ServiceLoader</code> of the facility interface, not via <code>BlockNodeContext</code>.</dd>
+  <dd>A normal plugin that also implements a unique interface for its specific services (e.g., <code>BlockMessagingFacility</code>, <code>HistoricalBlockFacility</code>, <code>ApplicationStateFacility</code>) and registers that interface as a JPMS service. Other plugins that depend on the facility discover it via <code>ServiceLoader</code> of the facility interface, not via <code>BlockNodeContext</code>.</dd>
 
   <dt>SPI</dt>
   <dd>Service Provider Interface — a Java interface declared in the <code>spi-plugins</code> module and consumed via <code>java.util.ServiceLoader</code>. Plugins provide implementations of SPI interfaces in their own modules.</dd>
@@ -73,6 +73,10 @@ The root SPI interface. Every plugin (including facility plugins) implements thi
 | `start()`                       | After all `init()` calls, on a virtual thread | Loads data and resources. Waits on required facility plugins via `isReady()` before proceeding. Starts background worker threads.                                                                                                                                         |
 | `stop()`                        | During graceful shutdown                      | Closes resources, stops worker threads.                                                                                                                                                                                                                                   |
 
+#### `ServerStatusPlugin`
+
+Owns and persists the mutable node state (`BlockNodeVersions`). These fields have been removed from `BlockNodeContext`. Plugins that need this state discover the facility via `ServiceLoader`                                         |
+
 ### `BlockNodeContext` (record)
 
 An immutable record injected into every plugin during `init()`. Contains only infrastructure concerns shared by all plugins. Facilities are no longer fields here — plugins that need a facility resolve it via `context.serviceLoader()`.
@@ -83,7 +87,6 @@ An immutable record injected into every plugin during `init()`. Contains only in
 | `metricRegistry`    | `MetricRegistry`        | Register counters, gauges, and histograms.                                               |
 | `serviceLoader`     | `ServiceLoaderFunction` | Load facility plugins and other SPI extensions at runtime.                               |
 | `threadPoolManager` | `ThreadPoolManager`     | Create managed virtual-thread or platform-thread executors.                              |
-| `blockNodeVersions` | `BlockNodeVersions`     | Version information for all loaded plugins.                                              |
 
 ### `ServiceBuilder` (interface)
 
@@ -94,13 +97,13 @@ void registerHttpService(String path, HttpService... service);
 void registerGrpcService(ServiceInterface service);
 ```
 
-### Facility Plugin Interfaces
+### Facility Plugins
 
-Each facility is defined by its own interface in the `spi-plugins` module. A facility plugin implements both `BlockNodePlugin` and its facility interface. The facility interface is registered as a JPMS service independently of `BlockNodePlugin`.
+Each facility is defined by its own interface in its own module. A facility plugin implements both `BlockNodePlugin` and its facility interface. The facility interface is registered as a JPMS service in its module info file.
 
-#### `BlockMessagingFacility` (facility interface)
+#### `BlockMessagingFacility`
 
-The inter-plugin event bus. Built on LMAX Disruptor ring buffers for high-throughput, low-latency delivery.
+The inter-plugin event bus currently built using LMAX Disruptor ring buffers for high-throughput, low-latency delivery. This messaging provider may be changed at a future date.
 
 **Block Items** — a stream of `BlockItems` records carrying unparsed protobuf items for one logical block:
 - `sendBlockItems(BlockItems)` — called by the publisher plugin for every batch received from a Consensus Node.
@@ -119,14 +122,7 @@ The inter-plugin event bus. Built on LMAX Disruptor ring buffers for high-throug
 
 Any plugin may subscribe to notifications via `registerBlockNotificationHandler(BlockNotificationHandler, ...)`.
 
-#### `HistoricalBlockFacility` (facility interface)
-
-Aggregates all registered `BlockProviderPlugin` implementations and presents a unified read interface:
-
-- `block(long blockNumber)` → `BlockAccessor` — queries providers in descending priority order; returns the first non-null result.
-- `availableBlocks()` → `BlockRangeSet` — the union of all providers' available ranges.
-
-#### `HealthFacility` (facility interface)
+#### `HealthFacility`
 
 ```java
 enum State { STARTING, RUNNING, SHUTTING_DOWN }
@@ -136,7 +132,15 @@ void shutdown(String className, String reason);
 
 The `HealthServicePlugin` registers `/healthz/livez` and `/healthz/readyz` HTTP endpoints that return `200 OK` while the state is `RUNNING` and `503 Service Unavailable` otherwise.
 
-#### `ApplicationStateFacility` (facility interface)
+The Health Facility has responsibility for the following:
+
+1. Receive updates from the core App and all plugins regarding current health status.
+2. Determine, based on plugin-specific criteria, whether the full node is ready, live, and/or offline based on all available information.
+3. Provide data to the status plugin for exposure on the status API
+4. Provide the K8S healthz endpoints.
+5. Provide a statusz endpoint for monitoring tools that offers a detailed view of node health status.
+
+#### `ApplicationStateFacility`
 
 Owns and persists the mutable node state (`TssData`, `NodeAddressBook`). These fields have been removed from `BlockNodeContext`. Plugins that need this state discover the facility via `ServiceLoader` and register change listeners directly.
 
@@ -158,18 +162,19 @@ Plugins register listeners in `init()` so they receive updates as soon as the fa
 
 ### `BlockProviderPlugin` (interface)
 
-Specialization of `BlockNodePlugin` for block storage backends. Each provider declares a `defaultPriority()` (higher = preferred). The `HistoricalBlockFacility` plugin loads all providers and sorts them by priority.
+Specialization of `BlockNodePlugin` for block storage backends. Each provider declares a `defaultPriority()` (higher = preferred).
 
 ## Design
 
-### Facility Plugin Pattern
+### Plugin Pattern
 
-Every facility follows the same pattern:
+Every plugin follows the same pattern:
 
-1. **Define** a facility interface in `spi-plugins` (e.g., `BlockMessagingFacility`).
-2. **Implement** the facility interface and `BlockNodePlugin` in a dedicated module (e.g., `facility-messaging`).
-3. **Register** both `BlockNodePlugin` and the facility interface as JPMS services in `module-info.java`.
-4. **Override** `isReady()` to return `true` only after internal startup is complete.
+1. **Create** a new module for the Plugin
+2. **Define** a facility interface (e.g., `ApplicationStateFacility`), if this plugin will be used by other plugins.
+3. **Implement** `BlockNodePlugin` and, if needed, the facility interface in the dedicated module (e.g., `application-state`).
+4. **Register** both `BlockNodePlugin` and the facility interface as JPMS services in `module-info.java`.
+5. **Override** `isReady()` to return `true` only after internal startup is complete.
 
 Dependent plugins declare `uses <FacilityInterface>` in their own `module-info.java` and resolve the facility in `init()`:
 
@@ -511,7 +516,7 @@ No metrics are defined by the plugin framework itself. Each plugin is expected t
 String METRICS_CATEGORY = "blocknode";
 ```
 
-The `HistoricalBlockFacility` plugin registers two observable gauges:
+The `ApplicationStateFacility` plugin manages stored and available blocks. It registers two observable gauges:
 - `blocknode.oldestBlockNumber` — oldest block available across all providers.
 - `blocknode.newestBlockNumber` — newest block available across all providers.
 
