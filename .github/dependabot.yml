@@ -10,7 +10,7 @@ updates:
     labels:
       - "dependencies"
     cooldown:
-      default-days: 2
+      default-days: 5
     open-pull-requests-limit: 10
 
   - package-ecosystem: docker
@@ -20,7 +20,7 @@ updates:
     labels:
       - "dependencies"
     cooldown:
-      default-days: 2
+      default-days: 5
     schedule:
       interval: daily
 
@@ -31,7 +31,7 @@ updates:
     labels:
       - "dependencies"
     cooldown:
-      default-days: 2
+      default-days: 5
     schedule:
       interval: weekly
 
@@ -42,6 +42,6 @@ updates:
     labels:
       - "dependencies"
     cooldown:
-      default-days: 2
+      default-days: 5
     schedule:
       interval: weekly
