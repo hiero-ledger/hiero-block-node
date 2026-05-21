@@ -440,8 +440,8 @@ public class BlockNodeAPITests {
      * Regression test for issue #2531: the producer.duplicateBlockSkipWindow configuration must
      * cause the publisher plugin to answer with SkipBlock for duplicate block headers that are
      * within the window of the last persisted block, and with EndOfStream(DUPLICATE_BLOCK) for
-     * duplicates that fall outside the window. The default window of 10 is exercised here:
-     * 1. Publish blocks 0..19 (so lastPersisted=19, window=10).
+     * duplicates that fall outside the window. The default window of 5 is exercised here:
+     * 1. Publish blocks 0..19 (so lastPersisted=19, window=5).
      * 2. Republish block 19 on the same stream (distance 0) and assert a SkipBlock response, with
      *    the stream remaining open.
      * 3. On a fresh stream, republish block 0 (distance 19, outside the window) and assert the

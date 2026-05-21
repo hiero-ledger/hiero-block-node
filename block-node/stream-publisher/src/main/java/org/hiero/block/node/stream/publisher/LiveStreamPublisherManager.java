@@ -799,9 +799,8 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         if (blockNumber <= lastPersisted) {
             // Within the configured window, ask the publisher to skip ahead instead of
             // ending the stream so a slightly-behind publisher can fast-forward without
-            // reconnecting. A window of zero disables this and preserves the legacy
-            // "always end on duplicate" behavior.
-            if (duplicateBlockSkipWindow > 0 && (lastPersisted - blockNumber) <= duplicateBlockSkipWindow) {
+            // reconnecting.
+            if ((lastPersisted - blockNumber) <= duplicateBlockSkipWindow) {
                 return BlockAction.SKIP;
             }
             return BlockAction.END_DUPLICATE;
