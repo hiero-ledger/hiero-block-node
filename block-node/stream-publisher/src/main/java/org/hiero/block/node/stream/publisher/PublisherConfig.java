@@ -19,6 +19,11 @@ import org.hiero.block.node.base.Loggable;
 /// Entries within the buffer remain fillable by a publisher that still has the block;
 /// entries older than the buffer are dropped to avoid asking publishers to resend a
 /// block they cannot supply (which kills the connection with TOO_FAR_BEHIND).
+/// @param duplicateBlockSkipWindow Number of blocks behind `lastPersistedBlockNumber`
+/// for which a duplicate block header is answered with `SkipBlock` instead of
+/// `EndOfStream(DUPLICATE_BLOCK)`. A publisher that is only slightly behind can then
+/// fast-forward without reconnecting; a publisher that is further behind than the
+/// window is still ended so it reconnects from the correct point.
 @ConfigData("producer")
 public record PublisherConfig(
         // spotless:off
@@ -26,6 +31,7 @@ public record PublisherConfig(
         @Loggable @ConfigProperty(defaultValue = "300") @Min(0L) long publisherUnavailabilityTimeout,
         @Loggable @ConfigProperty(defaultValue = "3") @Min(3) @Max(50) int MaxFutureBlocksBeforeStalled,
         @Loggable @ConfigProperty(defaultValue = "100") @Min(0L) @Max(200L) long staleResendPruneBuffer,
-        @Loggable @ConfigProperty(defaultValue = "100_000_000") @Min(100_000L) @Max(5_000_000_000L) long flowControlPauseDelayNanos) {
+        @Loggable @ConfigProperty(defaultValue = "100_000_000") @Min(100_000L) @Max(5_000_000_000L) long flowControlPauseDelayNanos,
+        @Loggable @ConfigProperty(defaultValue = "5") @Min(1) @Max(10) int duplicateBlockSkipWindow) {
         // spotless:on
 }

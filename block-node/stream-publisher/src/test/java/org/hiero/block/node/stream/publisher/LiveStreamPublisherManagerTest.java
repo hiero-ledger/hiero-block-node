@@ -228,7 +228,7 @@ class LiveStreamPublisherManagerTest {
             void testGetActionNullPreviousActionDUPLICATE(final long blockNumber) {
                 // First, we need to have some blocks available. lastPersistedBlock is chosen so all
                 // parameterized blockNumbers are far enough behind to fall outside the default
-                // duplicateBlockSkipWindow (10) and therefore still receive END_DUPLICATE.
+                // duplicateBlockSkipWindow (5) and therefore still receive END_DUPLICATE.
                 final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
                 final long firstPersistedBlock = 0L;
                 final long lastPersistedBlock = 100L;
@@ -249,18 +249,18 @@ class LiveStreamPublisherManagerTest {
             /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
             /// method returns [BlockAction#SKIP] when the provided block number is a duplicate
             /// (at or below the latest known block number) but within the configured
-            /// `duplicateBlockSkipWindow` (default 10), so that the publisher can fast-forward
+            /// `duplicateBlockSkipWindow` (default 5), so that the publisher can fast-forward
             /// instead of having its stream closed.
             @ParameterizedTest
             @ValueSource(
                     longs = {
-                        100L, 99L, 95L, 91L, 90L,
+                        100L, 99L, 97L, 96L, 95L,
                     })
             @DisplayName(
                     "getActionForBlock() returns SKIP when the provided block number is a duplicate within the skip window and previous action is NULL")
             void testGetActionNullPreviousActionDuplicateWithinSkipWindow(final long blockNumber) {
-                // lastPersistedBlock = 100, default duplicateBlockSkipWindow = 10.
-                // Block numbers 90..100 all sit at distance <= 10 and must return SKIP.
+                // lastPersistedBlock = 100, default duplicateBlockSkipWindow = 5.
+                // Block numbers 95..100 all sit at distance <= 5 and must return SKIP.
                 final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
                 final long lastPersistedBlock = 100L;
                 availableBlocks.add(0L, lastPersistedBlock);
@@ -278,13 +278,13 @@ class LiveStreamPublisherManagerTest {
             @DisplayName(
                     "getActionForBlock() returns END_DUPLICATE for a duplicate exactly one block beyond the skip window boundary")
             void testGetActionNullPreviousActionDuplicateJustOutsideSkipWindow() {
-                // lastPersistedBlock = 100, default window = 10. Block 89 has distance 11 -> END_DUPLICATE.
+                // lastPersistedBlock = 100, default window = 5. Block 94 has distance 6 -> END_DUPLICATE.
                 final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
                 final long lastPersistedBlock = 100L;
                 availableBlocks.add(0L, lastPersistedBlock);
                 historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
                 toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
-                final BlockAction actual = toTest.getActionForBlock(89L, null, publisherHandlerId);
+                final BlockAction actual = toTest.getActionForBlock(94L, null, publisherHandlerId);
                 assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
             }
 
@@ -380,57 +380,6 @@ class LiveStreamPublisherManagerTest {
                 final BlockAction actual = toTest.getActionForBlock(0L, action, publisherHandlerId);
                 // Assert
                 assertThat(actual).isEqualTo(BlockAction.END_ERROR);
-            }
-        }
-
-        /// Tests for the `producer.duplicateBlockSkipWindow` configuration option that
-        /// switches duplicate handling between [BlockAction#SKIP] (within the window)
-        /// and [BlockAction#END_DUPLICATE] (outside the window, or when the window is
-        /// disabled).
-        @Nested
-        @DisplayName("duplicateBlockSkipWindow Tests")
-        class DuplicateBlockSkipWindowDisabledTests {
-            /// Manager built with `producer.duplicateBlockSkipWindow=0` so the window
-            /// is disabled and every duplicate must produce [BlockAction#END_DUPLICATE].
-            private LiveStreamPublisherManager managerWithDisabledWindow;
-            /// Handler ID returned for the only handler registered with `managerWithDisabledWindow`.
-            private long disabledWindowHandlerId;
-
-            /// Local setup that builds a fresh manager wired to a configuration with
-            /// `producer.duplicateBlockSkipWindow=0`.
-            @BeforeEach
-            void localSetup() {
-                final Map<String, String> configOverrides =
-                        Map.ofEntries(Map.entry("producer.duplicateBlockSkipWindow", "0"));
-                final Configuration disabledWindowConfiguration = createTestConfiguration(configOverrides);
-                final BlockNodeContext disabledWindowContext = generateContext(
-                        historicalBlockFacility, threadPoolManager, messagingFacility, disabledWindowConfiguration);
-                managerWithDisabledWindow = new LiveStreamPublisherManager(disabledWindowContext, managerMetrics);
-                disabledWindowHandlerId = managerWithDisabledWindow
-                        .addHandler(new TestResponsePipeline(), sharedHandlerMetrics, null)
-                        .getId();
-            }
-
-            /// This test aims to assert that when the window is disabled, every duplicate
-            /// (including a duplicate at distance zero from `lastPersistedBlockNumber`) still
-            /// produces [BlockAction#END_DUPLICATE].
-            @ParameterizedTest
-            @ValueSource(
-                    longs = {
-                        0L, 1L, 99L, 100L,
-                    })
-            @DisplayName(
-                    "getActionForBlock() returns END_DUPLICATE for any duplicate when duplicateBlockSkipWindow is 0")
-            void testDuplicateWithDisabledWindowReturnsEndDuplicate(final long blockNumber) {
-                final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
-                final long lastPersistedBlock = 100L;
-                availableBlocks.add(0L, lastPersistedBlock);
-                historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
-                managerWithDisabledWindow.handlePersisted(
-                        new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
-                final BlockAction actual =
-                        managerWithDisabledWindow.getActionForBlock(blockNumber, null, disabledWindowHandlerId);
-                assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
             }
         }
 

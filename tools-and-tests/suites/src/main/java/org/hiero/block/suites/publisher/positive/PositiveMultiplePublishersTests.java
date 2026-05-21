@@ -821,8 +821,12 @@ public class PositiveMultiplePublishersTests extends BaseSuite {
     }
 
     private static Stream<Arguments> provideDataForErrorResponses() {
+        // Both starting block numbers (4 and 0) land within the default producer.duplicateBlockSkipWindow of
+        // the last persisted block, so the publisher plugin answers with SkipBlock rather than ending the
+        // stream with DUPLICATE_BLOCK. The simulator stores the full PublishStreamResponse.toString() as its
+        // status, so we look for the "skip_block" message name in that string.
         return Stream.of(
-                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(4)), "status: DUPLICATE_BLOCK"),
-                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(0)), "status: DUPLICATE_BLOCK"));
+                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(4)), "skip_block"),
+                Arguments.of(Map.of("generator.startBlockNumber", Long.toString(0)), "skip_block"));
     }
 }

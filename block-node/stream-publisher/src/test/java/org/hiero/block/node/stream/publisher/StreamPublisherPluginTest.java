@@ -68,6 +68,8 @@ class StreamPublisherPluginTest {
             response -> Objects.requireNonNull(response.acknowledgement()).blockNumber();
     private static final Function<PublishStreamResponse, Long> resendBlockNumberExtractor =
             response -> Objects.requireNonNull(response.resendBlock()).blockNumber();
+    private static final Function<PublishStreamResponse, Long> skipBlockNumberExtractor =
+            response -> Objects.requireNonNull(response.skipBlock()).blockNumber();
 
     /// The historical block facility to use when testing.
     private SimpleInMemoryHistoricalBlockFacility historicalBlockFacility;
@@ -331,12 +333,14 @@ class StreamPublisherPluginTest {
 
         private void activatePlugin(final long earliestManagedBlock) {
             final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
-            // Disable the duplicate-block skip window so these tests continue to assert the
-            // legacy EndOfStream(DUPLICATE_BLOCK) response. The new window behavior has its
-            // own dedicated coverage in LiveStreamPublisherManagerTest.
+            // Pin the duplicate-block skip window to its minimum so duplicates more than one
+            // block behind still produce EndOfStream(DUPLICATE_BLOCK), preserving the legacy
+            // assertions in this class. Distance-zero re-publishes still SKIP because that is
+            // covered by the window even at its smallest valid value; see the explicit
+            // SKIP_BLOCK assertions in the chain-continuation tests below.
             final Map<String, String> configOverrides = Map.ofEntries(
                     Map.entry("block.node.earliestManagedBlock", Long.toString(earliestManagedBlock)),
-                    Map.entry("producer.duplicateBlockSkipWindow", "0"));
+                    Map.entry("producer.duplicateBlockSkipWindow", "1"));
             final List<BlockNodePlugin> additionalPlugins = List.of(verificationPlugin);
             start(toTest, toTest.methods().getFirst(), historicalBlockFacility, additionalPlugins, configOverrides);
             // Assert that the earliest managed block is set to 10
@@ -638,15 +642,15 @@ class StreamPublisherPluginTest {
             fromPluginBytes.clear();
             // Now attempt to send the same request again, that should not be possible
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
-            // Assert end stream
+            // Distance-zero duplicates fall inside the configured duplicateBlockSkipWindow, so
+            // the publisher is told to skip the block rather than having its stream closed.
             assertThat(fromPluginBytes)
                     .hasSize(1)
                     .first()
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
-                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                    .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
-                    .returns(0L, endStreamResponseBlockNumberExtractor);
+                    .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
+                    .returns(0L, skipBlockNumberExtractor);
         }
 
         /// This test aims to verify that once a block has been streamed to the
@@ -690,15 +694,15 @@ class StreamPublisherPluginTest {
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(firstRequest));
             // Await to ensure async execution and assert response
             awaitPluginResponses(1);
-            // Assert end stream
+            // Distance-zero duplicates fall inside the configured duplicateBlockSkipWindow, so
+            // the publisher is told to skip the block rather than having its stream closed.
             assertThat(fromPluginBytes)
                     .hasSize(1)
                     .first()
                     .extracting(bytesToPublishStreamResponseMapper)
                     .isNotNull()
-                    .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                    .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
-                    .returns(0L, endStreamResponseBlockNumberExtractor);
+                    .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
+                    .returns(0L, skipBlockNumberExtractor);
         }
 
         // @todo(1693) add tests:
