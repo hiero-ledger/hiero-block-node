@@ -8,7 +8,6 @@ import static org.hiero.block.tools.blocks.model.BlockWriter.DEFAULT_POWERS_OF_T
 import static org.hiero.block.tools.blocks.model.hashing.BlockStreamBlockHasher.hashBlockDetailed;
 import static org.hiero.block.tools.blocks.validation.BlockExtractionUtils.extractTransactionBody;
 import static org.hiero.block.tools.mirrornode.DayBlockInfo.loadDayBlockInfoMap;
-import static org.hiero.block.tools.records.RecordFileDates.FIRST_BLOCK_TIME_INSTANT;
 
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.block.stream.RecordFileSignature;
@@ -196,6 +195,12 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
     private Path outputBlocksDir = Path.of("wrappedBlocks");
 
     @Option(
+            names = {"--skip-block-number-validation"},
+            description =
+                    "Skip validation that computed block numbers match record file block numbers (useful for test networks)")
+    private boolean skipBlockNumberValidation = false;
+
+    @Option(
             names = {"--parse-threads"},
             description = "Thread count for the parse + RSA-verify stage. Default: CPU count minus 1")
     private int parseThreads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
@@ -322,8 +327,8 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
         // Track how many blocks have been written since the last watermark flush
         final AtomicLong blocksSinceWatermarkFlush = new AtomicLong(0);
 
-        try ( // load block times
-        final BlockTimeReader blockTimeReader = new BlockTimeReader(blockTimesFile);
+        try ( // load block times - uses NetworkConfig.current() for genesis time
+        final BlockTimeReader blockTimeReader = BlockTimeReader.forCurrentNetwork(blockTimesFile);
                 // BlockStreamBlockHashRegistry for storing block hashes
                 final BlockStreamBlockHashRegistry blockRegistry =
                         new BlockStreamBlockHashRegistry(outputBlocksDir.resolve("blockStreamBlockHashes.bin"))) {
@@ -382,8 +387,10 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
             }
 
             // Use a time just before the first block so block 0 passes the isAfter filter
+            // Use network-specific genesis instant (parsed from timestamp, not date at midnight)
             final Instant highestStoredBlockTime = effectiveHighest == -1
-                    ? FIRST_BLOCK_TIME_INSTANT.minusNanos(1)
+                    ? Instant.parse(NetworkConfig.current().genesisTimestamp().replace('_', ':'))
+                            .minusNanos(1)
                     : blockTimeReader.getBlockInstant(effectiveHighest);
             System.out.println(Ansi.AUTO.string("@|yellow Starting at time:|@ " + highestStoredBlockTime));
 
@@ -628,7 +635,9 @@ public class ToWrappedBlocksCommand implements Callable<Integer> {
                                 .recordFile()
                                 .recordStreamFile()
                                 .blockNumber();
-                        if (blockNumberFromRecordFile > 0 && blockNum != blockNumberFromRecordFile) {
+                        if (!skipBlockNumberValidation
+                                && blockNumberFromRecordFile > 0
+                                && blockNum != blockNumberFromRecordFile) {
                             throw new RuntimeException("Block number mismatch at "
                                     + preVerified.recordBlock().blockTime()
                                     + " in "

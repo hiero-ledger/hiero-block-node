@@ -39,7 +39,7 @@ Each plugin has its own properties, but this focuses on core options and core pl
 |:----------------------------------------|:---------------------------------------------|-----------:|
 | SERVER_MAX_MESSAGE_SIZE_BYTES           | Max message size (bytes) for HTTP/2.         | 37,748,736 |
 | SERVER_SOCKET_SEND_BUFFER_SIZE_BYTES    | Send buffer size (bytes).                    |      32768 |
-| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).                 |      32768 |
+| SERVER_SOCKET_RECEIVE_BUFFER_SIZE_BYTES | Receive buffer size (bytes).                 |  8,388,608 |
 | SERVER_PORT                             | Server listening port.                       |      40840 |
 | SERVER_SHUTDOWN_DELAY_MILLIS            | Delay before shutdown (ms).                  |        500 |
 | SERVER_MAX_TCP_CONNECTIONS              | Max TCP connections allowed.                 |       1000 |
@@ -50,7 +50,7 @@ Each plugin has its own properties, but this focuses on core options and core pl
 
 | ENV Variable                          | Description                                                                  |   Default |
 |:--------------------------------------|:-----------------------------------------------------------------------------|----------:|
-| SERVER_HTTP2_FLOW_CONTROL_TIMEOUT     | Outbound flow control blocking timeout (ms).                                 |      1000 |
+| SERVER_HTTP2_FLOW_CONTROL_TIMEOUT     | Outbound flow control blocking timeout (ms).                                 |       500 |
 | SERVER_HTTP2_INITIAL_WINDOW_SIZE      | Sender's maximum window size (bytes) for stream-level flow control.          | 1,048,576 |
 | SERVER_HTTP2_MAX_CONCURRENT_STREAMS   | Max concurrent streams the server will allow.                                |         8 |
 | SERVER_HTTP2_MAX_EMPTY_FRAMES         | Max consecutive empty frames allowed on connection.                          |        10 |
