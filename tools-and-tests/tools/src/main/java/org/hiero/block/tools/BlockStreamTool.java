@@ -42,11 +42,11 @@ public final class BlockStreamTool {
      * via {@code scope = ScopeType.INHERIT}, so it can be specified at any level of the
      * command hierarchy (e.g., {@code tools days download-days-v3 --network testnet}).
      *
-     * @param network the network name: "mainnet" (default) or "testnet"
+     * @param network the network name: "mainnet" (default), "testnet", "previewnet", or "other" (custom)
      */
     @Option(
             names = "--network",
-            description = "Network to use: mainnet (default), testnet",
+            description = "Network to use: mainnet (default), testnet, previewnet, or other (custom)",
             defaultValue = "mainnet",
             scope = ScopeType.INHERIT)
     void setNetwork(final String network) {
