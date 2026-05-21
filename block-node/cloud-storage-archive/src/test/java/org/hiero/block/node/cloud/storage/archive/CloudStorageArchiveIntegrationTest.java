@@ -64,6 +64,7 @@ import org.junit.jupiter.api.Test;
 /// (set to 5, the minimum non-final S3 multipart part size) for speed.
 ///
 /// If the properties file is absent the test is **skipped** (not failed).
+@Disabled // remove this if you want to run the test
 @DisplayName("Cloud Storage Archive – One-shot Integration Test")
 class CloudStorageArchiveIntegrationTest {
 
@@ -133,7 +134,6 @@ class CloudStorageArchiveIntegrationTest {
     }
 
     @Test
-    @Disabled // remove this if you want to run the test
     @DisplayName("One-shot: out-of-order blocks, cross-group stash, stop/restart, and crash recovery")
     void oneShotIntegrationScenario() throws Exception {
         final int groupSize = Math.powExact(10, GROUPING_LEVEL); // 10 blocks
