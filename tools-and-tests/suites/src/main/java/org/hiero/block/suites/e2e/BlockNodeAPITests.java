@@ -619,14 +619,15 @@ public class BlockNodeAPITests {
      * <p>
      * This test covers the following scenarios:
      * <ol>
-     *   <li>Publishing a new genesis block and confirming acknowledgement response.</li>
-     *   <li>Publishing a duplicate genesis block and confirming duplicate block response and stream closure.</li>
+     *   <li>Publishing a chain of blocks (0..7) so the duplicate in scenario 2 falls outside the
+     *       default producer.duplicateBlockSkipWindow and triggers EndOfStream(DUPLICATE_BLOCK).</li>
+     *   <li>Publishing a far-behind duplicate (block 0, distance 7) and confirming stream closure.</li>
      *   <li>Attempting to publish a new block after the stream is closed, expecting an UncheckedIOException caused by a closed socket.</li>
      * </ol>
      */
     @Test
     void e2eSocketClosureTest() throws InterruptedException {
-        // ==== Scenario 1: Publish new genesis block and confirm acknowledgement response ====
+        // ==== Scenario 1: Publish a chain of blocks 0..7 so we can trigger an outside-window duplicate next ====
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
                         publishBlockStreamPbjGrpcClient, OPTIONS);
@@ -635,22 +636,31 @@ public class BlockNodeAPITests {
         final Pipeline<? super PublishStreamRequest> requestStream =
                 blockStreamPublishServiceClient.publishBlockStream(responseObserver);
 
-        final long blockNumber = 0;
-        BlockItem[] blockItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
-        // change to List to allow multiple items
-        PublishStreamRequest request = PublishStreamRequest.newBuilder()
-                .blockItems(BlockItemSet.newBuilder().blockItems(blockItems).build())
-                .build();
-        AtomicReference<CountDownLatch> publishCountDownLatch = responseObserver.setAndGetOnNextLatch(1);
-        requestStream.onNext(request);
-        endBlock(blockNumber, requestStream);
+        final int totalBlocks = 8;
+        final long headBlock = totalBlocks - 1L;
+        final AtomicReference<CountDownLatch> publishCountDownLatch =
+                responseObserver.setAndGetOnNextLatch(totalBlocks);
+        BlockItem[] genesisBlockItems = null;
+        Bytes previousBlockHash = null;
+        for (long blockNumber = 0; blockNumber < totalBlocks; blockNumber++) {
+            final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber, previousBlockHash);
+            if (blockNumber == 0L) {
+                genesisBlockItems = items;
+            }
+            final PublishStreamRequest itemsRequest = PublishStreamRequest.newBuilder()
+                    .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
+                    .build();
+            requestStream.onNext(itemsRequest);
+            endBlock(blockNumber, requestStream);
+            previousBlockHash = BlockItemBuilderUtils.computeBlockHash(blockNumber, previousBlockHash);
+        }
 
-        awaitLatch(publishCountDownLatch, "socket test acknowledgement"); // wait for acknowledgement response
+        awaitLatch(publishCountDownLatch, "socket test acknowledgements for blocks 0..7");
+        assertThat(responseObserver.getOnNextCalls()).hasSize(totalBlocks);
         assertThat(responseObserver.getOnNextCalls())
-                .hasSize(1)
-                .first()
+                .last()
                 .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
-                .returns(0L, acknowledgementBlockNumberExtractor);
+                .returns(headBlock, acknowledgementBlockNumberExtractor);
 
         // Assert no other responses sent
         assertThat(responseObserver.getOnErrorCalls()).isEmpty();
@@ -658,34 +668,39 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(0);
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
-        // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
+        // ==== Scenario 2: Republish genesis (distance 7, outside the default window) -> stream closure ====
         final AtomicReference<CountDownLatch> socketDuplicateConnectionEndedLatch =
                 responseObserver.setAndGetConnectionEndedLatch(1);
-        requestStream.onNext(request);
+        final PublishStreamRequest genesisRequest = PublishStreamRequest.newBuilder()
+                .blockItems(
+                        BlockItemSet.newBuilder().blockItems(genesisBlockItems).build())
+                .build();
+        requestStream.onNext(genesisRequest);
 
         awaitLatch(socketDuplicateConnectionEndedLatch, "socket test duplicate block connection closed");
 
-        // query status to confirm block range still shows only block 0
+        // query status to confirm the persisted block range covers 0..7
         BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient =
                 new BlockNodeServiceInterface.BlockNodeServiceClient(serverStatusPbjGrpcClient, OPTIONS);
         final ServerStatusResponse nodeStatusPostDuplicateBlock =
                 blockNodeServiceClient.serverStatus(SIMPLE_SERVER_STAUS_REQUEST);
         assertNotNull(nodeStatusPostDuplicateBlock);
         assertThat(nodeStatusPostDuplicateBlock.firstAvailableBlock()).isEqualTo(0);
-        assertThat(nodeStatusPostDuplicateBlock.lastAvailableBlock()).isEqualTo(0);
+        assertThat(nodeStatusPostDuplicateBlock.lastAvailableBlock()).isEqualTo(headBlock);
 
         // ==== Scenario 3: Attempt to publish a new block after stream closure and expect UncheckedIOException ====
-        final long blockNumber1 = 1;
-        BlockItem[] blockItems1 = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber1);
-        PublishStreamRequest request1 = PublishStreamRequest.newBuilder()
-                .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
+        final long nextBlockNumber = totalBlocks;
+        BlockItem[] nextBlockItems =
+                BlockItemBuilderUtils.createSimpleBlockWithNumber(nextBlockNumber, previousBlockHash);
+        PublishStreamRequest nextBlockRequest = PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(nextBlockItems).build())
                 .build();
 
         // This asserts that UncheckedIOException is thrown and its cause is a SocketException with "socket closed"
         UncheckedIOException ex = assertThrows(UncheckedIOException.class, () -> {
             // Expected exception to be thrown on the onNext() due to closed socket
             // from previous duplicate block publish
-            requestStream.onNext(request1);
+            requestStream.onNext(nextBlockRequest);
         });
         assertEquals(
                 SocketException.class.getSimpleName(), ex.getCause().getClass().getSimpleName());
