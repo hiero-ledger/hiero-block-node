@@ -5,19 +5,43 @@ updates:
     directory: /
     schedule:
       interval: daily
+    assignees:
+      - "swirlds-automation"
+    labels:
+      - "dependencies"
+    cooldown:
+      default-days: 2
     open-pull-requests-limit: 10
 
   - package-ecosystem: docker
     directory: /auth-layer-proxy
+    assignees:
+      - "swirlds-automation"
+    labels:
+      - "dependencies"
+    cooldown:
+      default-days: 2
     schedule:
       interval: daily
 
   - package-ecosystem: gradle
     directory: /hiero-dependency-versions
+    assignees:
+      - "swirlds-automation"
+    labels:
+      - "dependencies"
+    cooldown:
+      default-days: 2
     schedule:
       interval: weekly
 
   - package-ecosystem: gradle
     directory: /
+    assignees:
+      - "swirlds-automation"
+    labels:
+      - "dependencies"
+    cooldown:
+      default-days: 2
     schedule:
       interval: weekly
