@@ -800,102 +800,7 @@ EOF
                 # Regenerate metadata using Python
                 # Important: block_times.bin must be padded from 0 to actual_block_num-1
                 # so the wrap command can read any block number starting from 0
-                python3 - "${LOCAL_RECORDS_DIR}" "${block_times_file}" "${day_blocks_file}" "${genesis_epoch_nanos}" "${actual_block_num}" <<'PYTHON_EOF'
-import sys
-import gzip
-from pathlib import Path
-from collections import defaultdict
-import struct
-import json
-
-records_dir = sys.argv[1]
-block_times_file = sys.argv[2]
-day_blocks_file = sys.argv[3]
-genesis_epoch_nanos = int(sys.argv[4])
-starting_block_num = int(sys.argv[5])
-
-# Find all record files (search recursively)
-record_files = sorted(list(Path(records_dir).glob('**/*.rcd.gz')) + list(Path(records_dir).glob('**/*.rcd')))
-
-if not record_files:
-    print("No record files found", file=sys.stderr)
-    sys.exit(1)
-
-print(f"Regenerating metadata for {len(record_files)} files starting from block {starting_block_num}...", file=sys.stderr)
-
-blocks_data = []
-for idx, rcd_file in enumerate(record_files):
-    filename = rcd_file.name
-    timestamp = filename.split('.rcd')[0]
-    block_num = starting_block_num + idx
-
-    # Convert timestamp to epoch nanos
-    iso_timestamp = timestamp.replace('_', ':')
-    datetime_part = iso_timestamp.split('.')[0]
-    nanos_part = iso_timestamp.split('.')[1].rstrip('Z')
-
-    # IMPORTANT: Timestamps are in UTC (indicated by 'Z' suffix), so use timezone.utc
-    from datetime import datetime, timezone
-    dt = datetime.strptime(datetime_part, '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
-    epoch_seconds = int(dt.timestamp())
-    epoch_nanos = epoch_seconds * 1000000000 + int(nanos_part)
-    relative_nanos = epoch_nanos - genesis_epoch_nanos
-
-    blocks_data.append({
-        'block_num': block_num,
-        'timestamp': timestamp,
-        'relative_nanos': relative_nanos,
-        'day': timestamp.split('T')[0]
-    })
-
-# Write block_times.bin
-# Pad from block 0 to starting_block_num-1 with extrapolated timestamps
-with open(block_times_file, 'wb') as f:
-    if starting_block_num > 0 and len(blocks_data) > 0:
-        # Calculate average block time for extrapolation
-        if len(blocks_data) >= 2:
-            avg_block_time = (blocks_data[1]['relative_nanos'] - blocks_data[0]['relative_nanos'])
-        else:
-            avg_block_time = 1_000_000_000  # 1 second default
-
-        # Pad blocks 0 to starting_block_num-1 with extrapolated timestamps
-        first_block_time = blocks_data[0]['relative_nanos']
-        for i in range(starting_block_num):
-            padded_time = max(0, first_block_time - (starting_block_num - i) * avg_block_time)
-            f.seek(i * 8)
-            f.write(struct.pack('>Q', padded_time))
-
-    # Write actual block data
-    for block in blocks_data:
-        f.seek(block['block_num'] * 8)
-        f.write(struct.pack('>Q', block['relative_nanos']))
-
-# Generate day_blocks.json
-# Use block 0 as first since we padded from 0
-days = defaultdict(lambda: {'first': None, 'last': None})
-for block in blocks_data:
-    day = block['day']
-    if days[day]['first'] is None:
-        # Set first block to 0 if we padded, otherwise use actual block number
-        days[day]['first'] = 0 if starting_block_num > 0 else block['block_num']
-    days[day]['last'] = block['block_num']
-
-day_entries = []
-for day in sorted(days.keys()):
-    year, month, day_num = day.split('-')
-    day_entries.append({
-        'year': int(year),
-        'month': int(month),
-        'day': int(day_num),
-        'firstBlockNumber': days[day]['first'],
-        'lastBlockNumber': days[day]['last']
-    })
-
-with open(day_blocks_file, 'w') as f:
-    json.dump(day_entries, f, indent=2)
-
-print(f"Regenerated metadata: blocks 0 to {starting_block_num + len(record_files) - 1} (padded 0-{starting_block_num-1}, actual {starting_block_num}-{starting_block_num + len(record_files) - 1})", file=sys.stderr)
-PYTHON_EOF
+                python3 "${SCRIPT_DIR}/python/regenerate_padded_metadata.py" "${LOCAL_RECORDS_DIR}" "${block_times_file}" "${day_blocks_file}" "${genesis_epoch_nanos}" "${actual_block_num}"
 
                 # Retry wrapping with corrected and padded metadata
                 log "Retrying wrap with padded metadata (blocks 0-$((actual_block_num-1)) padded, $((actual_block_num))-$((actual_block_num+199)) actual)..."
@@ -1026,9 +931,86 @@ function do_compare {
     log "- Compared against ${cn_count} CN block file(s)"
     log "- Wrapped blocks passed validation"
 
-    # Clean up
-    log "Cleaning up work directory..."
-    rm -rf "${LOCAL_WORK_DIR}"
+    # Note: Cleanup removed - work directory may be needed for subsequent validation steps
+}
+
+# Validate jumpstart.bin file format and contents
+do_validate_jumpstart() {
+    log "Validating jumpstart.bin file format and contents..."
+
+    local jumpstart_file="${LOCAL_WORK_DIR}/cli-wrapped-blocks/jumpstart.bin"
+
+    if [[ ! -f "${jumpstart_file}" ]]; then
+        log "ERROR: jumpstart.bin not found at ${jumpstart_file}"
+        return 1
+    fi
+
+    log "Found jumpstart.bin: ${jumpstart_file}"
+    log "File size: $(stat -f%z "${jumpstart_file}" 2>/dev/null || stat -c%s "${jumpstart_file}" 2>/dev/null) bytes"
+
+    # Extract and display jumpstart contents using Python
+    log "Extracting jumpstart contents..."
+    python3 "${SCRIPT_DIR}/python/validate_jumpstart_format.py" "${jumpstart_file}"
+
+    if [[ $? -eq 0 ]]; then
+        log "Jumpstart file format validation passed"
+        return 0
+    else
+        log "ERROR: Jumpstart file format validation failed"
+        return 1
+    fi
+}
+
+# Run blocks validate command to verify jumpstart consistency
+do_validate_blocks() {
+    log "Running blocks validate command with jumpstart verification..."
+
+    local tools_jar=$(find "${REPO_ROOT}/tools-and-tests/tools/build/libs" -name 'tools-*-all.jar' -print -quit 2>/dev/null)
+    if [[ -z "${tools_jar}" ]]; then
+        log "ERROR: Tools shadow jar not found"
+        return 1
+    fi
+
+    log "Using shadow jar: ${tools_jar}"
+
+    local wrapped_blocks_dir="${LOCAL_WORK_DIR}/cli-wrapped-blocks"
+    local jumpstart_file="${wrapped_blocks_dir}/jumpstart.bin"
+
+    if [[ ! -f "${jumpstart_file}" ]]; then
+        log "ERROR: jumpstart.bin not found at ${jumpstart_file}"
+        return 1
+    fi
+
+    log "Validating wrapped blocks with jumpstart verification..."
+    log "Wrapped blocks directory: ${wrapped_blocks_dir}"
+    log "Jumpstart file: ${jumpstart_file}"
+
+    # Run validate command
+    # Skip signatures and supply validation (Solo network), but verify jumpstart
+    java -jar "${tools_jar}" blocks validate \
+        --skip-signatures \
+        --skip-supply \
+        --validate-balances=false \
+        --no-resume \
+        "${wrapped_blocks_dir}" 2>&1 | tee "${LOCAL_WORK_DIR}/validate-output.log"
+
+    local validate_exit_code=$?
+
+    if [[ ${validate_exit_code} -eq 0 ]]; then
+        log "Blocks validation with jumpstart verification PASSED"
+
+        # Check if jumpstart validation specifically passed
+        if grep -q "JumpstartValidation.*PASS" "${LOCAL_WORK_DIR}/validate-output.log" 2>/dev/null; then
+            log "Jumpstart validation explicitly confirmed in output"
+        else
+            log "Note: Jumpstart validation status not explicitly found in output"
+        fi
+
+        return 0
+    else
+        log "ERROR: Blocks validation with jumpstart verification FAILED (exit code: ${validate_exit_code})"
+        return 1
+    fi
 }
 
 # Main
@@ -1042,11 +1024,17 @@ case "${1:-}" in
     wrap)
         do_wrap
         ;;
+    validate-jumpstart)
+        do_validate_jumpstart
+        ;;
     compare)
         do_compare
         ;;
+    validate-blocks)
+        do_validate_blocks
+        ;;
     *)
-        echo "Usage: $0 {build|extract|wrap|compare}"
+        echo "Usage: $0 {build|extract|wrap|validate-jumpstart|compare|validate-blocks}"
         exit 1
         ;;
 esac
