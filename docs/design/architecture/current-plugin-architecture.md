@@ -351,6 +351,7 @@ flowchart LR
 ```
 
 ### Module Dependency Structure
+
 Plugins can be built internally, byt the community, or by private thirdParties.
 
 ```mermaid
