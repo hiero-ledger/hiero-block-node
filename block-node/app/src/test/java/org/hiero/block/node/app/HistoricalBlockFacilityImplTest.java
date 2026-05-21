@@ -41,6 +41,10 @@ class HistoricalBlockFacilityImplTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
+        ConcurrentLongRangeSet rangeSet1 = new ConcurrentLongRangeSet(0, 1000);
+        ConcurrentLongRangeSet rangeSet2 = new ConcurrentLongRangeSet(0, 1000);
+        when(provider1.availableBlocks()).thenReturn(rangeSet1);
+        when(provider2.availableBlocks()).thenReturn(rangeSet2);
         facility = new HistoricalBlockFacilityImpl(List.of(provider1, provider2));
     }
 
@@ -180,6 +184,7 @@ class HistoricalBlockFacilityImplTest {
 
         // Set up available blocks for all providers
         BlockRangeSet mockRangeSet = mock(BlockRangeSet.class);
+        when(mockRangeSet.contains(456L)).thenReturn(true);
         when(highPriorityProvider.availableBlocks()).thenReturn(mockRangeSet);
         when(mediumPriorityProvider.availableBlocks()).thenReturn(mockRangeSet);
         when(lowPriorityProvider.availableBlocks()).thenReturn(mockRangeSet);
@@ -268,5 +273,30 @@ class HistoricalBlockFacilityImplTest {
 
         // Verify provider class names are included
         assertTrue(result.contains(provider1.getClass().getSimpleName()), "Should include first provider class name");
+    }
+
+    /**
+     * Tests block retrieval returns null when the block is not in availableBlocks.
+     */
+    @Test
+    @DisplayName("Test block retrieval returns null when block is not in availableBlocks")
+    void testBlockNotInAvailableBlocksReturnsNull() {
+        final long blockNumber = 123L;
+        final BlockAccessor blockAccessor = mock(BlockAccessor.class);
+
+        // Mock providers to have the block, but their available blocks set does not contain it
+        when(provider1.block(blockNumber)).thenReturn(blockAccessor);
+
+        ConcurrentLongRangeSet emptyRangeSet = new ConcurrentLongRangeSet();
+        when(provider1.availableBlocks()).thenReturn(emptyRangeSet);
+        when(provider2.availableBlocks()).thenReturn(emptyRangeSet);
+
+        HistoricalBlockFacilityImpl facilityWithEmptyAvailable = new HistoricalBlockFacilityImpl(List.of(provider1, provider2));
+
+        final BlockAccessor result = facilityWithEmptyAvailable.block(blockNumber);
+
+        assertNull(result);
+        // Provider's block method should never be checked since it's not in availableBlocks
+        verify(provider1, org.mockito.Mockito.never()).block(blockNumber);
     }
 }

@@ -30,6 +30,24 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
     private final CombinedBlockRangeSet availableBlocks;
 
     /**
+     * The block node context.
+     */
+    private org.hiero.block.node.spi.BlockNodeContext context;
+
+    @Override
+    public void init(final org.hiero.block.node.spi.BlockNodeContext context, final org.hiero.block.node.spi.ServiceBuilder serviceBuilder) {
+        this.context = context;
+    }
+
+    /**
+     * Get the combined providers range set before initialization.
+     * @return the combined providers range set
+     */
+    public BlockRangeSet getCombinedProvidersRangeSet() {
+        return availableBlocks;
+    }
+
+    /**
      * Constructor for the HistoricalBlockFacilityImpl class. This constructor loads the block providers using provided
      * ServiceLoader.
      *
@@ -73,6 +91,9 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
      */
     @Override
     public BlockAccessor block(long blockNumber) {
+        if (!availableBlocks().contains(blockNumber)) {
+            return null;
+        }
         for (BlockProviderPlugin provider : providers) {
             BlockAccessor blockAccessor = provider.block(blockNumber);
             if (blockAccessor != null) {
@@ -87,6 +108,12 @@ public class HistoricalBlockFacilityImpl implements HistoricalBlockFacility {
      */
     @Override
     public BlockRangeSet availableBlocks() {
+        if (context != null && context.applicationStateFacility() != null) {
+            BlockRangeSet appStateRanges = context.applicationStateFacility().availableBlocks();
+            if (appStateRanges != null) {
+                return appStateRanges;
+            }
+        }
         return availableBlocks;
     }
 

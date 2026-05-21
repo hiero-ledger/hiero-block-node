@@ -13,6 +13,7 @@ module org.hiero.block.node.app.test.fixtures {
     requires com.hedera.pbj.runtime;
     requires com.swirlds.config.api;
     requires org.hiero.block.node.app.config;
+    requires org.hiero.block.node.base;
     requires org.hiero.block.node.spi;
     requires org.hiero.block.protobuf.pbj;
     requires org.hiero.metrics;

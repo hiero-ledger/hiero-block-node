@@ -139,6 +139,8 @@ dependencies {
     blockNodePlugins(project(":backfill"))
     blockNodePlugins(project(":s3-archive"))
     blockNodePlugins(project(":cloud-storage-expanded"))
+
+    testFixturesImplementation(project(":base"))
 }
 
 /** Sets block node storage environment variables for the given data directory. */

@@ -4,6 +4,7 @@ package org.hiero.block.node.app.config.node;
 import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Min;
+import java.nio.file.Path;
 import org.hiero.block.node.base.Loggable;
 
 /**
@@ -19,5 +20,10 @@ import org.hiero.block.node.base.Loggable;
 // spotless:off
 @ConfigData("block.node")
 public record NodeConfig(
-        @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock) {}
+        @Loggable @ConfigProperty(defaultValue = "0") @Min(0) long earliestManagedBlock,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/app-state-data.bin") Path appStateDataFilePath,
+        @Loggable @ConfigProperty(defaultValue = "500") @Min(100) long appStateUpdateScanInterval,
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(100) int appStateUpdateInitialDelay,
+        @Loggable @ConfigProperty(defaultValue = "/opt/hiero/block-node/node/block-ranges-data.bin") Path blockRangesStateFilePath,
+        @Loggable @ConfigProperty(defaultValue = "100") @Min(1) int blockRangesSaveInterval) {}
 // spotless:on

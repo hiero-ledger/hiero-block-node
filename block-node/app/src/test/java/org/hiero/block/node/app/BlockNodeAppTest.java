@@ -117,6 +117,7 @@ class BlockNodeAppTest {
     void cleanup() {
         try {
             Files.deleteIfExists(Path.of("build/tmp/data/block/node/app-state-data.json"));
+            Files.deleteIfExists(Path.of("build/tmp/data/block/node/block-ranges-data.bin"));
         } catch (Exception e) {
             // ignore
         }
@@ -682,5 +683,62 @@ class BlockNodeAppTest {
                 .currentRoster(tssRoster)
                 .validFromBlock(validFromBlock)
                 .build();
+    }
+
+    /**
+     * Test Block Ranges persistence and loading.
+     */
+    @Test
+    @DisplayName("should persist and load block ranges")
+    void testBlockRangesPersistence() throws IOException, InterruptedException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction() {
+            @SuppressWarnings("unchecked")
+            @Override
+            public <C> Stream<? extends C> loadServices(Class<C> serviceClass) {
+                if (serviceClass == BlockNodePlugin.class) {
+                    return Stream.of(plugin1, plugin2).map(service -> (C) service);
+                } else if (serviceClass == BlockProviderPlugin.class) {
+                    // return empty so fallback doesn't populate anything
+                    return Stream.empty();
+                } else if (serviceClass == BlockMessagingFacility.class) {
+                    return Stream.of(mockBlockMessagingFacility).map(service -> (C) service);
+                }
+                return super.loadServices(serviceClass);
+            }
+        };
+
+        final BlockNodeApp blockNodeApp = new BlockNodeApp(serviceLoaderFunction, false);
+        final Path blockRangesPath = Path.of("build/tmp/data/block/node/block-ranges-data.bin");
+        Files.deleteIfExists(blockRangesPath);
+
+        // start the ApplicationStateFacility manually
+        blockNodeApp.startApplicationStateFacility();
+
+        // Initially no ranges loaded since providers are empty
+        assertEquals(0, blockNodeApp.availableBlocks().size());
+
+        // Add some blocks
+        blockNodeApp.addBlock(100);
+        blockNodeApp.addRange(200, 210);
+
+        // Stop the facility to force persistence
+        blockNodeApp.stopApplicationStateFacility();
+
+        // Check if the file is persisted
+        assertTrue(Files.exists(blockRangesPath));
+
+        // Create a new BlockNodeApp which will load the persisted block ranges
+        final BlockNodeApp blockNodeApp2 = new BlockNodeApp(serviceLoaderFunction, false);
+        blockNodeApp2.startApplicationStateFacility();
+
+        // Verify the ranges are loaded
+        assertEquals(12, blockNodeApp2.availableBlocks().size());
+        assertTrue(blockNodeApp2.availableBlocks().contains(100));
+        assertTrue(blockNodeApp2.availableBlocks().contains(200));
+        assertTrue(blockNodeApp2.availableBlocks().contains(205));
+        assertTrue(blockNodeApp2.availableBlocks().contains(210));
+
+        // stop the second facility
+        blockNodeApp2.stopApplicationStateFacility();
     }
 }
