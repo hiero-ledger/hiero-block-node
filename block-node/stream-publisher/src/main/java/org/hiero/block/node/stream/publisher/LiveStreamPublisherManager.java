@@ -84,6 +84,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final long earliestManagedBlock;
     private final int maxBlocksBeforeStalled;
     private final long staleResendPruneBuffer;
+    private final int duplicateBlockSkipWindow;
     private final ScheduledExecutorService scheduledExecutor;
     private volatile ScheduledFuture<Boolean> publisherUnavailabilityTimeoutFuture;
 
@@ -140,6 +141,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         publisherConfig = serverContext.configuration().getConfigData(PublisherConfig.class);
         maxBlocksBeforeStalled = publisherConfig.MaxFutureBlocksBeforeStalled();
         staleResendPruneBuffer = publisherConfig.staleResendPruneBuffer();
+        duplicateBlockSkipWindow = publisherConfig.duplicateBlockSkipWindow();
         publisherUnavailabilityTimeoutFuture = schedulePublisherUnavailabilityTimeout();
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
@@ -795,6 +797,13 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         final long lastPersisted = lastPersistedBlockNumber.get();
         final long nextUnstreamed = ensureNextGreaterThanPersisted(lastPersisted);
         if (blockNumber <= lastPersisted) {
+            // Within the configured window, ask the publisher to skip ahead instead of
+            // ending the stream so a slightly-behind publisher can fast-forward without
+            // reconnecting. A window of zero disables this and preserves the legacy
+            // "always end on duplicate" behavior.
+            if (duplicateBlockSkipWindow > 0 && (lastPersisted - blockNumber) <= duplicateBlockSkipWindow) {
+                return BlockAction.SKIP;
+            }
             return BlockAction.END_DUPLICATE;
         } else if (blockNumber < nextUnstreamed) {
             return streamBeforeEmbOrElse(blockNumber, BlockAction.SKIP);

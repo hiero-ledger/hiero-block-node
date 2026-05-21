@@ -93,6 +93,8 @@ public class BlockNodeAPITests {
                     response -> Objects.requireNonNull(response.endStream()).status();
     private final Function<PublishStreamResponse, Long> endStreamBlockNumberExtractor =
             response -> Objects.requireNonNull(response.endStream()).blockNumber();
+    private final Function<PublishStreamResponse, Long> skipBlockNumberExtractor =
+            response -> Objects.requireNonNull(response.skipBlock()).blockNumber();
 
     private record Options(Optional<String> authority, String contentType) implements ServiceInterface.RequestOptions {}
 
@@ -210,7 +212,8 @@ public class BlockNodeAPITests {
     /* Test multiple scenarios in one area without mocks to allow for easy step through when troubleshooting behaviour
      * Scenarios covered:
      * 1. Mimicking CN and publishing a new genesis block to BN and confirming acknowledgement response
-     * 2. Publishing a duplicate genesis block and confirming duplicate block response and stream closure
+     * 2. Publishing a duplicate genesis block within the default producer.duplicateBlockSkipWindow
+     *    and confirming the server answers with SkipBlock while keeping the stream open
      * 3. Requesting server status to confirm block 0 is reflected in status
      * 4. Requesting genesis block via getBlock to confirm block is stored and retrievable
      * 5. Mimicking MN and subscribing to block stream from block 0 and confirming receipt of block 0
@@ -250,15 +253,23 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(0);
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
-        // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
-        // The server closes the publisher connection after detecting a duplicate. We await connection end
-        // (onComplete or onError) rather than onNext(END_STREAM) because the server may RST the stream
-        // before the END_STREAM frame is flushed to the client.
-        final AtomicReference<CountDownLatch> duplicateConnectionEndedLatch =
-                responseObserver.setAndGetConnectionEndedLatch(1);
+        // ==== Scenario 2: Publish duplicate genesis block within the skip window and confirm SkipBlock response ===
+        // Block 0 is at distance 0 from the last persisted block, which is well within the default
+        // producer.duplicateBlockSkipWindow, so the server answers with SkipBlock and keeps the stream open
+        // instead of closing the connection.
+        final AtomicReference<CountDownLatch> duplicateSkipLatch = responseObserver.setAndGetOnNextLatch(1);
         requestStream.onNext(request);
 
-        awaitLatch(duplicateConnectionEndedLatch, "duplicate block connection closed");
+        awaitLatch(duplicateSkipLatch, "duplicate block skip response");
+        assertThat(responseObserver.getOnNextCalls())
+                .hasSize(2)
+                .last()
+                .returns(PublishStreamResponse.ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
+                .returns(blockNumber, skipBlockNumberExtractor);
+        // Stream stays open: no onComplete / onError, no end-stream calls.
+        assertThat(responseObserver.getOnErrorCalls()).isEmpty();
+        assertThat(responseObserver.getOnCompleteCalls().get()).isEqualTo(0);
+        assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // ==== Scenario 3: Get server status and confirm block 0 is reflected in status ====
         BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient =
@@ -332,7 +343,8 @@ public class BlockNodeAPITests {
                 .blockItems(BlockItemSet.newBuilder().blockItems(blockItems1).build())
                 .build();
 
-        // use a new client to publish block 1 as the existing client was closed on duplicate block publish.
+        // use a new publisher client/stream for block 1 to keep this scenario isolated from the earlier
+        // duplicate-skip exchange on the primary stream.
         ResponsePipelineUtils<PublishStreamResponse> responseObserver2 = new ResponsePipelineUtils<>();
         BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient blockStreamPublishServiceClient2 =
                 new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
@@ -422,6 +434,93 @@ public class BlockNodeAPITests {
         blockStreamSubscribeServiceClient.close();
         blockAccessServiceClient.close();
         blockNodeServiceClient.close();
+    }
+
+    /**
+     * Regression test for issue #2531: the producer.duplicateBlockSkipWindow configuration must
+     * cause the publisher plugin to answer with SkipBlock for duplicate block headers that are
+     * within the window of the last persisted block, and with EndOfStream(DUPLICATE_BLOCK) for
+     * duplicates that fall outside the window. The default window of 10 is exercised here:
+     * 1. Publish blocks 0..19 (so lastPersisted=19, window=10).
+     * 2. Republish block 19 on the same stream (distance 0) and assert a SkipBlock response, with
+     *    the stream remaining open.
+     * 3. On a fresh stream, republish block 0 (distance 19, outside the window) and assert the
+     *    server closes the stream with EndOfStream(DUPLICATE_BLOCK).
+     */
+    @Test
+    void duplicateBlockSkipWindowAppliesWithinWindowAndEndsOutsideWindow() throws InterruptedException {
+        final int totalBlocks = 20;
+        final long headBlock = totalBlocks - 1L;
+
+        // ==== Step 1: Publish blocks 0..19, chained by block hash, and await all acknowledgements ====
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publishClient =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                        publishBlockStreamPbjGrpcClient, OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> primaryObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> primaryStream = publishClient.publishBlockStream(primaryObserver);
+
+        final AtomicReference<CountDownLatch> ackLatch = primaryObserver.setAndGetOnNextLatch(totalBlocks);
+        BlockItem[] headBlockItems = null;
+        BlockItem[] genesisBlockItems = null;
+        Bytes previousBlockHash = null;
+        for (long blockNumber = 0; blockNumber < totalBlocks; blockNumber++) {
+            final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber, previousBlockHash);
+            if (blockNumber == 0L) {
+                genesisBlockItems = items;
+            }
+            if (blockNumber == headBlock) {
+                headBlockItems = items;
+            }
+            final PublishStreamRequest itemsRequest = PublishStreamRequest.newBuilder()
+                    .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
+                    .build();
+            primaryStream.onNext(itemsRequest);
+            endBlock(blockNumber, primaryStream);
+            previousBlockHash = BlockItemBuilderUtils.computeBlockHash(blockNumber, previousBlockHash);
+        }
+        awaitLatch(ackLatch, "acknowledgements for blocks 0..19");
+        assertThat(primaryObserver.getOnNextCalls()).hasSize(totalBlocks);
+        assertThat(primaryObserver.getOnNextCalls())
+                .last()
+                .returns(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT, responseKindExtractor)
+                .returns(headBlock, acknowledgementBlockNumberExtractor);
+
+        // ==== Step 2: Republish head block (distance 0, within window) and expect SkipBlock ====
+        final AtomicReference<CountDownLatch> skipLatch = primaryObserver.setAndGetOnNextLatch(1);
+        final PublishStreamRequest headBlockRequest = PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(headBlockItems).build())
+                .build();
+        primaryStream.onNext(headBlockRequest);
+
+        awaitLatch(skipLatch, "skip response for in-window duplicate");
+        assertThat(primaryObserver.getOnNextCalls())
+                .hasSize(totalBlocks + 1)
+                .last()
+                .returns(PublishStreamResponse.ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
+                .returns(headBlock, skipBlockNumberExtractor);
+        // Stream must stay open for an in-window duplicate.
+        assertThat(primaryObserver.getOnErrorCalls()).isEmpty();
+        assertThat(primaryObserver.getOnCompleteCalls().get()).isEqualTo(0);
+        assertThat(primaryObserver.getClientEndStreamCalls().get()).isEqualTo(0);
+
+        // ==== Step 3: On a fresh stream, republish block 0 (distance 19, outside window) ====
+        final ResponsePipelineUtils<PublishStreamResponse> farBehindObserver = new ResponsePipelineUtils<>();
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient farBehindClient =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(createGrpcClient(), OPTIONS);
+        final Pipeline<? super PublishStreamRequest> farBehindStream =
+                farBehindClient.publishBlockStream(farBehindObserver);
+        final AtomicReference<CountDownLatch> farBehindClosedLatch = farBehindObserver.setAndGetConnectionEndedLatch(1);
+        final PublishStreamRequest genesisRequest = PublishStreamRequest.newBuilder()
+                .blockItems(
+                        BlockItemSet.newBuilder().blockItems(genesisBlockItems).build())
+                .build();
+        farBehindStream.onNext(genesisRequest);
+        awaitLatch(farBehindClosedLatch, "far-behind duplicate connection closed");
+
+        primaryStream.closeConnection();
+        farBehindStream.closeConnection();
+        publishClient.close();
+        farBehindClient.close();
     }
 
     @Test

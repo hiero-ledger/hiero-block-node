@@ -331,8 +331,12 @@ class StreamPublisherPluginTest {
 
         private void activatePlugin(final long earliestManagedBlock) {
             final StreamPublisherPlugin toTest = new StreamPublisherPlugin();
-            final Map<String, String> configOverrides =
-                    Map.ofEntries(Map.entry("block.node.earliestManagedBlock", Long.toString(earliestManagedBlock)));
+            // Disable the duplicate-block skip window so these tests continue to assert the
+            // legacy EndOfStream(DUPLICATE_BLOCK) response. The new window behavior has its
+            // own dedicated coverage in LiveStreamPublisherManagerTest.
+            final Map<String, String> configOverrides = Map.ofEntries(
+                    Map.entry("block.node.earliestManagedBlock", Long.toString(earliestManagedBlock)),
+                    Map.entry("producer.duplicateBlockSkipWindow", "0"));
             final List<BlockNodePlugin> additionalPlugins = List.of(verificationPlugin);
             start(toTest, toTest.methods().getFirst(), historicalBlockFacility, additionalPlugins, configOverrides);
             // Assert that the earliest managed block is set to 10
