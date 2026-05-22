@@ -207,7 +207,7 @@ public abstract class PluginTestBase<
                     public void registerHttpService(String path, HttpService... service) {}
 
                     @Override
-                    public void registerGrpcService(@NonNull ServiceInterface service) {}
+                    public void registerGrpcService(@NonNull ServiceInterface service, @NonNull final Socket socket) {}
                 };
         // initialize the block messaging facility
         historicalBlockFacility.init(blockNodeContext, mockServiceBuilder);

@@ -80,6 +80,9 @@ public class BlockNodeAPITests {
     // Get server port from environment variable overrides
     private final String serverPort = System.getenv("SERVER_PORT") == null ? "40840" : System.getenv("SERVER_PORT");
 
+    private final String consumerPort =
+            System.getenv("SERVER_CONSUMER_PORT") == null ? "40940" : System.getenv("SERVER_CONSUMER_PORT");
+
     final String serverStatusMethodPath =
             BlockNodeServiceInterface.FULL_NAME + "/" + BlockNodeServiceInterface.BlockNodeServiceMethod.serverStatus;
 
@@ -130,9 +133,9 @@ public class BlockNodeAPITests {
             assertEquals(State.RUNNING, app.blockNodeState());
 
             publishBlockStreamPbjGrpcClient = createGrpcClient();
-            subscribeBlockStreamPbjGrpcClient = createGrpcClient();
-            serverStatusPbjGrpcClient = createGrpcClient();
-            getBlockPbjGrpcClient = createGrpcClient();
+            subscribeBlockStreamPbjGrpcClient = createConsumerGrpcClient();
+            serverStatusPbjGrpcClient = createConsumerGrpcClient();
+            getBlockPbjGrpcClient = createConsumerGrpcClient();
         } catch (Exception e) {
             // if anything goes wrong, ensure we shutdown the app
             if (app != null && app.blockNodeState() != State.SHUTTING_DOWN) {
@@ -143,10 +146,18 @@ public class BlockNodeAPITests {
     }
 
     private PbjGrpcClient createGrpcClient() {
+        return createGrpcClientForPort(serverPort);
+    }
+
+    private PbjGrpcClient createConsumerGrpcClient() {
+        return createGrpcClientForPort(consumerPort);
+    }
+
+    private PbjGrpcClient createGrpcClientForPort(final String port) {
         final Duration timeoutDuration = Duration.ofSeconds(30);
         final Tls tls = Tls.builder().enabled(false).build();
         final WebClient webClient = WebClient.builder()
-                .baseUri("http://localhost:" + serverPort)
+                .baseUri("http://localhost:" + port)
                 .tls(tls)
                 .protocolConfigs(List.of(GrpcClientProtocolConfig.builder()
                         .abortPollTimeExpired(false)
@@ -171,8 +182,9 @@ public class BlockNodeAPITests {
 
     @Test
     void http2ClientServerStatusGet() {
-        Http2Client http2Client =
-                Http2Client.builder().baseUri("http://localhost:" + serverPort).build();
+        Http2Client http2Client = Http2Client.builder()
+                .baseUri("http://localhost:" + consumerPort)
+                .build();
 
         // Http2Client exposes low-level HTTP/2 access so we can test configs without gRPC overhead
         try (var response = http2Client

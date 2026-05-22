@@ -13,6 +13,7 @@ import static org.hiero.block.node.spi.BlockNodePlugin.METRICS_CATEGORY;
 import com.hedera.hapi.block.stream.Block;
 import com.hedera.hapi.node.base.NodeAddress;
 import com.hedera.hapi.node.base.NodeAddressBook;
+import com.hedera.pbj.grpc.helidon.PbjRouting;
 import com.hedera.pbj.grpc.helidon.config.PbjConfig;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -20,9 +21,11 @@ import com.swirlds.config.api.Configuration;
 import com.swirlds.config.api.ConfigurationBuilder;
 import com.swirlds.config.extensions.sources.ClasspathFileConfigSource;
 import com.swirlds.config.extensions.sources.SystemPropertiesConfigSource;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import io.helidon.common.socket.SocketOptions;
 import io.helidon.webserver.WebServer;
 import io.helidon.webserver.WebServerConfig;
+import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http2.Http2Config;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -60,6 +63,7 @@ import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodeContext.Builder;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility;
@@ -89,8 +93,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
     /** The state of the server. */
     private final AtomicReference<State> state = new AtomicReference<>(State.STARTING);
-    /** The web server. */
-    private final WebServer webServer;
+    /** The web server for publisher-side services (CN -> BN ingest). Package-private for testing. */
+    final WebServer publisherWebServer;
+    /**
+     * The web server for consumer-side services (subscribers, health, block access).
+     * Equal to {@link #publisherWebServer} when both ports are the same. Package-private for testing.
+     */
+    final WebServer consumerWebServer;
     /** The server configuration. */
     private final ServerConfig serverConfig;
     /** The historical block node facility */
@@ -259,24 +268,55 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 .rapidResetCheckPeriod(Duration.ofMillis(webServerHttp2Config.rapidResetCheckPeriod()))
                 .build();
 
-        // Create the web server and configure
-        webServer = WebServerConfig.builder()
-                .port(serverConfig.port())
-                .addProtocol(http2Config)
-                .addProtocol(pbjConfig)
-                .addRouting(serviceBuilder.httpRoutingBuilder())
-                .addRouting(serviceBuilder.grpcRoutingBuilder())
-                .connectionOptions(SocketOptions.builder()
-                        .socketSendBufferSize(serverConfig.socketSendBufferSizeBytes())
-                        .socketReceiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
-                        .tcpNoDelay(serverConfig.tcpNoDelay())
-                        .build())
-                .backlog(serverConfig.backlogSize())
-                .writeQueueLength(serverConfig.writeQueueLength())
-                .maxTcpConnections(serverConfig.maxTcpConnections())
-                .idleConnectionPeriod(Duration.ofMinutes(serverConfig.idleConnectionPeriodMinutes()))
-                .idleConnectionTimeout(Duration.ofMinutes(serverConfig.idleConnectionTimeoutMinutes()))
+        // Build socket options shared by both servers
+        final SocketOptions socketOptions = SocketOptions.builder()
+                .socketSendBufferSize(serverConfig.socketSendBufferSizeBytes())
+                .socketReceiveBufferSize(serverConfig.socketReceiveBufferSizeBytes())
+                .tcpNoDelay(serverConfig.tcpNoDelay())
                 .build();
+
+        // Create the web server(s). When publisher and consumer ports match, a single server
+        // is created with all routes merged; otherwise two separate servers are used so that
+        // network-level (Layer 4) firewalling can restrict CN access to the publisher port only.
+        final int publisherPort = serverConfig.port();
+        final int consumerPort = serverConfig.consumerPort();
+        if (publisherPort == consumerPort) {
+            final WebServerConfig.Builder wsBuilder = WebServerConfig.builder()
+                    .port(publisherPort)
+                    .addProtocol(http2Config)
+                    .addProtocol(pbjConfig)
+                    .connectionOptions(socketOptions)
+                    .backlog(serverConfig.backlogSize())
+                    .writeQueueLength(serverConfig.writeQueueLength())
+                    .maxTcpConnections(serverConfig.maxTcpConnections())
+                    .idleConnectionPeriod(Duration.ofMinutes(serverConfig.idleConnectionPeriodMinutes()))
+                    .idleConnectionTimeout(Duration.ofMinutes(serverConfig.idleConnectionTimeoutMinutes()));
+            serviceBuilder.httpRoutingBuilders().values().forEach(wsBuilder::addRouting);
+            serviceBuilder.grpcRoutingBuilders().values().forEach(wsBuilder::addRouting);
+            publisherWebServer = wsBuilder.build();
+            consumerWebServer = publisherWebServer;
+        } else {
+            final PbjRouting.Builder publisherGrpc =
+                    serviceBuilder.grpcRoutingBuilders().get(ServiceBuilder.Socket.PUBLISHER);
+            if (publisherGrpc == null) {
+                LOGGER.log(
+                        WARNING,
+                        "No gRPC services registered on the publisher socket"
+                                + " - publisher port {0,number,#} will start but has no routes;"
+                                + " CN -> BN ingest will not work",
+                        publisherPort);
+            }
+            publisherWebServer = buildWebServer(
+                    publisherPort, http2Config, pbjConfig, socketOptions, serverConfig, publisherGrpc, null);
+            consumerWebServer = buildWebServer(
+                    consumerPort,
+                    http2Config,
+                    pbjConfig,
+                    socketOptions,
+                    serverConfig,
+                    serviceBuilder.grpcRoutingBuilders().get(ServiceBuilder.Socket.CONSUMER),
+                    serviceBuilder.httpRoutingBuilders().get(ServiceBuilder.Socket.CONSUMER));
+        }
 
         // Init the app metrics
         metricRegistry.register(ObservableGauge.builder(METRIC_APP_HISTORICAL_OLDEST_BLOCK)
@@ -307,13 +347,63 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
+     * Builds a {@link WebServer} for the given port. Null routing builders are silently skipped.
+     *
+     * @param port the port to listen on
+     * @param http2Config the HTTP/2 configuration
+     * @param pbjConfig the PBJ protocol configuration
+     * @param socketOptions the socket-level options
+     * @param cfg the server configuration (timeouts, backlog, etc.)
+     * @param grpcRouting PBJ gRPC routing builder, or {@code null} if no gRPC services
+     * @param httpRouting HTTP routing builder, or {@code null} if no HTTP services
+     * @return a fully configured but not yet started {@link WebServer}
+     */
+    private static WebServer buildWebServer(
+            int port,
+            Http2Config http2Config,
+            PbjConfig pbjConfig,
+            SocketOptions socketOptions,
+            ServerConfig cfg,
+            @Nullable PbjRouting.Builder grpcRouting,
+            @Nullable HttpRouting.Builder httpRouting) {
+        final WebServerConfig.Builder wsBuilder = WebServerConfig.builder()
+                .port(port)
+                .addProtocol(http2Config)
+                .addProtocol(pbjConfig)
+                .connectionOptions(socketOptions)
+                .backlog(cfg.backlogSize())
+                .writeQueueLength(cfg.writeQueueLength())
+                .maxTcpConnections(cfg.maxTcpConnections())
+                .idleConnectionPeriod(Duration.ofMinutes(cfg.idleConnectionPeriodMinutes()))
+                .idleConnectionTimeout(Duration.ofMinutes(cfg.idleConnectionTimeoutMinutes()));
+        if (httpRouting != null) {
+            wsBuilder.addRouting(httpRouting);
+        }
+        if (grpcRouting != null) {
+            wsBuilder.addRouting(grpcRouting);
+        }
+        return wsBuilder.build();
+    }
+
+    /**
      * Starts the block node server. This method initializes all the plugins, starts the web server,
      * and starts the metrics.
      */
     public void start() {
-        LOGGER.log(INFO, "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
-        // Start the web server
-        webServer.start();
+        if (publisherWebServer == consumerWebServer) {
+            LOGGER.log(INFO, "Starting BlockNode Server on port {0,number,#}", serverConfig.port());
+        } else {
+            LOGGER.log(
+                    INFO,
+                    "Starting BlockNode Server - publisher port: {0,number,#}, consumer port: {1,number,#}",
+                    serverConfig.port(),
+                    serverConfig.consumerPort());
+        }
+        // Start the web server(s)
+        publisherWebServer.start();
+        if (publisherWebServer != consumerWebServer) {
+            consumerWebServer.start();
+        }
         // start the ApplicationStateFacility
         startApplicationStateFacility();
         // start the plugins
@@ -357,8 +447,9 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             Thread.currentThread().interrupt();
             LOGGER.log(INFO, "Shutdown interrupted");
         }
-        // Stop server
-        if (webServer != null) webServer.stop();
+        // Stop server(s)
+        if (publisherWebServer != null) publisherWebServer.stop();
+        if (consumerWebServer != null && consumerWebServer != publisherWebServer) consumerWebServer.stop();
         // Stop all the facilities &  plugins
         for (BlockNodePlugin plugin : loadedPlugins) {
             LOGGER.log(INFO, "Stopping plugin: {0}", plugin.name());

@@ -32,6 +32,7 @@ import org.hiero.block.internal.SubscribeStreamResponseUnparsed.Builder;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.ServiceBuilder.Socket;
 import org.hiero.block.node.stream.subscriber.BlockStreamSubscriberSession.SessionContext;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
@@ -69,7 +70,7 @@ public class SubscriberServicePlugin implements BlockNodePlugin, BlockStreamSubs
     public void init(@NonNull final BlockNodeContext context, @NonNull final ServiceBuilder serviceBuilder) {
         this.context = requireNonNull(context);
         // register us as a service
-        serviceBuilder.registerGrpcService(this);
+        serviceBuilder.registerGrpcService(this, Socket.CONSUMER);
     }
 
     @Override

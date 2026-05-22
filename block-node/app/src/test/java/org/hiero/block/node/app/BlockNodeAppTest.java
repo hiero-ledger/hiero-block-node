@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
@@ -647,6 +649,53 @@ class BlockNodeAppTest {
         assertEquals(hexKey, loaded.nodeAddress().getFirst().rsaPubKey());
 
         app2.stopApplicationStateFacility();
+    }
+
+    /**
+     * By default (port=40840, consumerPort=40940) the app creates two distinct WebServer instances.
+     */
+    @Test
+    @DisplayName("Default config: two separate WebServer instances are created (two-port mode)")
+    void twoPortModeDefaultConfigCreatesTwoWebServers() {
+        // blockNodeApp is created in setUp() using app-test.properties; neither port nor consumerPort
+        // is overridden there, so defaults (40840 / 40940) apply.
+        assertNotSame(
+                blockNodeApp.publisherWebServer,
+                blockNodeApp.consumerWebServer,
+                "With distinct port and consumerPort the app must create two separate WebServer instances");
+    }
+
+    /**
+     * When consumerPort == port the app must reuse a single WebServer for both roles.
+     */
+    @Test
+    @DisplayName("Single-port mode: same WebServer instance used when consumerPort == port")
+    void singlePortModeSamePortValueReusesSingleWebServer() throws IOException {
+        System.setProperty("server.consumerPort", "40840"); // same as default server.port
+        try {
+            // Build a minimal service loader that provides the mandatory BlockMessagingFacility
+            // and no real plugins so the app stays lightweight.
+            final ServiceLoaderFunction minimalLoader = new ServiceLoaderFunction() {
+                @SuppressWarnings("unchecked")
+                @Override
+                public <C> Stream<? extends C> loadServices(Class<C> serviceClass) {
+                    if (serviceClass == BlockMessagingFacility.class) {
+                        return Stream.of(new TestBlockMessagingFacility()).map(s -> (C) s);
+                    }
+                    if (serviceClass == BlockNodePlugin.class || serviceClass == BlockProviderPlugin.class) {
+                        return Stream.empty();
+                    }
+                    return super.loadServices(serviceClass);
+                }
+            };
+            final BlockNodeApp singlePortApp = new BlockNodeApp(minimalLoader, false);
+            assertSame(
+                    singlePortApp.publisherWebServer,
+                    singlePortApp.consumerWebServer,
+                    "When consumerPort == port a single WebServer instance must be used for both roles");
+        } finally {
+            System.clearProperty("server.consumerPort");
+        }
     }
 
     /// build a `TssData` object from individual fields from the `TssBootstrapConfig`

@@ -24,7 +24,7 @@ public final class NoOpServiceBuilder implements ServiceBuilder {
      * No-op implementation, does nothing.
      */
     @Override
-    public void registerGrpcService(@NonNull final ServiceInterface service) {
+    public void registerGrpcService(@NonNull final ServiceInterface service, @NonNull final Socket socket) {
         // No-op implementation, does nothing.
     }
 }

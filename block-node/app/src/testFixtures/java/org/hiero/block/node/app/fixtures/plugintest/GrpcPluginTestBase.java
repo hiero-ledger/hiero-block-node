@@ -161,7 +161,7 @@ public abstract class GrpcPluginTestBase<
     }
 
     @Override
-    public void registerGrpcService(@NonNull ServiceInterface service) {
+    public void registerGrpcService(@NonNull ServiceInterface service, @NonNull Socket socket) {
         serviceInterface = service;
     }
 

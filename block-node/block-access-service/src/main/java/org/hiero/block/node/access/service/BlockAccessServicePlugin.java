@@ -18,6 +18,7 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.ServiceBuilder.Socket;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.metrics.LongCounter;
@@ -183,6 +184,6 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         // Get the block provider
         this.blockProvider = context.historicalBlockProvider();
         // Register this service
-        serviceBuilder.registerGrpcService(this);
+        serviceBuilder.registerGrpcService(this, Socket.CONSUMER);
     }
 }

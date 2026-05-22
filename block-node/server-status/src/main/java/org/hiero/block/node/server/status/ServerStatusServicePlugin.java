@@ -15,6 +15,7 @@ import org.hiero.block.api.ServerStatusResponse;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.ServiceBuilder.Socket;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
@@ -147,7 +148,7 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                 .getOrCreateNotLabeled();
 
         // Register this service
-        serviceBuilder.registerGrpcService(this);
+        serviceBuilder.registerGrpcService(this, Socket.CONSUMER);
     }
 
     /**

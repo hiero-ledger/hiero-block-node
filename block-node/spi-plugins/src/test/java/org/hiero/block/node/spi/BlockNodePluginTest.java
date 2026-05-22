@@ -16,6 +16,7 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.List;
 import org.hiero.block.api.TssData;
+import org.hiero.block.node.spi.ServiceBuilder.Socket;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -178,7 +179,7 @@ public class BlockNodePluginTest {
         @Override
         public void init(@NonNull BlockNodeContext context, @NonNull ServiceBuilder serviceBuilder) {
             this.context = context;
-            serviceBuilder.registerGrpcService(testServiceInterface);
+            serviceBuilder.registerGrpcService(testServiceInterface, Socket.CONSUMER);
             serviceBuilder.registerHttpService("foo", testHttpService);
         }
     }
@@ -213,7 +214,7 @@ public class BlockNodePluginTest {
             }
 
             @Override
-            public void registerGrpcService(@NonNull ServiceInterface service) {
+            public void registerGrpcService(@NonNull ServiceInterface service, @NonNull final Socket socket) {
                 assertEquals(testServiceInterface, service);
             }
         });
@@ -249,7 +250,7 @@ public class BlockNodePluginTest {
             }
 
             @Override
-            public void registerGrpcService(@NonNull ServiceInterface service) {
+            public void registerGrpcService(@NonNull ServiceInterface service, @NonNull final Socket socket) {
                 assertEquals(testServiceInterface, service);
             }
         });

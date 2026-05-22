@@ -17,6 +17,7 @@ import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.ServiceBuilder.Socket;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.LongGauge;
 import org.hiero.metrics.core.MetricKey;
@@ -165,7 +166,7 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
         // register us as a service, we need to register the gRPC service in
         // the init method, otherwise the server will be started and we will not
         // have registered at all
-        serviceBuilder.registerGrpcService(this);
+        serviceBuilder.registerGrpcService(this, Socket.PUBLISHER);
     }
 
     @Override
