@@ -45,7 +45,9 @@ import java.util.logging.LogManager;
 import java.util.stream.Collectors;
 import org.hiero.block.api.BlockNodeVersions;
 import org.hiero.block.api.BlockNodeVersions.PluginVersion;
+import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.TssData;
+import org.hiero.block.internal.BlockRangesState;
 import org.hiero.block.node.app.config.AutomaticEnvironmentVariableConfigSource;
 import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.app.config.WebServerHttp2Config;
@@ -53,6 +55,7 @@ import org.hiero.block.node.app.config.node.NodeConfig;
 import org.hiero.block.node.app.config.state.ApplicationStateConfig;
 import org.hiero.block.node.app.logging.CleanColorfulFormatter;
 import org.hiero.block.node.app.logging.ConfigLogger;
+import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodeContext.Builder;
@@ -80,6 +83,8 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     /** Metric key for the current state status of the app */
     public static final MetricKey<ObservableGauge> METRIC_APP_STATE_STATUS =
             MetricKey.of("app_state_status", ObservableGauge.class).addCategory(METRICS_CATEGORY);
+    /** Number of stored blocks between automatic persistence of the block range sets */
+    private static final long BLOCK_RANGE_PERSIST_INTERVAL = 1000;
     /** The logger for this class. */
     private static final Logger LOGGER = System.getLogger(BlockNodeApp.class.getName());
     /** The state of the server. */
@@ -106,6 +111,15 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
     /** Pending address book loaded at startup; consumed by the first checkForApplicationStateUpdates run. */
     private final AtomicReference<NodeAddressBook> pendingAddressBook = new AtomicReference<>();
+
+    /** Blocks reported as stored by plugins that do not serve them for retrieval */
+    final ConcurrentLongRangeSet storedBlocks = new ConcurrentLongRangeSet();
+
+    /** Blocks reported as available by BlockProviderPlugin implementations */
+    final ConcurrentLongRangeSet availableBlocks = new ConcurrentLongRangeSet();
+
+    /** Block count at the time of the last scheduled persist; only read/written by the scanner thread */
+    private long lastPersistedBlockCount = 0;
 
     /** The ScheduledExecutorService used by the ApplicationStateFacility to check for TssData updates */
     private ScheduledExecutorService applicationStateExecutor;
@@ -398,6 +412,17 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         if (tssData != null) tssDataUpdates.add(tssData);
     }
 
+    @Override
+    public void addStoredBlockRange(LongRange blockRange) {
+        storedBlocks.add(blockRange);
+    }
+
+    @Override
+    public void addAvailableBlockRange(LongRange blockRange) {
+        availableBlocks.add(blockRange);
+        addStoredBlockRange(blockRange);
+    }
+
     /**
      * Allow plugins to update the NodeAddressBook for this BlockNodeApp. The address book is staged
      * in a last-write-wins reference; if {@code updateAddressBook} is called more than once before
@@ -452,7 +477,10 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
 
         // Schedule periodic check for live updates from running plugins.
         applicationStateExecutor.scheduleAtFixedRate(
-                this::checkForApplicationStateUpdates, 0, appStateConfig.updateScanInterval(), TimeUnit.MILLISECONDS);
+                this::checkForApplicationStateUpdates,
+                appStateConfig.updateInitialDelay(),
+                appStateConfig.updateScanInterval(),
+                TimeUnit.MILLISECONDS);
     }
 
     private void checkForApplicationStateUpdates() {
@@ -472,6 +500,13 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
             loadedPlugins.parallelStream().forEach(plugin -> plugin.onContextUpdate(blockNodeContext));
             LOGGER.log(INFO, "ApplicationStateFacility called plugin.onContextUpdate for all plugins");
         }
+
+        // Persist block ranges whenever the running total crosses a BLOCK_RANGE_PERSIST_INTERVAL boundary.
+        final long current = storedBlocks.size();
+        if (current / BLOCK_RANGE_PERSIST_INTERVAL > lastPersistedBlockCount / BLOCK_RANGE_PERSIST_INTERVAL) {
+            persistBlockRanges();
+            lastPersistedBlockCount = current;
+        }
     }
 
     void stopApplicationStateFacility() {
@@ -486,6 +521,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Thread.currentThread().interrupt();
             }
         }
+        persistBlockRanges();
     }
 
     /**
@@ -546,7 +582,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final Path appStateDataFilePath = blockNodeContext
                 .configuration()
                 .getConfigData(ApplicationStateConfig.class)
-                .dataFilePath();
+                .tssBootstrapFilePath();
         try {
             Bytes serialized = TssData.JSON.toBytes(tssData);
             Files.write(appStateDataFilePath, serialized.toByteArray());
@@ -585,6 +621,39 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
     }
 
     /**
+     * Persists both block range sets as JSON to the single file specified in the ApplicationStateConfig.
+     */
+    private void persistBlockRanges() {
+        final Path filePath = blockNodeContext
+                .configuration()
+                .getConfigData(ApplicationStateConfig.class)
+                .blockRangesFilePath();
+        try {
+            final Path tmp = filePath.resolveSibling(filePath.getFileName() + ".tmp");
+            final Bytes json = BlockRangesState.JSON.toBytes(toBlockRangesState());
+            Files.write(tmp, json.toByteArray());
+            Files.deleteIfExists(filePath);
+            Files.createLink(filePath, tmp);
+            Files.deleteIfExists(tmp);
+            LOGGER.log(INFO, "Persisted block ranges to file: {0}", filePath);
+        } catch (IOException e) {
+            LOGGER.log(WARNING, "Failed to persist block ranges to %s".formatted(filePath), e);
+        }
+    }
+
+    private BlockRangesState toBlockRangesState() {
+        final List<BlockRange> stored = storedBlocks
+                .streamRanges()
+                .map(r -> new BlockRange(r.start(), r.end()))
+                .toList();
+        final List<BlockRange> available = availableBlocks
+                .streamRanges()
+                .map(r -> new BlockRange(r.start(), r.end()))
+                .toList();
+        return new BlockRangesState(stored, available);
+    }
+
+    /**
      * Loads all ApplicationState from file paths specified in the ApplicationStateConfig class.
      * Must be called after the BlockNodeContext is created and all plugins have been init'd.
      *
@@ -594,7 +663,7 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
         final ApplicationStateConfig appStateConfig = configuration.getConfigData(ApplicationStateConfig.class);
 
         // Load TssData (JSON format) — queued for processing on the next scanner tick.
-        final Path tssDataJsonPath = appStateConfig.dataFilePath();
+        final Path tssDataJsonPath = appStateConfig.tssBootstrapFilePath();
         if (Files.exists(tssDataJsonPath)) {
             try {
                 TssData tssData = TssData.JSON.parse(Bytes.wrap(Files.readAllBytes(tssDataJsonPath)));
@@ -641,6 +710,28 @@ public class BlockNodeApp implements HealthFacility, ApplicationStateFacility {
                 Files.createDirectories(parent);
             } catch (IOException e) {
                 LOGGER.log(ERROR, "Failed to create RSA bootstrap directory: " + parent, e);
+            }
+        }
+
+        // Load block ranges (JSON format) — restored directly into the in-memory range sets.
+        final Path blockRangesPath = appStateConfig.blockRangesFilePath();
+        if (Files.exists(blockRangesPath)) {
+            try {
+                final BlockRangesState rangeSet =
+                        BlockRangesState.JSON.parse(Bytes.wrap(Files.readAllBytes(blockRangesPath)));
+                rangeSet.storedBlocks().forEach(r -> storedBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
+                rangeSet.availableBlocks()
+                        .forEach(r -> availableBlocks.add(new LongRange(r.rangeStart(), r.rangeEnd())));
+                LOGGER.log(INFO, "Loaded block ranges from file: {0}", blockRangesPath);
+            } catch (ParseException | IOException | IllegalArgumentException e) {
+                LOGGER.log(ERROR, "Failed to read block ranges file: " + blockRangesPath, e);
+            }
+        } else {
+            Path parent = blockRangesPath.getParent();
+            try {
+                Files.createDirectories(parent);
+            } catch (IOException e) {
+                LOGGER.log(ERROR, "Failed to create block ranges directory: " + parent, e);
             }
         }
     }

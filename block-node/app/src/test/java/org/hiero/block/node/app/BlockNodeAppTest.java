@@ -3,6 +3,7 @@ package org.hiero.block.node.app;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -46,6 +47,7 @@ import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility.State;
 import org.hiero.block.node.spi.historicalblocks.BlockProviderPlugin;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -115,17 +117,15 @@ class BlockNodeAppTest {
 
     @AfterEach
     void cleanup() {
-        try {
-            Files.deleteIfExists(Path.of("build/tmp/data/block/node/app-state-data.json"));
-        } catch (Exception e) {
-            // ignore
-        }
-        // Remove the RSA file written by addressBookPersistenceRoundTrip so subsequent tests
-        // start with a null address book rather than inheriting persisted state.
-        try {
-            Files.deleteIfExists(Path.of("build/resources/test/data/config/rsa-bootstrap-roster.json"));
-        } catch (Exception e) {
-            // ignore
+        for (String file : List.of(
+                "build/tmp/data/block/node/tss-bootstrap-roster.json",
+                "build/resources/test/data/config/rsa-bootstrap-roster.json",
+                "build/tmp/data/block/node/block-ranges.json")) {
+            try {
+                Files.deleteIfExists(Path.of(file));
+            } catch (Exception e) {
+                // ignore
+            }
         }
     }
 
@@ -384,7 +384,7 @@ class BlockNodeAppTest {
                 .blockNodeContext
                 .configuration()
                 .getConfigData(ApplicationStateConfig.class)
-                .dataFilePath();
+                .tssBootstrapFilePath();
 
         Files.deleteIfExists(appStateDataFilePath);
         Files.createFile(appStateDataFilePath);
@@ -682,5 +682,57 @@ class BlockNodeAppTest {
                 .currentRoster(tssRoster)
                 .validFromBlock(validFromBlock)
                 .build();
+    }
+
+    /**
+     * Verifies that {@code addStoredBlockRange} updates storedBlocks and leaves availableBlocks unchanged.
+     */
+    @Test
+    @DisplayName("addStoredBlockRange updates storedBlocks only")
+    void testAddStoredBlockRangeUpdatesOnlyStoredBlocks() {
+        blockNodeApp.addStoredBlockRange(new LongRange(0, 9));
+        assertTrue(blockNodeApp.storedBlocks.contains(0, 9));
+        assertFalse(blockNodeApp.availableBlocks.contains(0, 9));
+    }
+
+    /**
+     * Verifies that {@code addAvailableBlockRange} updates both storedBlocks and availableBlocks.
+     */
+    @Test
+    @DisplayName("addAvailableBlockRange updates both storedBlocks and availableBlocks")
+    void testAddAvailableBlockRangeUpdatesBothSets() {
+        blockNodeApp.addAvailableBlockRange(new LongRange(10, 19));
+        assertTrue(blockNodeApp.storedBlocks.contains(10, 19));
+        assertTrue(blockNodeApp.availableBlocks.contains(10, 19));
+    }
+
+    /**
+     * Block ranges persisted on stop are reloaded by a fresh BlockNodeApp.
+     */
+    @Test
+    @DisplayName("block ranges are persisted and reloaded on next startup")
+    void blockRangesPersistenceRoundTrip() throws IOException {
+        final ServiceLoaderFunction serviceLoaderFunction = new ServiceLoaderFunction();
+        final BlockNodeApp app = new BlockNodeApp(serviceLoaderFunction, false);
+
+        app.startApplicationStateFacility();
+        app.addStoredBlockRange(new LongRange(0, 999));
+        app.addAvailableBlockRange(new LongRange(1000, 1049));
+        app.addStoredBlockRange(new LongRange(1050, 1099));
+        app.stopApplicationStateFacility();
+
+        final BlockNodeApp app2 = new BlockNodeApp(serviceLoaderFunction, false);
+        app2.startApplicationStateFacility();
+
+        final List<LongRange> storedRanges = app2.storedBlocks.streamRanges().toList();
+        assertEquals(1, storedRanges.size());
+        assertEquals(new LongRange(0, 1099), storedRanges.getFirst());
+
+        final List<LongRange> availableRanges =
+                app2.availableBlocks.streamRanges().toList();
+        assertEquals(1, availableRanges.size());
+        assertEquals(new LongRange(1000, 1049), availableRanges.getFirst());
+
+        app2.stopApplicationStateFacility();
     }
 }

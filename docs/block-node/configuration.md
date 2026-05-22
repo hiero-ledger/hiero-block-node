@@ -5,6 +5,7 @@
 - [Overview](#overview)
 - [Core Configuration Options](#core-configuration-options)
 - [Server Configuration](#server-configuration)
+- [Application State Configuration](#application-state-configuration)
 - [Metrics Endpoint Configuration](#metrics-endpoint-configuration)
 - [Configurations By Plugin](#configurations-by-plugin)
   - [Backfill Plugin Configuration](#backfill-plugin-configuration)
@@ -57,6 +58,20 @@ Each plugin has its own properties, but this focuses on core options and core pl
 | SERVER_HTTP2_MAX_HEADER_LIST_SIZE     | Max field section size (bytes) the sender is prepared to accept.             |     8,192 |
 | SERVER_HTTP2_MAX_RAPID_RESETS         | Max rapid resets (stream RST sent by client before any data sent by server). |        50 |
 | SERVER_HTTP2_RAPID_RESET_CHECK_PERIOD | Period for counting rapid resets (ms).                                       |    10,000 |
+
+### Application State Configuration
+
+| ENV Variable                         | Description                                                                                     |                       Default                        |
+|:-------------------------------------|:------------------------------------------------------------------------------------------------|------------------------------------------------------|
+| APP_STATE_TSS_DATA_FILE_PATH         | Path where TSS data (ledger ID, address book, WRAPS VK) is persisted across restarts.           | /opt/hiero/block-node/node/app-state-data.bin        |
+| APP_STATE_STORED_BLOCKS_FILE_PATH    | Path where the set of stored block ranges is persisted. Written every 1,000 blocks received.    | /opt/hiero/block-node/node/stored-blocks-data.bin    |
+| APP_STATE_AVAILABLE_BLOCKS_FILE_PATH | Path where the set of available block ranges is persisted. Written every 1,000 blocks received. | /opt/hiero/block-node/node/available-blocks-data.bin |
+| APP_STATE_UPDATE_SCAN_INTERVAL       | How often (ms) the application state facility checks for pending TSS data updates. Minimum 100. | 500                                                  |
+| APP_STATE_UPDATE_INITIAL_DELAY       | Delay (ms) before the application state facility begins its first scan. Minimum 100.            | 100                                                  |
+
+Stored blocks are all blocks reported as persisted by any plugin. Available blocks are the subset
+also reported as retrievable (i.e. by a `BlockProviderPlugin`). Both range sets are loaded at
+startup and persisted to disk automatically.
 
 ### Metrics Endpoint Configuration
 

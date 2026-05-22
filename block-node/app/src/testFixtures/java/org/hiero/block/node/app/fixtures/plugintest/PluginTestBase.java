@@ -32,6 +32,7 @@ import org.hiero.block.node.spi.blockmessaging.BlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.health.HealthFacility;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
+import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.block.node.spi.module.SemanticVersionUtility;
 import org.hiero.metrics.core.MetricKey;
 import org.hiero.metrics.core.MetricRegistry;
@@ -337,5 +338,15 @@ public abstract class PluginTestBase<
                 nodeAddressBook);
         plugin.onContextUpdate(blockNodeContext);
         return true;
+    }
+
+    @Override
+    public void addStoredBlockRange(LongRange blockRange) {
+        // Do nothing
+    }
+
+    @Override
+    public void addAvailableBlockRange(LongRange blockRange) {
+        // Do nothing
     }
 }
