@@ -9,9 +9,11 @@ It assumes the Block Node was installed using the standard Helm chart, either vi
 Reset and upgrade are two distinct day-two operations that are often confused:
 
 - **Upgrade** changes the running Block Node version (image tag and Helm chart version) without discarding the local block storage or state. Pre-existing live and historic blocks remain on disk; the new version resumes from where the previous one left off.
-- **Reset** wipes the Block Node's local block data — both live blocks and historic blocks — and starts the node fresh. A reset is destructive; the wiped blocks cannot be recovered locally and must be re-ingested from upstream Consensus Nodes or backfilled from another Block Node.
+- **Reset** wipes the Block Node's local block data — both live blocks and historic blocks — and starts the node fresh. A reset is destructive: Consensus Nodes only keep a minimal recent buffer and cannot serve the wiped history, so the lost data must be backfilled from another Block Node that holds the relevant range (typically a Tier 1 archive node). For a mature network — Hedera mainnet, for example — that backfill can take a very long time (potentially weeks), proportional to the total block history.
 
 The two operations can be chained: `task reset-upgrade` resets the local data store and moves to a new version in a single command. Use this when you need to discard data and move forward; use `task helm-upgrade` alone for a clean version bump.
+
+> **Production Block Nodes should rarely, if ever, be reset under normal circumstances.** Treat reset as a recovery procedure for corruption, version-incompatibility, or network changes — not as routine maintenance. For high-value Block Nodes, maintain an offline backup of the live and archive PVC contents (updated daily where possible) so a corrupted node can be restored from snapshot instead of resyncing from another Block Node.
 
 ## Prerequisites
 
@@ -33,10 +35,9 @@ Before you begin, ensure you have:
 
 Upgrade the Block Node when any of the following is true:
 
-- A new Block Node release contains fixes or features you need - security, correctness, plugin behaviour, or compatibility with a newer Hiero network release. Track releases at [hiero-block-node releases](https://github.com/hiero-ledger/hiero-block-node/releases).
-- A new HAPI / Consensus Node version is rolled out and the running Block Node version is no longer compatible with the block stream format it publishes.
+- A new Block Node release contains fixes or features you need - security, correctness, plugin behaviour, or operational improvements. Track releases at [hiero-block-node releases](https://github.com/hiero-ledger/hiero-block-node/releases).
 - The Helm chart shape has changed - for example, new required values, renamed configuration keys, or added persistent volume mounts. The chart and the Block Node image versions are released together and share an `appVersion`.
-- You are progressing through the records-to-block-streams cutover and need a Block Node version that supports a specific cutover stage. Refer to [Cutover-Process](../Cutover-Process.md) for milestone-by-milestone version requirements.
+- Compatibility with the rest of the Hiero network requires it. A single Block Node release is intended to span all stages of the records-to-block-streams cutover, but if a future release introduces a hard compatibility break with the publishing Consensus Nodes or the surrounding ecosystem, the upgrade becomes mandatory. Refer to [Cutover-Process](../Cutover-Process.md) for the network milestone view.
 
 **Why it matters:** An upgrade preserves local block data and state, so the Block Node continues to serve historical block-range requests immediately after the new pod becomes ready. There is no backfill window unless the upgrade itself fails.
 
@@ -44,12 +45,12 @@ Upgrade the Block Node when any of the following is true:
 
 Reset the Block Node only when there is a concrete reason to discard local data. Acceptable reasons:
 
-- **Corrupt or inconsistent on-disk state** - the pod fails to start, repeatedly crashes after reading existing data, or `serverStatus` returns block-range values that disagree with the upstream Consensus Node's view of network history.
+- **Corrupt or inconsistent on-disk state** - the pod fails to start, repeatedly crashes after reading existing data, or `serverStatus` returns block-range values that disagree with the Mirror Nodes or other Block Nodes the operator can compare against.
 - **Switching networks** - moving an existing Block Node deployment from one network (for example `previewnet`) to another (for example `testnet`). The block numbering and address book differ across networks; the existing data will not be valid for the new network. Reset is required, not optional.
-- **Recovery from a bad version** - rolling back from an upgrade that wrote incompatible data to disk and there is no forward-compatible release available.
+- **Recovery from a bad version in dev or test environments** - rolling back from a development build that wrote incompatible data to disk. In `testnet` or `mainnet`, encountering this would represent a major process failure upstream and should not occur under normal release management.
 - **Cleaning a dev or test deployment** before reusing the cluster for a fresh integration run.
 
-**Why it matters:** Reset is destructive. The Block Node wipes its live and historic block stores on disk and restarts; the pod will report an empty range (`firstAvailableBlock = lastAvailableBlock = uint64_max`) and must re-ingest blocks from a Consensus Node or backfill from a Tier 1 Block Node. Mirror Nodes pointed at the reset Block Node will see `NOT_AVAILABLE` until enough blocks have been ingested or backfilled to satisfy their `start_block_number`.
+**Why it matters:** Reset is destructive. The Block Node wipes its live and historic block stores on disk and restarts; the pod will report an empty range (`firstAvailableBlock = lastAvailableBlock = uint64_max`) and must be backfilled from another Block Node that holds the relevant history (Consensus Nodes cannot supply it — they only retain a minimal recent buffer). Mirror Nodes pointed at the reset Block Node will see `NOT_AVAILABLE` until enough blocks have been backfilled to satisfy their `start_block_number`. On a mature network, full backfill can take days or weeks.
 
 > **Caution:** Reset cannot be undone from inside the Block Node. If you need a recoverable snapshot of the data before resetting, copy the contents of the live and archive PVCs to off-cluster storage first.
 
@@ -161,7 +162,7 @@ sudo solo-provisioner block node uninstall
 sudo solo-provisioner block node install -p <profile>
 ```
 
-`solo-provisioner block node uninstall` deletes the StatefulSet but leaves the PVs and PVCs intact. A Long-Form-History (LFH) Block Node retains its data on disk, so the subsequent reinstall does not trigger a full backfill. Ensure the Provisioner is configured to install the previous chart version (consult the Solo Provisioner documentation for the version-selection flag or state-file format used by your release).
+`solo-provisioner block node uninstall` deletes the StatefulSet but leaves the PVs and PVCs intact. A Local Full History (LFH) Block Node retains its data on disk, so the subsequent reinstall does not trigger a full backfill. Ensure the Provisioner is configured to install the previous chart version (consult the Solo Provisioner documentation for the version-selection flag or state-file format used by your release).
 
 #### Path B: Manual Taskfile-managed deployments
 
@@ -188,7 +189,7 @@ Use this when the on-disk data is corrupt and you simply want to start the curre
 task reset-file-store
 ```
 
-This execs into the pod, removes everything under `/opt/hiero/block-node/data/live/` and `/opt/hiero/block-node/data/historic/`, and then deletes the pod. The StatefulSet recreates the pod and the new pod starts with empty data directories. PVCs are preserved (the data is wiped inside the PVC, not by destroying the PVC).
+This execs into the pod and removes the live and historic block-store contents managed by the deployed Block Node plugins, then deletes the pod. The StatefulSet recreates the pod and the new pod starts with empty data directories. PVCs are preserved (the data is wiped inside the PVC, not by destroying the PVC). The exact paths cleared depend on which storage plugins are enabled in the running chart; see [`tools-and-tests/scripts/node-operations/Taskfile.yml`](https://github.com/hiero-ledger/hiero-block-node/blob/main/tools-and-tests/scripts/node-operations/Taskfile.yml) for the canonical commands run by `task reset-file-store`.
 
 ### Path B: Reset and upgrade in one step
 
