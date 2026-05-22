@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Flow.Subscription;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
@@ -26,6 +27,7 @@ import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.internal.PublishStreamRequestUnparsed;
 import org.hiero.block.node.app.fixtures.TestMetricsExporter;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.blocks.TestBlock;
 import org.hiero.block.node.app.fixtures.blocks.TestBlockBuilder;
 import org.hiero.block.node.app.fixtures.pipeline.TestResponsePipeline;
@@ -79,7 +81,8 @@ class PublisherHandlerTest {
             validNextId = 1L;
             validReplyPipeline = new TestResponsePipeline();
             validMetricsHodler = createMetrics();
-            validPublisherManager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
+            validPublisherManager = new TestStreamPublisherManager(
+                    new TestBlockMessagingFacility(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
         }
 
         /**
@@ -159,7 +162,8 @@ class PublisherHandlerTest {
         void setup() {
             repliesPipeline = new TestResponsePipeline<>();
             metrics = createMetrics();
-            manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
+            manager = new TestStreamPublisherManager(
+                    new TestBlockMessagingFacility(), new ScheduledBlockingExecutor(new LinkedBlockingQueue<>()));
 
             julLogger = java.util.logging.Logger.getLogger(PublisherHandler.class.getName());
             logHandler = new TestLogHandler();
@@ -282,6 +286,7 @@ class PublisherHandlerTest {
                 response -> Objects.requireNonNull(response.resendBlock()).blockNumber();
         private final Function<PublishStreamResponse, Long> acknowledgementBlockNumberExtractor =
                 response -> Objects.requireNonNull(response.acknowledgement()).blockNumber();
+        private ScheduledBlockingExecutor scheduledExecutor;
 
         /// Environment setup executed before each test in this nested class.
         @BeforeEach
@@ -289,7 +294,8 @@ class PublisherHandlerTest {
             handlerId = 1L;
             repliesPipeline = new TestResponsePipeline();
             metrics = createMetrics();
-            manager = new TestStreamPublisherManager(new TestBlockMessagingFacility());
+            scheduledExecutor = new ScheduledBlockingExecutor(new LinkedBlockingQueue<>());
+            manager = new TestStreamPublisherManager(new TestBlockMessagingFacility(), scheduledExecutor);
             toTest = new PublisherHandler(handlerId, repliesPipeline, metrics, manager, null);
             manager.addHandler(toTest);
         }
@@ -876,6 +882,8 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert single response is DUPLICATE_BLOCK with block number latest known and onComplete is called
                 // (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
@@ -1106,6 +1114,8 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestBlockNumber);
                 // Call
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert single response is ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1698,6 +1708,8 @@ class PublisherHandlerTest {
                         .build();
                 // Call
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert single response is EndOfStream with Code INVALID_REQUEST and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1798,6 +1810,8 @@ class PublisherHandlerTest {
                         .build();
                 // Call
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert single response is EndOfStream with Code ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1867,6 +1881,8 @@ class PublisherHandlerTest {
                         .build();
                 // Send the request to the pipeline
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert response and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1898,6 +1914,8 @@ class PublisherHandlerTest {
                         .build();
                 // Send the request to the pipeline
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert response
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1926,6 +1944,8 @@ class PublisherHandlerTest {
                         PublishStreamRequestUnparsed.newBuilder().build();
                 // Send the request to the pipeline
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert response
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -1961,6 +1981,8 @@ class PublisherHandlerTest {
                         .build();
                 // Send the request to the pipeline
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert response
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
@@ -1992,6 +2014,8 @@ class PublisherHandlerTest {
                         .build();
                 // Send the request to the pipeline
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert response
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
@@ -2186,6 +2210,8 @@ class PublisherHandlerTest {
                 manager.setLatestBlockNumber(expectedLatestStreamedBlockNumber);
                 // Call onError with an arbitrary Throwable
                 toTest.onError(new RuntimeException());
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert single response is EndOfStream with Code ERROR and onComplete is called (shutdown)
                 assertThat(repliesPipeline.getOnNextCalls())
                         .hasSize(1)
@@ -2246,10 +2272,10 @@ class PublisherHandlerTest {
             void testOnCompleteRemovesHandlerAndCompletesPipeline() {
                 // Call onComplete
                 toTest.onComplete();
-
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert pipeline completed exactly once
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
-
                 // Assert no other pipeline interactions occurred
                 assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
@@ -2322,13 +2348,12 @@ class PublisherHandlerTest {
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnSubscriptionCalls()).isEmpty();
                 assertThat(repliesPipeline.getClientEndStreamCalls().get()).isZero();
-
                 // Invoke the method under test
                 toTest.clientEndStreamReceived();
-
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Post-assert: pipeline completed exactly once
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
-
                 // Still no other interactions
                 assertThat(repliesPipeline.getOnNextCalls()).isEmpty();
                 assertThat(repliesPipeline.getOnErrorCalls()).isEmpty();
@@ -2527,6 +2552,8 @@ class PublisherHandlerTest {
                 // We need to send any request or trigger any pipeline method
                 // to do the actual shutdown
                 toTest.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert onComplete is called (shutdown that was scheduled)
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 // Assert no other responses sent
@@ -2632,6 +2659,8 @@ class PublisherHandlerTest {
                 // Call
                 manager.setBlockActionForEndOfBlock(action);
                 endThisBlock(toTest, block.number());
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 // Assert that the block was ended with the manager
                 assertThat(manager.getEndOfBlocksReceived()).containsExactly(block.number());
                 // Assert single response is EndOfStream with Code ERROR and onComplete is called (shutdown)
@@ -2854,6 +2883,8 @@ class PublisherHandlerTest {
                 // Return RESEND with UNKNOWN_BLOCK_NUMBER (-1) to trigger the else branch in handleResend
                 manager.setBlockActionForEndOfBlock(new ActionForBlock(BlockAction.RESEND, -1L));
                 endThisBlock(toTest, block.number());
+                // Invoke the delayed shutdown so it actually runs
+                scheduledExecutor.executeSerially();
                 assertThat(repliesPipeline.getOnNextCalls())
                         .anySatisfy(r -> assertThat(r.response().kind()).isEqualTo(ResponseOneOfType.END_STREAM));
                 assertThat(repliesPipeline.getOnCompleteCalls().get()).isEqualTo(1);

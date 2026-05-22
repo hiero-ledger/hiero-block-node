@@ -38,6 +38,7 @@ import java.util.concurrent.Flow.Subscription;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.PublishStreamRequest.EndStream;
 import org.hiero.block.api.PublishStreamResponse;
@@ -80,6 +81,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             "metric-end-to-end-latency-by-block-end block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}";
     private static final String LATENCY_START_MESSAGE =
             "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}";
+    private static final long SHUTDOWN_DELAY_TIME = 10_000_000; // 10 milliseconds
 
     private final Logger LOGGER = System.getLogger(getClass().getName());
     /// The replies pipeline, used for sending responses to the publisher.
@@ -102,6 +104,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final NavigableSet<Long> unacknowledgedStreamedBlocks;
     /// The state of the publisher, true if it is still active.
     private final AtomicBoolean isActive;
+    /// Set true to pause the handler, and stop accepting input.
+    private final AtomicBoolean isPaused;
+    /// The current configuration for the publisher.
+    private final PublisherConfig configuration;
     // @todo() remove this (and its usage) and use telemetry or metrics queries instead
     /// The start time in nanos of block being currently streamed
     private long currentStreamingBlockHeaderReceivedTime = System.nanoTime();
@@ -134,6 +140,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         blockAction = new AtomicReference<>();
         unacknowledgedStreamedBlocks = new ConcurrentSkipListSet<>();
         isActive = new AtomicBoolean(true);
+        isPaused = new AtomicBoolean(false);
+        configuration = publisherManager.configuration();
     }
 
     // A package-private method for accessing correlation ID for tracing support.
@@ -180,6 +188,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     @Override
     public void onNext(@NonNull final PublishStreamRequestUnparsed request) {
+        if (isPaused.compareAndSet(true, false)) {
+            // If we need to pause, park for the configured delay.
+            LockSupport.parkNanos(configuration.flowControlPauseDelayNanos());
+        }
         if (!isActive.get()) {
             checkMidBlockAndShutdown(currentStreamingBlockNumber.get());
         } else {
@@ -305,7 +317,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 publisherManager.blockIsEnding(currentStreamingBlockNumber.get(), handlerId);
             }
         } finally {
-            shutdown();
+            // pause the handler while we delay shutdown
+            isPaused.set(true);
+            // Do not shutdown immediately, allow for final messages to send first.
+            publisherManager.scheduleAfterDelay(this::shutdown, SHUTDOWN_DELAY_TIME);
             resetState();
         }
     }
@@ -750,6 +765,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         } finally {
             try {
                 replies.onComplete();
+                isPaused.set(false); // unpause to prevent deadlocks.
                 replies.closeConnection();
                 // @todo() Add labeled metric when possible.
                 //    Metric: "handler-closed" Labels: "clean" or "with-exception"

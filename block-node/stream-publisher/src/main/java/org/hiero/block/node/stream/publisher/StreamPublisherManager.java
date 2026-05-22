@@ -5,6 +5,7 @@ import com.hedera.pbj.runtime.grpc.Pipeline;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.util.Deque;
+import java.util.concurrent.ScheduledFuture;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemSetUnparsed;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
@@ -82,6 +83,18 @@ public interface StreamPublisherManager extends BlockNotificationHandler {
     /// The messaging thread may wait on this condition to limit spin cycles
     /// and still have a low impact on latency.
     void signalDataReady();
+
+    /// Schedule a task to run with a fixed delay.
+    ///
+    /// @param taskToSchedule a runnable task to schedule to run after a short delay
+    /// @param delayInNanoseconds The length of delay, this should always be less than 1 second.
+    ///
+    /// @return a ScheduledFuture representing the scheduled task.
+    ScheduledFuture<?> scheduleAfterDelay(Runnable taskToSchedule, final long delayInNanoseconds);
+
+    /// Get the current configuration of the publisher plugin.
+    /// @return The plugin configuration data.
+    PublisherConfig configuration();
 
     /// The action to take within the PublisherHandler for a block.
     enum BlockAction {
