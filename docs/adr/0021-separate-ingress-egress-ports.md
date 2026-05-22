@@ -1,4 +1,4 @@
-# 0014 - Separate Network Ports for Block Stream Ingress and Egress
+# 0021 - Separate Network Ports for Block Stream Ingress and Egress
 
 Date: 2024-06-01
 
@@ -30,9 +30,9 @@ Block Nodes serve two very different traffic classes on the same host: inbound b
 Block Nodes expose **separate TCP ports** for block stream ingestion (CN → BN) and egress (BN → consumers):
 
 - **Ingress port**: Receives block streams from CNs. Firewall rules restrict inbound connections to the known set of CN IP addresses. Rate limiting is not required on this port but may be applied for safety.
-- **Egress port**: Serves block streams to MNs, Tier 2 BNs, and public consumers. Rate limiting, bandwidth groups (per ADR-0001), and authentication (Phase 3 monetization) are applied at this port.
+- **Egress port**: Serves block streams to MNs, Tier 2 BNs, and public consumers. Rate limiting, bandwidth groups (per ADR-0012), and authentication (Phase 3 monetization) are applied at this port.
 
-Both ports use gRPC over HTTP/2. TLS is not mandated at the software layer (per ADR-0001) but may be applied at the infrastructure layer independently per port.
+Both ports use gRPC over HTTP/2. TLS is not mandated at the software layer (per ADR-0012) but may be applied at the infrastructure layer independently per port.
 
 ## Consequences
 

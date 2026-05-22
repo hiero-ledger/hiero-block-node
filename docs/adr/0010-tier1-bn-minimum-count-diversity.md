@@ -1,25 +1,25 @@
-# 0002 - Tier 1 Block Node Minimum Count and Diversity Requirements
+# 0010 - Tier 1 Block Node Minimum Count and Diversity Requirements
 
 Date: 2024-06-01
 
 ## Status
 
-Accepted (terminology and minimum-count target superseded by ADR-0019 on 2026-05-22 — see Note)
+Accepted (terminology and minimum-count target superseded by ADR-0011 on 2026-05-22 — see Note)
 
 ## Note (2026-05-22 review)
 
-Two pieces of this ADR have been reframed by [ADR-0019](0019-tier2-rfh-deployment-posture.md):
+Two pieces of this ADR have been reframed by [ADR-0011](0011-tier2-rfh-deployment-posture.md):
 
 1. **"RFH" reassigned.** When this ADR was written, RFH stood for *Record-File-History*
    — Block Nodes that wrapped and served historical record files during the
    Phase 2a transition. The acronym has since been reassigned to *Remote Full
    History*: Tier 2 BNs that upload verified blocks to cloud storage as a
    disaster-recovery substrate. The earlier "Record-File-History" concept is
-   now captured by the special-purpose wrapping BN described in ADR-0010 and
+   now captured by the special-purpose wrapping BN described in ADR-0007 and
    does not carry an acronym in current discussion.
 2. **Topology count reframed.** The "5 BN minimum (2 RFH + 3 LFH)" target in this
    ADR was written under the assumption that all BNs sat at the same logical
-   layer. ADR-0019 splits this into a 7 Tier-1 LFH topology (council-operated,
+   layer. ADR-0011 splits this into a 7 Tier-1 LFH topology (council-operated,
    CN-fed, serves clients) plus a 3 Tier-2 RFH topology (private, cloud-backed,
    DR substrate). The diversity and cloud-vendor constraints in this ADR's
    Decision section still apply to the *Tier 1* layer.

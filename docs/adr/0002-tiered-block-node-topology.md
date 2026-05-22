@@ -1,16 +1,16 @@
-# 0003 - Block Node Tiered Network Topology
+# 0002 - Block Node Tiered Network Topology
 
 Date: 2024-06-01
 
 ## Status
 
-Accepted (Tier 2 role refined by ADR-0019 — see Note)
+Accepted (Tier 2 role refined by ADR-0011 — see Note)
 
 ## Note (2026-05-22 review)
 
 The two-tier hierarchy described below remains the load-bearing topology. What has
 been refined since this ADR was written is the role of Tier 2 specifically for
-disaster recovery: [ADR-0019](0019-tier2-rfh-deployment-posture.md) defines a
+disaster recovery: [ADR-0011](0011-tier2-rfh-deployment-posture.md) defines a
 specific Tier 2 variant called *Remote Full History* (RFH) — private, cloud-bucket
 backed, no state services, pull-backfilling from any available Tier 1 LFH. RFH is a
 specialisation of the general Tier 2 concept here, not a replacement for it. The

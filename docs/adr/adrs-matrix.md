@@ -15,13 +15,13 @@ subsequent ADR building on the ones before it.
 
 ## Tier Overview
 
-| Tier | Numbers | Theme |
-|---|---|---|
-| **1 — Program-defining foundations** | 0001-0005 | What is the block stream, who feeds whom, how is it shaped on the wire and how is each block sealed |
-| **2 — Cutover and cryptography** | 0006-0009 | How the network transitions from record streams to block streams, and what proofs seal each block |
-| **3 — Operations and topology counts** | 0010-0013 | How many BNs exist at each tier, who runs them, who pays |
-| **4 — Operational modes and endpoints** | 0014-0017 | How BNs are configured to serve different roles, what they expose, where they upload |
-| **5 — Implementation architecture** | 0018-0021 | Code-level architectural choices that enable the above |
+|                  Tier                   |  Numbers  |                                                Theme                                                |
+|-----------------------------------------|-----------|-----------------------------------------------------------------------------------------------------|
+| **1 — Program-defining foundations**    | 0001-0005 | What is the block stream, who feeds whom, how is it shaped on the wire and how is each block sealed |
+| **2 — Cutover and cryptography**        | 0006-0009 | How the network transitions from record streams to block streams, and what proofs seal each block   |
+| **3 — Operations and topology counts**  | 0010-0013 | How many BNs exist at each tier, who runs them, who pays                                            |
+| **4 — Operational modes and endpoints** | 0014-0017 | How BNs are configured to serve different roles, what they expose, where they upload                |
+| **5 — Implementation architecture**     | 0018-0021 | Code-level architectural choices that enable the above                                              |
 
 ---
 
@@ -33,29 +33,29 @@ Columns:
 - **Referenced by** — later ADRs that build on or refine this one. Helps when reading this ADR to see what comes next.
 - **Themes** — short tags for cross-cutting topics so you can scan for "everything TSS-related" or "everything storage-related".
 
-| # | Title | Tier | Depends on | Referenced by | Themes | Status |
-|---|---|---|---|---|---|---|
-| 0001 | Block Stream Format Replaces Record Streams | 1 | — | 0006, 0007, 0017, 0018, 0020 | block-stream, cutover | Accepted |
-| 0002 | Tiered Block Node Topology | 1 | 0001 | 0010, 0011, 0012, 0014, 0021 | topology | Accepted (refined by 0011) |
-| 0003 | Block Stream Traffic Direction | 1 | 0002 | 0021 | topology, protocol | Accepted |
-| 0004 | gRPC Chunked Block Items Protocol | 1 | 0001, 0003 | 0005, 0019 | protocol, block-stream | Accepted |
-| 0005 | Block Hash 4-Leaf Merkle Tree | 1 | 0001, 0004 | 0008 | crypto, block-stream | Accepted |
-| 0006 | Staged WRB → Full Block Stream Cutover | 2 | 0001, 0008 | 0007, 0009 | cutover | Accepted |
-| 0007 | Historical Record File Wrapping | 2 | 0001, 0006 | 0010, 0016, 0017 | cutover, history | Accepted |
-| 0008 | TSS Aggregate Signatures | 2 | 0005, 0006 | 0009, 0016 | tss, crypto | Accepted |
-| 0009 | hinTS TSS Scheme Selection | 2 | 0008 | 0016 | tss, crypto | Accepted |
-| 0010 | Tier 1 BN Minimum Count and Diversity | 3 | 0002, 0007 | 0014 | topology, ops | Accepted (target superseded by 0011) |
-| 0011 | Tier 2 RFH Deployment Posture | 3 | 0002, 0007 | 0018, 0019 | topology, ops, governance | Accepted |
-| 0012 | Tier 1 Public Access Model | 3 | 0002 | 0013, 0021 | topology, access, governance | Accepted (enforcement deferred) |
-| 0013 | Monetization Before Public Launch | 3 | 0012 | — | governance, access | Accepted |
-| 0014 | Full-History vs No-History Operating Modes | 4 | 0002, 0010 | 0015 | ops, storage | Accepted |
-| 0015 | CN Reconnect via Block Nodes | 4 | 0014 | — | ops, recovery | Accepted |
-| 0016 | BN Status Endpoint Exposes TSS Bootstrap | 4 | 0007, 0008, 0009 | — | tss, ops | Accepted |
-| 0017 | New Cloud Bucket Path for Block Streams | 4 | 0001, 0007 | — | storage, cutover | Accepted |
-| 0018 | Plugin SPI for BN Extension Architecture | 5 | 0001, 0011 | 0019 | implementation | Accepted |
-| 0019 | LMAX Disruptor Block Messaging Bus | 5 | 0004, 0018, 0011 | — | implementation, performance | Accepted |
-| 0020 | On-Disk Block Archive Format | 5 | 0001 | — | implementation, storage | Accepted |
-| 0021 | Separate Ingress/Egress Ports | 5 | 0003, 0012 | — | implementation, topology | Deprecated (single port adopted) |
+|  #   |                    Title                    | Tier |    Depends on    |        Referenced by         |            Themes            |                Status                |
+|------|---------------------------------------------|------|------------------|------------------------------|------------------------------|--------------------------------------|
+| 0001 | Block Stream Format Replaces Record Streams | 1    | —                | 0006, 0007, 0017, 0018, 0020 | block-stream, cutover        | Accepted                             |
+| 0002 | Tiered Block Node Topology                  | 1    | 0001             | 0010, 0011, 0012, 0014, 0021 | topology                     | Accepted (refined by 0011)           |
+| 0003 | Block Stream Traffic Direction              | 1    | 0002             | 0021                         | topology, protocol           | Accepted                             |
+| 0004 | gRPC Chunked Block Items Protocol           | 1    | 0001, 0003       | 0005, 0019                   | protocol, block-stream       | Accepted                             |
+| 0005 | Block Hash 4-Leaf Merkle Tree               | 1    | 0001, 0004       | 0008                         | crypto, block-stream         | Accepted                             |
+| 0006 | Staged WRB → Full Block Stream Cutover      | 2    | 0001, 0008       | 0007, 0009                   | cutover                      | Accepted                             |
+| 0007 | Historical Record File Wrapping             | 2    | 0001, 0006       | 0010, 0016, 0017             | cutover, history             | Accepted                             |
+| 0008 | TSS Aggregate Signatures                    | 2    | 0005, 0006       | 0009, 0016                   | tss, crypto                  | Accepted                             |
+| 0009 | hinTS TSS Scheme Selection                  | 2    | 0008             | 0016                         | tss, crypto                  | Accepted                             |
+| 0010 | Tier 1 BN Minimum Count and Diversity       | 3    | 0002, 0007       | 0014                         | topology, ops                | Accepted (target superseded by 0011) |
+| 0011 | Tier 2 RFH Deployment Posture               | 3    | 0002, 0007       | 0018, 0019                   | topology, ops, governance    | Accepted                             |
+| 0012 | Tier 1 Public Access Model                  | 3    | 0002             | 0013, 0021                   | topology, access, governance | Accepted (enforcement deferred)      |
+| 0013 | Monetization Before Public Launch           | 3    | 0012             | —                            | governance, access           | Accepted                             |
+| 0014 | Full-History vs No-History Operating Modes  | 4    | 0002, 0010       | 0015                         | ops, storage                 | Accepted                             |
+| 0015 | CN Reconnect via Block Nodes                | 4    | 0014             | —                            | ops, recovery                | Accepted                             |
+| 0016 | BN Status Endpoint Exposes TSS Bootstrap    | 4    | 0007, 0008, 0009 | —                            | tss, ops                     | Accepted                             |
+| 0017 | New Cloud Bucket Path for Block Streams     | 4    | 0001, 0007       | —                            | storage, cutover             | Accepted                             |
+| 0018 | Plugin SPI for BN Extension Architecture    | 5    | 0001, 0011       | 0019                         | implementation               | Accepted                             |
+| 0019 | LMAX Disruptor Block Messaging Bus          | 5    | 0004, 0018, 0011 | —                            | implementation, performance  | Accepted                             |
+| 0020 | On-Disk Block Archive Format                | 5    | 0001             | —                            | implementation, storage      | Accepted                             |
+| 0021 | Separate Ingress/Egress Ports               | 5    | 0003, 0012       | —                            | implementation, topology     | Deprecated (single port adopted)     |
 
 ---
 
@@ -111,6 +111,7 @@ Use this when you're investigating a specific area and want to read
 everything relevant in one pass.
 
 ### Block stream format (the wire and the seal)
+
 - **0001** Block Stream Format Replaces Record Streams — what a block is
 - **0004** gRPC Chunked Block Items Protocol — how it's sent
 - **0005** Block Hash 4-Leaf Merkle Tree — how each block is sealed
@@ -118,17 +119,20 @@ everything relevant in one pass.
 - **0020** On-Disk Block Archive Format — where it's stored at rest
 
 ### Cutover from record streams
+
 - **0006** Staged Cutover (Phase 2a / 2b)
 - **0007** Historical Record File Wrapping (genesis through cutover)
 - **0001** Block Stream Format (the destination format)
 
 ### TSS and cryptographic proofs
+
 - **0008** TSS Aggregate Signatures Replace RSA
 - **0009** hinTS as the TSS Scheme
 - **0016** BN Status Endpoint Exposes TSS Bootstrap
 - **0005** Block Hash Structure (the thing being signed)
 
 ### Network topology and operator structure
+
 - **0002** Tiered BN Topology (the canonical hierarchy)
 - **0003** Block Stream Traffic Direction (CN push, MN pull)
 - **0010** Tier 1 BN Minimum Count and Diversity
@@ -139,11 +143,13 @@ everything relevant in one pass.
 - **0021** Separate Ingress/Egress Ports (Deprecated)
 
 ### Operating modes and serving roles
+
 - **0014** Full-History vs No-History Modes
 - **0011** Tier 2 RFH Deployment Posture (private, stateless)
 - **0015** CN Reconnect (can be served by either mode)
 
 ### Code-level architecture
+
 - **0018** Plugin SPI (BlockNodePlugin / ServiceLoader / JPMS)
 - **0019** LMAX Disruptor (inter-plugin messaging)
 - **0020** On-Disk Block Archive Format (Zstd + ZIP)

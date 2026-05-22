@@ -1,4 +1,4 @@
-# 0008 - Block Stream Network Protocol: gRPC with Chunked Block Items
+# 0004 - Block Stream Network Protocol: gRPC with Chunked Block Items
 
 Date: 2024-09-01
 

@@ -1,4 +1,4 @@
-# 0020 - Plugin SPI for Block Node Extension Architecture
+# 0018 - Plugin SPI for Block Node Extension Architecture
 
 Date: 2026-05-22
 
@@ -78,6 +78,6 @@ The Block Node adopts an **in-process plugin architecture**:
   `BlockNodeContext` and exercise plugins in isolation or in small combinations.
 - The decision intentionally takes the in-process tradeoff: shared JVM means
   shared GC, shared thread pools (mitigated by the `threadPoolManager` facility),
-  and shared OOM blast radius. Tier 2 RFH (ADR-0019) deliberately runs in a
+  and shared OOM blast radius. Tier 2 RFH (ADR-0011) deliberately runs in a
   separate process from Tier 1 LFH precisely to escape this shared-failure
   surface at the disaster-recovery boundary.

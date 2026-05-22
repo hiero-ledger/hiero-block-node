@@ -1,4 +1,4 @@
-# 0015 - Block Stream Format Replaces Fragmented Record/Event/State Streams
+# 0001 - Block Stream Format Replaces Fragmented Record/Event/State Streams
 
 Date: 2024-04-01
 
@@ -30,7 +30,7 @@ Serialization uses Protocol Buffers. The stream is designed to be parsed increme
 ## Consequences
 
 - All four legacy stream formats are replaced; consumers that relied on the old formats must migrate.
-- Historical record files are wrapped into a compatible WRB format (ADR-0010) to maintain a contiguous chain from genesis.
+- Historical record files are wrapped into a compatible WRB format (ADR-0007) to maintain a contiguous chain from genesis.
 - Block numbers are continuous across the record→block stream boundary, with the first block stream block set to `last_record_file_block + 1`.
 - Storage is significantly reduced by deduplication (record files contained significant redundancy with sidecar and event files).
 - Mirror Nodes must implement Block Stream parsing to continue operating after Phase 2b cutover. Third-party MNs have a grace period via the cloud bucket fallback.

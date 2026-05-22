@@ -1,4 +1,4 @@
-# 0018 - BN Status Endpoint Exposes TSS Bootstrap Details
+# 0016 - BN Status Endpoint Exposes TSS Bootstrap Details
 
 Date: 2024-12-01
 

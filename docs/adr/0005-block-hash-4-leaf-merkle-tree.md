@@ -1,4 +1,4 @@
-# 0009 - Block Hash Structure: 4-Leaf Binary Merkle Tree
+# 0005 - Block Hash Structure: 4-Leaf Binary Merkle Tree
 
 Date: 2024-05-16
 
@@ -27,7 +27,7 @@ The block hash of the **first block stream block** uses the running hash at the 
 
 ## Consequences
 
-- CNs can begin emitting block items from leaf 2 (inputs) while leaf 4 (state hash) is still being computed, enabling the low-latency streaming architecture in ADR-0008.
+- CNs can begin emitting block items from leaf 2 (inputs) while leaf 4 (state hash) is still being computed, enabling the low-latency streaming architecture in ADR-0004.
 - The state hash (leaf 4) is the last item appended, allowing CN to produce an immutable fast copy of state, hash it, then include the hash in the final block item before sending for signing.
 - SHA-384 is used throughout the block hash computation and must be consistently applied in all verification implementations (BN, MN, relay). This matches the SHA-384 already used for record-file running-hash continuity, preserving the bridge between the record stream and block stream eras.
 - Historical record file block hashes (used by MN, relay, smart contracts) remain valid for blocks prior to cutover; the first block stream block bridges the two formats.

@@ -1,4 +1,4 @@
-# 0021 - LMAX Disruptor as Inter-Plugin Block Messaging Bus
+# 0019 - LMAX Disruptor as Inter-Plugin Block Messaging Bus
 
 Date: 2026-05-22
 
@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-The Block Node's plugin architecture (ADR-0020) requires a high-throughput,
+The Block Node's plugin architecture (ADR-0018) requires a high-throughput,
 low-latency mechanism for plugins to publish and consume block-related events
 inside the JVM. The hot path is demanding:
 
@@ -72,8 +72,8 @@ through `BlockNodeContext.blockMessaging()`.
   references to event payloads beyond the handler call must copy the data,
   not the event wrapper.
 - Single-JVM coupling: Disruptor-based messaging works only within one JVM. This
-  reinforces the in-process plugin architecture (ADR-0020) and is incompatible
-  with cross-process Tier 1/Tier 2 communication. RFHs (ADR-0019) communicate
+  reinforces the in-process plugin architecture (ADR-0018) and is incompatible
+  with cross-process Tier 1/Tier 2 communication. RFHs (ADR-0011) communicate
   with Tier 1 LFHs over gRPC, not via the Disruptor bus.
 - Adding a new ring buffer or event type is a non-trivial change that touches
   the facility plugin, all consumer plugins that need the new event, and any

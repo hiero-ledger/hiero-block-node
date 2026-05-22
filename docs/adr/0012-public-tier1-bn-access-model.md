@@ -1,4 +1,4 @@
-# 0001 - Tier 1 Block Node Public Access Model
+# 0012 - Tier 1 Block Node Public Access Model
 
 Date: 2024-06-01
 
@@ -11,7 +11,7 @@ Accepted (design intent; bandwidth-group enforcement deferred to infrastructure 
 The bandwidth-group split described in the Decision section below was a design intent.
 A grep of the current codebase finds no application-layer traffic-shaping
 implementation (no rate-limiter wired to a partner allowlist in `block-node/app-config`
-or the gRPC server). The current implementation uses a single gRPC port (per ADR-0014
+or the gRPC server). The current implementation uses a single gRPC port (per ADR-0021
 note) and any traffic shaping is expected to be applied at the infrastructure layer
 (firewall, load balancer, reverse proxy) rather than inside the Block Node process.
 The principles still hold; the enforcement boundary has moved.

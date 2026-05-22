@@ -1,4 +1,4 @@
-# 0017 - hinTS as the Threshold Signature Scheme for Block Proofs
+# 0009 - hinTS as the Threshold Signature Scheme for Block Proofs
 
 Date: 2025-01-01
 

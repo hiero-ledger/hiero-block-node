@@ -1,4 +1,4 @@
-# 0013 - Consensus Node Reconnect via Block Nodes
+# 0015 - Consensus Node Reconnect via Block Nodes
 
 Date: 2024-12-01
 

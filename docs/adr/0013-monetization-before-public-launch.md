@@ -1,4 +1,4 @@
-# 0007 - Monetization Must Precede Public Block Node Access
+# 0013 - Monetization Must Precede Public Block Node Access
 
 Date: 2024-10-01
 

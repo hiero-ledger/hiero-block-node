@@ -1,4 +1,4 @@
-# 0019 - Tier 2 Remote Full History (RFH) Deployment Posture
+# 0011 - Tier 2 Remote Full History (RFH) Deployment Posture
 
 Date: 2026-05-22
 
@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-The Hedera network deploys block storage as a two-tier architecture (ADR-0003). The
+The Hedera network deploys block storage as a two-tier architecture (ADR-0002). The
 Tier 1 layer consists of 7 Local Full History (LFH) Block Nodes, council-operated
 and fed directly from CN streams. Behind Tier 1 the network needs a disaster-recovery
 substrate that ensures verified blocks are never permanently lost even if all Tier 1

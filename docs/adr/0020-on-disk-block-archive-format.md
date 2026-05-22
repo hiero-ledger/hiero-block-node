@@ -1,4 +1,4 @@
-# 0005 - Block Node On-Disk Block Archive Format
+# 0020 - Block Node On-Disk Block Archive Format
 
 Date: 2024-10-11
 

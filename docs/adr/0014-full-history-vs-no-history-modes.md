@@ -1,4 +1,4 @@
-# 0012 - Block Node Full-History vs No-History Operating Modes
+# 0014 - Block Node Full-History vs No-History Operating Modes
 
 Date: 2024-10-01
 

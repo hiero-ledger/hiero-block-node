@@ -1,4 +1,4 @@
-# 0011 - TSS Aggregate Signatures Replace Per-Node RSA Signatures for Block Proofs
+# 0008 - TSS Aggregate Signatures Replace Per-Node RSA Signatures for Block Proofs
 
 Date: 2025-01-01
 

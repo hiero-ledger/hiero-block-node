@@ -1,4 +1,4 @@
-# 0004 - Block Stream Traffic Direction: CN→BN Push, MN→BN Pull
+# 0003 - Block Stream Traffic Direction: CN→BN Push, MN→BN Pull
 
 Date: 2024-06-01
 
