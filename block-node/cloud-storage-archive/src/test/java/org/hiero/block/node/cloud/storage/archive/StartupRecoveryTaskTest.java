@@ -112,13 +112,13 @@ class StartupRecoveryTaskTest {
 
     private Map<String, String> pluginConfig() {
         return Map.of(
-                "cloud.archive.groupingLevel", String.valueOf(StartupRecoveryTaskTest.GROUPING_LEVEL),
-                "cloud.archive.partSizeMb", String.valueOf(10),
-                "cloud.archive.endpointUrl", minioEndpoint,
-                "cloud.archive.regionName", "us-east-1",
-                "cloud.archive.bucketName", BUCKET_NAME,
-                "cloud.archive.accessKey", MINIO_USER,
-                "cloud.archive.secretKey", MINIO_PASSWORD);
+                "cloud.storage.archive.groupingLevel", String.valueOf(StartupRecoveryTaskTest.GROUPING_LEVEL),
+                "cloud.storage.archive.partSizeMb", String.valueOf(10),
+                "cloud.storage.archive.endpointUrl", minioEndpoint,
+                "cloud.storage.archive.regionName", "us-east-1",
+                "cloud.storage.archive.bucketName", BUCKET_NAME,
+                "cloud.storage.archive.accessKey", MINIO_USER,
+                "cloud.storage.archive.secretKey", MINIO_PASSWORD);
     }
 
     /// Verifies that an empty bucket causes [StartupRecoveryTask] to signal a fresh start by

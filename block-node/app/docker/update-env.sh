@@ -39,6 +39,20 @@ else
   # file is mounted in the docker-compose.yml, changes to the file will be reflected in the container by simply restarting it
   echo "JAVA_TOOL_OPTIONS='-Djava.util.logging.manager=java.util.logging.LogManager -Djava.util.logging.config.file=/opt/hiero/block-node/logs/config/logging.properties '" >> .env
 fi
+
+echo "CLOUD_STORAGE_EXPANDED_ENDPOINT_URL=${CLOUD_STORAGE_ENDPOINT_URL}" >> .env
+echo "CLOUD_STORAGE_EXPANDED_BUCKET_NAME=${CLOUD_STORAGE_EXPANDED_BUCKET_NAME}" >> .env
+echo "CLOUD_STORAGE_EXPANDED_REGION_NAME=${CLOUD_STORAGE_REGION_NAME}" >> .env
+echo "CLOUD_STORAGE_EXPANDED_ACCESS_KEY=${CLOUD_STORAGE_ACCESS_KEY}" >> .env
+echo "CLOUD_STORAGE_EXPANDED_SECRET_KEY=${CLOUD_STORAGE_SECRET_KEY}" >> .env
+echo "CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL=${CLOUD_STORAGE_ENDPOINT_URL}" >> .env
+echo "CLOUD_STORAGE_ARCHIVE_BUCKET_NAME=${CLOUD_STORAGE_ARCHIVE_BUCKET_NAME}" >> .env
+echo "CLOUD_STORAGE_ARCHIVE_REGION_NAME=${CLOUD_STORAGE_REGION_NAME}" >> .env
+echo "CLOUD_STORAGE_ARCHIVE_ACCESS_KEY=${CLOUD_STORAGE_ACCESS_KEY}" >> .env
+echo "CLOUD_STORAGE_ARCHIVE_SECRET_KEY=${CLOUD_STORAGE_SECRET_KEY}" >> .env
+echo "APP_STATE_DATA_FILE_PATH=/tmp/hiero/block-node/node/app-state-data.json" >> .env
+echo "APP_STATE_RSA_BOOTSTRAP_FILE_PATH=/tmp/hiero/block-node/node/rsa-bootstrap-roster.json" >> .env
+
 # Output the values
 echo ".env properties:"
 cat .env

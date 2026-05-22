@@ -5,8 +5,10 @@
 - [Overview](#overview)
 - [Core Configuration Options](#core-configuration-options)
 - [Server Configuration](#server-configuration)
+- [Application State Configuration](#application-state-configuration)
 - [Metrics Endpoint Configuration](#metrics-endpoint-configuration)
 - [Configurations By Plugin](#configurations-by-plugin)
+  - [Cloud Storage Archive Plugin Configuration](#cloud-storage-archive-plugin-configuration)
   - [Backfill Plugin Configuration](#backfill-plugin-configuration)
   - [Block Access Plugin Configuration](#block-access-plugin-configuration)
   - [Files Historic Plugin Configuration](#files-historic-plugin-configuration)
@@ -18,7 +20,7 @@
   - [Publisher Plugin Configuration](#publisher-plugin-configuration)
   - [Subscriber Plugin Configuration](#subscriber-plugin-configuration)
   - [Verification Plugin Configuration](#verification-plugin-configuration)
-  - [Cloud Expanded Plugin Configuration](#cloud-storage-expanded-plugin-configuration)
+  - [Cloud Storage Expanded Plugin Configuration](#cloud-storage-expanded-plugin-configuration)
 
 ## Overview
 
@@ -58,6 +60,20 @@ Each plugin has its own properties, but this focuses on core options and core pl
 | SERVER_HTTP2_MAX_RAPID_RESETS         | Max rapid resets (stream RST sent by client before any data sent by server). |        50 |
 | SERVER_HTTP2_RAPID_RESET_CHECK_PERIOD | Period for counting rapid resets (ms).                                       |    10,000 |
 
+### Application State Configuration
+
+| ENV Variable                         | Description                                                                                     |                       Default                        |
+|:-------------------------------------|:------------------------------------------------------------------------------------------------|------------------------------------------------------|
+| APP_STATE_TSS_DATA_FILE_PATH         | Path where TSS data (ledger ID, address book, WRAPS VK) is persisted across restarts.           | /opt/hiero/block-node/node/app-state-data.bin        |
+| APP_STATE_STORED_BLOCKS_FILE_PATH    | Path where the set of stored block ranges is persisted. Written every 1,000 blocks received.    | /opt/hiero/block-node/node/stored-blocks-data.bin    |
+| APP_STATE_AVAILABLE_BLOCKS_FILE_PATH | Path where the set of available block ranges is persisted. Written every 1,000 blocks received. | /opt/hiero/block-node/node/available-blocks-data.bin |
+| APP_STATE_UPDATE_SCAN_INTERVAL       | How often (ms) the application state facility checks for pending TSS data updates. Minimum 100. | 500                                                  |
+| APP_STATE_UPDATE_INITIAL_DELAY       | Delay (ms) before the application state facility begins its first scan. Minimum 100.            | 100                                                  |
+
+Stored blocks are all blocks reported as persisted by any plugin. Available blocks are the subset
+also reported as retrievable (i.e. by a `BlockProviderPlugin`). Both range sets are loaded at
+startup and persisted to disk automatically.
+
 ### Metrics Endpoint Configuration
 
 The metrics HTTP server is provided by the `hiero-metrics` library and exposes
@@ -81,18 +97,18 @@ Prometheus-format metrics. Its properties are prefixed with
 
 ## Configurations By Plugin
 
-### Archive Cloud Storage Plugin Configuration
+### Cloud Storage Archive Plugin Configuration
 
-| ENV Variable                 | Description                                                                                                                                                                                              |    Default |
-|:-----------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------:|
-| CLOUD_ARCHIVE_GROUPING_LEVEL | Files per archive in powers of ten (1=10, 2=100, …, 6=1,000,000).                                                                                                                                        |          5 |
-| CLOUD_ARCHIVE_PART_SIZE_MB   | The size of each multi-part upload part in megabytes. Minimum value is 5, maximum value is 2047                                                                                                          |         10 |
-| CLOUD_ARCHIVE_ENDPOINT_URL   | Endpoint URL for the cloud archive service (e.g., `https://s3.amazonaws.com/`).                                                                                                                          |         "" |
-| CLOUD_ARCHIVE_BUCKET_NAME    | Bucket name where cloud archive files are stored.                                                                                                                                                        |         "" |
-| CLOUD_ARCHIVE_STORAGE_CLASS  | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE). Values available at [AWS S3 storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html) | "STANDARD" |
-| CLOUD_ARCHIVE_REGION_NAME    | Region for the cloud archive service (e.g., `us-east-1`).                                                                                                                                                |         "" |
-| CLOUD_ARCHIVE_ACCESS_KEY     | Access key for the archive service.                                                                                                                                                                      |         "" |
-| CLOUD_ARCHIVE_SECRET_KEY     | Secret key for the archive service.                                                                                                                                                                      |         "" |
+| ENV Variable                         | Description                                                                                                                                                                                              |    Default |
+|:-------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------:|
+| CLOUD_STORAGE_ARCHIVE_GROUPING_LEVEL | Files per archive in powers of ten (1=10, 2=100, …, 6=1,000,000).                                                                                                                                        |          5 |
+| CLOUD_STORAGE_ARCHIVE_PART_SIZE_MB   | The size of each multi-part upload part in megabytes. Minimum value is 5, maximum value is 2047                                                                                                          |         10 |
+| CLOUD_STORAGE_ARCHIVE_ENDPOINT_URL   | Endpoint URL for the cloud archive service (e.g., `https://s3.amazonaws.com/`).                                                                                                                          |         "" |
+| CLOUD_STORAGE_ARCHIVE_BUCKET_NAME    | Bucket name where cloud archive files are stored.                                                                                                                                                        |         "" |
+| CLOUD_STORAGE_ARCHIVE_STORAGE_CLASS  | Storage class (e.g., STANDARD, INTELLIGENT_TIERING, GLACIER, DEEP_ARCHIVE). Values available at [AWS S3 storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html) | "STANDARD" |
+| CLOUD_STORAGE_ARCHIVE_REGION_NAME    | Region for the cloud archive service (e.g., `us-east-1`).                                                                                                                                                |         "" |
+| CLOUD_STORAGE_ARCHIVE_ACCESS_KEY     | Access key for the archive service.                                                                                                                                                                      |         "" |
+| CLOUD_STORAGE_ARCHIVE_SECRET_KEY     | Secret key for the archive service.                                                                                                                                                                      |         "" |
 
 ### Backfill Plugin Configuration
 
@@ -199,22 +215,22 @@ Currently, no specific options.
 > The all-blocks hasher requires a strictly sequential block stream; out-of-order or
 > forward-arriving blocks will cause it to fall out of sync and produce incorrect root hashes.
 
-### Cloud Expanded Plugin Configuration
+### Cloud Storage Expanded Plugin Configuration
 
 Uploads each verified block as a single ZSTD-compressed `.blk.zstd` object to any
 S3-compatible store (AWS S3, GCS S3-interop, MinIO, etc.). The plugin is **disabled by
 default** — setting `CLOUD_EXPANDED_ENDPOINT_URL` to a non-empty value activates it.
 
-| ENV Variable                          | Description                                                                                     |           Default |
-|:--------------------------------------|:------------------------------------------------------------------------------------------------|------------------:|
-| CLOUD_EXPANDED_ENDPOINT_URL           | S3-compatible endpoint URL. **Blank disables the plugin.**                                      |                "" |
-| CLOUD_EXPANDED_BUCKET_NAME            | Name of the S3 bucket where blocks are stored.                                                  | block-node-blocks |
-| CLOUD_EXPANDED_OBJECT_KEY_PREFIX      | Prefix prepended to every object key (e.g. `blocks`).                                           |            blocks |
-| CLOUD_EXPANDED_STORAGE_CLASS          | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version. |          STANDARD |
-| CLOUD_EXPANDED_REGION_NAME            | AWS / S3-compatible region name.                                                                |         us-east-1 |
-| CLOUD_EXPANDED_ACCESS_KEY             | S3 access key (not logged).                                                                     |                "" |
-| CLOUD_EXPANDED_SECRET_KEY             | S3 secret key (not logged).                                                                     |                "" |
-| CLOUD_EXPANDED_UPLOAD_TIMEOUT_SECONDS | Max seconds per block upload before treating the upload as failed.                              |                60 |
+| ENV Variable                                  | Description                                                                                     |           Default |
+|:----------------------------------------------|:------------------------------------------------------------------------------------------------|------------------:|
+| CLOUD_STORAGE_EXPANDED_ENDPOINT_URL           | S3-compatible endpoint URL. **Blank disables the plugin.**                                      |                "" |
+| CLOUD_STORAGE_EXPANDED_BUCKET_NAME            | Name of the S3 bucket where blocks are stored.                                                  | block-node-blocks |
+| CLOUD_STORAGE_EXPANDED_OBJECT_KEY_PREFIX      | Prefix prepended to every object key (e.g. `blocks`).                                           |            blocks |
+| CLOUD_STORAGE_EXPANDED_STORAGE_CLASS          | S3 storage class for uploaded objects. Must be `STANDARD` for the current bucky-client version. |          STANDARD |
+| CLOUD_STORAGE_EXPANDED_REGION_NAME            | AWS / S3-compatible region name.                                                                |         us-east-1 |
+| CLOUD_STORAGE_EXPANDED_ACCESS_KEY             | S3 access key (not logged).                                                                     |                "" |
+| CLOUD_STORAGE_EXPANDED_SECRET_KEY             | S3 secret key (not logged).                                                                     |                "" |
+| CLOUD_STORAGE_EXPANDED_UPLOAD_TIMEOUT_SECONDS | Max seconds per block upload before treating the upload as failed.                              |                60 |
 
 Object keys follow the format `{prefix}/AAAA/BBBB/CCCC/DDDD/EEE.blk.zstd`, where the
 19-digit zero-padded block number is split into a 4/4/4/4/3 folder hierarchy:
