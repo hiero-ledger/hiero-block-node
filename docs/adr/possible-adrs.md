@@ -8,7 +8,7 @@ This document captures design considerations that were actively debated but did 
 
 **Context**: Serving blocks over HTTP/2 REST (rather than gRPC) would allow Tier 1 BNs to sit behind a CDN, shifting egress bandwidth costs and DDoS exposure to CDN infrastructure. The concern is that gRPC live-streaming is incompatible with typical CDN caching semantics.
 
-**Current position**: gRPC is the adopted streaming protocol (ADR-0008). HTTP/2 REST has been noted as a potential addition specifically for CDN-backed block *retrieval* (non-streaming, historical block fetch by number). No decision has been made to implement this.
+**Current position**: gRPC is the adopted streaming protocol (ADR-0004). HTTP/2 REST has been noted as a potential addition specifically for CDN-backed block *retrieval* (non-streaming, historical block fetch by number). No decision has been made to implement this.
 
 **Why borderline**: If CDN costs or DDoS risk become pressing, adding an HTTP/2 REST endpoint for block retrieval alongside the existing gRPC streaming API is a meaningful architectural addition worth formalising. Ticket-level, not ADR-level yet.
 
@@ -16,7 +16,7 @@ This document captures design considerations that were actively debated but did 
 
 ## BN-02 — Configurable Storage Backends / Compression
 
-**Context**: The current on-disk format (Zstd + ZIP, ADR-0005) is internal to BN and acknowledged as not final. Future block volumes and hardware diversity may make alternative compression or container formats preferable. Object storage (S3-compatible) as an alternative to local NVMe+HDD was discussed.
+**Context**: The current on-disk format (Zstd + ZIP, ADR-0020) is internal to BN and acknowledged as not final. Future block volumes and hardware diversity may make alternative compression or container formats preferable. Object storage (S3-compatible) as an alternative to local NVMe+HDD was discussed.
 
 **Current position**: Zstd+ZIP is accepted for now. The team noted that BNs "may have configurable choices in the future."
 
@@ -42,7 +42,7 @@ This document captures design considerations that were actively debated but did 
 
 **Why borderline**: May be revisited in Phase 3 if partner SLA requirements become contractual commitments that cannot be met through bandwidth-group shaping alone.
 
-**2026-05-22 update**: ADR-0019 defines a different private Tier 2 variant — Remote Full History (RFH) — for disaster-recovery rather than partner SLA isolation. The two concepts share the "private Tier 2" label but address different motivations. If partner SLA isolation is later adopted, it would be a separate Tier 2 deployment alongside RFH, not a reuse.
+**2026-05-22 update**: ADR-0011 defines a different private Tier 2 variant — Remote Full History (RFH) — for disaster-recovery rather than partner SLA isolation. The two concepts share the "private Tier 2" label but address different motivations. If partner SLA isolation is later adopted, it would be a separate Tier 2 deployment alongside RFH, not a reuse.
 
 ---
 
@@ -100,25 +100,25 @@ This document captures design considerations that were actively debated but did 
 
 **Context**: The original responsible steward count was 5 (2 RFH + 3 LFH under the original RFH-as-Record-File-History naming). The absolute minimum considered operationally viable was 3 (1 RFH + 2 LFH).
 
-**Current position**: Reframed by ADR-0019. The target topology is now 7 Tier-1 LFHs plus 3 Tier-2 RFHs (Hashgraph-GCP plus two grant-funded operators). Whether the network can go live with fewer than the target Tier-1 count (for example, 5 or 6 LFHs at launch with the remaining onboarded post-launch) is still an open operational question separate from the RFH topology decision.
+**Current position**: Reframed by ADR-0011. The target topology is now 7 Tier-1 LFHs plus 3 Tier-2 RFHs (Hashgraph-GCP plus two grant-funded operators). Whether the network can go live with fewer than the target Tier-1 count (for example, 5 or 6 LFHs at launch with the remaining onboarded post-launch) is still an open operational question separate from the RFH topology decision.
 
-**Why borderline**: If the Tier-1 LFH go-live count deviates from the 7-LFH target, a formal decision record documenting the risk acceptance and mitigation should be produced. This is currently an escalation item rather than an architectural decision. The Tier-2 RFH minimum is set by ADR-0019 (target 3, with grant-funded slots filled within 3-9 months of launch).
+**Why borderline**: If the Tier-1 LFH go-live count deviates from the 7-LFH target, a formal decision record documenting the risk acceptance and mitigation should be produced. This is currently an escalation item rather than an architectural decision. The Tier-2 RFH minimum is set by ADR-0011 (target 3, with grant-funded slots filled within 3-9 months of launch).
 
 ---
 
 ## BN-08 — Cloud Provider Selection for RFH-3 (AWS vs Cloudflare R2 vs Backblaze B2)
 
-**Context**: ADR-0019 leaves the third Tier-2 RFH's cloud provider open pending vetting. The candidate set is AWS S3, Cloudflare R2, and Backblaze B2 — all US-jurisdiction, so no diversity-axis gain among them, but they differ materially on egress cost, storage cost, operator familiarity, and governance maturity. Cloudflare R2's zero-egress pricing has the strongest cost case for an egress-dominated workload; AWS S3 has the largest operator pool; Backblaze B2 is cheapest at storage but with smaller operational maturity.
+**Context**: ADR-0011 leaves the third Tier-2 RFH's cloud provider open pending vetting. The candidate set is AWS S3, Cloudflare R2, and Backblaze B2 — all US-jurisdiction, so no diversity-axis gain among them, but they differ materially on egress cost, storage cost, operator familiarity, and governance maturity. Cloudflare R2's zero-egress pricing has the strongest cost case for an egress-dominated workload; AWS S3 has the largest operator pool; Backblaze B2 is cheapest at storage but with smaller operational maturity.
 
 **Current position**: Vetting in progress. Selection requires (a) a 3-year cost projection per candidate, (b) governance review of the candidate's commercial profile, and (c) operator-pool feedback on willingness to operate the chosen provider.
 
-**Why borderline**: Once selected, the choice and its rationale warrant a brief ADR (or an amendment to ADR-0019) so future reviews can revisit the cost / governance tradeoffs against then-current alternatives.
+**Why borderline**: Once selected, the choice and its rationale warrant a brief ADR (or an amendment to ADR-0011) so future reviews can revisit the cost / governance tradeoffs against then-current alternatives.
 
 ---
 
 ## BN-09 — Hedera Grant Program Structure for RFH Operators
 
-**Context**: ADR-0019 commits to a grant-funded operator model for two of three Tier-2 RFHs. The grant program structure — published operator standard (SLA, RPO, security posture, hardware profile, attestation cadence), application criteria, grant amount sizing, grant term, attestation cadence, and the mechanism by which Hedera disburses funds — is a pre-launch deliverable but is not yet specified.
+**Context**: ADR-0011 commits to a grant-funded operator model for two of three Tier-2 RFHs. The grant program structure — published operator standard (SLA, RPO, security posture, hardware profile, attestation cadence), application criteria, grant amount sizing, grant term, attestation cadence, and the mechanism by which Hedera disburses funds — is a pre-launch deliverable but is not yet specified.
 
 **Current position**: In design. Engineering owns the operator-standard portion; Hedera governance owns the funding mechanism and approval process.
 
@@ -128,27 +128,27 @@ This document captures design considerations that were actively debated but did 
 
 ## BN-10 — LFH Outbound Bandwidth Reservation for RFH Backfill
 
-**Context**: ADR-0019 specifies that Tier-1 LFHs reserve a portion of their outbound bandwidth specifically for RFH backfill reads, to avoid starving the RFH ingest path during peak client read load. The mechanism (QoS class on egress, percentage of bandwidth reserved, how it's configured, whether it's enforced in BN software or at the infrastructure layer) is unspecified.
+**Context**: ADR-0011 specifies that Tier-1 LFHs reserve a portion of their outbound bandwidth specifically for RFH backfill reads, to avoid starving the RFH ingest path during peak client read load. The mechanism (QoS class on egress, percentage of bandwidth reserved, how it's configured, whether it's enforced in BN software or at the infrastructure layer) is unspecified.
 
-**Current position**: Stated requirement; implementation approach not chosen. Could be application-layer (a configurable byte-budget on the backfill-serving endpoint) or infrastructure-layer (host network QoS, traffic-control rules) — same divergence as ADR-0001's bandwidth groups.
+**Current position**: Stated requirement; implementation approach not chosen. Could be application-layer (a configurable byte-budget on the backfill-serving endpoint) or infrastructure-layer (host network QoS, traffic-control rules) — same divergence as ADR-0012's bandwidth groups.
 
-**Why borderline**: Once the mechanism is chosen, it warrants a brief ADR (or a note in ADR-0019) covering where the enforcement lives, what the default reservation is, and how operators tune it. The decision interacts with ADR-0001's bandwidth-group framing.
+**Why borderline**: Once the mechanism is chosen, it warrants a brief ADR (or a note in ADR-0011) covering where the enforcement lives, what the default reservation is, and how operators tune it. The decision interacts with ADR-0012's bandwidth-group framing.
 
 ---
 
 ## BN-11 — OVH Jurisdictional Separation Legal Framing
 
-**Context**: ADR-0019 leans on OVH's EU-jurisdiction profile as the load-bearing axis for cross-jurisdictional disaster-recovery diversity. The technical reasoning (family-controlled French company, EU commercial code, GDPR, vertical-integration ops profile) is sound, but the public-facing framing for ecosystem partners, regulators, and council members requires legal counsel sign-off — particularly under scenarios where EU and US regulation might align.
+**Context**: ADR-0011 leans on OVH's EU-jurisdiction profile as the load-bearing axis for cross-jurisdictional disaster-recovery diversity. The technical reasoning (family-controlled French company, EU commercial code, GDPR, vertical-integration ops profile) is sound, but the public-facing framing for ecosystem partners, regulators, and council members requires legal counsel sign-off — particularly under scenarios where EU and US regulation might align.
 
 **Current position**: Pending legal counsel review.
 
-**Why borderline**: If legal counsel returns a materially different framing than the proposal documents assumed, a follow-up ADR (or an amendment to ADR-0019) is required to record the refined claim. Until then, the diversity claim should be described as "day-to-day governance separation" rather than guaranteed political independence.
+**Why borderline**: If legal counsel returns a materially different framing than the proposal documents assumed, a follow-up ADR (or an amendment to ADR-0011) is required to record the refined claim. Until then, the diversity claim should be described as "day-to-day governance separation" rather than guaranteed political independence.
 
 ---
 
 ## BN-12 — Two-Tier On-Disk Block Storage (Recent NVMe + Historic HDD)
 
-**Context**: The Block Node currently implements two distinct on-disk storage modules — `blocks-file-recent` (live and recent blocks on fast NVMe) and `blocks-file-historic` (older blocks packed into Zstd-compressed ZIP archives on slower HDD, per ADR-0005). The boundary between "recent" and "historic" (rotation policy, threshold, atomic-rotation mechanism, what happens during rotation when a block is read) is a load-bearing operational design choice but is not captured in any ADR.
+**Context**: The Block Node currently implements two distinct on-disk storage modules — `blocks-file-recent` (live and recent blocks on fast NVMe) and `blocks-file-historic` (older blocks packed into Zstd-compressed ZIP archives on slower HDD, per ADR-0020). The boundary between "recent" and "historic" (rotation policy, threshold, atomic-rotation mechanism, what happens during rotation when a block is read) is a load-bearing operational design choice but is not captured in any ADR.
 
 **Current position**: Implemented in code with config records `FilesRecentConfig` and `FilesHistoricConfig`. Documented behaviour lives in the module source; no ADR records the architectural choice or the rotation contract.
 
@@ -158,11 +158,11 @@ This document captures design considerations that were actively debated but did 
 
 ## BN-13 — Cloud Storage Archive Plugin Family
 
-**Context**: There are at least three cloud archive plugins in the codebase: `CloudStorageArchivePlugin`, `S3ArchivePlugin`, and `ExpandedCloudStoragePlugin` (visible under `block-node/cloud-storage-archive` and related modules). They serve overlapping but not identical roles around uploading blocks to cloud buckets — some are for the recent-blocks bucket (ADR-0016), some for full-history archive, some are S3-specific. The boundary between them is a meaningful design choice.
+**Context**: There are at least three cloud archive plugins in the codebase: `CloudStorageArchivePlugin`, `S3ArchivePlugin`, and `ExpandedCloudStoragePlugin` (visible under `block-node/cloud-storage-archive` and related modules). They serve overlapping but not identical roles around uploading blocks to cloud buckets — some are for the recent-blocks bucket (ADR-0017), some for full-history archive, some are S3-specific. The boundary between them is a meaningful design choice.
 
 **Current position**: Implemented; not consolidated into a single conceptual model in documentation.
 
-**Why borderline**: A single ADR articulating the plugin family — which one serves which role, how they interact with Tier-2 RFH (ADR-0019), and what the per-cloud configuration surface looks like — would prevent operator confusion and clarify the design intent. Worth promoting once the RFH-3 cloud is selected (BN-08) since the chosen provider may affect which plugin variant is canonical.
+**Why borderline**: A single ADR articulating the plugin family — which one serves which role, how they interact with Tier-2 RFH (ADR-0011), and what the per-cloud configuration surface looks like — would prevent operator confusion and clarify the design intent. Worth promoting once the RFH-3 cloud is selected (BN-08) since the chosen provider may affect which plugin variant is canonical.
 
 ---
 
