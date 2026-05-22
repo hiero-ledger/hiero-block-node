@@ -352,7 +352,7 @@ flowchart LR
 
 ### Module Dependency Structure
 
-Plugins can be built internally, byt the community, or by private thirdParties.
+Plugins can be built internally, by the community, or by private thirdParties.
 
 ```mermaid
 flowchart TD

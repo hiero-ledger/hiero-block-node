@@ -48,7 +48,7 @@ This document describes a revised design of that architecture. The previous desi
   <dd>An interface passed alongside <code>BlockNodeContext</code> during <code>init()</code> that allows plugins to register HTTP and gRPC service routes on the Helidon web server.</dd>
 
   <dt>Disruptor</dt>
-  <dd>The LMAX Disruptor ring buffer used by the <code>BlockMessagingFacility</code> plugin as the underlying transport for both block-item distribution and block-notification events between plugins.</dd>
+  <dd>The LMAX Disruptor ring buffer used by the <code>BlockMessagingFacility</code> plugin as the underlying transport for both block-item distribution and block-notification events between plugins. This messaging provider may be changed at a future date.</dd>
 
   <dt>BlockProviderPlugin</dt>
   <dd>A plugin that also implements the BlockSource interface and registers that interface as a JPMS service. Plugins that require a BlockSource will add `uses org.hiero.block.node.spi.BlockSource` to their module info file. There can be many BlockSources. It is up to the plugin to decide how to sort/choose the BlockSources they need to use.
