@@ -192,14 +192,7 @@ class RsaRosterBootstrapPluginTest
 
             CountDownLatch latch = new CountDownLatch(1);
 
-            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
-
-                @Override
-                public void onContextUpdate(BlockNodeContext context) {
-                    super.onContextUpdate(context);
-                    latch.countDown();
-                }
-            };
+            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
@@ -229,14 +222,7 @@ class RsaRosterBootstrapPluginTest
 
             CountDownLatch latch = new CountDownLatch(1);
 
-            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
-
-                @Override
-                public void onContextUpdate(BlockNodeContext context) {
-                    super.onContextUpdate(context);
-                    latch.countDown();
-                }
-            };
+            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
@@ -263,14 +249,7 @@ class RsaRosterBootstrapPluginTest
 
             CountDownLatch latch = new CountDownLatch(1);
 
-            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
-
-                @Override
-                public void onContextUpdate(BlockNodeContext context) {
-                    super.onContextUpdate(context);
-                    latch.countDown();
-                }
-            };
+            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
@@ -314,14 +293,7 @@ class RsaRosterBootstrapPluginTest
 
             CountDownLatch latch = new CountDownLatch(1);
 
-            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
-
-                @Override
-                public void onContextUpdate(BlockNodeContext context) {
-                    super.onContextUpdate(context);
-                    latch.countDown();
-                }
-            };
+            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
@@ -359,14 +331,7 @@ class RsaRosterBootstrapPluginTest
 
             CountDownLatch latch = new CountDownLatch(1);
 
-            RsaRosterBootstrapPlugin plugin = new RsaRosterBootstrapPlugin() {
-
-                @Override
-                public void onContextUpdate(BlockNodeContext context) {
-                    super.onContextUpdate(context);
-                    latch.countDown();
-                }
-            };
+            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
@@ -400,5 +365,19 @@ class RsaRosterBootstrapPluginTest
                     NodeAddress.newBuilder().nodeId(i).rsaPubKey("hexkey" + i).build());
         }
         return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
+    }
+
+    private class TestBootstrapPlugin extends RsaRosterBootstrapPlugin {
+        private final CountDownLatch latch;
+
+        private TestBootstrapPlugin(CountDownLatch latch) {
+            this.latch = latch;
+        }
+
+        @Override
+        public void onContextUpdate(BlockNodeContext context) {
+            super.onContextUpdate(context);
+            latch.countDown();
+        }
     }
 }

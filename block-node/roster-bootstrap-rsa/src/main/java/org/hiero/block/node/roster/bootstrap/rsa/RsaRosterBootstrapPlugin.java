@@ -135,7 +135,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
             // Schedule periodic checking of mirror node for address book data
             scheduledFuture = queryMnExecutor.scheduleAtFixedRate(
-                    this::fetchFromMirrorNode, 0, config.mirrorNodeQueryInterval(), TimeUnit.MILLISECONDS);
+                    this::fetchFromMirrorNode, 0, config.mirrorNodeQueryIntervalMillis(), TimeUnit.MILLISECONDS);
         } else {
             rosterEntriesLoaded = book.nodeAddress().size();
             rosterLoadDurationMs = System.currentTimeMillis() - startMs;
@@ -261,17 +261,17 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         } catch (IOException | RuntimeException | ParseException e) {
             lastCause = e;
         }
-        LOGGER.log(
-                ERROR,
-                "RSA address book could not be created — Mirror Node API unavailable at {0}. BN cannot verify WRB proofs. Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable.",
-                config.mirrorNodeBaseUrl(),
-                lastCause);
+        final String message =
+                "RSA address book could not be created — Mirror Node API unavailable at %s. BN cannot verify WRB proofs. Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable."
+                        .formatted(config.mirrorNodeBaseUrl());
+        LOGGER.log(ERROR, message, lastCause);
         return null;
     }
 
     /// UncaughtExceptionHandler for logging uncaught exceptions
     private void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
-        LOGGER.log(WARNING, "Uncaught exception in RsaRosterBootstrapPlugin thread {0}", thread.getName(), throwable);
+        final String message = "Uncaught exception in %s thread".formatted(thread.getName());
+        LOGGER.log(WARNING, message, throwable);
     }
 
     /// Shutdown the executor

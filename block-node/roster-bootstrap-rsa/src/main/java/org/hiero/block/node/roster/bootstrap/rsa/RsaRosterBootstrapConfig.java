@@ -21,7 +21,7 @@ import org.hiero.block.node.base.Loggable;
 public record RsaRosterBootstrapConfig(
         // spotless:off
         @Loggable @ConfigProperty(defaultValue = "") String mirrorNodeBaseUrl,
-        @Loggable @ConfigProperty(defaultValue = "5000") @Min(100) int mirrorNodeQueryInterval,
+        @Loggable @ConfigProperty(defaultValue = "5000") @Min(100) int mirrorNodeQueryIntervalMillis,
         @Loggable @ConfigProperty(defaultValue = "5") int mirrorNodeConnectTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "10") int mirrorNodeReadTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "100") int mirrorNodePageSize) {}
