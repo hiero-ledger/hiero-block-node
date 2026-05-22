@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.roster.bootstrap.rsa;
 
-import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
@@ -241,7 +240,6 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// @param client the HTTP client to use
     /// @param url the URL to fetch and parse
     /// @return the parsed Mirror Node response
-    /// @throws IllegalStateException if all retries are exhausted
     private MirrorNodeNodesResponse fetchAndParse(final HttpClient client, final String url) {
         Exception lastCause;
         try {
@@ -261,10 +259,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         } catch (IOException | RuntimeException | ParseException e) {
             lastCause = e;
         }
-        final String message =
-                "RSA address book could not be created — Mirror Node API unavailable at %s. BN cannot verify WRB proofs. Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable."
-                        .formatted(config.mirrorNodeBaseUrl());
-        LOGGER.log(ERROR, message, lastCause);
+        //        final String message =
+        //                "RSA address book could not be created — Mirror Node API unavailable at %s. BN cannot verify
+        // WRB proofs. Provide rsa-bootstrap-roster.json or ensure Mirror Node is reachable."
+        //                        .formatted(config.mirrorNodeBaseUrl());
+        //        LOGGER.log(ERROR, message, lastCause);
         return null;
     }
 

@@ -2,6 +2,7 @@
 package org.hiero.block.node.roster.bootstrap.rsa;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -184,20 +185,22 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("Single-page response loads all nodes into the address book")
-        void singlePageLoadsAllNodes() throws InterruptedException {
+        void singlePageLoadsAllNodes() {
             registerStaticHandler(
                     "/api/v1/network/nodes",
                     200,
                     "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\"},{\"node_id\":2,\"public_key\":\"ddeeff\"}],\"links\":{\"next\":null}}");
 
             CountDownLatch latch = new CountDownLatch(1);
-
             RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
-
-            assertTrue(latch.await(5, TimeUnit.SECONDS));
-
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            try {
+                assertTrue(latch.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                // ignore
+            }
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
             assertEquals(2, book.nodeAddress().size());
@@ -207,7 +210,7 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("Paginated response collects nodes from all pages")
-        void paginatedResponseCollectsAllNodes() throws InterruptedException {
+        void paginatedResponseCollectsAllNodes() {
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
                 final String body = callCount.getAndIncrement() == 0
@@ -221,12 +224,15 @@ class RsaRosterBootstrapPluginTest
             });
 
             CountDownLatch latch = new CountDownLatch(1);
-
             RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
-
-            assertTrue(latch.await(5, TimeUnit.SECONDS));
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            try {
+                assertTrue(latch.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                // ignore
+            }
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -237,7 +243,7 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("Nodes with blank or null public_key are skipped; 0x prefix is stripped")
-        void blankKeySkippedAndOxPrefixStripped() throws InterruptedException {
+        void blankKeySkippedAndOxPrefixStripped() {
             registerStaticHandler(
                     "/api/v1/network/nodes",
                     200,
@@ -252,8 +258,12 @@ class RsaRosterBootstrapPluginTest
             RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
-
-            assertTrue(latch.await(5, TimeUnit.SECONDS));
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            try {
+                assertTrue(latch.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                // ignore
+            }
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -264,7 +274,7 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("Only active entries (timestamp.to=null) are collected; superseded entries stop pagination")
-        void mixedActiveAndHistoricalEntriesOnlyLoadsActive() throws InterruptedException {
+        void mixedActiveAndHistoricalEntriesOnlyLoadsActive() {
             // Single handler serves page 1 on first call and records subsequent calls.
             // Page 1 contains two active entries followed by one superseded (historical) entry.
             // The plugin must stop at the historical entry and never request page 2.
@@ -292,12 +302,15 @@ class RsaRosterBootstrapPluginTest
             });
 
             CountDownLatch latch = new CountDownLatch(1);
-
             RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
-
-            assertTrue(latch.await(5, TimeUnit.SECONDS));
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            try {
+                assertTrue(latch.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                // ignore
+            }
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -312,7 +325,7 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("HTTP 500 triggers retry and succeeds on the next attempt")
-        void http500TriggersRetryThenSucceeds() throws InterruptedException {
+        void http500TriggersRetryThenSucceeds() {
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
                 if (callCount.getAndIncrement() == 0) {
@@ -330,12 +343,16 @@ class RsaRosterBootstrapPluginTest
             });
 
             CountDownLatch latch = new CountDownLatch(1);
-
             RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
 
             start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
-            assertTrue(latch.await(11, TimeUnit.SECONDS));
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            try {
+                assertTrue(latch.await(11, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                // ignore
+            }
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
