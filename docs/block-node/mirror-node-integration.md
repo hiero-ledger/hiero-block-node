@@ -8,10 +8,11 @@ For step-by-step configuration and verification commands, see the companion guid
 
 After the Hiero record-stream-to-block-stream cutover ([HIP-1193](https://github.com/hiero-ledger/hiero-improvement-proposals/blob/main/HIP/hip-1193.md)), Mirror Nodes consume finalized block data from Block Nodes over a long-lived gRPC stream instead of polling record files from cloud storage. Subscribing to a Block Node gives a Mirror Node:
 
-- **Low-latency live data** - blocks are pushed as they are finalized, rather than waiting for batch file uploads to a cloud bucket.
-- **Cryptographic verification at the boundary** - Block Nodes verify each block's aggregated signature and block proof before re-streaming.
+- **Low-latency live data** - blocks are pushed as they are produced, rather than waiting for batch file uploads to a cloud bucket.
+- **Self-contained cryptographic verification** - Block Streams incorporate a Block Proof for each block that cryptographically verifies that block with no additional data.
 - **Random-access historical replay** - a single gRPC call can replay an arbitrary block range to a freshly provisioned Mirror Node.
 - **A decentralized data plane** - Mirror Nodes can subscribe to one or more Block Nodes (Tier 1 or Tier 2) for redundancy.
+- **Local storage and consolidation** - Mirror Node operators may choose to operate a local Block Node to independently store block data and redistribute the Block Stream to multiple Mirror Nodes from a single connection.
 
 The network-level placement of Block Nodes between Consensus Nodes and Mirror Nodes is illustrated in the Block Node overview diagram:
 
@@ -19,11 +20,11 @@ The network-level placement of Block Nodes between Consensus Nodes and Mirror No
 
 ## Subscription model
 
-A Mirror Node subscribes to a Block Node by opening a **server-streaming gRPC call** to the `BlockStreamSubscribeService.subscribeBlockStream` RPC. The Block Node streams `SubscribeStreamResponse` messages back until the requested block range is fully served, the client disconnects, or an error occurs.
+A Mirror Node subscribes to a Block Node by opening a **server-streaming gRPC call** to the `BlockStreamSubscribeService.subscribeBlockStream` RPC. The Block Node streams `SubscribeStreamResponse` messages back until the requested block range is fully served, the connection reaches the maximum connection lifetime, the client disconnects, or an error occurs.
 
 ### Request
 
-A `SubscribeStreamRequest` carries two `uint64` fields:
+A `SubscribeStreamRequest` expects two `uint64` fields:
 
 |        Field         |                                                                                                                                                         Meaning                                                                                                                                                          |
 |----------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -40,14 +41,14 @@ The Block Node sends a stream of `SubscribeStreamResponse` messages. Each respon
 | `end_of_block` | A `BlockEnd` message containing the completed `block_number`.                                                                               | Exactly one per block.        |
 | `status`       | A terminal `Code` value indicating why the stream is ending.                                                                                | Exactly one, at stream close. |
 
-Over the wire the pattern is: `block_items+ end_of_block` repeated per block, followed by exactly one terminal `status` when the stream closes.
+Over the wire the pattern is: `block_items + end_of_block` repeated per block, followed by exactly one terminal `status` when the stream closes.
 
 ### Status codes
 
 |             Code             | Value |                                                       Meaning                                                       |
 |------------------------------|-------|---------------------------------------------------------------------------------------------------------------------|
 | `UNKNOWN`                    | `0`   | Reserved sentinel; the server MUST NOT return this. If observed, treat as a server-side defect.                     |
-| `SUCCESS`                    | `1`   | Stream ended normally; all requested blocks were sent.                                                              |
+| `SUCCESS`                    | `1`   | Stream ended normally; all requested blocks were sent or the connection lifetime limit was reached.                 |
 | `INVALID_REQUEST`            | `2`   | Defined for the protocol; the subscriber implementation does not return it.                                         |
 | `ERROR`                      | `3`   | Block Node encountered an internal error and cannot continue. Client MAY retry.                                     |
 | `INVALID_START_BLOCK_NUMBER` | `4`   | `start_block_number` is negative or outside the allowed range (including beyond the future-window).                 |
@@ -56,7 +57,7 @@ Over the wire the pattern is: `block_items+ end_of_block` repeated per block, fo
 
 ## Connecting to multiple Block Nodes
 
-A Mirror Node can be configured to subscribe to more than one Block Node. The Mirror Node holds the full list as a configured array under `hiero.mirror.importer.block.nodes[]` and chooses which node to use according to a scheduler strategy - by default, `PRIORITY_THEN_LATENCY`. Each entry carries a `priority` (lower is higher priority) and an optional `requiresTls` flag.
+A Mirror Node should be configured to subscribe to more than one Block Node. The Mirror Node holds the full list as a configured array under `hiero.mirror.importer.block.nodes[]` and chooses which node to use according to a scheduler strategy - by default, `PRIORITY_THEN_LATENCY`. Each entry carries a `priority` (lower is higher priority) and an optional `requiresTls` flag.
 
 The selection rules at a glance:
 
@@ -71,15 +72,17 @@ The exact property names and the `nodes[]` YAML shape are documented in [Connect
 
 Two non-obvious behaviours shape how a Mirror Node should integrate with a Block Node.
 
-### Slow consumers see gaps, not closed streams
+### Gaps and out-of-order blocks come from the unverified stream
 
-If a Mirror Node consumes more slowly than the Block Node ingests new blocks, the Block Node does **not** close the session. It silently skips whole blocks from the head of the per-session live queue once free capacity falls below a configurable threshold, allowing the stream to stay caught up to a more recent block at the cost of skipped intermediate blocks.
+Because a Mirror Node consumes the unverified block stream, gaps, interruptions, out-of-order resend, and incomplete blocks are visible in the subscribed stream. The Block Node forwards block items as they arrive from the Consensus Node — rather than waiting for each block to complete and verify (which would add roughly 5–500 ms of latency per block, more under load or for very large blocks) — so almost every blip, hiccough, resend, or other disruption in the upstream flow is visible to the subscriber.
 
-The implication for the Mirror Node is that it must detect gaps client-side - by checking whether each received `end_of_block.block_number` is exactly `(last_committed_block + 1)` - and reconnect to backfill the missing range from history. The Block Node will not signal the gap itself.
+The Mirror Node must detect these client-side by checking whether each received `end_of_block.block_number` is exactly `(last_committed_block + 1)`, and reconnect to backfill the missing range from history. The Block Node will not signal the gap itself.
+
+If a Mirror Node falls behind the live stream, the Block Node silently switches that session back to history and streams from history until the subscriber catches up. Slow subscribers are fed from history, not given gaps.
 
 ### Reconnection is the client's responsibility
 
-The Block Node closes the gRPC stream when (a) a finite requested range is fully served, (b) an internal error or runtime exception is raised, or (c) the client disconnects. In every case other than (c), the Mirror Node must implement reconnection logic, typically with exponential backoff and a fresh `serverStatus` check before each retry. The Mirror Node's importer ships with this logic built in and tunes it through the `block.stream.*` properties. See the [Connecting a Mirror Node to a Block Node](./operations/connecting-a-mirror-node-to-a-block-node.md#step-4-handle-disconnects-and-gaps) guide for the operator-facing details.
+The Block Node closes the gRPC stream when (a) a finite requested range is fully served, (b) the connection reaches the connection lifetime limit configured for that Block Node, (c) an internal error or runtime exception is raised, or (d) the client disconnects. In every case other than (d), the Mirror Node must implement reconnection logic, typically with exponential backoff and a fresh `serverStatus` check before each retry. The Mirror Node's importer ships with this logic built in and tunes it through the `block.stream.*` properties. See the [Connecting a Mirror Node to a Block Node](./operations/connecting-a-mirror-node-to-a-block-node.md#step-4-handle-disconnects-and-gaps) guide for the operator-facing details.
 
 ## Further reading
 
