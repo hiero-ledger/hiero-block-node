@@ -158,9 +158,9 @@ class BlockNodeCloudStorageTests {
      * until the {@code .blk.zstd} object appears. Asserts the key follows the
      * 4/4/4/4/3 folder hierarchy and that the object is present.
      *
-     * <p>Sends a duplicate block at the end to force the server to close the connection,
-     * then waits for connection closure. This ensures {@code @AfterEach} can call
-     * {@code app.shutdown()} without active publisher handlers in the messaging facility.
+     * <p>Closes the publisher stream from the client at the end so {@code @AfterEach}
+     * can call {@code app.shutdown()} without active publisher handlers in the
+     * messaging facility.
      */
     @Test
     void blockIsUploadedToS3() throws Exception {
@@ -193,18 +193,17 @@ class BlockNodeCloudStorageTests {
 
         assertThat(listObjectKeys()).contains(expectedKey);
 
-        // Trigger duplicate rejection so the server closes the connection; await closure
-        // before returning so @AfterEach finds no active publisher handlers at shutdown.
-        final AtomicReference<CountDownLatch> connClosedLatch = ackObserver.setAndGetConnectionEndedLatch(1);
-        stream.onNext(blockRequest);
-        awaitLatch(connClosedLatch, "connection closed by server after duplicate");
+        // Close the publisher stream from the client so @AfterEach finds no active
+        // publisher handlers at shutdown.
+        stream.closeConnection();
     }
 
     /**
      * Publishes block 0 twice. The first publish is acknowledged and uploaded.
-     * The second (duplicate) causes the block node to close the publisher connection.
-     * Asserts exactly one S3 object exists for the block — the duplicate must not
-     * trigger a second upload.
+     * The second (duplicate) lands inside the default producer.duplicateBlockSkipWindow
+     * and is answered with SkipBlock rather than EndOfStream — the publisher does not
+     * re-upload. Asserts exactly one S3 object exists for the block — the duplicate
+     * must not trigger a second upload.
      */
     @Test
     void onlyOneS3ObjectCreatedOnDuplicate() throws Exception {
@@ -229,17 +228,22 @@ class BlockNodeCloudStorageTests {
         final String expectedKey = buildExpectedKey(blockNumber);
         awaitS3Object(expectedKey);
 
-        // Second publish (duplicate) — block node closes the connection
-        final AtomicReference<CountDownLatch> dupClosedLatch = ackObserver.setAndGetConnectionEndedLatch(1);
+        // Second publish (duplicate, distance 0) lands inside the default skip window and
+        // is answered with SkipBlock. Await that response so we know the server has
+        // processed the duplicate before checking the S3 object count.
+        final AtomicReference<CountDownLatch> dupResponseLatch = ackObserver.setAndGetOnNextLatch(1);
         stream.onNext(request);
-        awaitLatch(dupClosedLatch, "duplicate block connection closed");
+        awaitLatch(dupResponseLatch, "duplicate block skip response");
 
         // Allow any residual async work to settle
         Thread.sleep(500);
 
         assertThat(listObjectKeys())
-                .as("Exactly one S3 object must exist — duplicate rejection must not trigger a second upload")
+                .as("Exactly one S3 object must exist — duplicate handling must not trigger a second upload")
                 .containsExactly(expectedKey);
+
+        // Close the stream from the client side for clean @AfterEach shutdown.
+        stream.closeConnection();
     }
 
     /**
@@ -260,9 +264,7 @@ class BlockNodeCloudStorageTests {
         // Without chaining, block 1+ fail verification because the verifier tracks block 0's
         // actual hash and rejects a proof that claims the previous hash was all-zeros.
         Bytes previousHash = null;
-        Bytes prevHashForBlock2 = null; // captured for duplicate creation below
         for (final long blockNumber : blockNumbers) {
-            if (blockNumber == 2L) prevHashForBlock2 = previousHash;
             final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber, previousHash);
             final PublishStreamRequest request = PublishStreamRequest.newBuilder()
                     .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
@@ -281,14 +283,9 @@ class BlockNodeCloudStorageTests {
             assertThat(listObjectKeys()).contains(expectedKey);
         }
 
-        // Close the stream with a duplicate of block 2 (same content — same previousHash)
-        final BlockItem[] dupItems = BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, prevHashForBlock2);
-        final PublishStreamRequest dupRequest = PublishStreamRequest.newBuilder()
-                .blockItems(BlockItemSet.newBuilder().blockItems(dupItems).build())
-                .build();
-        final AtomicReference<CountDownLatch> connClosedLatch = ackObserver.setAndGetConnectionEndedLatch(1);
-        stream.onNext(dupRequest);
-        awaitLatch(connClosedLatch, "connection closed after duplicate of block 2");
+        // Close the publisher stream from the client so @AfterEach finds no active
+        // publisher handlers at shutdown.
+        stream.closeConnection();
     }
 
     /**
@@ -338,10 +335,9 @@ class BlockNodeCloudStorageTests {
                         .number(),
                 "Decompressed block header number must match the published block number");
 
-        // Close stream via duplicate
-        final AtomicReference<CountDownLatch> connClosedLatch = ackObserver.setAndGetConnectionEndedLatch(1);
-        stream.onNext(blockRequest);
-        awaitLatch(connClosedLatch, "connection closed after duplicate for round-trip cleanup");
+        // Close the publisher stream from the client so @AfterEach finds no active
+        // publisher handlers at shutdown.
+        stream.closeConnection();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

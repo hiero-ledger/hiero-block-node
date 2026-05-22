@@ -216,20 +216,22 @@ class LiveStreamPublisherManagerTest {
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
             /// method returns [BlockAction#END_DUPLICATE] when the provided block
-            /// number is lower or equal to the latest known block number and
-            /// previous action is `null`.
+            /// number is more than `duplicateBlockSkipWindow` behind the latest
+            /// known block number and previous action is `null`.
             @ParameterizedTest
             @ValueSource(
                     longs = {
-                        0L, 1L, 2L, 3L, 4L, 5L,
+                        0L, 10L, 30L, 50L,
                     })
             @DisplayName(
-                    "getActionForBlock() returns END_DUPLICATE when the provided block number is lower or equal to the latest known block number and previous action is NULL")
+                    "getActionForBlock() returns END_DUPLICATE when the provided block number is more than the skip window behind the latest known block number and previous action is NULL")
             void testGetActionNullPreviousActionDUPLICATE(final long blockNumber) {
-                // First, we need to have some blocks available
+                // First, we need to have some blocks available. lastPersistedBlock is chosen so all
+                // parameterized blockNumbers are far enough behind to fall outside the default
+                // duplicateBlockSkipWindow (5) and therefore still receive END_DUPLICATE.
                 final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
                 final long firstPersistedBlock = 0L;
-                final long lastPersistedBlock = 5L;
+                final long lastPersistedBlock = 100L;
                 availableBlocks.add(firstPersistedBlock, lastPersistedBlock);
                 historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
                 assertThat(historicalBlockFacility.availableBlocks().contains(firstPersistedBlock, lastPersistedBlock))
@@ -240,6 +242,49 @@ class LiveStreamPublisherManagerTest {
                 toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
                 final BlockAction actual = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
                 // Assert
+                assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#SKIP] when the provided block number is a duplicate
+            /// (at or below the latest known block number) but within the configured
+            /// `duplicateBlockSkipWindow` (default 5), so that the publisher can fast-forward
+            /// instead of having its stream closed.
+            @ParameterizedTest
+            @ValueSource(
+                    longs = {
+                        100L, 99L, 97L, 96L, 95L,
+                    })
+            @DisplayName(
+                    "getActionForBlock() returns SKIP when the provided block number is a duplicate within the skip window and previous action is NULL")
+            void testGetActionNullPreviousActionDuplicateWithinSkipWindow(final long blockNumber) {
+                // lastPersistedBlock = 100, default duplicateBlockSkipWindow = 5.
+                // Block numbers 95..100 all sit at distance <= 5 and must return SKIP.
+                final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
+                final long lastPersistedBlock = 100L;
+                availableBlocks.add(0L, lastPersistedBlock);
+                historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
+                toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
+                final BlockAction actual = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
+                assertThat(actual).isEqualTo(BlockAction.SKIP);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#END_DUPLICATE] for a duplicate that is exactly one
+            /// block past the configured `duplicateBlockSkipWindow` boundary.
+            @Test
+            @DisplayName(
+                    "getActionForBlock() returns END_DUPLICATE for a duplicate exactly one block beyond the skip window boundary")
+            void testGetActionNullPreviousActionDuplicateJustOutsideSkipWindow() {
+                // lastPersistedBlock = 100, default window = 5. Block 94 has distance 6 -> END_DUPLICATE.
+                final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
+                final long lastPersistedBlock = 100L;
+                availableBlocks.add(0L, lastPersistedBlock);
+                historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
+                toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
+                final BlockAction actual = toTest.getActionForBlock(94L, null, publisherHandlerId);
                 assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
             }
 
@@ -1956,12 +2001,12 @@ class LiveStreamPublisherManagerTest {
             /// NOTE:
             /// > In order for a handler to start streaming a block, it must pass through the manager.
             /// The manager does not allow two or more publishers to stream the same block simultaneously.
-            /// If a block gets acknowledged, then for all blocks equal to or lower than the latest
-            /// acknowledged block, we expect to get an [PublishStreamResponse.EndOfStream]
-            /// with [PublishStreamResponse.EndOfStream.Code#DUPLICATE_BLOCK].
+            /// When the duplicate falls within the default `producer.duplicateBlockSkipWindow`,
+            /// the manager answers with [PublishStreamResponse.SkipBlock] instead of closing the
+            /// stream so the publisher can fast-forward.
             @Test
             @DisplayName(
-                    "Test blockIsEnding() when receiving premature header for same publisher, duplicate if block is already being acknowledged")
+                    "Test blockIsEnding() when receiving premature header for same publisher, skip if block is already being acknowledged within the skip window")
             void testBlockIsEndingWhenReceivingPrematureHeaderSamePublisherDifferentBlockDuplicate() {
                 // First, we need to build and stream the next block in line
                 final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
@@ -2021,13 +2066,14 @@ class LiveStreamPublisherManagerTest {
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(500L));
                 // Now assert that we have not streamed anything
                 assertThat(sentBlockItems).isEmpty();
-                // Now assert that we have received a skip
+                // Block 0 is a duplicate (already persisted) and sits at distance 0 from the
+                // last persisted block, which is well within the default duplicateBlockSkipWindow,
+                // so the manager answers with SkipBlock rather than closing the stream.
                 assertThat(responsePipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
-                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                        .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
-                        .returns(block0.number(), endStreamBlockNumberExtractor);
+                        .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
+                        .returns(block0.number(), skipBlockNumberExtractor);
             }
 
             /// Verifies that [LiveStreamPublisherManager#blockIsEnding(long, long)]
