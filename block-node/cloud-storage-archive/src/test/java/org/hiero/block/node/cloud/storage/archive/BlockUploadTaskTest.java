@@ -112,13 +112,13 @@ class BlockUploadTaskTest {
 
     private Map<String, String> pluginConfig(int groupingLevel, int partSizeMb) {
         return Map.of(
-                "cloud.archive.groupingLevel", String.valueOf(groupingLevel),
-                "cloud.archive.partSizeMb", String.valueOf(partSizeMb),
-                "cloud.archive.endpointUrl", minioEndpoint,
-                "cloud.archive.regionName", "us-east-1",
-                "cloud.archive.bucketName", BUCKET_NAME,
-                "cloud.archive.accessKey", MINIO_USER,
-                "cloud.archive.secretKey", MINIO_PASSWORD);
+                "cloud.storage.archive.groupingLevel", String.valueOf(groupingLevel),
+                "cloud.storage.archive.partSizeMb", String.valueOf(partSizeMb),
+                "cloud.storage.archive.endpointUrl", minioEndpoint,
+                "cloud.storage.archive.regionName", "us-east-1",
+                "cloud.storage.archive.bucketName", BUCKET_NAME,
+                "cloud.storage.archive.accessKey", MINIO_USER,
+                "cloud.storage.archive.secretKey", MINIO_PASSWORD);
     }
 
     private CloudStorageArchivePlugin.MetricsHolder createMetricsHolder(TestMetricsExporter exporter) {

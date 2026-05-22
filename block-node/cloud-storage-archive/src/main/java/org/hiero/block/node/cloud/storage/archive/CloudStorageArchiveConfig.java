@@ -10,7 +10,7 @@ import java.util.List;
 import org.hiero.block.node.base.Loggable;
 
 // spotless:off
-@ConfigData("cloud.archive")
+@ConfigData("cloud.storage.archive")
 public record CloudStorageArchiveConfig(
 
     @Loggable @ConfigProperty(defaultValue = "5") @Max(6) @Min(1) int groupingLevel,
