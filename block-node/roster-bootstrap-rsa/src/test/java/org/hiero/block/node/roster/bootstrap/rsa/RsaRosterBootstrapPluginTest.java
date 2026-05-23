@@ -14,15 +14,12 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.hiero.block.node.app.fixtures.async.BlockingExecutor;
 import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.PluginTestBase;
 import org.hiero.block.node.app.fixtures.plugintest.SimpleInMemoryHistoricalBlockFacility;
-import org.hiero.block.node.spi.BlockNodeContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -190,16 +187,9 @@ class RsaRosterBootstrapPluginTest
                     200,
                     "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\"},{\"node_id\":2,\"public_key\":\"ddeeff\"}],\"links\":{\"next\":null}}");
 
-            CountDownLatch latch = new CountDownLatch(1);
-            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
-
-            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
-            try {
-                assertTrue(latch.await(5, TimeUnit.SECONDS));
-            } catch (InterruptedException e) {
-                // ignore
-            }
+
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
             assertEquals(2, book.nodeAddress().size());
@@ -222,16 +212,8 @@ class RsaRosterBootstrapPluginTest
                 }
             });
 
-            CountDownLatch latch = new CountDownLatch(1);
-            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
-
-            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
-            try {
-                assertTrue(latch.await(5, TimeUnit.SECONDS));
-            } catch (InterruptedException e) {
-                // ignore
-            }
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -252,17 +234,8 @@ class RsaRosterBootstrapPluginTest
                             + "{\"node_id\":3,\"public_key\":null}"
                             + "],\"links\":{\"next\":null}}");
 
-            CountDownLatch latch = new CountDownLatch(1);
-
-            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
-
-            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
-            try {
-                assertTrue(latch.await(5, TimeUnit.SECONDS));
-            } catch (InterruptedException e) {
-                // ignore
-            }
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -300,16 +273,8 @@ class RsaRosterBootstrapPluginTest
                 exchange.close();
             });
 
-            CountDownLatch latch = new CountDownLatch(1);
-            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
-
-            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
             testThreadPoolManager.scheduledExecutor().executeSerially();
-            try {
-                assertTrue(latch.await(5, TimeUnit.SECONDS));
-            } catch (InterruptedException e) {
-                // ignore
-            }
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -324,7 +289,7 @@ class RsaRosterBootstrapPluginTest
 
         @Test
         @DisplayName("HTTP 500 triggers retry and succeeds on the next attempt")
-        void http500TriggersRetryThenSucceeds() {
+        void http500TriggersRetryThenSucceeds() throws InterruptedException {
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
                 if (callCount.getAndIncrement() == 0) {
@@ -341,17 +306,12 @@ class RsaRosterBootstrapPluginTest
                 exchange.close();
             });
 
-            CountDownLatch latch = new CountDownLatch(1);
-            RsaRosterBootstrapPlugin plugin = new TestBootstrapPlugin(latch);
+            start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
-            start(plugin, new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
-
+            testThreadPoolManager.scheduledExecutor().executeAsync(20000, true, false, false);
+            testThreadPoolManager.scheduledExecutor().executeAsync();
             testThreadPoolManager.scheduledExecutor().executeSerially();
-            try {
-                assertTrue(latch.await(11, TimeUnit.SECONDS));
-            } catch (InterruptedException e) {
-                // ignore
-            }
+            testThreadPoolManager.scheduledExecutor().executeSerially();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
@@ -381,19 +341,5 @@ class RsaRosterBootstrapPluginTest
                     NodeAddress.newBuilder().nodeId(i).rsaPubKey("hexkey" + i).build());
         }
         return NodeAddressBook.newBuilder().nodeAddress(addresses).build();
-    }
-
-    private class TestBootstrapPlugin extends RsaRosterBootstrapPlugin {
-        private final CountDownLatch latch;
-
-        private TestBootstrapPlugin(CountDownLatch latch) {
-            this.latch = latch;
-        }
-
-        @Override
-        public void onContextUpdate(BlockNodeContext context) {
-            super.onContextUpdate(context);
-            latch.countDown();
-        }
     }
 }
