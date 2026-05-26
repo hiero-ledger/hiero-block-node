@@ -910,7 +910,7 @@ function do_compare {
 
     if [[ ${validate_rc} -ne 0 ]]; then
         log "ERROR: Wrapped blocks failed validation"
-        rm -rf "${LOCAL_WORK_DIR}"
+        log "Work directory preserved for debugging: ${LOCAL_WORK_DIR}"
         return 1
     fi
 
@@ -994,7 +994,8 @@ do_validate_blocks() {
         --no-resume \
         "${wrapped_blocks_dir}" 2>&1 | tee "${LOCAL_WORK_DIR}/validate-output.log"
 
-    local validate_exit_code=$?
+    # Capture the java command's exit code, not tee's
+    local validate_exit_code=${PIPESTATUS[0]}
 
     if [[ ${validate_exit_code} -eq 0 ]]; then
         log "Blocks validation with jumpstart verification PASSED"
