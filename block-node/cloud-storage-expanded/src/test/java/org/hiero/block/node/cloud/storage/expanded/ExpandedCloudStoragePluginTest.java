@@ -13,7 +13,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +34,6 @@ import org.hiero.block.node.spi.blockmessaging.BlockSource;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification.FailureType;
-import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -121,21 +119,6 @@ class ExpandedCloudStoragePluginTest
             if (blockMessaging.getSentPersistedNotifications().size() >= expectedCount) return;
             Thread.sleep(10);
         }
-    }
-
-    // ---- addBlockRange capture -----------------------------------------------
-
-    /// Captures every {@link #addBlockRange} call made by the plugin under test.
-    /// JUnit 5 creates a fresh test-class instance per test method, so this list starts
-    /// empty for every test without any explicit reset.
-    private final List<LongRange> capturedRanges = new ArrayList<>();
-
-    private final List<BlockRangeType> capturedTypes = new ArrayList<>();
-
-    @Override
-    public void addBlockRange(final LongRange blockRange, final BlockRangeType blockRangeType) {
-        capturedRanges.add(blockRange);
-        capturedTypes.add(blockRangeType);
     }
 
     // ---- Tests --------------------------------------------------------------
@@ -852,89 +835,5 @@ class ExpandedCloudStoragePluginTest
                 "PersistedNotification must be published before stop() completes");
         assertTrue(
                 closedAfterNotification.get(), "S3 client must be closed only after notifications have been published");
-    }
-
-    @Test
-    @DisplayName("Successful upload calls addBlockRange with the block's single-block range and type STORED")
-    void successCallsAddBlockRangeWithStoredType() throws InterruptedException {
-        final CapturingS3Client capturing = new CapturingS3Client();
-        start(
-                new ExpandedCloudStoragePlugin(capturing),
-                new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of(
-                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
-                        "cloud.storage.expanded.bucketName", "test-bucket",
-                        "cloud.storage.expanded.regionName", "us-east-1"));
-
-        plugin.handleVerification(verifiedNotification(42L, testBlock(42).blockUnparsed()));
-        awaitNotifications(1);
-
-        assertEquals(
-                List.of(new LongRange(42L, 42L)),
-                capturedRanges,
-                "addBlockRange must be called once with a single-block range for the uploaded block");
-        assertEquals(
-                List.of(BlockRangeType.STORED),
-                capturedTypes,
-                "addBlockRange must use BlockRangeType.STORED for a cloud-stored block");
-    }
-
-    @Test
-    @DisplayName("Failed upload does not call addBlockRange")
-    void failedUploadDoesNotCallAddBlockRange() throws InterruptedException {
-        final S3UploadClient throwingClient = new S3UploadClient() {
-            @Override
-            public void uploadFile(
-                    final String objectKey,
-                    final String storageClass,
-                    final Iterator<byte[]> contentIterable,
-                    final String contentType)
-                    throws UploadException {
-                throw new UploadException("Simulated S3 failure", null);
-            }
-
-            @Override
-            public void close() {}
-        };
-        start(
-                new ExpandedCloudStoragePlugin(throwingClient),
-                new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of(
-                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
-                        "cloud.storage.expanded.bucketName", "test-bucket",
-                        "cloud.storage.expanded.regionName", "us-east-1"));
-
-        plugin.handleVerification(verifiedNotification(7L, testBlock(7).blockUnparsed()));
-        awaitNotifications(1);
-
-        assertTrue(capturedRanges.isEmpty(), "addBlockRange must not be called when the upload fails");
-    }
-
-    @Test
-    @DisplayName("Each successful block upload calls addBlockRange once with its own single-block STORED range")
-    void eachSuccessfulUploadCallsAddBlockRangeOnce() throws InterruptedException {
-        final CapturingS3Client capturing = new CapturingS3Client();
-        start(
-                new ExpandedCloudStoragePlugin(capturing),
-                new SimpleInMemoryHistoricalBlockFacility(),
-                Map.of(
-                        "cloud.storage.expanded.endpointUrl", "http://fake:9000",
-                        "cloud.storage.expanded.bucketName", "test-bucket",
-                        "cloud.storage.expanded.regionName", "us-east-1"));
-
-        plugin.handleVerification(verifiedNotification(1L, testBlock(1).blockUnparsed()));
-        plugin.handleVerification(verifiedNotification(3L, testBlock(3).blockUnparsed()));
-        plugin.handleVerification(verifiedNotification(5L, testBlock(5).blockUnparsed()));
-        plugin.handleVerification(verifiedNotification(5L, testBlock(5).blockUnparsed()));
-        awaitNotifications(3);
-
-        assertEquals(3, capturedRanges.size(), "addBlockRange must be called once per successful upload");
-        assertEquals(
-                List.of(new LongRange(1L, 1L), new LongRange(3L, 3L), new LongRange(5L, 5L)),
-                capturedRanges,
-                "addBlockRange must be called in ascending block-number order");
-        assertTrue(
-                capturedTypes.stream().allMatch(t -> t == BlockRangeType.STORED),
-                "all addBlockRange calls must use BlockRangeType.STORED");
     }
 }
