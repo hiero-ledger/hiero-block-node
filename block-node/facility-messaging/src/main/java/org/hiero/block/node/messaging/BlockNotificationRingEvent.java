@@ -5,6 +5,7 @@ import org.hiero.block.node.spi.blockmessaging.BackfilledBlockNotification;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
+import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 
 /**
@@ -24,6 +25,17 @@ public final class BlockNotificationRingEvent {
     private NewestBlockKnownToNetworkNotification newestBlockKnownToNetworkNotification;
     /** The publisher status update notification to be published to downstream subscribers through the LMAX Disruptor. */
     private PublisherStatusUpdateNotification publisherStatusUpdateNotification;
+    /** The live-state update notification to be published to downstream subscribers through the LMAX Disruptor. */
+    private StateUpdateNotification stateUpdateNotification;
+
+    private void clearAll() {
+        this.verificationNotification = null;
+        this.persistedNotification = null;
+        this.backfilledBlockNotification = null;
+        this.newestBlockKnownToNetworkNotification = null;
+        this.publisherStatusUpdateNotification = null;
+        this.stateUpdateNotification = null;
+    }
 
     /**
      * Sets the given notification to be published to downstream subscribers
@@ -32,11 +44,8 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final VerificationNotification notification) {
+        clearAll();
         this.verificationNotification = notification;
-        this.persistedNotification = null;
-        this.backfilledBlockNotification = null;
-        this.newestBlockKnownToNetworkNotification = null;
-        this.publisherStatusUpdateNotification = null;
     }
 
     /**
@@ -46,11 +55,8 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final PersistedNotification notification) {
+        clearAll();
         this.persistedNotification = notification;
-        this.verificationNotification = null;
-        this.backfilledBlockNotification = null;
-        this.newestBlockKnownToNetworkNotification = null;
-        this.publisherStatusUpdateNotification = null;
     }
 
     /**
@@ -60,11 +66,8 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final BackfilledBlockNotification notification) {
+        clearAll();
         this.backfilledBlockNotification = notification;
-        this.verificationNotification = null;
-        this.persistedNotification = null;
-        this.newestBlockKnownToNetworkNotification = null;
-        this.publisherStatusUpdateNotification = null;
     }
 
     /**
@@ -74,11 +77,8 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final NewestBlockKnownToNetworkNotification notification) {
+        clearAll();
         this.newestBlockKnownToNetworkNotification = notification;
-        this.backfilledBlockNotification = null;
-        this.verificationNotification = null;
-        this.persistedNotification = null;
-        this.publisherStatusUpdateNotification = null;
     }
     /**
      * Sets the given notification to be published to downstream subscribers
@@ -87,11 +87,19 @@ public final class BlockNotificationRingEvent {
      * @param notification to set
      */
     public void set(final PublisherStatusUpdateNotification notification) {
+        clearAll();
         this.publisherStatusUpdateNotification = notification;
-        this.newestBlockKnownToNetworkNotification = null;
-        this.backfilledBlockNotification = null;
-        this.verificationNotification = null;
-        this.persistedNotification = null;
+    }
+
+    /**
+     * Sets the given notification to be published to downstream subscribers
+     * through the LMAX Disruptor.
+     *
+     * @param notification to set
+     */
+    public void set(final StateUpdateNotification notification) {
+        clearAll();
+        this.stateUpdateNotification = notification;
     }
 
     /**
@@ -152,5 +160,16 @@ public final class BlockNotificationRingEvent {
      */
     public PublisherStatusUpdateNotification getPublisherStatusUpdateNotification() {
         return publisherStatusUpdateNotification;
+    }
+
+    /**
+     * Gets the live-state update notification of the event from the LMAX
+     * Disruptor on the consumer side.
+     * If the event is not a {@link StateUpdateNotification}, this will return null.
+     *
+     * @return the value of the event
+     */
+    public StateUpdateNotification getStateUpdateNotification() {
+        return stateUpdateNotification;
     }
 }

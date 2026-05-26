@@ -58,7 +58,7 @@ Explicitly out of scope:
                                                       │  │ (every 15m)    │  │
                                                       │  └────────────────┘  │
                                                       └──────────┬───────────┘
-                                                                 │ sendBlockStateUpdate
+                                                                 │ sendStateUpdate
                                                                  ▼
                                               ┌──────────────────────────────┐
                                               │ server-status & other plugins│
@@ -191,7 +191,7 @@ default void handleStateUpdate(StateUpdateNotification n) {}
 New send method on `BlockMessagingFacility`:
 
 ```java
-void sendBlockStateUpdate(StateUpdateNotification notification);
+void sendStateUpdate(StateUpdateNotification notification);
 ```
 
 ## 6. Plugin lifecycle
@@ -255,7 +255,7 @@ while (!pendingBlocks.isEmpty()) {
    `blockNumber = header.blockNumber(); rootHash = state.getHash(); size = state.getMetadata().getSize(); roundNumber = roundHeader.roundNumber()` (taken from the last `RoundHeader` block item seen during the block walk).
 4. `lifecycleManager.copyMutableState()` — promote current mutable to
    latest-immutable so queries see the just-applied data.
-5. `context.blockMessaging().sendBlockStateUpdate(new StateUpdateNotification(VERIFIED, ...))`.
+5. `context.blockMessaging().sendStateUpdate(new StateUpdateNotification(VERIFIED, ...))`.
 
 ### 6.5 `saveSnapshot()` (scheduled, runs every 15m)
 

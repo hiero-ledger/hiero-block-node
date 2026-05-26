@@ -32,6 +32,7 @@ import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotifica
 import org.hiero.block.node.spi.blockmessaging.NoBackPressureBlockItemHandler;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.PublisherStatusUpdateNotification;
+import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
 import org.hiero.metrics.LongCounter;
 import org.hiero.metrics.ObservableGauge;
@@ -70,6 +71,10 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     public static final MetricKey<LongCounter> METRIC_MESSAGING_PUBLISHER_STATUS_UPDATE_NOTIFICATIONS = MetricKey.of(
                     "messaging_publisher_status_update_notifications", LongCounter.class)
             .addCategory(METRICS_CATEGORY);
+    /** Metric key for live-state update notifications sent */
+    public static final MetricKey<LongCounter> METRIC_MESSAGING_STATE_UPDATE_NOTIFICATIONS = MetricKey.of(
+                    "messaging_state_update_notifications", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
     /** Metric key for the number of active item listeners */
     public static final MetricKey<ObservableGauge> METRIC_MESSAGING_NO_OF_ITEM_LISTENERS = MetricKey.of(
                     "messaging_no_of_item_listeners", ObservableGauge.class)
@@ -100,6 +105,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
     private LongCounter.Measurement newestBlockKnownToNetworkNotificationsCounter;
     /** Counter for publisher status update notifications sent */
     private LongCounter.Measurement publisherStatusUpdateNotificationsCounter;
+    /** Counter for live-state update notifications sent */
+    private LongCounter.Measurement stateUpdateNotificationsCounter;
 
     /**
      * The thread factory used to create the virtual threads for the disruptor. Virtual threads are daemon threads by
@@ -293,6 +300,11 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
         publisherStatusUpdateNotificationsCounter = metricRegistry
                 .register(LongCounter.builder(METRIC_MESSAGING_PUBLISHER_STATUS_UPDATE_NOTIFICATIONS)
                         .setDescription("Notifications issued for publisher status updates"))
+                .getOrCreateNotLabeled();
+
+        stateUpdateNotificationsCounter = metricRegistry
+                .register(LongCounter.builder(METRIC_MESSAGING_STATE_UPDATE_NOTIFICATIONS)
+                        .setDescription("Notifications issued for live-state updates"))
                 .getOrCreateNotLabeled();
 
         // Initialize gauges
@@ -506,6 +518,23 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
      * {@inheritDoc}
      */
     @Override
+    public void sendStateUpdate(final StateUpdateNotification notification) {
+        messageForwarder.submit(() -> {
+            LOGGER.log(
+                    DEBUG,
+                    "Sending state update notification: type={0} block={1} round={2}",
+                    notification.type(),
+                    notification.blockNumber(),
+                    notification.roundNumber());
+            blockNotificationDisruptor.getRingBuffer().publishEvent((event, sequence) -> event.set(notification));
+            stateUpdateNotificationsCounter.increment();
+        });
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
     public synchronized void registerBlockNotificationHandler(
             final BlockNotificationHandler handler, final boolean cpuIntensiveHandler, final String handlerName) {
         final InformedEventHandler<BlockNotificationRingEvent> informedEventHandler =
@@ -521,6 +550,8 @@ public class BlockMessagingFacilityImpl implements BlockMessagingFacility {
                         handler.handleNewestBlockKnownToNetwork(event.getNewestBlockKnownToNetworkNotification());
                     } else if (event.getPublisherStatusUpdateNotification() != null) {
                         handler.handlePublisherStatusUpdate(event.getPublisherStatusUpdateNotification());
+                    } else if (event.getStateUpdateNotification() != null) {
+                        handler.handleStateUpdate(event.getStateUpdateNotification());
                     } else {
                         LOGGER.log(Level.INFO, "Received an event with no notification set");
                     }
