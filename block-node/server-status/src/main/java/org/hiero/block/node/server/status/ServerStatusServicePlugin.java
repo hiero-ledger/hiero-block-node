@@ -12,9 +12,12 @@ import org.hiero.block.api.BlockRange;
 import org.hiero.block.api.ServerStatusDetailResponse;
 import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.ServerStatusResponse;
+import org.hiero.block.api.StateMetadata;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
+import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.hiero.metrics.LongCounter;
@@ -23,8 +26,13 @@ import org.hiero.metrics.core.MetricRegistry;
 
 /**
  * Plugin that implements the BlockNodeService and provides the 'serverStatus' RPC.
+ *
+ * <p>Also acts as a {@link BlockNotificationHandler} so that, when a live-state plugin is
+ * present, the latest applied {@link StateMetadata} can be surfaced through
+ * {@code serverStatusDetail}. If no live-state plugin is present this field is simply
+ * never populated.
  */
-public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServiceInterface {
+public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServiceInterface, BlockNotificationHandler {
     /** Metric key for the number of server status requests */
     public static final MetricKey<LongCounter> METRIC_SERVER_STATUS_REQUESTS =
             MetricKey.of("server_status_requests", LongCounter.class).addCategory(METRICS_CATEGORY);
@@ -42,6 +50,8 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
     private LongCounter.Measurement requestStatusCounter;
     /** Counter for the number of detail requests */
     private LongCounter.Measurement requestDetailCounter;
+    /** Latest live-state metadata observed via {@link #handleStateUpdate}. Null until the live-state plugin emits its first VERIFIED or SNAPSHOT notification. */
+    private volatile StateMetadata latestStateMetadata;
 
     /**
      * Handle a request for server status
@@ -113,10 +123,28 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
                     .build());
         }
         // return detailed block node status information.
-        return detailsBuilder
+        detailsBuilder
                 .availableRanges(blockRanges)
                 .tssData(context.tssData())
-                .nodeAddressBook(context.nodeAddressBook())
+                .nodeAddressBook(context.nodeAddressBook());
+
+        final StateMetadata stateMetadata = latestStateMetadata;
+        if (stateMetadata != null) {
+            detailsBuilder.hashStateMetadata(stateMetadata);
+        }
+        return detailsBuilder.build();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void handleStateUpdate(final StateUpdateNotification notification) {
+        latestStateMetadata = StateMetadata.newBuilder()
+                .blockNumber(notification.blockNumber())
+                .roundNumber(notification.roundNumber())
+                .stateRootHash(notification.stateRootHash())
+                .stateSize(notification.stateSize())
                 .build();
     }
 
@@ -148,6 +176,16 @@ public class ServerStatusServicePlugin implements BlockNodePlugin, BlockNodeServ
 
         // Register this service
         serviceBuilder.registerGrpcService(this);
+    }
+
+    @Override
+    public void start() {
+        blockNodeContext.blockMessaging().registerBlockNotificationHandler(this, false, name());
+    }
+
+    @Override
+    public void stop() {
+        blockNodeContext.blockMessaging().unregisterBlockNotificationHandler(this);
     }
 
     /**
