@@ -8,6 +8,8 @@ module org.hiero.block.node.access.service {
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
     requires transitive org.hiero.metrics;
+    requires com.swirlds.config.api;
+    requires org.hiero.block.node.app.config;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with
             BlockAccessServicePlugin;

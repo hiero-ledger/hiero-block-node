@@ -16,6 +16,7 @@ module org.hiero.block.node.stream.subscriber {
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
     requires transitive org.hiero.metrics;
+    requires org.hiero.block.node.app.config;
     requires org.hiero.block.node.base;
     requires com.github.spotbugs.annotations;
 

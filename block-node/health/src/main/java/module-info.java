@@ -7,6 +7,8 @@ module org.hiero.block.node.health {
 
     requires transitive org.hiero.block.node.spi;
     requires transitive io.helidon.webserver;
+    requires com.swirlds.config.api;
+    requires org.hiero.block.node.app.config;
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with

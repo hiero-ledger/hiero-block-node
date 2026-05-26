@@ -16,7 +16,7 @@ public final class NoOpServiceBuilder implements ServiceBuilder {
      * No-op implementation, does nothing.
      */
     @Override
-    public void registerHttpService(final String path, final HttpService... service) {
+    public void registerHttpService(final String path, final int port, final HttpService... service) {
         // No-op implementation, does nothing.
     }
 
@@ -24,7 +24,7 @@ public final class NoOpServiceBuilder implements ServiceBuilder {
      * No-op implementation, does nothing.
      */
     @Override
-    public void registerGrpcService(@NonNull final ServiceInterface service, @NonNull final Socket socket) {
+    public void registerGrpcService(@NonNull final ServiceInterface service, final int port) {
         // No-op implementation, does nothing.
     }
 }

@@ -5,9 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
@@ -45,6 +43,7 @@ import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.base.ranges.ConcurrentLongRangeSet;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
+import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.blockmessaging.BlockMessagingFacility;
 import org.hiero.block.node.spi.health.HealthFacility.State;
@@ -652,50 +651,125 @@ class BlockNodeAppTest {
     }
 
     /**
-     * By default (port=40840, consumerPort=40940) the app creates two distinct WebServer instances.
+     * When plugins register on two different ports the app creates two distinct WebServer instances.
      */
     @Test
-    @DisplayName("Default config: two separate WebServer instances are created (two-port mode)")
-    void twoPortModeDefaultConfigCreatesTwoWebServers() {
-        // blockNodeApp is created in setUp() using app-test.properties; neither port nor consumerPort
-        // is overridden there, so defaults (40840 / 40940) apply.
-        assertNotSame(
-                blockNodeApp.publisherWebServer,
-                blockNodeApp.consumerWebServer,
+    @DisplayName("Two-port mode: plugins on different ports each get their own WebServer")
+    void twoPortModeDefaultConfigCreatesTwoWebServers() throws IOException {
+        final ServiceLoaderFunction twoPortLoader = new ServiceLoaderFunction() {
+            @SuppressWarnings("unchecked")
+            @Override
+            public <C> Stream<? extends C> loadServices(Class<C> serviceClass) {
+                if (serviceClass == BlockMessagingFacility.class) {
+                    return Stream.of(new TestBlockMessagingFacility()).map(s -> (C) s);
+                }
+                if (serviceClass == BlockNodePlugin.class) {
+                    BlockNodePlugin publisherPlugin = new BlockNodePlugin() {
+                        @Override
+                        public String name() {
+                            return "TestPublisher";
+                        }
+
+                        @Override
+                        public List<Class<? extends Record>> configDataTypes() {
+                            return List.of();
+                        }
+
+                        @Override
+                        public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+                            serviceBuilder.registerHttpService("/pub", 40840, rules -> {});
+                        }
+                    };
+                    BlockNodePlugin consumerPlugin = new BlockNodePlugin() {
+                        @Override
+                        public String name() {
+                            return "TestConsumer";
+                        }
+
+                        @Override
+                        public List<Class<? extends Record>> configDataTypes() {
+                            return List.of();
+                        }
+
+                        @Override
+                        public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+                            serviceBuilder.registerHttpService("/cons", 40940, rules -> {});
+                        }
+                    };
+                    return Stream.of(publisherPlugin, consumerPlugin).map(s -> (C) s);
+                }
+                if (serviceClass == BlockProviderPlugin.class) {
+                    return Stream.empty();
+                }
+                return super.loadServices(serviceClass);
+            }
+        };
+        final BlockNodeApp twoPortApp = new BlockNodeApp(twoPortLoader, false);
+        assertEquals(
+                2,
+                twoPortApp.webServers.size(),
                 "With distinct port and consumerPort the app must create two separate WebServer instances");
     }
 
     /**
-     * When consumerPort == port the app must reuse a single WebServer for both roles.
+     * When all plugins register on the same port the app creates a single shared WebServer.
      */
     @Test
-    @DisplayName("Single-port mode: same WebServer instance used when consumerPort == port")
-    void singlePortModeSamePortValueReusesSingleWebServer() throws IOException {
-        System.setProperty("server.consumerPort", "40840"); // same as default server.port
-        try {
-            // Build a minimal service loader that provides the mandatory BlockMessagingFacility
-            // and no real plugins so the app stays lightweight.
-            final ServiceLoaderFunction minimalLoader = new ServiceLoaderFunction() {
-                @SuppressWarnings("unchecked")
-                @Override
-                public <C> Stream<? extends C> loadServices(Class<C> serviceClass) {
-                    if (serviceClass == BlockMessagingFacility.class) {
-                        return Stream.of(new TestBlockMessagingFacility()).map(s -> (C) s);
-                    }
-                    if (serviceClass == BlockNodePlugin.class || serviceClass == BlockProviderPlugin.class) {
-                        return Stream.empty();
-                    }
-                    return super.loadServices(serviceClass);
+    @DisplayName("Single-port mode: one WebServer instance when all plugins register on the same port")
+    void singlePortModeSamePortValueUsesSingleWebServer() throws IOException {
+        final ServiceLoaderFunction singlePortLoader = new ServiceLoaderFunction() {
+            @SuppressWarnings("unchecked")
+            @Override
+            public <C> Stream<? extends C> loadServices(Class<C> serviceClass) {
+                if (serviceClass == BlockMessagingFacility.class) {
+                    return Stream.of(new TestBlockMessagingFacility()).map(s -> (C) s);
                 }
-            };
-            final BlockNodeApp singlePortApp = new BlockNodeApp(minimalLoader, false);
-            assertSame(
-                    singlePortApp.publisherWebServer,
-                    singlePortApp.consumerWebServer,
-                    "When consumerPort == port a single WebServer instance must be used for both roles");
-        } finally {
-            System.clearProperty("server.consumerPort");
-        }
+                if (serviceClass == BlockNodePlugin.class) {
+                    BlockNodePlugin plugin1 = new BlockNodePlugin() {
+                        @Override
+                        public String name() {
+                            return "TestPlugin1";
+                        }
+
+                        @Override
+                        public List<Class<? extends Record>> configDataTypes() {
+                            return List.of();
+                        }
+
+                        @Override
+                        public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+                            serviceBuilder.registerHttpService("/svc1", 40840, rules -> {});
+                        }
+                    };
+                    BlockNodePlugin plugin2 = new BlockNodePlugin() {
+                        @Override
+                        public String name() {
+                            return "TestPlugin2";
+                        }
+
+                        @Override
+                        public List<Class<? extends Record>> configDataTypes() {
+                            return List.of();
+                        }
+
+                        @Override
+                        public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
+                            serviceBuilder.registerHttpService("/svc2", 40840, rules -> {});
+                        }
+                    };
+                    return Stream.of(plugin1, plugin2).map(s -> (C) s);
+                }
+                if (serviceClass == BlockProviderPlugin.class) {
+                    return Stream.empty();
+                }
+                return super.loadServices(serviceClass);
+            }
+        };
+        final BlockNodeApp singlePortApp = new BlockNodeApp(singlePortLoader, false);
+        assertEquals(
+                1,
+                singlePortApp.webServers.size(),
+                "When all plugins register on the same port a single WebServer instance must be used");
     }
 
     /// build a `TssData` object from individual fields from the `TssBootstrapConfig`

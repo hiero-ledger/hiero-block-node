@@ -6,40 +6,31 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 
 /**
- * ServiceBuilder is an interface that defines the contract for registering HTTP and gRPC services with the web server
- * during initialization.
+ * ServiceBuilder is an interface that defines the contract for registering HTTP and gRPC services
+ * with the web server during initialization.
  *
- * <p>Services are registered against a {@link Socket}. Two sockets are defined:
- * <ul>
- *   <li>{@link Socket#PUBLISHER} — for inbound block-stream publishing (CN → BN)</li>
- *   <li>{@link Socket#CONSUMER} — for all other services (subscribers, block access, health)</li>
- * </ul>
- * When both sockets share the same port the implementation merges them onto a single listener.
- * Every registration requires an explicit {@link Socket} — use {@link Socket#CONSUMER} for all
- * services except the CN -> BN publisher, which uses {@link Socket#PUBLISHER}.
+ * <p>Each registration method accepts a port number. The runtime creates one
+ * {@link io.helidon.webserver.WebServer} per distinct port, so registering all services on the same
+ * port automatically results in a single listener with all routes merged. Plugins obtain the
+ * appropriate port from their {@link BlockNodeContext} configuration (e.g.
+ * {@code context.configuration().getConfigData(ServerConfig.class).port()}).
  */
 public interface ServiceBuilder {
-    /** Identifies which network socket a service should be bound to. */
-    enum Socket {
-        /** Publisher-side socket for inbound block-stream publishing (CN -> BN). */
-        PUBLISHER,
-        /** Consumer-side socket for subscribers, health checks, and block access. */
-        CONSUMER
-    }
 
     /**
-     * Registers an HTTP service on the {@link Socket#CONSUMER} socket.
+     * Registers an HTTP service on the given port.
      *
      * @param path the path for the HTTP service
+     * @param port the port number to bind this service to
      * @param service the HTTP services to register at that path
      */
-    void registerHttpService(@NonNull String path, @NonNull HttpService... service);
+    void registerHttpService(@NonNull String path, int port, @NonNull HttpService... service);
 
     /**
-     * Registers a gRPC service on the given socket.
+     * Registers a gRPC service on the given port.
      *
      * @param service the gRPC service to register
-     * @param socket the target socket ({@link Socket#PUBLISHER} or {@link Socket#CONSUMER})
+     * @param port the port number to bind this service to
      */
-    void registerGrpcService(@NonNull ServiceInterface service, @NonNull Socket socket);
+    void registerGrpcService(@NonNull ServiceInterface service, int port);
 }

@@ -4,10 +4,12 @@ package org.hiero.block.node.health;
 import static org.hiero.block.node.health.HealthServicePlugin.*;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import com.swirlds.config.api.Configuration;
 import io.helidon.webserver.http.HttpRules;
 import io.helidon.webserver.http.HttpService;
 import io.helidon.webserver.http.ServerRequest;
 import io.helidon.webserver.http.ServerResponse;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.ServiceBuilder;
 import org.hiero.block.node.spi.health.HealthFacility;
@@ -28,6 +30,15 @@ class HealthServiceTest {
     @Mock
     ServiceBuilder serviceBuilder;
 
+    /** Sets up context.configuration() so the plugin can read ServerConfig.consumerPort(). */
+    private static void setupContextConfig(BlockNodeContext context) {
+        final Configuration configuration = Mockito.mock(Configuration.class);
+        final ServerConfig serverConfig = Mockito.mock(ServerConfig.class);
+        Mockito.when(serverConfig.consumerPort()).thenReturn(40940);
+        Mockito.when(configuration.getConfigData(ServerConfig.class)).thenReturn(serverConfig);
+        Mockito.when(context.configuration()).thenReturn(configuration);
+    }
+
     @Test
     public void testHandleLivez() {
         // given
@@ -38,6 +49,7 @@ class HealthServiceTest {
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
         Mockito.when(healthFacility.isRunning()).thenReturn(true);
         Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -58,6 +70,7 @@ class HealthServiceTest {
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
         Mockito.when(healthFacility.isRunning()).thenReturn(false);
         Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -79,6 +92,7 @@ class HealthServiceTest {
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
         Mockito.when(healthFacility.isRunning()).thenReturn(true);
         Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -99,6 +113,7 @@ class HealthServiceTest {
         HealthFacility healthFacility = Mockito.mock(HealthFacility.class);
         Mockito.when(healthFacility.isRunning()).thenReturn(false);
         Mockito.when(context.serverHealth()).thenReturn(healthFacility);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -118,6 +133,7 @@ class HealthServiceTest {
         Mockito.when(httpRules.get(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
                 .thenReturn(httpRules);
         BlockNodeContext context = Mockito.mock(BlockNodeContext.class);
+        setupContextConfig(context);
 
         // when
         HealthServicePlugin healthServicePlugin = new HealthServicePlugin();
@@ -125,7 +141,10 @@ class HealthServiceTest {
 
         // then
         Mockito.verify(serviceBuilder, Mockito.times(1))
-                .registerHttpService(ArgumentMatchers.eq(HEALTHZ_PATH), httpServiceArgumentCaptor.capture());
+                .registerHttpService(
+                        ArgumentMatchers.eq(HEALTHZ_PATH),
+                        ArgumentMatchers.anyInt(),
+                        httpServiceArgumentCaptor.capture());
         HttpService httpService = httpServiceArgumentCaptor.getValue();
         assertNotNull(httpService);
 

@@ -16,7 +16,6 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.util.List;
 import org.hiero.block.api.TssData;
-import org.hiero.block.node.spi.ServiceBuilder.Socket;
 import org.hiero.block.node.spi.historicalblocks.LongRange;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -179,8 +178,8 @@ public class BlockNodePluginTest {
         @Override
         public void init(@NonNull BlockNodeContext context, @NonNull ServiceBuilder serviceBuilder) {
             this.context = context;
-            serviceBuilder.registerGrpcService(testServiceInterface, Socket.CONSUMER);
-            serviceBuilder.registerHttpService("foo", testHttpService);
+            serviceBuilder.registerGrpcService(testServiceInterface, 40940);
+            serviceBuilder.registerHttpService("foo", 40940, testHttpService);
         }
     }
 
@@ -207,14 +206,14 @@ public class BlockNodePluginTest {
         plugin.init(null, new ServiceBuilder() {
 
             @Override
-            public void registerHttpService(String path, HttpService... service) {
+            public void registerHttpService(String path, int port, HttpService... service) {
                 assertEquals("foo", path);
                 assertEquals(1, service.length);
                 assertEquals(testHttpService, service[0]);
             }
 
             @Override
-            public void registerGrpcService(@NonNull ServiceInterface service, @NonNull final Socket socket) {
+            public void registerGrpcService(@NonNull ServiceInterface service, final int port) {
                 assertEquals(testServiceInterface, service);
             }
         });
@@ -243,14 +242,14 @@ public class BlockNodePluginTest {
         plugin.init(null, new ServiceBuilder() {
 
             @Override
-            public void registerHttpService(String path, HttpService... service) {
+            public void registerHttpService(String path, int port, HttpService... service) {
                 assertEquals("foo", path);
                 assertEquals(1, service.length);
                 assertEquals(testHttpService, service[0]);
             }
 
             @Override
-            public void registerGrpcService(@NonNull ServiceInterface service, @NonNull final Socket socket) {
+            public void registerGrpcService(@NonNull ServiceInterface service, final int port) {
                 assertEquals(testServiceInterface, service);
             }
         });

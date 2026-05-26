@@ -6,57 +6,54 @@ import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpRouting;
 import io.helidon.webserver.http.HttpService;
-import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Map;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.ServiceBuilder.Socket;
 
 /**
  * Default implementation of {@link ServiceBuilder}. That builds HTTP and PBJ GRPC services.
  * <p>
- * Services are bucketed by {@link Socket} ({@link Socket#PUBLISHER} or {@link Socket#CONSUMER}).
- * {@link BlockNodeApp} retrieves the per-socket builders and wires them to the appropriate
- * {@link io.helidon.webserver.WebServer} instances.
+ * Services are bucketed by port number. {@link BlockNodeApp} creates one
+ * {@link io.helidon.webserver.WebServer} per distinct port found in the maps, so registering all
+ * services on the same port results in a single listener with all routes merged.
  */
 public class ServiceBuilderImpl implements ServiceBuilder {
-    /** Per-socket HTTP routing builders. */
-    private final Map<Socket, HttpRouting.Builder> httpBuilders = new EnumMap<>(Socket.class);
-    /** Per-socket PBJ gRPC routing builders. */
-    private final Map<Socket, PbjRouting.Builder> grpcBuilders = new EnumMap<>(Socket.class);
+    /** Per-port HTTP routing builders. */
+    private final Map<Integer, HttpRouting.Builder> httpBuilders = new HashMap<>();
+    /** Per-port PBJ gRPC routing builders. */
+    private final Map<Integer, PbjRouting.Builder> grpcBuilders = new HashMap<>();
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void registerHttpService(@NonNull String path, @NonNull HttpService... service) {
-        httpBuilders
-                .computeIfAbsent(Socket.CONSUMER, k -> HttpRouting.builder())
-                .register(path, service);
+    public void registerHttpService(@NonNull String path, int port, @NonNull HttpService... service) {
+        httpBuilders.computeIfAbsent(port, k -> HttpRouting.builder()).register(path, service);
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void registerGrpcService(@NonNull ServiceInterface service, @NonNull Socket socket) {
-        grpcBuilders.computeIfAbsent(socket, k -> PbjRouting.builder()).service(service);
+    public void registerGrpcService(@NonNull ServiceInterface service, int port) {
+        grpcBuilders.computeIfAbsent(port, k -> PbjRouting.builder()).service(service);
     }
 
     /**
-     * Returns all HTTP routing builders keyed by socket.
+     * Returns all HTTP routing builders keyed by port.
      *
-     * @return map of {@link Socket} to {@link HttpRouting.Builder}
+     * @return map of port to {@link HttpRouting.Builder}
      */
-    Map<Socket, HttpRouting.Builder> httpRoutingBuilders() {
+    Map<Integer, HttpRouting.Builder> httpRoutingBuilders() {
         return httpBuilders;
     }
 
     /**
-     * Returns all gRPC routing builders keyed by socket.
+     * Returns all gRPC routing builders keyed by port.
      *
-     * @return map of {@link Socket} to {@link PbjRouting.Builder}
+     * @return map of port to {@link PbjRouting.Builder}
      */
-    Map<Socket, PbjRouting.Builder> grpcRoutingBuilders() {
+    Map<Integer, PbjRouting.Builder> grpcRoutingBuilders() {
         return grpcBuilders;
     }
 }

@@ -15,10 +15,10 @@ import org.hiero.block.api.BlockResponse;
 import org.hiero.block.api.BlockResponse.Code;
 import org.hiero.block.internal.BlockResponseUnparsed;
 import org.hiero.block.internal.BlockUnparsed;
+import org.hiero.block.node.app.config.ServerConfig;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
-import org.hiero.block.node.spi.ServiceBuilder.Socket;
 import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
 import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.metrics.LongCounter;
@@ -184,6 +184,7 @@ public class BlockAccessServicePlugin implements BlockNodePlugin, BlockAccessSer
         // Get the block provider
         this.blockProvider = context.historicalBlockProvider();
         // Register this service
-        serviceBuilder.registerGrpcService(this, Socket.CONSUMER);
+        serviceBuilder.registerGrpcService(
+                this, context.configuration().getConfigData(ServerConfig.class).consumerPort());
     }
 }
