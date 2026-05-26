@@ -139,6 +139,11 @@ class LiveStateAccessTest {
         final LiveStatePlugin plugin = new LiveStatePlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();
+        try {
+            plugin.awaitReady(5_000L);
+        } catch (final InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
         return plugin;
     }
 

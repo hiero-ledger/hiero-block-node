@@ -28,6 +28,9 @@ import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
 import org.hiero.block.node.spi.ServiceBuilder;
+import org.hiero.block.node.spi.historicalblocks.BlockAccessor;
+import org.hiero.block.node.spi.historicalblocks.BlockRangeSet;
+import org.hiero.block.node.spi.historicalblocks.HistoricalBlockFacility;
 import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification.StateUpdateType;
@@ -67,11 +70,13 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
 
     private final ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks = new ConcurrentSkipListMap<>();
     private final AtomicBoolean ready = new AtomicBoolean(false);
+    private final AtomicBoolean stopping = new AtomicBoolean(false);
     private final AtomicBoolean degraded = new AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicLong hashMismatchTotal = new java.util.concurrent.atomic.AtomicLong();
 
     private ScheduledExecutorService snapshotExecutor;
     private ScheduledExecutorService stateChangesExecutor;
+    private ScheduledExecutorService catchUpExecutor;
     private volatile long lastSnapshottedBlock = -1L;
 
     @NonNull
@@ -102,6 +107,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
 
         stateChangesExecutor = newSingleThreadExecutor("LiveState-apply");
         snapshotExecutor = newSingleThreadExecutor("LiveState-snapshot");
+        catchUpExecutor = newSingleThreadExecutor("LiveState-catchup");
 
         stateChangesExecutor.scheduleWithFixedDelay(
                 this::applyPending, 0L, config.stateChangesApplyIntervalMillis(), TimeUnit.MILLISECONDS);
@@ -111,11 +117,15 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
                 config.snapshotIntervalMillis(),
                 TimeUnit.MILLISECONDS);
 
-        ready.set(true);
+        // Catch-up runs on its own thread so start() returns fast. It sets ready=true
+        // when the live state has been brought up to the latest historical block; query
+        // traffic is gated NOT_READY until then.
+        catchUpExecutor.execute(this::catchUpFromHistoricalBlocks);
     }
 
     @Override
     public void stop() {
+        stopping.set(true);
         ready.set(false);
         if (context != null) {
             try {
@@ -124,6 +134,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
                 // facility may already be torn down — non-fatal.
             }
         }
+        shutdownExecutor(catchUpExecutor);
         shutdownExecutor(stateChangesExecutor);
         shutdownExecutor(snapshotExecutor);
         if (metadata.blockNumber() > lastSnapshottedBlock && metadata.blockNumber() > 0L) {
@@ -246,6 +257,15 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         saveSnapshot();
     }
 
+    /** Block the calling thread until catch-up completes or the timeout expires. Test-only. */
+    boolean awaitReady(final long timeoutMillis) throws InterruptedException {
+        final long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (!ready.get() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10L);
+        }
+        return ready.get();
+    }
+
     // ── Internals ───────────────────────────────────────────────────────────
 
     private void loadPersistedState() {
@@ -271,7 +291,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     }
 
     void applyPending() {
-        while (!pendingBlocks.isEmpty() && ready.get()) {
+        while (!pendingBlocks.isEmpty() && !stopping.get()) {
             final boolean atGenesis =
                     metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
             final long expectedNext = atGenesis ? pendingBlocks.firstKey() : metadata.blockNumber() + 1L;
@@ -280,6 +300,76 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
                 return;
             }
             applyOne(block);
+        }
+    }
+
+    /**
+     * Bring the live state up to the latest block the Block-Node has on hand by reading
+     * blocks from {@link HistoricalBlockFacility} and feeding them through the same
+     * {@link #applyPending()} loop that handles verification-delivered blocks.
+     *
+     * <p>Runs on the {@code LiveState-catchup} thread. When complete (or if there is
+     * nothing to catch up to) sets {@link #ready} so query traffic stops returning
+     * {@code NOT_READY}.
+     */
+    void catchUpFromHistoricalBlocks() {
+        try {
+            final HistoricalBlockFacility historic = context == null ? null : context.historicalBlockProvider();
+            if (historic == null) {
+                ready.set(true);
+                return;
+            }
+            final BlockRangeSet available = historic.availableBlocks();
+            if (available == null || available.size() == 0L) {
+                ready.set(true);
+                return;
+            }
+            final long latest = available.max();
+            final boolean atGenesis =
+                    metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
+            final long start = atGenesis ? available.min() : metadata.blockNumber() + 1L;
+            if (start > latest) {
+                ready.set(true);
+                return;
+            }
+            final int batchSize = Math.max(1, config.historicCatchUpBatchSize());
+            long cursor = start;
+            while (cursor <= latest && !stopping.get() && !degraded.get()) {
+                final long batchEnd = Math.min(cursor + batchSize - 1L, latest);
+                for (long i = cursor; i <= batchEnd; i++) {
+                    if (pendingBlocks.containsKey(i)) {
+                        continue; // already supplied by a verification notification
+                    }
+                    enqueueHistoricalBlock(historic, i);
+                }
+                applyPending();
+                cursor = batchEnd + 1L;
+            }
+        } catch (final RuntimeException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Catch-up failed; plugin remains not ready", e);
+        } finally {
+            // Even if catch-up hit a gap or a degraded state, the plugin is in the best
+            // shape it can be — start serving queries against whatever applied.
+            ready.set(true);
+        }
+    }
+
+    private void enqueueHistoricalBlock(@NonNull final HistoricalBlockFacility historic, final long blockNumber) {
+        final BlockAccessor accessor = historic.block(blockNumber);
+        if (accessor == null) {
+            return;
+        }
+        try {
+            final BlockUnparsed block = accessor.blockUnparsed();
+            if (block != null) {
+                pendingBlocks.put(blockNumber, block);
+            }
+        } finally {
+            try {
+                accessor.close();
+            } catch (final Exception ignored) {
+                // close failures during catch-up are non-fatal.
+            }
         }
     }
 

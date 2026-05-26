@@ -54,7 +54,7 @@ class LiveStatePluginLifecycleTest {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final LiveStatePlugin plugin = startPlugin(metadataPath, recentRoot, historicRoot, facility);
 
-        assertThat(plugin.isReady()).isTrue();
+        assertThat(plugin.awaitReady(5_000L)).isTrue();
         assertThat(plugin.metadata()).isEqualTo(StateMetadata.DEFAULT);
 
         final BlockUnparsed block = buildBlock(1L, 11L);
@@ -133,6 +133,11 @@ class LiveStatePluginLifecycleTest {
         final LiveStatePlugin plugin = new LiveStatePlugin();
         plugin.init(context, NOOP_SERVICE_BUILDER);
         plugin.start();
+        try {
+            plugin.awaitReady(5_000L);
+        } catch (final InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
         return plugin;
     }
 
