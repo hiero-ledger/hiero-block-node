@@ -199,153 +199,235 @@ void sendStateUpdate(StateUpdateNotification notification);
 ### 6.1 `init(BlockNodeContext, ServiceBuilder)`
 
 - Capture context.
-- Construct `VirtualMapStateLifecycleManager(metrics, time, configuration)`.
-  The construction itself **eagerly creates a genesis state** — this is OK and
-  is replaced later if a snapshot is loaded.
-- Register `LiveStateAccessService` (gRPC) with the service builder.
+- Construct `VirtualMapStateLifecycleManager(metrics, time, configuration, fileSystemManager)`.
+  - `metrics` is a `NoOpMetrics` from `org.hiero.consensus.metrics.noop` (the
+    plugin's own metrics live in `hiero-metrics`; the swirlds bookkeeping is
+    not surfaced).
+  - `fileSystemManager` is `new FileSystemManager(Path.of(stateSnapshotRecentPath))`.
+    Anchoring the swirlds temp scratchpad next to the snapshots keeps disk
+    layout predictable.
+  - The constructor eagerly creates a genesis state which is replaced later
+    if a snapshot is loaded.
+- Register self as the `StateServiceInterface` gRPC service via
+  `serviceBuilder.registerGrpcService(this)` — the plugin **is** the service.
 
 ### 6.2 `start()`
 
 1. Load `stateMetadata.json` if it exists; otherwise treat as genesis.
-2. If metadata indicates a recent snapshot dir at
-   `${recentPath}/<blockNumber>` exists, call `lifecycleManager.loadSnapshot(p)`.
+2. If a recent snapshot dir at `${recentPath}/<blockNumber>` exists, call
+   `lifecycleManager.loadSnapshot(...)` to replace the eager genesis state
+   with the on-disk state.
 3. Register self as `BlockNotificationHandler` via
-   `context.blockMessaging().registerBlockNotificationHandler(this, true, "LiveState")`.
+   `context.blockMessaging().registerBlockNotificationHandler(this, true, "LiveStatePlugin")`.
    `cpuIntensive=true` because state apply is CPU-bound parsing work.
-4. Kick off two single-thread `ScheduledExecutorService`s:
-   - `stateChangesExecutor.scheduleAtFixedRate(this::applyPending, ...)`
-   - `snapshotExecutor.scheduleAtFixedRate(this::saveSnapshot, ...)`
-5. Mark plugin ready — `LiveStateAccessService` responds `NOT_READY` until this
-   point.
+4. Kick off three single-thread `ScheduledExecutorService`s:
+   - `stateChangesExecutor.scheduleWithFixedDelay(this::applyPending, 0, applyInterval, ms)` — drains pending blocks in order.
+   - `snapshotExecutor.scheduleWithFixedDelay(this::saveSnapshot, snapshotInterval, snapshotInterval, ms)`.
+   - `catchUpExecutor.execute(this::catchUpFromHistoricalBlocks)` — see §6.4.
+5. **`ready` is NOT yet set.** The catch-up task flips it to `true` when the
+   plugin is caught up to the latest historical block; query traffic returns
+   `NOT_READY` until then.
 
 ### 6.3 `handleVerification(VerificationNotification)`
 
-- Only proceed on `success=true`. Failures are logged and ignored.
-- Parse the `BlockHeader` from `notification.block()`. If
-  `header.blockNumber() != metadata.blockNumber() + 1` and metadata is not at
-  genesis, schedule a `catchUpFromHistoricalBlocks()` that pulls the missing
-  blocks from `historicalBlockProvider` and feeds them to `applyBlockStateChanges`.
-- Otherwise insert into the `ConcurrentSkipListMap<Long, BlockUnparsed>
-  pendingBlocks` keyed by block number.
+- Only proceed on `success=true` with a non-null block payload.
+- Park the block in the `ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks`
+  keyed by block number.
+- The actual state mutation runs on the scheduled apply executor, not on the
+  messaging thread, to keep the messaging dispatcher unblocked.
 
-The actual state mutation runs **on the scheduled executor**, not on the
-messaging thread, to keep the messaging dispatcher unblocked.
+### 6.4 `catchUpFromHistoricalBlocks()` (one-shot on `start()`)
 
-### 6.4 `applyPending()` (scheduled, runs every 2s)
+Closes the gap between `metadata.blockNumber()` and the latest block the
+Block-Node has on hand without waiting for verification notifications.
+
+1. Read `context.historicalBlockProvider()`. If null or empty → set
+   `ready=true` and return.
+2. Compute the catch-up window:
+   - genesis → `from = availableBlocks().min()`
+   - otherwise → `from = metadata.blockNumber() + 1`
+   - `to = availableBlocks().max()`
+3. Walk `from..to` in batches of `historicCatchUpBatchSize` (default 64).
+   For each block in the batch:
+   - Skip if already in `pendingBlocks` (a verification beat us to it).
+   - Otherwise `context.historicalBlockProvider().block(n).blockUnparsed()`
+     and `pendingBlocks.put(n, block)`.
+4. After each batch, call `applyPending()` synchronously to drain.
+5. Stop early if the plugin is `degraded` (a hash mismatch occurred) or
+   `stopping`.
+6. Set `ready=true` in `finally` — even on partial catch-up, queries can
+   start serving against whatever did apply.
+
+### 6.5 `applyPending()` (scheduled, runs every `stateChangesApplyIntervalMillis`)
 
 ```
-while (!pendingBlocks.isEmpty()) {
-  long next = metadata.blockNumber() + 1;
+while (!pendingBlocks.isEmpty() && !stopping) {
+  long next = atGenesis ? pendingBlocks.firstKey()
+                        : metadata.blockNumber() + 1;
   BlockUnparsed b = pendingBlocks.remove(next);
-  if (b == null) break;             // gap → wait for catch-up
-
-  applyBlockStateChanges(b, next);
+  if (b == null) break;             // gap → wait
+  applyOne(b);
 }
 ```
 
-`applyBlockStateChanges`:
+`applyOne(block)`:
 
-1. Validate `block.blockHeader.previousStateRootHash` matches the current
-   mutable state hash (after the previous block was applied). If mismatched at
-   block n+1, refuse and abort — the live state is no longer correct.
-2. Iterate `block.blockItems()`; for every `state_changes` item, decode and
-   apply via `StateChangeApplier.apply(binaryState, stateChangesBytes)` (see
-   §7).
-3. After all changes, `state.computeHash()` and update `StateMetadata` in-memory:
-   `blockNumber = header.blockNumber(); rootHash = state.getHash(); size = state.getMetadata().getSize(); roundNumber = roundHeader.roundNumber()` (taken from the last `RoundHeader` block item seen during the block walk).
-4. `lifecycleManager.copyMutableState()` — promote current mutable to
-   latest-immutable so queries see the just-applied data.
-5. `context.blockMessaging().sendStateUpdate(new StateUpdateNotification(VERIFIED, ...))`.
+1. Walk block items via `StateChangeApplier.inspectBlock(block)` (no
+   mutation) to extract `blockNumber`, the last `RoundHeader.roundNumber`
+   seen, and the `BlockFooter.startOfBlockStateRootHash`.
+2. If block header is unparseable → log, return without applying.
+3. **Validate** `BlockFooter.startOfBlockStateRootHash` against the
+   current mutable state hash:
+   - genesis (`metadata.blockNumber==0` and `metadata.stateRootHash` is
+     empty): accept iff the footer hash is empty/all-zeros.
+   - otherwise: footer hash must equal `mutable.getRoot().getHash()`.
+   - On mismatch: increment `hashMismatchTotal`, set `degraded=true`,
+     log at ERROR, return. All further `applyOne` calls short-circuit on
+     `degraded`.
+4. Apply the block's `state_changes` items via
+   `StateChangeApplier.applyBlock(mutable, block)`.
+5. `lifecycleManager.copyMutableState()` promotes the mutated state to
+   `latestImmutable`.
+6. Build a fresh `StateMetadata` from the immutable's hash + size and the
+   block number / round number from step 1. Update the `volatile` reference.
+7. Emit `StateUpdateNotification(VERIFIED, blockNumber, roundNumber, …)`.
 
-### 6.5 `saveSnapshot()` (scheduled, runs every 15m)
+### 6.6 `saveSnapshot()` (scheduled, runs every `snapshotIntervalMillis`)
 
 1. If `metadata.blockNumber == lastSnapshottedBlock` → nothing new, skip.
-2. `lifecycleManager.createSnapshot(latestImmutable, recentPath/<blockNumber>)`.
-3. Tar the recent snapshot to `historicPath/<blockNumber>.tar` (temp file +
-   atomic `mv`).
-4. Delete any `recentPath/<other>` directories — only the most-recent is kept
-   warm; older recents are durable in `historic` as tars.
-5. Atomically rewrite `stateMetadata.json`.
-6. Emit `StateUpdateNotification(SNAPSHOT, ...)`.
+2. `lifecycleManager.createSnapshot(latestImmutable, recentPath/<blockNumber>)`
+   writes the canonical consensus-node `data/state/` layout into the directory.
+3. `pruneRecentExcept(blockNumber)`:
+   - for every other directory under `recentPath`, call `SnapshotArchiver`
+     to tar it into `historicPath/<otherBlock>.tar` (UStar, atomic via
+     `.tar.tmp` + move), then delete the recent dir;
+   - enforce `historicArchiveRetentionCount`: if non-zero, list `*.tar`
+     under `historicPath`, sort by block number, delete the oldest until
+     the count is at or under the threshold (mirrors
+     `BlockFileHistoricPlugin.cleanup`).
+4. Atomically rewrite `stateMetadata.json`.
+5. Emit `StateUpdateNotification(SNAPSHOT, ...)`.
 
-### 6.6 `stop()`
+### 6.7 `stop()`
 
-- Unregister handler, `shutdownNow()` both executors with short await.
+- Set `stopping=true`, `ready=false`.
+- Unregister from `blockMessaging`.
+- `shutdownNow()` all three executors (apply, snapshot, catch-up) with
+  short await.
 - One final `saveSnapshot()` if `metadata.blockNumber > lastSnapshottedBlock`.
 
 ## 7. State change application
 
-The plan called for a hand-rolled `StateChangeParser`. **Recon shows the
-canonical implementation is `BinaryStateChangeApplier` in
-`hedera-state-validator/src/main/java/com/hedera/statevalidation/blockstream/BlockStreamRecoveryWorkflow.java`**
-(lines 190–266). We follow that pattern verbatim: walk the
-`state_changes.proto` wire bytes, dispatch by tag, and call into `BinaryState`
-write methods:
+`StateChangeApplier` walks block items via PBJ codecs (no manual wire-byte
+parsing) and dispatches each `StateChange` oneof variant to a `BinaryState`
+write call. The wire form of the change carrier is preserved as the canonical
+storage shape, so clients querying the live state get back identical bytes
+they could parse themselves with the same PBJ codecs.
 
-| Wire tag                     | Action                                          |
-|------------------------------|-------------------------------------------------|
-| `state_change.singleton_update` | `binaryState.updateSingleton(stateId, value)` |
-| `state_change.map_update`       | `binaryState.updateKv(stateId, key, value)`   |
-| `state_change.map_delete`       | `binaryState.removeKv(stateId, key)`          |
-| `state_change.queue_push`       | `binaryState.pushQueue(stateId, value)`       |
-| `state_change.queue_pop`        | `binaryState.popQueue(stateId)`               |
+| Wire variant                  | BinaryState call                                 | Stored bytes                          |
+|-------------------------------|--------------------------------------------------|---------------------------------------|
+| `SingletonUpdateChange`       | `updateSingleton(stateId, bytes)`                | `SingletonUpdateChange.PROTOBUF.toBytes` |
+| `MapUpdateChange`             | `updateKv(stateId, keyBytes, valueBytes)`        | `MapChangeKey` / `MapChangeValue` carriers |
+| `MapDeleteChange`             | `removeKv(stateId, keyBytes)`                    | `MapChangeKey` carrier                |
+| `QueuePushChange`             | `pushQueue(stateId, bytes)`                      | `QueuePushChange.PROTOBUF.toBytes`    |
+| `QueuePopChange`              | `popQueue(stateId)`                              | —                                     |
+| `STATE_ADD` / `STATE_REMOVE`  | (skipped — schema events, out of scope for v1)   | —                                     |
 
-Open issue forwarded to Foundation (see `fyi-to-plan.md`): this parser belongs
-in `swirlds-state-impl` so every consumer doesn't reinvent the wheel. Until
-that ships, BN carries its own copy.
+A malformed `state_changes` item aborts the apply with
+`IllegalStateException`; the plugin treats that as a hard failure for the
+block (does not advance metadata). An open question — whether to centralise
+this applier into `swirlds-state-impl` so every consumer doesn't reinvent —
+is captured in STORY-12's Foundation-feedback section.
 
 ## 8. Query path
 
-`LiveStateAccessService` is a thin shim that:
+`LiveStatePlugin` implements `StateServiceInterface` directly and is
+registered as the gRPC service in `init`. Each RPC:
 
-1. Rejects requests with `state_metadata_block_number == 0` mismatching latest
-   metadata (current scope: latest only).
-2. Asks the lifecycle manager for the latest immutable state.
-3. Delegates to `getKv` / `getSingleton` / `getQueueAsList` / `peekQueue` on
-   `BinaryState`.
-4. Wraps the result in `BinaryStateQueryResponse` with the current
-   `StateMetadata`.
+1. Returns `NOT_READY` if catch-up hasn't completed.
+2. Returns `INVALID_REQUEST` if:
+   - `getBinaryKV` is called without `key_bytes`, or with `queue_index`;
+   - `getBinarySingleton` is called with `key_bytes` or `queue_index`;
+   - `getBinaryQueue` is called with `key_bytes`;
+   - `block_number` is non-zero and not equal to the latest applied.
+3. Selects the read state: `getLatestImmutableState()` if present, else
+   `getMutableState()` as a fallback so the first read before any
+   `copyMutableState` returns sensible data.
+4. Delegates to `getKv` / `getSingleton` / `getQueueAsList` / `peekQueue`.
+5. `getBinaryQueue` defensively maps any `RuntimeException` from
+   `getQueueState`/`getQueueAsList`/`peekQueue` (which NPE on unknown
+   state IDs in `VirtualMapStateImpl`) to `NOT_FOUND`.
+6. Wraps the result in `BinaryStateQueryResponse` with the current
+   `StateMetadata` always populated.
 
-## 9. Metrics (under `blocknode.state.live`)
+## 9. Metrics
 
-| Metric                              | Type    |
-|-------------------------------------|---------|
-| `applied_block_number`              | Gauge   |
+Current implementation tracks `hashMismatchTotal` as an in-process
+`AtomicLong` (test-visible via `LiveStatePlugin.hashMismatchTotal()`). Full
+metric-registry integration — gauges and histograms below — is not yet
+wired and is parked as a follow-up:
+
+| Metric                              | Type      |
+|-------------------------------------|-----------|
+| `applied_block_number`              | Gauge     |
 | `apply_latency_ms`                  | Histogram |
 | `snapshot_latency_ms`               | Histogram |
-| `pending_blocks`                    | Gauge   |
-| `catch_up_blocks_total`             | Counter |
-| `hash_mismatch_total`               | Counter |
+| `pending_blocks`                    | Gauge     |
+| `catch_up_blocks_total`             | Counter   |
+| `hash_mismatch_total`               | Counter   |
 | `query_total{kind=kv|singleton|queue}` | Counter |
 
 ## 10. Failure modes
 
-| Failure                          | Behaviour                                                      |
-|----------------------------------|----------------------------------------------------------------|
-| Snapshot dir corrupt at startup  | Fail-fast plugin start; `Severe` log; healthFacility = DEGRADED. |
-| `prev_state_root_hash` mismatch  | Stop apply loop, increment `hash_mismatch_total`, refuse further verifications. Plugin reports degraded. |
-| Apply throws                     | Log, increment counter, requeue block, exponential backoff up to 30s. |
-| Schedule snapshot directory full | Skip historic tar, log, retry next interval.                   |
-| Verification gap > catch-up      | Pause apply, kick `catchUpFromHistoricalBlocks` (pull from `historicalBlockProvider`). |
+| Failure                              | Behaviour                                                                                              |
+|--------------------------------------|--------------------------------------------------------------------------------------------------------|
+| Snapshot dir unreadable at startup   | Log at WARNING, continue with the eagerly-created genesis state; plugin is not failed.                |
+| `startOfBlockStateRootHash` mismatch | Increment `hashMismatchTotal`, set `degraded=true`, log at ERROR. Apply loop short-circuits thereafter; further blocks ignored until restart. |
+| Malformed `state_changes` item        | `IllegalStateException` from the applier; plugin refuses to advance metadata for that block.          |
+| Verification gap                     | Block parks in `pendingBlocks` until predecessor arrives (via notification or catch-up); apply loop never advances past a gap. |
+| Historical block missing locally     | Catch-up skips it; the same block can arrive via notification later.                                  |
+| Snapshot write fails (I/O)           | Log at WARNING; recent dir not deleted; next snapshot cycle retries.                                  |
+| Historic archive fails               | Log at WARNING; the recent dir is kept so the next snapshot retries the archive.                      |
+| Missing-queue query                  | gRPC handler defensively maps NPE from `getQueueState`/`getQueueAsList`/`peekQueue` to `NOT_FOUND`.    |
 
-## 11. Acceptance tests (mirroring plan §state-hashgraph-live)
+## 11. Acceptance tests
 
-1. Genesis startup → `stateMetadata.json` written with block 0; block-0 stream
-   apply succeeds.
-2. Genesis startup, block-N (N>0) without prior metadata → plugin refuses
-   apply and remains at genesis until catch-up reaches N-1.
-3. Non-genesis startup with metadata.block=n, verification of n+1 with a
-   matching `prev_state_root_hash` → applies, immutable promoted, emits
-   `StateUpdateNotification(VERIFIED, n+1, ...)`.
-4. Non-genesis, verification of n+1 with mismatched hash → not applied,
-   `hash_mismatch_total++`, plugin marks itself degraded.
-5. Sequential n+1 then n+2 chained correctly → both apply; final
-   `StateUpdateNotification` carries n+2 metadata.
+Acceptance scenarios live in
+`block-node/state-hashgraph-live/src/test/java/.../LiveStateAcceptanceTest.java`
+and exercise the real `VirtualMapStateLifecycleManager`:
 
-E2E suite (`tools-and-tests/suites`) mirrors
-`BlockNodeCloudStorageTests`: spin up `BlockNodeApp`, publish three chained
-blocks, poll for the snapshot directory to materialise on disk and for the
-`getBinarySingleton` RPC to start returning `SUCCESS`.
+1. **scenario1** — genesis startup applies the first verified block.
+2. **scenario2** — `metadata.block=n`, verification of `n+1` with the right
+   footer hash advances metadata.
+3. **scenario3** — gap: block `n+2` parks until `n+1` fills the gap; both
+   then apply in order.
+4. **scenario4** — three chained blocks (`0,1,2`) emit three VERIFIED
+   notifications.
+5. **scenario5** — `saveSnapshot` writes `stateMetadata.json` and the
+   `recent/<block>/` directory tree; a fresh plugin pointed at the same
+   dirs restores from disk.
+6. **scenario6** — footer hash mismatch refuses apply, increments
+   `hashMismatchTotal`, sets `degraded=true`.
+7. **scenario7** — older recent snapshot is tarred to
+   `historic/<block>.tar` before the recent dir is deleted.
+8. **scenario8** — `historicArchiveRetentionCount=2` caps the historic
+   store at two archives, deleting the oldest.
+
+Other test classes:
+
+- `LiveStateTest` (in-tree fixture for the applier's BinaryState calls)
+- `StateChangeApplierTest` — singleton / KV / queue dispatch via PBJ codecs
+- `LiveStateAccessTest` — gRPC query rules (invalid shapes, NOT_FOUND, success)
+- `LiveStateCatchUpTest` — `catchUpFromHistoricalBlocks` with an in-tree
+  `HistoricalBlockFacility` fixture
+- `LiveStatePluginLifecycleTest` — start → apply → snapshot → stop →
+  restart round-trip
+- `SnapshotArchiverTest` — UStar round-trip of the tar emitter
+
+E2E (`tools-and-tests/suites/.../LiveStateE2ETests.java`) boots the full
+`BlockNodeApp` and exercises `StateService` over real gRPC via the
+generated `StateServiceClient`. Two tests: `getBinarySingleton` round-trip
+and `getBinaryKV` / `getBinaryQueue` structured responses.
 
 ## 12. Open questions
 
