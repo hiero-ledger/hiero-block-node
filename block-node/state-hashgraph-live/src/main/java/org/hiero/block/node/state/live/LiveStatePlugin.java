@@ -480,14 +480,39 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
 
     private void pruneRecentExcept(final long keep) throws IOException {
         final Path recentRoot = Path.of(config.stateSnapshotRecentPath());
+        final Path historicRoot = Path.of(config.stateSnapshotHistoricPath());
         if (!Files.isDirectory(recentRoot)) {
             return;
         }
         try (var entries = Files.list(recentRoot)) {
             entries.filter(Files::isDirectory)
                     .filter(p -> !p.getFileName().toString().equals(Long.toString(keep)))
-                    .forEach(LiveStatePlugin::deleteRecursively);
+                    .forEach(p -> archiveThenDelete(p, historicRoot));
         }
+    }
+
+    /**
+     * Tar an older recent-snapshot directory to the historic store, then delete it from
+     * {@code recent/}. Failures are logged but non-fatal — a leftover recent directory is
+     * harmless beyond disk usage, and the next snapshot cycle will retry the prune.
+     */
+    private static void archiveThenDelete(@NonNull final Path source, @NonNull final Path historicRoot) {
+        final String name = source.getFileName().toString();
+        final long blockNumber;
+        try {
+            blockNumber = Long.parseLong(name);
+        } catch (final NumberFormatException e) {
+            // Not a block-number directory — just delete.
+            deleteRecursively(source);
+            return;
+        }
+        try {
+            SnapshotArchiver.archive(source, historicRoot, blockNumber);
+        } catch (final IOException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Failed to archive snapshot " + source + " to historic", e);
+            return; // keep the recent directory so next cycle can retry the archive.
+        }
+        deleteRecursively(source);
     }
 
     @NonNull

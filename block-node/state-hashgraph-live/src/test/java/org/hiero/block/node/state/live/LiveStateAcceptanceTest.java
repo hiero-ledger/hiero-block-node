@@ -119,6 +119,32 @@ class LiveStateAcceptanceTest {
     }
 
     @Test
+    void scenario7_previousSnapshotsAreArchivedToHistoric(@TempDir final Path tmp) throws java.io.IOException {
+        final Fixture f = startPlugin(tmp);
+
+        // Block 1 → snapshot 1.
+        f.deliverBlock(1L, 10L, Bytes.EMPTY);
+        f.plugin.applyPendingNow();
+        f.plugin.saveSnapshotNow();
+        final java.nio.file.Path recent1 = tmp.resolve("recent").resolve("1");
+        assertThat(java.nio.file.Files.isDirectory(recent1)).isTrue();
+
+        // Block 2 → snapshot 2. The recent/1 directory should be tarred to
+        // historic/1.tar and removed.
+        final Bytes liveAfter1 = f.plugin.metadata().stateRootHash();
+        f.deliverBlock(2L, 20L, liveAfter1);
+        f.plugin.applyPendingNow();
+        f.plugin.saveSnapshotNow();
+
+        assertThat(tmp.resolve("recent").resolve("2").toFile()).exists();
+        assertThat(recent1.toFile()).doesNotExist();
+        final java.nio.file.Path historic1 = tmp.resolve("historic").resolve("1.tar");
+        assertThat(historic1.toFile()).exists();
+        assertThat(java.nio.file.Files.size(historic1)).isGreaterThan(1024L); // header + content + EOA
+        f.plugin.stop();
+    }
+
+    @Test
     void scenario6_refusesApplyOnHashMismatch(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
 

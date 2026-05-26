@@ -41,9 +41,12 @@ queries, and an SPI notification on top.
    `state.live.snapshotIntervalMillis`. The snapshot calls
    `lifecycleManager.createSnapshot(latestImmutable, recent/<blockNumber>)`
    which writes the canonical consensus-node `data/state/` directory layout
-   (see `swirlds-state-api/docs/state-snapshot-spec.md`), prunes older
-   `<recent>/<otherBlock>` directories, and rewrites `stateMetadata.json`
-   atomically. A `StateUpdateNotification(SNAPSHOT, …)` follows.
+   (see `swirlds-state-api/docs/state-snapshot-spec.md`); archives every
+   older `<recent>/<other>` directory to `<historic>/<other>.tar` via
+   `SnapshotArchiver` (UStar format, mirrors the block-base
+   `TaredBlockIterator`) and removes it from `<recent>/`; then rewrites
+   `stateMetadata.json` atomically. A `StateUpdateNotification(SNAPSHOT, …)`
+   follows.
 
 ## Storage encoding
 
@@ -109,10 +112,10 @@ whether to retry against a different Block-Node or wait.
 ## Limitations (v1)
 
 - Latest applied state only; no historical state queries.
-- Tar archival of older snapshots is not yet wired (`historicPath` exists
-  but is unused).
 - Merkle proof RPCs (`getKvPath`, `getMerkleProof`) are not yet exposed
   through the plugin even though the backing `BinaryState` supports them.
+- Retention of historic `*.tar` archives is unbounded; cleanup is a
+  follow-up enhancement.
 
 ## Roadmap
 
