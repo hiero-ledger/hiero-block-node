@@ -33,6 +33,88 @@ gradle.lifecycle.beforeProject {
                 requires("org.testcontainers")
                 requires("org.apache.commons.compress")
             }
+
+            // Non-modular jars pulled in via swirlds-state-impl / swirlds-virtualmap
+            module("com.goterl:lazysodium-java", "com.goterl.lazysodium") {
+                exportAllPackages()
+                requires("com.sun.jna")
+                requires("com.goterl.resourceloader")
+            }
+            module("com.goterl:resource-loader", "com.goterl.resourceloader") {
+                exportAllPackages()
+                requires("com.sun.jna")
+            }
+            module("net.java.dev.jna:jna", "com.sun.jna") { exportAllPackages() }
+            // org.json is already modular; mapping in modules.properties is sufficient.
+            module("io.prometheus:simpleclient", "simpleclient") {
+                exportAllPackages()
+                requires("simpleclient.tracer.common")
+            }
+            module("io.prometheus:simpleclient_common", "simpleclient.common") {
+                exportAllPackages()
+                requires("simpleclient")
+            }
+            module("io.prometheus:simpleclient_httpserver", "simpleclient.httpserver") {
+                exportAllPackages()
+                requires("simpleclient")
+                requires("simpleclient.common")
+            }
+            module("io.prometheus:simpleclient_tracer_common", "simpleclient.tracer.common") {
+                exportAllPackages()
+            }
+            module("io.prometheus:simpleclient_tracer_otel", "simpleclient.tracer.otel") {
+                exportAllPackages()
+                requires("simpleclient.tracer.common")
+            }
+            module("io.prometheus:simpleclient_tracer_otel_agent", "simpleclient.tracer.otel.agent") {
+                exportAllPackages()
+                requires("simpleclient.tracer.common")
+            }
+            module("org.hyperledger.besu:besu-native-common", "org.hyperledger.besu.nativelib.common") {
+                exportAllPackages()
+            }
+            module("org.hyperledger.besu:secp256k1", "org.hyperledger.besu.nativelib.secp256k1") {
+                exportAllPackages()
+                requires("org.hyperledger.besu.nativelib.common")
+            }
+
+            // The published consensus-model and consensus-utility module-infos require
+            // com.hedera.node.hapi (an upstream HAPI jar). We replace the requires with
+            // org.hiero.block.protobuf.pbj so the package owner is our protobuf module.
+            module("com.hedera.hashgraph:consensus-model", "org.hiero.consensus.model") {
+                patchRealModule()
+                exportAllPackages()
+                requires("com.hedera.pbj.runtime")
+                requires("com.swirlds.base")
+                requires("org.hiero.base.concurrent")
+                requires("org.hiero.base.crypto")
+                requires("org.hiero.base.utility")
+                requires("org.hiero.block.protobuf.pbj")
+                requiresStatic("com.github.spotbugs.annotations")
+            }
+            module("com.hedera.hashgraph:consensus-utility", "org.hiero.consensus.utility") {
+                patchRealModule()
+                exportAllPackages()
+                requires("com.hedera.pbj.runtime")
+                requires("com.swirlds.base")
+                requires("com.swirlds.config.api")
+                requires("com.swirlds.logging")
+                requires("com.swirlds.metrics.api")
+                requires("org.apache.logging.log4j")
+                requires("org.hiero.base.concurrent")
+                requires("org.hiero.base.crypto")
+                requires("org.hiero.base.utility")
+                requires("org.hiero.block.protobuf.pbj")
+                requires("org.hiero.consensus.concurrent")
+                requires("org.hiero.consensus.metrics")
+                requires("org.hiero.consensus.model")
+                requiresStatic("com.github.spotbugs.annotations")
+            }
         }
+
+        // The swirlds artifacts list com.hedera.hashgraph:hapi as a runtime dependency, but
+        // it exports the same packages our protobuf-pbj module owns. Drop it everywhere so
+        // the module graph has a single owner for com.hedera.hapi.* packages.
+        configurations.all { exclude(group = "com.hedera.hashgraph", module = "hapi") }
     }
 }
