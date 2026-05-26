@@ -7,128 +7,138 @@ option java_package = "org.hiero.block.api.protoc";
 // <<<pbj.java_package = "org.hiero.block.api">>> This comment is special code for setting PBJ Compiler java package
 option java_multiple_files = true;
 
+import "block-node/api/shared_message_types.proto";
+
 /**
- * A request to read a state snapshot.
+ * A request for a single piece of binary state held by the Block-Node.
  *
- * A state snapshot is a full copy of the network state at the completion of a
- * particular block.
+ * The combination of `state_id`, `key_bytes`, and `queue_index` determines
+ * which RPC method should be used and the shape of the response:
  *
- * This request MUST contain a block number that has already reached this block
- * node and completed verification, or request the "latest" snapshot.<br/>
- * This request MAY specify the "latest" snapshot, and the block node SHALL
- * respond with a reference to a snapshot containing the most recent contents
- * of the network state known to that block node.
+ *  - `getBinaryKV`        SHALL set `state_id` and `key_bytes`. `queue_index` MUST NOT be set.
+ *  - `getBinarySingleton` SHALL set only `state_id`. `key_bytes` and `queue_index` MUST NOT be set.
+ *  - `getBinaryQueue`     SHALL set `state_id`. `queue_index` MAY be set to read a single element;
+ *                         when omitted the full queue is returned.
+ *
+ * `block_number` MAY be set to `0` to indicate "latest available" or to an
+ * explicit block number which the Block-Node MUST match against its
+ * currently applied state. Requests for older block numbers SHALL be
+ * answered with `INVALID_REQUEST` until historical state queries are
+ * supported.
  */
-message StateSnapshotRequest {
+message BinaryStateQuery {
     /**
-     * A block number.
-     * <p>
-     * This SHALL be the last block number present in the snapshot
-     * returned.<br/>
-     * If `retrieve_latest` is set `true` this field SHOULD NOT be set
-     * and SHALL be ignored.<br/>
-     * A block node implementation MAY reject any request with a non-default
-     * value for this field, but MUST clearly document that behavior.
+     * Block number that the response state MUST correspond to. `0` selects
+     * the latest applied state.
      */
-    uint64 last_block_number = 1;
+    uint64 block_number = 1;
 
     /**
-     * A boolean to request the latest available snapshot.
-     * <p>
-     * This value MAY be set `true` to request the most recent state snapshot
-     * available.<br/>
-     * If this value is set to `true` then `last_block_number` SHOULD NOT be
-     * set and SHALL be ignored.<br/>
-     * A block node implementation MAY reject any request with that does _not_
-     * set this field `true`, but MUST clearly document that behavior.
+     * The integer state identifier as defined in `virtual_map_state.proto`.
      */
-    bool retrieve_latest = 2;
+    uint64 state_id = 2;
+
+    /**
+     * Domain-encoded key bytes for `getBinaryKV`. MUST be empty for
+     * singleton and queue requests.
+     */
+    bytes key_bytes = 3;
+
+    /**
+     * Zero-based queue index for `getBinaryQueue`. Set only when retrieving
+     * a single queue element; omit (or set to `0` with a queue having more
+     * than one element) to request the full queue.
+     */
+    uint64 queue_index = 4;
 }
 
 /**
- * A response to a request for a state snapshot.
+ * Response carrying the requested binary state plus the metadata of the
+ * state slice it was read from.
  *
- * This message SHALL deliver a _reference_ to the requested snapshot
- * data if successful.<br/>
- * This message SHALL deliver a code indicating the reason for failure
- * if unsuccessful.
+ * Exactly one of `kv_bytes`, `singleton_bytes`, or `queue_bytes` SHALL be
+ * populated on success, matching the RPC method invoked.
  */
-message StateSnapshotResponse {
-    /**
-     * An enumeration indicating the status of a StateSnapshotResponse request.
-     */
+message BinaryStateQueryResponse {
     enum Code {
         /**
-         * An "unset value" flag, this value SHALL NOT be used.<br/>
-         * This status indicates the server software failed to set a status,
-         * and SHALL be considered a software defect.
+         * An "unset value" flag, this value SHALL NOT be used. A response
+         * carrying this code is a server software defect.
          */
         UNKNOWN = 0;
 
         /**
-         * The request succeeded.<br/>
-         * The full snapshot data MAY be read via the endpoint provided in the
-         * `snapshot_reference` field for the duration specified.
+         * The request was answered successfully.
          */
         SUCCESS = 1;
 
         /**
-         * The request cannot be fulfilled.<br/>
-         * The client sent a malformed or structurally incorrect request.
-         * <p>
-         * The client MAY retry the request after correcting the form and
-         * structure.
+         * The request was malformed or referenced fields in a combination
+         * that is not valid for the selected RPC method. See `BinaryStateQuery`
+         * documentation for valid combinations.
          */
         INVALID_REQUEST = 2;
 
         /**
-         * The Block-Node had an error and cannot continue processing.<br/>
-         * The Publisher may retry again later.
+         * The requested state element does not exist in the current state.
          */
-        ERROR = 3;
+        NOT_FOUND = 3;
+
+        /**
+         * The Block-Node has not finished loading or catching up its live
+         * state. The client SHOULD retry after a short backoff.
+         */
+        NOT_READY = 4;
     }
 
     /**
-     * A status response.
-     * <p>
-     * This code SHALL indicate a successful call, or the detailed
-     * reason for failure.
+     * Status of the lookup.
      */
     Code status = 1;
 
     /**
-     * A block number.
-     * <p>
-     * This SHALL be the number of the last block included in this
-     * state snapshot.
+     * Metadata describing the state slice this response was sourced from.
+     * Populated on every response, including failures, so the client can
+     * decide whether to retry against a different Block-Node.
      */
-    uint64 last_block_number = 2;
+    StateMetadata state_metadata = 2;
 
     /**
-     * A reference to where the requested state snapshot may be obtained.
-     * <p>
-     * <blockquote>REVIEW NOTE<blockquote>
-     * This is TEMPORARY.  We have not yet designed how state snapshots may
-     * be sent. One idea is to use `Any` and let implementations decide;
-     * another is to use a time limited URL (with the same login as the block
-     * node server); another is to use a customer-pays cloud storage bucket.
-     * </blockquote></blockquote>
+     * Raw domain-value bytes for a `getBinaryKV` response.
      */
-    string snapshot_reference = 3;
+    bytes kv_bytes = 3;
+
+    /**
+     * Raw domain-value bytes for a `getBinarySingleton` response.
+     */
+    bytes singleton_bytes = 4;
+
+    /**
+     * Raw domain-value bytes for a `getBinaryQueue` response. May contain
+     * a single element (indexed read) or every element from head to tail
+     * (full queue read).
+     */
+    repeated bytes queue_bytes = 5;
 }
 
 /**
- * Remote procedure calls (RPCs) for the Block Node state snapshot
- * and query services.
+ * Remote procedure calls (RPCs) for binary state queries against the
+ * Block-Node's live Hashgraph state plugin.
  */
 service StateService {
     /**
-     * Read a state snapshot from the block node.
-     * <p>
-     * The request SHALL describe the last block number present in the
-     * snapshot.<br/>
-     * Block node implementations MAY decline a request for a snapshot older
-     * than the latest available, but MUST clearly document this behavior.
+     * Read a key-value entry from the live state by `state_id` and `key_bytes`.
      */
-    rpc stateSnapshot(StateSnapshotRequest) returns (StateSnapshotResponse);
+    rpc getBinaryKV(BinaryStateQuery) returns (BinaryStateQueryResponse);
+
+    /**
+     * Read a singleton from the live state by `state_id`.
+     */
+    rpc getBinarySingleton(BinaryStateQuery) returns (BinaryStateQueryResponse);
+
+    /**
+     * Read a queue from the live state by `state_id`, optionally limited
+     * to a single element via `queue_index`.
+     */
+    rpc getBinaryQueue(BinaryStateQuery) returns (BinaryStateQueryResponse);
 }
