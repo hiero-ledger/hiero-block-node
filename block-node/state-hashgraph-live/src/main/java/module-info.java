@@ -11,9 +11,6 @@ module org.hiero.block.node.state.live {
 
     requires transitive com.hedera.pbj.runtime;
     requires transitive com.swirlds.config.api;
-    requires transitive com.swirlds.state.api;
-    requires transitive com.swirlds.state.impl;
-    requires transitive com.swirlds.virtualmap;
     requires transitive org.hiero.block.node.spi;
     requires transitive org.hiero.block.protobuf.pbj;
     requires transitive org.hiero.metrics;
