@@ -14,14 +14,7 @@ tasks.javadoc {
     }
 }
 
-pbj { generateTestClasses = false }
-
-mainModuleInfo {
-    runtimeOnly("com.swirlds.config.impl")
-    runtimeOnly("com.hedera.pbj.grpc.helidon.config")
-    runtimeOnly("com.hedera.pbj.grpc.client.helidon")
-    runtimeOnly("com.hedera.pbj.grpc.helidon")
-}
+mainModuleInfo { runtimeOnly("com.swirlds.config.impl") }
 
 testModuleInfo {
     requires("org.junit.jupiter.api")

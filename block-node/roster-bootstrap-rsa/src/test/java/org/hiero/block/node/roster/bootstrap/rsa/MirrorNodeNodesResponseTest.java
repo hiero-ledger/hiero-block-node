@@ -10,6 +10,8 @@ import com.hedera.pbj.runtime.Codec;
 import com.hedera.pbj.runtime.ParseException;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import java.util.List;
+import org.hiero.block.internal.MirrorNodeNodesResponse;
+import org.hiero.block.internal.NodeEntry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -128,6 +130,7 @@ class MirrorNodeNodesResponseTest {
                 """;
         final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json));
         assertNotNull(response.links());
+        // PBJ returns an empty string for null items. isBlank() is the new is null test
         assertTrue(response.links().next().isBlank());
     }
 
@@ -174,7 +177,8 @@ class MirrorNodeNodesResponseTest {
         final NodeEntry active = response.nodes().getFirst();
         assertNotNull(active.timestamp());
         assertEquals("1000000000.000000000", active.timestamp().from());
-        assertTrue(active.timestamp().to().isEmpty(), "Active entry must have null to");
+        // PBJ converts nulls to empty. Check using isBlank as blank fields are considered as empty.
+        assertTrue(active.timestamp().to().isBlank(), "Active entry must have blank to");
 
         final NodeEntry historical = response.nodes().get(1);
         assertNotNull(historical.timestamp());

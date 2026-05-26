@@ -169,6 +169,7 @@ public class RosterBootstrapTssPlugin implements BlockNodePlugin {
                 .createVirtualThreadScheduledExecutor(1, "queryPeerScanner", this::uncaughtExceptionHandler);
 
         // Schedule periodic checking of bn peers for their TssData
+        // Should start immediately, initialDelay=0, as this is during plugin startup
         queryPeerExecutor.scheduleAtFixedRate(
                 this::queryPeerTssData, 0, rosterBootstrapTssConfig.queryPeerInterval(), TimeUnit.MILLISECONDS);
     }

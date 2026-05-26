@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import org.hiero.block.internal.MirrorNodeNodesResponse;
+import org.hiero.block.internal.NodeEntry;
 import org.hiero.block.node.spi.ApplicationStateFacility;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -134,6 +136,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                     .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
 
             // Schedule periodic checking of mirror node for address book data
+            // scheduleFuture will be canceled when an address book is found
             scheduledFuture = queryMnExecutor.scheduleAtFixedRate(
                     this::fetchFromMirrorNode, 0, config.mirrorNodeQueryIntervalMillis(), TimeUnit.MILLISECONDS);
         } else {
@@ -225,13 +228,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             // We found an address book stop the mirror node requests
             scheduledFuture.cancel(true);
 
-            String addressBookSource = "Mirror Node";
             LOGGER.log(
                     INFO,
                     "RSA roster available: {0} entries obtained from {1}",
                     book.nodeAddress().size(),
-                    addressBookSource,
-                    rosterLoadDurationMs);
+                    "Mirror Node");
         }
     }
 
@@ -270,7 +271,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// UncaughtExceptionHandler for logging uncaught exceptions
     private void uncaughtExceptionHandler(Thread thread, Throwable throwable) {
         final String message = "Uncaught exception in %s thread".formatted(thread.getName());
-        LOGGER.log(WARNING, message, throwable);
+        LOGGER.log(ERROR, message, throwable);
     }
 
     /// Shutdown the executor
