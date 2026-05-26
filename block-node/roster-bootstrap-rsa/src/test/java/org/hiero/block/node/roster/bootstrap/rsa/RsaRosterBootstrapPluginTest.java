@@ -308,11 +308,9 @@ class RsaRosterBootstrapPluginTest
 
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
-            testThreadPoolManager.scheduledExecutor().executeAsync(20000, true, false, false);
+            // First task is the 500 error
             testThreadPoolManager.scheduledExecutor().executeSerially();
-            testThreadPoolManager.scheduledExecutor().executeAsync(false);
-            testThreadPoolManager.scheduledExecutor().executeSerially();
-            testThreadPoolManager.scheduledExecutor().executeAsync();
+            // Second task should succeed
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
