@@ -84,6 +84,7 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
     private final long earliestManagedBlock;
     private final int maxBlocksBeforeStalled;
     private final long staleResendPruneBuffer;
+    private final int duplicateBlockSkipWindow;
     private final ScheduledExecutorService scheduledExecutor;
     private volatile ScheduledFuture<Boolean> publisherUnavailabilityTimeoutFuture;
 
@@ -131,11 +132,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         dataReadyLatch = dataReadyLock.newCondition();
         NodeConfig nodeConfiguration = serverContext.configuration().getConfigData(NodeConfig.class);
         earliestManagedBlock = nodeConfiguration.earliestManagedBlock();
-        scheduledExecutor =
-                threadManager.createVirtualThreadScheduledExecutor(1, null, this::uncaughtScheduledExecutorException);
+        int threadCount = Runtime.getRuntime().availableProcessors();
+        // Ensure at least 2 threads for scheduled tasks so we do not have
+        // excessive contention with the idle detector task.
+        threadCount = threadCount < 2 ? 2 : threadCount;
+        scheduledExecutor = threadManager.createVirtualThreadScheduledExecutor(
+                threadCount, null, this::uncaughtScheduledExecutorException);
         publisherConfig = serverContext.configuration().getConfigData(PublisherConfig.class);
         maxBlocksBeforeStalled = publisherConfig.MaxFutureBlocksBeforeStalled();
         staleResendPruneBuffer = publisherConfig.staleResendPruneBuffer();
+        duplicateBlockSkipWindow = publisherConfig.duplicateBlockSkipWindow();
         publisherUnavailabilityTimeoutFuture = schedulePublisherUnavailabilityTimeout();
         blockProofs = new ConcurrentSkipListMap<>();
         endBlocksReceived = new ConcurrentSkipListSet<>();
@@ -311,6 +317,16 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         } finally {
             dataReadyLock.unlock();
         }
+    }
+
+    @Override
+    public ScheduledFuture<?> scheduleAfterDelay(final Runnable taskToSchedule, final long delayInNanoseconds) {
+        return scheduledExecutor.schedule(taskToSchedule, delayInNanoseconds, TimeUnit.NANOSECONDS);
+    }
+
+    @Override
+    public PublisherConfig configuration() {
+        return publisherConfig;
     }
 
     /// {@inheritDoc}
@@ -781,6 +797,12 @@ public final class LiveStreamPublisherManager implements StreamPublisherManager 
         final long lastPersisted = lastPersistedBlockNumber.get();
         final long nextUnstreamed = ensureNextGreaterThanPersisted(lastPersisted);
         if (blockNumber <= lastPersisted) {
+            // Within the configured window, ask the publisher to skip ahead instead of
+            // ending the stream so a slightly-behind publisher can fast-forward without
+            // reconnecting.
+            if ((lastPersisted - blockNumber) <= duplicateBlockSkipWindow) {
+                return BlockAction.SKIP;
+            }
             return BlockAction.END_DUPLICATE;
         } else if (blockNumber < nextUnstreamed) {
             return streamBeforeEmbOrElse(blockNumber, BlockAction.SKIP);

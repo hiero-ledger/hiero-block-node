@@ -8,7 +8,6 @@ import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.e
 import static org.hiero.block.node.stream.publisher.fixtures.PublishApiUtility.sendHeaderOnly;
 
 import com.swirlds.config.api.Configuration;
-import com.swirlds.config.api.ConfigurationBuilder;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +56,7 @@ import org.hiero.block.node.spi.threading.ThreadPoolManager;
 import org.hiero.block.node.stream.publisher.LiveStreamPublisherManager.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.ActionForBlock;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager.BlockAction;
+import org.hiero.block.node.stream.publisher.fixtures.TestStreamPublisherManager;
 import org.hiero.metrics.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -216,20 +216,22 @@ class LiveStreamPublisherManagerTest {
             /// This test aims to assert that the
             /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
             /// method returns [BlockAction#END_DUPLICATE] when the provided block
-            /// number is lower or equal to the latest known block number and
-            /// previous action is `null`.
+            /// number is more than `duplicateBlockSkipWindow` behind the latest
+            /// known block number and previous action is `null`.
             @ParameterizedTest
             @ValueSource(
                     longs = {
-                        0L, 1L, 2L, 3L, 4L, 5L,
+                        0L, 10L, 30L, 50L,
                     })
             @DisplayName(
-                    "getActionForBlock() returns END_DUPLICATE when the provided block number is lower or equal to the latest known block number and previous action is NULL")
+                    "getActionForBlock() returns END_DUPLICATE when the provided block number is more than the skip window behind the latest known block number and previous action is NULL")
             void testGetActionNullPreviousActionDUPLICATE(final long blockNumber) {
-                // First, we need to have some blocks available
+                // First, we need to have some blocks available. lastPersistedBlock is chosen so all
+                // parameterized blockNumbers are far enough behind to fall outside the default
+                // duplicateBlockSkipWindow (5) and therefore still receive END_DUPLICATE.
                 final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
                 final long firstPersistedBlock = 0L;
-                final long lastPersistedBlock = 5L;
+                final long lastPersistedBlock = 100L;
                 availableBlocks.add(firstPersistedBlock, lastPersistedBlock);
                 historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
                 assertThat(historicalBlockFacility.availableBlocks().contains(firstPersistedBlock, lastPersistedBlock))
@@ -240,6 +242,49 @@ class LiveStreamPublisherManagerTest {
                 toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
                 final BlockAction actual = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
                 // Assert
+                assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#SKIP] when the provided block number is a duplicate
+            /// (at or below the latest known block number) but within the configured
+            /// `duplicateBlockSkipWindow` (default 5), so that the publisher can fast-forward
+            /// instead of having its stream closed.
+            @ParameterizedTest
+            @ValueSource(
+                    longs = {
+                        100L, 99L, 97L, 96L, 95L,
+                    })
+            @DisplayName(
+                    "getActionForBlock() returns SKIP when the provided block number is a duplicate within the skip window and previous action is NULL")
+            void testGetActionNullPreviousActionDuplicateWithinSkipWindow(final long blockNumber) {
+                // lastPersistedBlock = 100, default duplicateBlockSkipWindow = 5.
+                // Block numbers 95..100 all sit at distance <= 5 and must return SKIP.
+                final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
+                final long lastPersistedBlock = 100L;
+                availableBlocks.add(0L, lastPersistedBlock);
+                historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
+                toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
+                final BlockAction actual = toTest.getActionForBlock(blockNumber, null, publisherHandlerId);
+                assertThat(actual).isEqualTo(BlockAction.SKIP);
+            }
+
+            /// This test aims to assert that the
+            /// [LiveStreamPublisherManager#getActionForBlock(long, BlockAction, long)]
+            /// method returns [BlockAction#END_DUPLICATE] for a duplicate that is exactly one
+            /// block past the configured `duplicateBlockSkipWindow` boundary.
+            @Test
+            @DisplayName(
+                    "getActionForBlock() returns END_DUPLICATE for a duplicate exactly one block beyond the skip window boundary")
+            void testGetActionNullPreviousActionDuplicateJustOutsideSkipWindow() {
+                // lastPersistedBlock = 100, default window = 5. Block 94 has distance 6 -> END_DUPLICATE.
+                final SimpleBlockRangeSet availableBlocks = new SimpleBlockRangeSet();
+                final long lastPersistedBlock = 100L;
+                availableBlocks.add(0L, lastPersistedBlock);
+                historicalBlockFacility.setTemporaryAvailableBlocks(availableBlocks);
+                toTest.handlePersisted(new PersistedNotification(lastPersistedBlock, true, 0, BlockSource.PUBLISHER));
+                final BlockAction actual = toTest.getActionForBlock(94L, null, publisherHandlerId);
                 assertThat(actual).isEqualTo(BlockAction.END_DUPLICATE);
             }
 
@@ -901,6 +946,8 @@ class LiveStreamPublisherManagerTest {
                 // As a pre-check, we expect no onComplete calls
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isZero();
                 publisherHandler.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that no more responses are sent
                 assertThat(onNextCalls).isEmpty();
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
@@ -1005,6 +1052,8 @@ class LiveStreamPublisherManagerTest {
                 // We need to send any request or trigger any pipeline method
                 // to do the actual shutdown
                 publisherHandler2.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the response pipeline has received no responses and the shared metrics is not updated.
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCKS_RESEND_SENT))
@@ -1072,6 +1121,8 @@ class LiveStreamPublisherManagerTest {
                 // We need to send any request or trigger any pipeline method
                 // to do the actual shutdown
                 publisherHandler2.onNext(request);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the response pipeline of the first publisher has received no responses.
                 // Also no metrics for resends is updated
                 assertThat(responsePipeline.getOnNextCalls()).isEmpty();
@@ -1398,6 +1449,8 @@ class LiveStreamPublisherManagerTest {
                 // to do the actual shutdown
                 publisherHandler.onNext(
                         TestBlockBuilder.generateBlockWithNumber(0L).asPublishStreamRequestUnparsed());
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the latest known block number is still -1L, it was not updated
                 assertThat(toTest.getLatestBlockNumber()).isEqualTo(expectedLatestPersistedFromManager);
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
@@ -1407,6 +1460,8 @@ class LiveStreamPublisherManagerTest {
                 assertThat(responsePipeline.getClientEndStreamCalls().get()).isEqualTo(0);
                 publisherHandler2.onNext(
                         TestBlockBuilder.generateBlockWithNumber(0L).asPublishStreamRequestUnparsed());
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Assert that the response pipeline has received a PERSISTENCE_FAILED
                 assertThat(responsePipeline2.getOnNextCalls())
                         .hasSize(1)
@@ -1614,6 +1669,8 @@ class LiveStreamPublisherManagerTest {
                         .build();
                 // Now we send the end stream request to the publisher handler.
                 publisherHandler.onNext(endStreamRequest);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
                         .isEqualTo(1);
                 // Now we must assert that the publisher has shutdown
@@ -1682,6 +1739,8 @@ class LiveStreamPublisherManagerTest {
                         .build();
                 // Now we send the end stream request to the publisher handler.
                 publisherHandler.onNext(endStreamRequest);
+                // Invoke the delayed shutdown so it actually runs
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Now we must assert that the publisher has shutdown
                 assertThat(responsePipeline.getOnCompleteCalls().get()).isEqualTo(1);
                 assertThat(getMetricValue(StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ENDSTREAM_RECEIVED))
@@ -1942,12 +2001,12 @@ class LiveStreamPublisherManagerTest {
             /// NOTE:
             /// > In order for a handler to start streaming a block, it must pass through the manager.
             /// The manager does not allow two or more publishers to stream the same block simultaneously.
-            /// If a block gets acknowledged, then for all blocks equal to or lower than the latest
-            /// acknowledged block, we expect to get an [PublishStreamResponse.EndOfStream]
-            /// with [PublishStreamResponse.EndOfStream.Code#DUPLICATE_BLOCK].
+            /// When the duplicate falls within the default `producer.duplicateBlockSkipWindow`,
+            /// the manager answers with [PublishStreamResponse.SkipBlock] instead of closing the
+            /// stream so the publisher can fast-forward.
             @Test
             @DisplayName(
-                    "Test blockIsEnding() when receiving premature header for same publisher, duplicate if block is already being acknowledged")
+                    "Test blockIsEnding() when receiving premature header for same publisher, skip if block is already being acknowledged within the skip window")
             void testBlockIsEndingWhenReceivingPrematureHeaderSamePublisherDifferentBlockDuplicate() {
                 // First, we need to build and stream the next block in line
                 final TestBlock block0 = TestBlockBuilder.generateBlockWithNumber(0L);
@@ -2007,13 +2066,14 @@ class LiveStreamPublisherManagerTest {
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(500L));
                 // Now assert that we have not streamed anything
                 assertThat(sentBlockItems).isEmpty();
-                // Now assert that we have received a skip
+                // Block 0 is a duplicate (already persisted) and sits at distance 0 from the
+                // last persisted block, which is well within the default duplicateBlockSkipWindow,
+                // so the manager answers with SkipBlock rather than closing the stream.
                 assertThat(responsePipeline.getOnNextCalls())
                         .hasSize(1)
                         .first()
-                        .returns(ResponseOneOfType.END_STREAM, responseKindExtractor)
-                        .returns(Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor)
-                        .returns(block0.number(), endStreamBlockNumberExtractor);
+                        .returns(ResponseOneOfType.SKIP_BLOCK, responseKindExtractor)
+                        .returns(block0.number(), skipBlockNumberExtractor);
             }
 
             /// Verifies that [LiveStreamPublisherManager#blockIsEnding(long, long)]
@@ -2066,7 +2126,8 @@ class LiveStreamPublisherManagerTest {
                 messagingFacility = new TestBlockMessagingFacility();
                 final Map<String, String> configOverrides =
                         Map.ofEntries(Map.entry("producer.publisherUnavailabilityTimeout", "2"));
-                final Configuration testConfiguration = createTestConfiguration(configOverrides);
+                final Configuration testConfiguration =
+                        TestStreamPublisherManager.createTestConfiguration(configOverrides);
                 testPublisherConfig = testConfiguration.getConfigData(PublisherConfig.class);
                 threadPoolManager = new TestThreadPoolManager<>(
                         new BlockingExecutor(new LinkedBlockingQueue<>()),
@@ -2424,6 +2485,7 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler.onNext(req);
                     endThisBlock(publisherHandler, block);
                 }
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // No EndStream(TIMEOUT) should have been sent.
                 assertThat(responsePipeline.getOnNextCalls())
                         .as("single handler should never receive EndStream(TIMEOUT)")
@@ -2467,6 +2529,7 @@ class LiveStreamPublisherManagerTest {
                         .build();
                 publisherHandler2.onNext(block4Req);
                 endThisBlock(publisherHandler2, 4L);
+                threadPoolManager.scheduledExecutor().executeSerially();
                 assertThat(responsePipeline.getOnNextCalls())
                         .as("completing block 4 (> 0+3) must trigger EndStream(TIMEOUT) on handler 1")
                         .anySatisfy(r -> {
@@ -2496,6 +2559,7 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler2.onNext(req);
                     endThisBlock(publisherHandler2, block);
                 }
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Handler 1 must have received EndStream(TIMEOUT) and been shut down.
                 assertThat(responsePipeline.getOnNextCalls())
                         .as("stalled handler 1 must receive EndStream(TIMEOUT)")
@@ -2574,6 +2638,8 @@ class LiveStreamPublisherManagerTest {
 
             /// When two handlers are simultaneously stalled, a single completing
             /// handler that is far enough ahead must terminate both.
+            /// NOTE: This test fails because handler 1 gets end stream, but no on complete call
+            ///       handler 2 gets both, so something might be weird in the test setup.
             @Test
             @DisplayName("all stalled handlers are terminated when multiple are stalled simultaneously")
             void testMultipleStalledHandlersAllTerminated() {
@@ -2586,7 +2652,7 @@ class LiveStreamPublisherManagerTest {
                 // Handler 2 wins ACCEPT for block 1 — sends header only.
                 sendHeaderOnly(publisherHandler2, 1L);
                 // Handler 3 completes block 5: 4 > 0+3 AND 5 > 1+3 — both stalled.
-                for (long block = 2L; block <= 5L; block++) {
+                for (long block = 2L; block <= 6L; block++) {
                     final PublishStreamRequestUnparsed req = PublishStreamRequestUnparsed.newBuilder()
                             .blockItems(TestBlockBuilder.generateBlockWithNumber(block)
                                     .asItemSetUnparsed())
@@ -2594,6 +2660,10 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler3.onNext(req);
                     endThisBlock(publisherHandler3, block);
                 }
+                // expect 3 here because we have an idle detection task in addition
+                // to the 2 end stream tasks.
+                assertThat(threadPoolManager.scheduledExecutor().getTaskCount()).isEqualTo(3);
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Both handler 1 and handler 2 must have received EndStream(TIMEOUT).
                 assertThat(responsePipeline.getOnNextCalls())
                         .as("stalled handler 1 must receive EndStream(TIMEOUT)")
@@ -2636,6 +2706,7 @@ class LiveStreamPublisherManagerTest {
                     publisherHandler2.onNext(req);
                     endThisBlock(publisherHandler2, block);
                 }
+                threadPoolManager.scheduledExecutor().executeSerially();
                 // Stall must have fired — handler 1 terminated.
                 assertThat(responsePipeline.getOnCompleteCalls().get())
                         .as("handler 1 must be shut down by stall detection before checking resend")
@@ -2686,7 +2757,7 @@ class LiveStreamPublisherManagerTest {
             final HistoricalBlockFacility historicalBlockFacility,
             final ThreadPoolManager threadPoolManager,
             final BlockMessagingFacility blockMessagingFacility) {
-        final Configuration configuration = createTestConfiguration();
+        final Configuration configuration = TestStreamPublisherManager.createTestConfiguration();
         return generateContext(historicalBlockFacility, threadPoolManager, blockMessagingFacility, configuration);
     }
 
@@ -2716,17 +2787,6 @@ class LiveStreamPublisherManagerTest {
                 BlockNodeVersions.DEFAULT,
                 null,
                 null);
-    }
-
-    private static Configuration createTestConfiguration() {
-        return createTestConfiguration(Map.of());
-    }
-
-    private static Configuration createTestConfiguration(final Map<String, String> overrides) {
-        final ConfigurationBuilder builder =
-                TestUtils.createTestConfiguration().withConfigDataType(PublisherConfig.class);
-        overrides.forEach(builder::withValue);
-        return builder.build();
     }
 
     /// This method generates a [MetricsHolder] instance with default

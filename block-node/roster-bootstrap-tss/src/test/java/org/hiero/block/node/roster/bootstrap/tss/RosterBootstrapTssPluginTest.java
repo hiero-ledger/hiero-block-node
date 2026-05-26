@@ -96,18 +96,10 @@ public class RosterBootstrapTssPluginTest
         final TssData[] tssData = {null};
         CountDownLatch latch = new CountDownLatch(1);
 
-        RosterBootstrapTssPlugin plugin = new RosterBootstrapTssPlugin() {
-
-            @Override
-            public void onContextUpdate(BlockNodeContext context) {
-                contextUpdated[0]++;
-                tssData[0] = context.tssData();
-                latch.countDown();
-            }
-        };
+        RosterBootstrapTssPlugin plugin = new TestBootstrapPlugin(contextUpdated, tssData, latch);
 
         start(plugin, new SimpleInMemoryHistoricalBlockFacility(), configOverride);
-
+        testThreadPoolManager.scheduledExecutor().executeSerially();
         latch.await();
 
         assertTrue(contextUpdated[0] > 0);
@@ -179,6 +171,25 @@ public class RosterBootstrapTssPluginTest
                     "roster.bootstrap.tss.queryPeerInitialDelay", String.valueOf(queryPeerInitialDelay),
                     "roster.bootstrap.tss.maxIncomingBufferSize", String.valueOf(maxIncomingBufferSize),
                     "roster.bootstrap.tss.enableTLS", String.valueOf(enableTLS)));
+        }
+    }
+
+    private class TestBootstrapPlugin extends RosterBootstrapTssPlugin {
+        private final int[] contextUpdated;
+        private final TssData[] tssData;
+        private final CountDownLatch latch;
+
+        private TestBootstrapPlugin(int[] contextUpdated, TssData[] tssData, CountDownLatch latch) {
+            this.contextUpdated = contextUpdated;
+            this.tssData = tssData;
+            this.latch = latch;
+        }
+
+        @Override
+        public void onContextUpdate(BlockNodeContext context) {
+            contextUpdated[0]++;
+            tssData[0] = context.tssData();
+            latch.countDown();
         }
     }
 }

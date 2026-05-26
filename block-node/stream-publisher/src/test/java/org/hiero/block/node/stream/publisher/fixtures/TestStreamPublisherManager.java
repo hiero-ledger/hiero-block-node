@@ -4,6 +4,8 @@ package org.hiero.block.node.stream.publisher.fixtures;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hedera.pbj.runtime.grpc.Pipeline;
+import com.swirlds.config.api.Configuration;
+import com.swirlds.config.api.ConfigurationBuilder;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -15,12 +17,18 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.PublishStreamResponse;
 import org.hiero.block.internal.BlockItemSetUnparsed;
+import org.hiero.block.node.app.fixtures.TestUtils;
+import org.hiero.block.node.app.fixtures.async.ScheduledBlockingExecutor;
 import org.hiero.block.node.app.fixtures.plugintest.TestBlockMessagingFacility;
 import org.hiero.block.node.spi.blockmessaging.NewestBlockKnownToNetworkNotification;
 import org.hiero.block.node.spi.blockmessaging.PersistedNotification;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.block.node.stream.publisher.PublisherConfig;
 import org.hiero.block.node.stream.publisher.PublisherHandler;
 import org.hiero.block.node.stream.publisher.PublisherHandler.MetricsHolder;
 import org.hiero.block.node.stream.publisher.StreamPublisherManager;
@@ -46,13 +54,30 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     private ActionForBlock blockActionForEndOfBlock;
     /// The latest block number to be returned.
     private long latestBlockNumber = -1L;
+    private final ScheduledExecutorService scheduledExecutor;
+    private final Configuration testConfiguration;
 
     private final NavigableSet<Long> endOfBlocksReceived = new ConcurrentSkipListSet<>();
     private final NavigableSet<Long> blocksEndedMidBlock = new ConcurrentSkipListSet<>();
     private final ConcurrentMap<Long, Deque<BlockItemSetUnparsed>> queueByBlockMap = new ConcurrentSkipListMap<>();
 
-    public TestStreamPublisherManager(final TestBlockMessagingFacility testBlockMessagingFacility) {
+    public TestStreamPublisherManager(
+            final TestBlockMessagingFacility testBlockMessagingFacility,
+            final ScheduledBlockingExecutor scheduleExecutor) {
         this.blockMessagingFacility = Objects.requireNonNull(testBlockMessagingFacility);
+        scheduledExecutor = scheduleExecutor;
+        testConfiguration = createTestConfiguration();
+    }
+
+    public static Configuration createTestConfiguration() {
+        return createTestConfiguration(Map.of());
+    }
+
+    public static Configuration createTestConfiguration(final Map<String, String> overrides) {
+        final ConfigurationBuilder builder =
+                TestUtils.createTestConfiguration().withConfigDataType(PublisherConfig.class);
+        overrides.forEach(builder::withValue);
+        return builder.build();
     }
 
     @Override
@@ -136,6 +161,16 @@ public class TestStreamPublisherManager implements StreamPublisherManager {
     @Override
     public void signalDataReady() {
         // do nothing
+    }
+
+    @Override
+    public ScheduledFuture<?> scheduleAfterDelay(final Runnable taskToSchedule, final long delayInNanoseconds) {
+        return scheduledExecutor.schedule(taskToSchedule, delayInNanoseconds, TimeUnit.NANOSECONDS);
+    }
+
+    @Override
+    public PublisherConfig configuration() {
+        return testConfiguration.getConfigData(PublisherConfig.class);
     }
 
     @Override
