@@ -240,12 +240,21 @@ public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
 
     /// Move all current scheduled tasks to the work queue for execution.
     /// Any non-recurring tasks are then removed from the work map, but
-    /// recurring tasks remain to be executed again on the next cycle
+    /// recurring tasks remain to be executed again on the next cycle.
+    ///
+    /// For repeating schedules the raw Runnable is enqueued directly rather than
+    /// the ScheduledTask (FutureTask) wrapper, because FutureTask.run() is a
+    /// one-shot operation and silently becomes a no-op after its first execution.
     private void moveScheduledToWorkQueue() {
         List<Schedule> toRemove = new LinkedList<>();
         for (Schedule entry : scheduleQueue) {
-            workQueue.add(entry.task());
-            if (!entry.repeat()) {
+            if (entry.repeat()) {
+                // Guard against cancelled futures (e.g. plugin called scheduledFuture.cancel())
+                if (!entry.task().isCancelled()) {
+                    workQueue.add(entry.command());
+                }
+            } else {
+                workQueue.add(entry.task());
                 toRemove.add(entry);
             }
         }
@@ -261,7 +270,7 @@ public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
     @Override
     public ScheduledFuture<?> schedule(final Runnable command, final long delay, final TimeUnit unit) {
         ScheduledTask<Void> item = new ScheduledTask<>(command, null, delay, unit);
-        final Schedule schedule = new Schedule(item, unit, delay, 0, false);
+        final Schedule schedule = new Schedule(item, null, unit, delay, 0, false);
         scheduleQueue.add(schedule);
         return item;
     }
@@ -269,7 +278,7 @@ public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
     @Override
     public <V> ScheduledFuture<V> schedule(final Callable<V> callable, final long delay, final TimeUnit unit) {
         ScheduledTask<V> item = new ScheduledTask<>(callable, delay, unit);
-        final Schedule schedule = new Schedule(item, unit, delay, 0, false);
+        final Schedule schedule = new Schedule(item, null, unit, delay, 0, false);
         scheduleQueue.add(schedule);
         return item;
     }
@@ -278,7 +287,7 @@ public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
     public ScheduledFuture<?> scheduleAtFixedRate(
             final Runnable command, final long initialDelay, final long period, final TimeUnit unit) {
         ScheduledTask<Void> item = new ScheduledTask<>(command, null, initialDelay, unit);
-        final Schedule schedule = new Schedule(item, unit, initialDelay, period, true);
+        final Schedule schedule = new Schedule(item, command, unit, initialDelay, period, true);
         scheduleQueue.add(schedule);
         return item;
     }
@@ -287,12 +296,13 @@ public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
     public ScheduledFuture<?> scheduleWithFixedDelay(
             final Runnable command, final long initialDelay, final long delay, final TimeUnit unit) {
         ScheduledTask<Void> item = new ScheduledTask<>(command, null, delay, unit);
-        final Schedule schedule = new Schedule(item, unit, initialDelay, delay, true);
+        final Schedule schedule = new Schedule(item, command, unit, initialDelay, delay, true);
         scheduleQueue.add(schedule);
         return item;
     }
 
-    private static record Schedule(ScheduledTask<?> task, TimeUnit unit, long delay, long period, boolean repeat) {}
+    private static record Schedule(
+            ScheduledTask<?> task, Runnable command, TimeUnit unit, long delay, long period, boolean repeat) {}
 
     private static final class FutureRunnable implements Runnable {
         private final RunnableFuture<?> innerRunnable;

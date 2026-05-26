@@ -309,8 +309,10 @@ class RsaRosterBootstrapPluginTest
             start(new RsaRosterBootstrapPlugin(), new SimpleInMemoryHistoricalBlockFacility(), serverConfig());
 
             testThreadPoolManager.scheduledExecutor().executeAsync(20000, true, false, false);
-            testThreadPoolManager.scheduledExecutor().executeAsync();
             testThreadPoolManager.scheduledExecutor().executeSerially();
+            testThreadPoolManager.scheduledExecutor().executeAsync(false);
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+            testThreadPoolManager.scheduledExecutor().executeAsync();
             testThreadPoolManager.scheduledExecutor().executeSerially();
 
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
