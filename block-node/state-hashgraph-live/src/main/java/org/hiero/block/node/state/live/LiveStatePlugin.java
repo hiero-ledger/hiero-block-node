@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package org.hiero.block.node.state.live;
 
+import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
@@ -13,7 +14,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.hiero.block.api.BinaryStateQuery;
+import org.hiero.block.api.BinaryStateQueryResponse;
+import org.hiero.block.api.BinaryStateQueryResponse.Code;
 import org.hiero.block.api.StateMetadata;
+import org.hiero.block.api.StateServiceInterface;
 import org.hiero.block.internal.BlockUnparsed;
 import org.hiero.block.node.spi.BlockNodeContext;
 import org.hiero.block.node.spi.BlockNodePlugin;
@@ -36,7 +41,7 @@ import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
  *
  * <p>See {@code docs/design/state/live-state.md} for the full design.
  */
-public final class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandler {
+public final class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandler, StateServiceInterface {
 
     private static final System.Logger LOGGER = System.getLogger(LiveStatePlugin.class.getName());
     private static final String SNAPSHOT_FILE_NAME = "live-state.bin";
@@ -68,6 +73,7 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         this.config = context.configuration().getConfigData(LiveStateConfig.class);
         this.metadataStore = new StateMetadataStore(Path.of(config.stateMetadataPath()));
         this.applier = new StateChangeApplier();
+        serviceBuilder.registerGrpcService(this);
     }
 
     @Override
@@ -116,6 +122,95 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             return;
         }
         pendingBlocks.put(notification.blockNumber(), notification.block());
+    }
+
+    // ── StateServiceInterface: getBinaryKV / Singleton / Queue ─────────────
+
+    @NonNull
+    @Override
+    public BinaryStateQueryResponse getBinaryKV(@NonNull final BinaryStateQuery request) {
+        final BinaryStateQueryResponse.Builder out = baseResponse();
+        if (!ready.get()) {
+            return out.status(Code.NOT_READY).build();
+        }
+        if (request.keyBytes() == null || request.keyBytes().length() == 0L) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
+        if (request.queueIndex() != 0L) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
+        if (!matchesLatestBlock(request)) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
+        final Bytes value = liveState.getKv((int) request.stateId(), request.keyBytes());
+        if (value == null) {
+            return out.status(Code.NOT_FOUND).build();
+        }
+        return out.status(Code.SUCCESS).kvBytes(value).build();
+    }
+
+    @NonNull
+    @Override
+    public BinaryStateQueryResponse getBinarySingleton(@NonNull final BinaryStateQuery request) {
+        final BinaryStateQueryResponse.Builder out = baseResponse();
+        if (!ready.get()) {
+            return out.status(Code.NOT_READY).build();
+        }
+        if (request.keyBytes() != null && request.keyBytes().length() > 0L) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
+        if (request.queueIndex() != 0L) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
+        if (!matchesLatestBlock(request)) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
+        final Bytes value = liveState.getSingleton((int) request.stateId());
+        if (value == null) {
+            return out.status(Code.NOT_FOUND).build();
+        }
+        return out.status(Code.SUCCESS).singletonBytes(value).build();
+    }
+
+    @NonNull
+    @Override
+    public BinaryStateQueryResponse getBinaryQueue(@NonNull final BinaryStateQuery request) {
+        final BinaryStateQueryResponse.Builder out = baseResponse();
+        if (!ready.get()) {
+            return out.status(Code.NOT_READY).build();
+        }
+        if (request.keyBytes() != null && request.keyBytes().length() > 0L) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
+        if (!matchesLatestBlock(request)) {
+            return out.status(Code.INVALID_REQUEST).build();
+        }
+        final int stateId = (int) request.stateId();
+        if (request.queueIndex() == 0L) {
+            final List<Bytes> all = liveState.getQueueAsList(stateId);
+            if (all.isEmpty()) {
+                return out.status(Code.NOT_FOUND).build();
+            }
+            return out.status(Code.SUCCESS).queueBytes(all).build();
+        }
+        final Bytes element = liveState.peekQueue(stateId, (int) request.queueIndex());
+        if (element == null) {
+            return out.status(Code.NOT_FOUND).build();
+        }
+        return out.status(Code.SUCCESS).queueBytes(List.of(element)).build();
+    }
+
+    @NonNull
+    private BinaryStateQueryResponse.Builder baseResponse() {
+        return BinaryStateQueryResponse.newBuilder().stateMetadata(metadata);
+    }
+
+    /**
+     * Live-state v1 only serves the latest applied block. A request that pins a specific
+     * block_number must match the current metadata exactly; 0 is treated as "latest".
+     */
+    private boolean matchesLatestBlock(@NonNull final BinaryStateQuery request) {
+        return request.blockNumber() == 0L || request.blockNumber() == metadata.blockNumber();
     }
 
     // ── Test hooks ──────────────────────────────────────────────────────────
