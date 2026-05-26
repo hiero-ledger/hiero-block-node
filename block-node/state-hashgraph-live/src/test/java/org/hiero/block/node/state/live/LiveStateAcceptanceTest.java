@@ -119,6 +119,34 @@ class LiveStateAcceptanceTest {
     }
 
     @Test
+    void scenario8_historicArchivesAreCappedByRetention(@TempDir final Path tmp) throws java.io.IOException {
+        final Fixture f = startPluginWithRetention(tmp, 2);
+
+        // Apply + snapshot 3 successive blocks, producing snapshots 1, 2, 3.
+        // After each snapshot, the previous recent dir is archived to historic.
+        // With retention=2, after writing 3.tar the historic store should hold
+        // only 2.tar and 1.tar — wait, that's 2. After writing 4 it would drop 1.
+        // So produce four snapshots so the retention actually trims one.
+        Bytes start = Bytes.EMPTY;
+        for (long block = 1; block <= 4; block++) {
+            f.deliverBlock(block, block * 10L, start);
+            f.plugin.applyPendingNow();
+            f.plugin.saveSnapshotNow();
+            start = f.plugin.metadata().stateRootHash();
+        }
+
+        final java.nio.file.Path historic = tmp.resolve("historic");
+        final java.util.Set<String> names;
+        try (var stream = java.nio.file.Files.list(historic)) {
+            names = stream.map(p -> p.getFileName().toString()).collect(java.util.stream.Collectors.toSet());
+        }
+        // 1, 2, 3 would all be archives (4 is in recent/). Retention of 2 should leave
+        // only the two most recent archives: 3.tar and 2.tar (or some prefix variant).
+        assertThat(names).hasSize(2).contains("3.tar").contains("2.tar").doesNotContain("1.tar");
+        f.plugin.stop();
+    }
+
+    @Test
     void scenario7_previousSnapshotsAreArchivedToHistoric(@TempDir final Path tmp) throws java.io.IOException {
         final Fixture f = startPlugin(tmp);
 
@@ -231,7 +259,15 @@ class LiveStateAcceptanceTest {
         }
     }
 
+    private static Fixture startPluginWithRetention(final Path tmp, final long retention) {
+        return startPlugin(tmp, retention);
+    }
+
     private static Fixture startPlugin(final Path tmp) {
+        return startPlugin(tmp, 0L);
+    }
+
+    private static Fixture startPlugin(final Path tmp, final long retention) {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(LiveStateConfig.class)
@@ -243,6 +279,7 @@ class LiveStateAcceptanceTest {
                 .withValue("state.live.stateSnapshotHistoricPath", tmp.resolve("historic").toString())
                 .withValue("state.live.snapshotIntervalMillis", "3600000")
                 .withValue("state.live.stateChangesApplyIntervalMillis", "3600000")
+                .withValue("state.live.historicArchiveRetentionCount", Long.toString(retention))
                 .build();
         final BlockNodeContext context = new BlockNodeContext(
                 configuration, null, null, facility, null, null, null, null, null, null, null);

@@ -18,7 +18,7 @@ class LiveStatePluginSkeletonTest {
     void pluginImplementsSpiAndContributesConfig() {
         final LiveStatePlugin plugin = new LiveStatePlugin();
         assertThat(plugin).isInstanceOf(BlockNodePlugin.class);
-        assertThat(plugin.configDataTypes()).containsExactly(LiveStateConfig.class);
+        assertThat(plugin.configDataTypes()).contains(LiveStateConfig.class);
         assertThat(plugin.name()).isEqualTo("LiveStatePlugin");
     }
 }

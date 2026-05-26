@@ -18,8 +18,10 @@ module org.hiero.block.node.state.live {
     requires transitive org.hiero.block.protobuf.pbj;
     requires transitive org.hiero.metrics;
     requires com.swirlds.base;
+    requires com.swirlds.merkledb;
     requires org.hiero.base.utility;
     requires org.hiero.consensus.metrics;
+    requires org.hiero.consensus.utility;
     requires com.github.spotbugs.annotations;
 
     provides org.hiero.block.node.spi.BlockNodePlugin with

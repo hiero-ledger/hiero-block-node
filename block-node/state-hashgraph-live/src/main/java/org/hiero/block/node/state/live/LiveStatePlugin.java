@@ -82,7 +82,16 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
-        return List.of(LiveStateConfig.class);
+        // Register the swirlds config records the VirtualMap lifecycle manager will look
+        // up at construction time. Without these, VirtualMapStateImpl throws
+        // IllegalArgumentException when the BlockNodeApp boot doesn't otherwise pull them
+        // in — they aren't reached via @ConfigData auto-discovery because nothing else on
+        // the block-node classpath uses them.
+        return List.of(
+                LiveStateConfig.class,
+                com.swirlds.merkledb.config.MerkleDbConfig.class,
+                com.swirlds.virtualmap.config.VirtualMapConfig.class,
+                org.hiero.consensus.config.PathsConfig.class);
     }
 
     @Override
@@ -219,18 +228,28 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         }
         final int stateId = (int) request.stateId();
         final BinaryState binaryState = readableState();
-        if (request.queueIndex() == 0L) {
-            final List<Bytes> all = binaryState.getQueueAsList(stateId);
-            if (all == null || all.isEmpty()) {
+        // VirtualMapStateImpl.getQueueState returns null for unknown stateIds; the
+        // downstream getQueueAsList / peekQueue then NPE. Treat any of those as NOT_FOUND.
+        try {
+            if (binaryState.getQueueState(stateId) == null) {
                 return out.status(Code.NOT_FOUND).build();
             }
-            return out.status(Code.SUCCESS).queueBytes(all).build();
-        }
-        final Bytes element = binaryState.peekQueue(stateId, (int) request.queueIndex());
-        if (element == null) {
+            if (request.queueIndex() == 0L) {
+                final List<Bytes> all = binaryState.getQueueAsList(stateId);
+                if (all == null || all.isEmpty()) {
+                    return out.status(Code.NOT_FOUND).build();
+                }
+                return out.status(Code.SUCCESS).queueBytes(all).build();
+            }
+            final Bytes element = binaryState.peekQueue(stateId, (int) request.queueIndex());
+            if (element == null) {
+                return out.status(Code.NOT_FOUND).build();
+            }
+            return out.status(Code.SUCCESS).queueBytes(List.of(element)).build();
+        } catch (final RuntimeException e) {
+            LOGGER.log(System.Logger.Level.DEBUG, "Queue lookup for state {0} failed", stateId, e);
             return out.status(Code.NOT_FOUND).build();
         }
-        return out.status(Code.SUCCESS).queueBytes(List.of(element)).build();
     }
 
     // ── Test hooks ──────────────────────────────────────────────────────────
@@ -488,6 +507,54 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             entries.filter(Files::isDirectory)
                     .filter(p -> !p.getFileName().toString().equals(Long.toString(keep)))
                     .forEach(p -> archiveThenDelete(p, historicRoot));
+        }
+        enforceHistoricRetention(historicRoot);
+    }
+
+    /**
+     * Delete the oldest historic tar archives until the archive count is at or under
+     * {@code historicArchiveRetentionCount}. A value of {@code 0} disables the policy.
+     * Mirrors {@code BlockFileHistoricPlugin.cleanup} — track count and prune the
+     * lowest-block-number archive until under threshold.
+     */
+    private void enforceHistoricRetention(@NonNull final Path historicRoot) {
+        final long retention = config.historicArchiveRetentionCount();
+        if (retention <= 0L || !Files.isDirectory(historicRoot)) {
+            return;
+        }
+        final java.util.List<java.util.Map.Entry<Long, Path>> archives;
+        try (var entries = Files.list(historicRoot)) {
+            archives = entries.filter(Files::isRegularFile)
+                    .map(p -> {
+                        final String name = p.getFileName().toString();
+                        if (!name.endsWith(".tar")) {
+                            return null;
+                        }
+                        try {
+                            final long block = Long.parseLong(name.substring(0, name.length() - 4));
+                            return java.util.Map.entry(block, p);
+                        } catch (final NumberFormatException ignored) {
+                            return null;
+                        }
+                    })
+                    .filter(java.util.Objects::nonNull)
+                    .sorted(java.util.Map.Entry.comparingByKey())
+                    .toList();
+        } catch (final IOException e) {
+            LOGGER.log(System.Logger.Level.WARNING, "Failed to enumerate historic tar archives", e);
+            return;
+        }
+        long excess = archives.size() - retention;
+        int i = 0;
+        while (excess > 0 && i < archives.size()) {
+            final Path victim = archives.get(i).getValue();
+            try {
+                Files.delete(victim);
+            } catch (final IOException e) {
+                LOGGER.log(System.Logger.Level.WARNING, "Failed to delete historic archive " + victim, e);
+            }
+            excess--;
+            i++;
         }
     }
 

@@ -18,4 +18,12 @@ public record LiveStateConfig(
                 String stateSnapshotHistoricPath,
         @ConfigProperty(defaultValue = "900000") long snapshotIntervalMillis,
         @ConfigProperty(defaultValue = "2000") long stateChangesApplyIntervalMillis,
-        @ConfigProperty(defaultValue = "64") int historicCatchUpBatchSize) {}
+        @ConfigProperty(defaultValue = "64") int historicCatchUpBatchSize,
+        /*
+         * Number of historic snapshot tar archives to retain under
+         * {@code stateSnapshotHistoricPath}. After a new tar is written, archives with
+         * the lowest block numbers are deleted until the count is at or under this
+         * threshold. A value of {@code 0} keeps every archive indefinitely (operator
+         * cleans up by hand). Mirrors {@code files.historic.blockRetentionThreshold}.
+         */
+        @ConfigProperty(defaultValue = "0") long historicArchiveRetentionCount) {}

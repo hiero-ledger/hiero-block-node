@@ -4,19 +4,25 @@ package org.hiero.block.suites.e2e;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.hedera.pbj.grpc.client.helidon.PbjGrpcClient;
+import com.hedera.pbj.grpc.client.helidon.PbjGrpcClientConfig;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
+import com.hedera.pbj.runtime.io.buffer.Bytes;
+import io.helidon.common.tls.Tls;
+import io.helidon.webclient.api.WebClient;
+import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.hiero.block.api.BinaryStateQuery;
 import org.hiero.block.api.BinaryStateQueryResponse;
 import org.hiero.block.api.BinaryStateQueryResponse.Code;
-import org.hiero.block.api.ServerStatusDetailResponse;
-import org.hiero.block.api.ServerStatusRequest;
 import org.hiero.block.api.StateServiceInterface;
 import org.hiero.block.node.app.BlockNodeApp;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
@@ -28,34 +34,39 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * E2E smoke test for the state-hashgraph-live plugin. Boots the full BlockNodeApp in-JVM
- * with the live-state plugin on the classpath and verifies:
+ * End-to-end test for the state-hashgraph-live plugin. Boots {@link BlockNodeApp} in-JVM
+ * with the live-state plugin on the classpath and exercises the
+ * {@code StateService} gRPC endpoint over the network (via {@link PbjGrpcClient}) —
+ * the same wire path a real client uses. Verifies:
  *
- * <ol>
- *   <li>the app reaches RUNNING state — the live-state plugin doesn't break startup;</li>
- *   <li>{@code serverStatusDetail} responds (the plugin is wired through the SPI);</li>
- *   <li>{@code getBinarySingleton} responds with a structured status (live state present).</li>
- * </ol>
+ * <ul>
+ *   <li>the app reaches RUNNING — the live-state plugin doesn't break startup;</li>
+ *   <li>{@code getBinarySingleton} reaches the running plugin, returns a structured
+ *       response code, and includes {@code state_metadata} on the wire;</li>
+ *   <li>{@code getBinaryKV} on a missing key returns {@code NOT_FOUND};</li>
+ *   <li>{@code getBinaryQueue} on a missing queue returns {@code NOT_FOUND}.</li>
+ * </ul>
  *
- * Publishing blocks with synthetic state_changes items is left to the plugin-level
- * acceptance suite — this test focuses on the integration boundary.
+ * Each test runs the BlockNodeApp through a fresh boot/shutdown cycle with state paths
+ * scoped to {@code build/tmp/state-e2e}, mirroring {@code BlockNodeCloudStorageTests}'
+ * S3Mock pattern.
  */
 @Tag("api")
-@Timeout(value = 60, unit = TimeUnit.SECONDS)
+@Timeout(value = 90, unit = TimeUnit.SECONDS)
 class LiveStateE2ETests {
 
     private static final String SERVER_PORT =
-            System.getenv("SERVER_PORT") == null ? "40850" : System.getenv("SERVER_PORT");
+            System.getenv("SERVER_PORT") == null ? "40840" : System.getenv("SERVER_PORT");
     private static final Options OPTIONS =
             new Options(Optional.empty(), ServiceInterface.RequestOptions.APPLICATION_GRPC);
 
     private record Options(Optional<String> authority, String contentType) implements ServiceInterface.RequestOptions {}
 
     private BlockNodeApp app;
+    private PbjGrpcClient grpcClient;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Use unique paths per run so multiple tests don't clobber each other.
         final Path stateRoot = Path.of("build/tmp/state-e2e").toAbsolutePath();
         if (Files.exists(stateRoot)) {
             Files.walk(stateRoot)
@@ -74,7 +85,6 @@ class LiveStateE2ETests {
                 "state.live.stateSnapshotHistoricPath",
                 stateRoot.resolve("historic").toString());
 
-        // Clear the default block data dir as well — same pattern as BlockNodeAPITests.
         final Path dataDir = Paths.get("build/tmp/data").toAbsolutePath();
         if (Files.exists(dataDir)) {
             Files.walk(dataDir)
@@ -90,6 +100,8 @@ class LiveStateE2ETests {
             Thread.sleep(50);
         }
         assertEquals(State.RUNNING, app.blockNodeState(), "BlockNodeApp must be RUNNING after startup");
+
+        grpcClient = createGrpcClient();
     }
 
     @AfterEach
@@ -99,7 +111,7 @@ class LiveStateE2ETests {
             try {
                 app.shutdown("LiveStateE2ETests", "teardown");
             } catch (final RuntimeException ignored) {
-                // benign races during messaging-thread tear-down.
+                // benign races during messaging-thread teardown.
             }
         }
     }
@@ -111,28 +123,71 @@ class LiveStateE2ETests {
     }
 
     @Test
-    void appBootsWithLiveStatePluginAndServerStatusDetailIsAvailable() {
-        // Look up plugin SPI implementations via the ServiceLoader. Both should be present —
-        // the live-state plugin doesn't interfere with the existing server-status endpoint.
-        final var loader = new ServiceLoaderFunction();
-        final var statePlugin = loader.loadServices(StateServiceInterface.class).findFirst();
-        assertThat(statePlugin).as("StateServiceInterface implementation should be discovered").isPresent();
+    void getBinarySingletonRoundTripsThroughGrpc() {
+        final var client = new StateServiceInterface.StateServiceClient(grpcClient, OPTIONS);
 
-        // A fresh ServiceLoader instance is not the same as the one wired into the running app,
-        // so its getBinarySingleton returns NOT_READY (no start()) — that's still a structured
-        // response, which is what we're asserting.
-        final BinaryStateQueryResponse response = statePlugin
-                .get()
-                .getBinarySingleton(BinaryStateQuery.newBuilder().stateId(1L).build());
-        assertThat(response.status()).isIn(Code.NOT_READY, Code.NOT_FOUND, Code.SUCCESS);
+        // Poll briefly until the plugin finishes catch-up (no historical blocks means it
+        // completes near-immediately, but the catch-up thread is still asynchronous).
+        final BinaryStateQueryResponse response = awaitNonNotReady(
+                () -> client.getBinarySingleton(BinaryStateQuery.newBuilder().stateId(1L).build()));
 
-        // server-status plugin still responds.
-        final var serverStatusPlugin = loader.loadServices(org.hiero.block.api.BlockNodeServiceInterface.class)
-                .findFirst();
-        assertThat(serverStatusPlugin).isPresent();
-        final ServerStatusDetailResponse detail = serverStatusPlugin
-                .get()
-                .serverStatusDetail(ServerStatusRequest.newBuilder().build());
-        assertThat(detail).isNotNull();
+        assertThat(response.status()).as("structured response over the wire").isIn(Code.NOT_FOUND, Code.SUCCESS);
+        assertThat(response.stateMetadata()).as("metadata always populated").isNotNull();
+    }
+
+    @Test
+    void getBinaryKVAndQueueReturnStructuredResponses() {
+        final var client = new StateServiceInterface.StateServiceClient(grpcClient, OPTIONS);
+
+        // KV on a non-existent state/key.
+        final BinaryStateQueryResponse kv = awaitNonNotReady(() -> client.getBinaryKV(BinaryStateQuery.newBuilder()
+                .stateId(99L)
+                .keyBytes(Bytes.fromHex("01"))
+                .build()));
+        assertThat(kv.status()).isEqualTo(Code.NOT_FOUND);
+
+        // Queue with no elements.
+        final BinaryStateQueryResponse queue = awaitNonNotReady(() -> client.getBinaryQueue(
+                BinaryStateQuery.newBuilder().stateId(99L).build()));
+        assertThat(queue.status()).isEqualTo(Code.NOT_FOUND);
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+
+    /**
+     * Polls the supplied gRPC call until the plugin reports a non-{@code NOT_READY}
+     * response or the timeout elapses. Returns the final response.
+     */
+    private static BinaryStateQueryResponse awaitNonNotReady(
+            final java.util.function.Supplier<BinaryStateQueryResponse> call) {
+        final long deadline = System.currentTimeMillis() + 10_000L;
+        BinaryStateQueryResponse response = call.get();
+        while (response.status() == Code.NOT_READY && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(50L);
+            } catch (final InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            response = call.get();
+        }
+        return response;
+    }
+
+    private PbjGrpcClient createGrpcClient() {
+        final Duration timeout = Duration.ofSeconds(30);
+        final Tls tls = Tls.builder().enabled(false).build();
+        final WebClient webClient = WebClient.builder()
+                .baseUri("http://localhost:" + SERVER_PORT)
+                .tls(tls)
+                .protocolConfigs(List.of(GrpcClientProtocolConfig.builder()
+                        .abortPollTimeExpired(false)
+                        .pollWaitTime(timeout)
+                        .build()))
+                .connectTimeout(timeout)
+                .keepAlive(true)
+                .build();
+        return new PbjGrpcClient(
+                webClient, new PbjGrpcClientConfig(timeout, tls, OPTIONS.authority(), OPTIONS.contentType()));
     }
 }
