@@ -81,7 +81,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // Metric values stored after startup so ObservableGauge can read them
     private volatile long rosterEntriesLoaded = 0L;
     private volatile long rosterLoadDurationMs = 0L;
-    private long rosterLoadStartMs = 0L;
+    private volatile long rosterLoadStartMs = 0L;
 
     /// {@inheritDoc}
     @Override
@@ -114,7 +114,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// If so, records metrics and returns. Otherwise a ScheduledExecutor is started which will
     /// keep trying to fetch an address book from a Mirror Node. Once an address book is retrieved the
     /// ScheduledExecutor will be canceled and polling will stop. `applicationStateFacility.updateAddressBook()`
-    /// will be called which persists the file and notifies all plugins. Wrapped blocks errors will occur until
+    /// will be called which persists the file and notifies all plugins. WRB errors will occur until
     /// an address book is retrieved and persisted.
     @Override
     public void start() {
@@ -138,8 +138,9 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             queryMnExecutor = context.threadPoolManager()
                     .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
 
-            // Schedule periodic checking of mirror node for address book data.
-            // scheduleFuture will be canceled when an address book is found
+            // No retry limit — the node requires a roster to verify WRB proofs; keep polling
+            // until Mirror Node is reachable. Each failed attempt is logged at ERROR level.
+            // Will be canceled once an address book is retrieved.
             scheduledFuture = queryMnExecutor.scheduleAtFixedRate(
                     this::fetchFromMirrorNode, 0, config.mirrorNodeQueryIntervalMillis(), TimeUnit.MILLISECONDS);
         } else {
