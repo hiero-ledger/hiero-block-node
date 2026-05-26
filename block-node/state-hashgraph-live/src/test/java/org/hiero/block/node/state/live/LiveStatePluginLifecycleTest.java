@@ -4,6 +4,7 @@ package org.hiero.block.node.state.live;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hedera.hapi.block.stream.input.RoundHeader;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
@@ -144,6 +145,11 @@ class LiveStatePluginLifecycleTest {
     };
 
     private static BlockUnparsed buildBlock(final long blockNumber, final long roundNumber) {
+        return buildBlock(blockNumber, roundNumber, Bytes.EMPTY);
+    }
+
+    private static BlockUnparsed buildBlock(
+            final long blockNumber, final long roundNumber, final Bytes startOfBlockStateRootHash) {
         return BlockUnparsed.newBuilder()
                 .blockItems(
                         BlockItemUnparsed.newBuilder()
@@ -154,6 +160,11 @@ class LiveStatePluginLifecycleTest {
                         BlockItemUnparsed.newBuilder()
                                 .roundHeader(RoundHeader.PROTOBUF.toBytes(RoundHeader.newBuilder()
                                         .roundNumber(roundNumber)
+                                        .build()))
+                                .build(),
+                        BlockItemUnparsed.newBuilder()
+                                .blockFooter(BlockFooter.PROTOBUF.toBytes(BlockFooter.newBuilder()
+                                        .startOfBlockStateRootHash(startOfBlockStateRootHash)
                                         .build()))
                                 .build())
                 .build();

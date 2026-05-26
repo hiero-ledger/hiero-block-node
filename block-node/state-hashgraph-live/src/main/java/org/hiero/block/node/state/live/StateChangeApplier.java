@@ -29,13 +29,29 @@ import org.hiero.block.internal.BlockUnparsed;
 final class StateChangeApplier {
 
     /** Outcome of a single block apply. */
-    record ApplyResult(long blockNumber, long roundNumber, int appliedChanges) {}
+    record ApplyResult(long blockNumber, long roundNumber, int appliedChanges, @NonNull Bytes startOfBlockStateRootHash) {}
 
     @NonNull
     ApplyResult applyBlock(@NonNull final BinaryState binaryState, @NonNull final BlockUnparsed block) {
+        return applyBlock(binaryState, block, true);
+    }
+
+    /**
+     * Variant used by the plugin's pre-apply validation path: walk the block items to extract
+     * metadata (block number, round number, footer hash) without mutating the state.
+     */
+    @NonNull
+    ApplyResult inspectBlock(@NonNull final BlockUnparsed block) {
+        return applyBlock(null, block, false);
+    }
+
+    @NonNull
+    private ApplyResult applyBlock(
+            final BinaryState binaryState, @NonNull final BlockUnparsed block, final boolean mutate) {
         long blockNumber = -1L;
         long roundNumber = -1L;
         int applied = 0;
+        Bytes startOfBlockStateRootHash = Bytes.EMPTY;
 
         for (final var item : block.blockItems()) {
             if (item.hasBlockHeader() && blockNumber < 0L) {
@@ -54,7 +70,7 @@ final class StateChangeApplier {
                 } catch (final Exception ignored) {
                     // Keep previous round number on parse failure.
                 }
-            } else if (item.hasStateChanges()) {
+            } else if (item.hasStateChanges() && mutate) {
                 try {
                     final StateChanges changes =
                             StateChanges.PROTOBUF.parse(item.stateChangesOrThrow());
@@ -62,9 +78,20 @@ final class StateChangeApplier {
                 } catch (final Exception e) {
                     throw new IllegalStateException("Failed to parse state_changes item", e);
                 }
+            } else if (item.hasBlockFooter()) {
+                try {
+                    final var footer = com.hedera.hapi.block.stream.output.BlockFooter.PROTOBUF.parse(
+                            item.blockFooterOrThrow());
+                    if (footer.startOfBlockStateRootHash() != null) {
+                        startOfBlockStateRootHash = footer.startOfBlockStateRootHash();
+                    }
+                } catch (final Exception ignored) {
+                    // Leaves startOfBlockStateRootHash = empty; the plugin treats that as a
+                    // validation failure unless we are at genesis.
+                }
             }
         }
-        return new ApplyResult(blockNumber, roundNumber, applied);
+        return new ApplyResult(blockNumber, roundNumber, applied, startOfBlockStateRootHash);
     }
 
     private static int applyChanges(

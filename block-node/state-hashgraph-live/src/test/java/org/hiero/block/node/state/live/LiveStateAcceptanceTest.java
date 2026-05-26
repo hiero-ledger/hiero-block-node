@@ -4,6 +4,7 @@ package org.hiero.block.node.state.live;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hedera.hapi.block.stream.input.RoundHeader;
+import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
@@ -47,12 +48,14 @@ class LiveStateAcceptanceTest {
     void scenario1_genesisAppliesFirstBlock(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
 
-        f.deliverBlock(0L, 0L);
+        // At genesis the footer's startOfBlockStateRootHash must be empty / all-zeros.
+        f.deliverBlock(0L, 0L, Bytes.EMPTY);
         f.plugin.applyPendingNow();
 
         assertThat(f.plugin.metadata().blockNumber()).isZero();
         assertThat(f.facility.getSentStateUpdateNotifications())
                 .anyMatch(n -> n.type() == StateUpdateType.VERIFIED && n.blockNumber() == 0L);
+        assertThat(f.plugin.isDegraded()).isFalse();
         f.plugin.stop();
     }
 
@@ -60,11 +63,12 @@ class LiveStateAcceptanceTest {
     void scenario2_nextBlockOnTopOfMetadataApplies(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
 
-        f.deliverBlock(5L, 50L);
+        f.deliverBlock(5L, 50L, Bytes.EMPTY); // genesis lane accepts arbitrary first block number
         f.plugin.applyPendingNow();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
 
-        f.deliverBlock(6L, 60L);
+        final Bytes liveAfter5 = f.plugin.metadata().stateRootHash();
+        f.deliverBlock(6L, 60L, liveAfter5);
         f.plugin.applyPendingNow();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(6L);
         assertThat(f.plugin.metadata().roundNumber()).isEqualTo(60L);
@@ -76,17 +80,18 @@ class LiveStateAcceptanceTest {
     void scenario3_gapBlockIsNotApplied(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
 
-        f.deliverBlock(5L, 50L);
+        f.deliverBlock(5L, 50L, Bytes.EMPTY);
+        f.plugin.applyPendingNow();
+        assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
+        final Bytes liveAfter5 = f.plugin.metadata().stateRootHash();
+
+        // Block 7 — skips 6. Footer hash is fine (no state changes in between) but
+        // the apply loop will not advance past the gap.
+        f.deliverBlock(7L, 70L, liveAfter5);
         f.plugin.applyPendingNow();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
 
-        // Block 7 — skips 6. Must not apply.
-        f.deliverBlock(7L, 70L);
-        f.plugin.applyPendingNow();
-        assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
-
-        // Once 6 arrives, the apply loop drains 6 then 7.
-        f.deliverBlock(6L, 60L);
+        f.deliverBlock(6L, 60L, liveAfter5);
         f.plugin.applyPendingNow();
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(7L);
 
@@ -96,10 +101,12 @@ class LiveStateAcceptanceTest {
     @Test
     void scenario4_chainedBlocksApplyInOrder(@TempDir final Path tmp) {
         final Fixture f = startPlugin(tmp);
-        f.deliverBlock(0L, 0L);
-        f.deliverBlock(1L, 1L);
-        f.deliverBlock(2L, 2L);
-        f.plugin.applyPendingNow();
+        Bytes startHash = Bytes.EMPTY;
+        for (long i = 0; i < 3; i++) {
+            f.deliverBlock(i, i, startHash);
+            f.plugin.applyPendingNow();
+            startHash = f.plugin.metadata().stateRootHash();
+        }
 
         assertThat(f.plugin.metadata().blockNumber()).isEqualTo(2L);
         assertThat(f.plugin.metadata().roundNumber()).isEqualTo(2L);
@@ -112,9 +119,28 @@ class LiveStateAcceptanceTest {
     }
 
     @Test
+    void scenario6_refusesApplyOnHashMismatch(@TempDir final Path tmp) {
+        final Fixture f = startPlugin(tmp);
+
+        f.deliverBlock(5L, 50L, Bytes.EMPTY); // genesis lane
+        f.plugin.applyPendingNow();
+        assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
+
+        // Block 6 with a deliberately bogus startOfBlockStateRootHash.
+        final Bytes bogus = Bytes.fromHex("deadbeef".repeat(12)); // 48 bytes != live hash
+        f.deliverBlock(6L, 60L, bogus);
+        f.plugin.applyPendingNow();
+
+        assertThat(f.plugin.metadata().blockNumber()).isEqualTo(5L);
+        assertThat(f.plugin.isDegraded()).isTrue();
+        assertThat(f.plugin.hashMismatchTotal()).isEqualTo(1L);
+        f.plugin.stop();
+    }
+
+    @Test
     void scenario5_snapshotPersistsMetadataAndSnapshotFile(@TempDir final Path tmp) throws java.io.IOException {
         final Fixture f = startPlugin(tmp);
-        f.deliverBlock(1L, 10L);
+        f.deliverBlock(1L, 10L, Bytes.EMPTY);
         f.plugin.applyPendingNow();
         f.plugin.saveSnapshotNow();
 
@@ -140,7 +166,8 @@ class LiveStateAcceptanceTest {
     // ── Fixtures ───────────────────────────────────────────────────────────
 
     private record Fixture(LiveStatePlugin plugin, TestBlockMessagingFacility facility) {
-        void deliverBlock(final long blockNumber, final long roundNumber) {
+        /** Deliver a block whose footer carries the supplied {@code startOfBlockStateRootHash}. */
+        void deliverBlock(final long blockNumber, final long roundNumber, @NonNull final Bytes startHash) {
             final BlockUnparsed block = BlockUnparsed.newBuilder()
                     .blockItems(
                             BlockItemUnparsed.newBuilder()
@@ -152,10 +179,29 @@ class LiveStateAcceptanceTest {
                                     .roundHeader(RoundHeader.PROTOBUF.toBytes(RoundHeader.newBuilder()
                                             .roundNumber(roundNumber)
                                             .build()))
+                                    .build(),
+                            BlockItemUnparsed.newBuilder()
+                                    .blockFooter(BlockFooter.PROTOBUF.toBytes(BlockFooter.newBuilder()
+                                            .startOfBlockStateRootHash(startHash)
+                                            .build()))
                                     .build())
                     .build();
             facility.sendBlockVerification(new VerificationNotification(
                     true, null, blockNumber, Bytes.fromHex("00"), block, BlockSource.PUBLISHER));
+        }
+
+        /** Current mutable state root hash — used by tests to chain block footers correctly. */
+        @NonNull
+        Bytes currentMutableHash() {
+            try {
+                return Bytes.wrap(plugin.lifecycleManager()
+                        .getMutableState()
+                        .getRoot()
+                        .getHash()
+                        .copyToByteArray());
+            } catch (final RuntimeException e) {
+                return Bytes.EMPTY;
+            }
         }
     }
 

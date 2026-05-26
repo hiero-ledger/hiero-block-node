@@ -67,6 +67,8 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
 
     private final ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks = new ConcurrentSkipListMap<>();
     private final AtomicBoolean ready = new AtomicBoolean(false);
+    private final AtomicBoolean degraded = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong hashMismatchTotal = new java.util.concurrent.atomic.AtomicLong();
 
     private ScheduledExecutorService snapshotExecutor;
     private ScheduledExecutorService stateChangesExecutor;
@@ -282,12 +284,29 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     }
 
     private void applyOne(@NonNull final BlockUnparsed block) {
-        final VirtualMapState mutable = lifecycleManager.getMutableState();
-        final StateChangeApplier.ApplyResult result = applier.applyBlock(mutable, block);
-        if (result.blockNumber() < 0L) {
+        if (degraded.get()) {
+            return;
+        }
+        // Inspect the block for block number + footer hash BEFORE mutating state so we can
+        // reject a divergent slice without leaving a half-applied mutable behind.
+        final StateChangeApplier.ApplyResult preview = applier.inspectBlock(block);
+        if (preview.blockNumber() < 0L) {
             LOGGER.log(System.Logger.Level.WARNING, "Refusing to apply block with unparseable header");
             return;
         }
+        if (!validateStartHash(preview.startOfBlockStateRootHash())) {
+            hashMismatchTotal.incrementAndGet();
+            degraded.set(true);
+            LOGGER.log(
+                    System.Logger.Level.ERROR,
+                    "State hash mismatch at block {0}: footer.startOfBlockStateRootHash diverges from live state; "
+                            + "plugin marked degraded",
+                    preview.blockNumber());
+            return;
+        }
+
+        final VirtualMapState mutable = lifecycleManager.getMutableState();
+        final StateChangeApplier.ApplyResult result = applier.applyBlock(mutable, block);
         final VirtualMapState immutable = lifecycleManager.copyMutableState();
         final StateMetadata updated = StateMetadata.newBuilder()
                 .blockNumber(result.blockNumber())
@@ -303,6 +322,40 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
                         updated.roundNumber(),
                         updated.stateRootHash(),
                         updated.stateSize()));
+    }
+
+    /**
+     * Compare the block's {@code BlockFooter.startOfBlockStateRootHash} with the current
+     * live state's hash. The check is skipped at genesis: when no block has been applied
+     * yet, the expected start hash is empty / all-zeros and we accept either shape.
+     */
+    private boolean validateStartHash(@NonNull final Bytes startHash) {
+        final boolean atGenesis = metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
+        if (atGenesis) {
+            return startHash.length() == 0L || isAllZeros(startHash);
+        }
+        final Bytes liveHash = rootHashOf(lifecycleManager.getMutableState());
+        return liveHash.equals(startHash);
+    }
+
+    private static boolean isAllZeros(@NonNull final Bytes b) {
+        final long len = b.length();
+        for (long i = 0; i < len; i++) {
+            if (b.getByte(i) != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Visible to tests + future server-status metrics integration. */
+    long hashMismatchTotal() {
+        return hashMismatchTotal.get();
+    }
+
+    /** Visible to tests. */
+    boolean isDegraded() {
+        return degraded.get();
     }
 
     void saveSnapshot() {
