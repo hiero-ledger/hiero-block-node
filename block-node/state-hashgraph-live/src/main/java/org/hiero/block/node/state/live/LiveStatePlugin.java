@@ -82,11 +82,17 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     @NonNull
     @Override
     public List<Class<? extends Record>> configDataTypes() {
-        // Register the swirlds config records the VirtualMap lifecycle manager will look
-        // up at construction time. Without these, VirtualMapStateImpl throws
-        // IllegalArgumentException when the BlockNodeApp boot doesn't otherwise pull them
-        // in — they aren't reached via @ConfigData auto-discovery because nothing else on
-        // the block-node classpath uses them.
+        // TODO(STORY-16): a plugin shouldn't own config records defined by an external
+        // library. Tracked options:
+        //   (A) Foundation: ship META-INF/services entries on the swirlds jars so
+        //       BlockNodeApp.autoDiscoverExtensions picks them up automatically — see
+        //       STORY-12 Foundation-feedback section.
+        //   (B) Block-node base helper: a shared SwirldsStateConfigs.types() list every
+        //       state-consuming plugin includes, paired with idempotent registration so
+        //       multiple plugins don't collide.
+        //   (C) BlockNodeApp registers swirlds-state configs once at boot, invisible to
+        //       plugins.
+        // Until one of those lands, this list keeps the plugin functional.
         return List.of(
                 LiveStateConfig.class,
                 com.swirlds.merkledb.config.MerkleDbConfig.class,
