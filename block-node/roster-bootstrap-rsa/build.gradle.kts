@@ -1,18 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-plugins {
-    id("org.hiero.gradle.module.library")
-    id("com.hedera.pbj.pbj-compiler")
-}
+plugins { id("org.hiero.gradle.module.library") }
 
 description = "Hiero Block Node RSA Roster Bootstrap Plugin"
-
-tasks.javadoc {
-    options {
-        this as StandardJavadocDocletOptions
-        // There are violations in the generated pbj code
-        addStringOption("Xdoclint:-reference,-html", "-quiet")
-    }
-}
 
 mainModuleInfo { runtimeOnly("com.swirlds.config.impl") }
 

@@ -130,7 +130,7 @@ class MirrorNodeNodesResponseTest {
                 """;
         final MirrorNodeNodesResponse response = MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(json));
         assertNotNull(response.links());
-        // PBJ returns an empty string for null items. isBlank() is the new is null test
+        // PBJ preserves whitespace; isBlank() correctly treats whitespace-only next as "no next page"
         assertTrue(response.links().next().isBlank());
     }
 

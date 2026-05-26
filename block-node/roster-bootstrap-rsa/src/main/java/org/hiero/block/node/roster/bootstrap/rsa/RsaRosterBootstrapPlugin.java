@@ -81,6 +81,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // Metric values stored after startup so ObservableGauge can read them
     private volatile long rosterEntriesLoaded = 0L;
     private volatile long rosterLoadDurationMs = 0L;
+    private long rosterLoadStartMs = 0L;
 
     /// {@inheritDoc}
     @Override
@@ -110,12 +111,14 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     }
 
     /// Checks whether BlockNodeApp already loaded the address book from the bootstrap file.
-    /// If so, records metrics and returns. Otherwise fetches from Mirror Node and calls
-    /// `applicationStateFacility.updateAddressBook()` which persists the file and notifies
-    /// all plugins. Throws if neither source succeeds, triggering BN fail-fast.
+    /// If so, records metrics and returns. Otherwise a ScheduledExecutor is started which will
+    /// keep trying to fetch an address book from a Mirror Node. Once an address book is retrieved the
+    /// ScheduledExecutor will be canceled and polling will stop. `applicationStateFacility.updateAddressBook()`
+    /// will be called which persists the file and notifies all plugins. Wrapped blocks errors will occur until
+    /// an address book is retrieved and persisted.
     @Override
     public void start() {
-        final long startMs = System.currentTimeMillis();
+        rosterLoadStartMs = System.currentTimeMillis();
         NodeAddressBook book = context.nodeAddressBook();
         String addressBookSource = "File";
 
@@ -135,13 +138,13 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             queryMnExecutor = context.threadPoolManager()
                     .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
 
-            // Schedule periodic checking of mirror node for address book data
+            // Schedule periodic checking of mirror node for address book data.
             // scheduleFuture will be canceled when an address book is found
             scheduledFuture = queryMnExecutor.scheduleAtFixedRate(
                     this::fetchFromMirrorNode, 0, config.mirrorNodeQueryIntervalMillis(), TimeUnit.MILLISECONDS);
         } else {
             rosterEntriesLoaded = book.nodeAddress().size();
-            rosterLoadDurationMs = System.currentTimeMillis() - startMs;
+            rosterLoadDurationMs = System.currentTimeMillis() - rosterLoadStartMs;
             LOGGER.log(
                     INFO,
                     "RSA roster available: {0} entries obtained from {1} loaded in {2}ms",
@@ -162,9 +165,6 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // -------------------------------------------------------------------------
 
     /// Fetches the node address book from the Mirror Node REST API with pagination and retries.
-    ///
-    /// @throws IllegalStateException if the Mirror Node is unreachable after retries or returns
-    ///     no usable entries
     private void fetchFromMirrorNode() {
         try (final HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
@@ -224,6 +224,8 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
             // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
             applicationStateFacility.updateAddressBook(book);
+
+            rosterLoadDurationMs = System.currentTimeMillis() - rosterLoadStartMs;
 
             // We found an address book stop the mirror node requests
             scheduledFuture.cancel(true);
