@@ -29,7 +29,7 @@ class StateChangeApplierTest {
 
     @Test
     void appliesSingletonAndKvAndQueueOperations() {
-        final LiveState state = new LiveState();
+        final InMemoryBinaryState state = new InMemoryBinaryState();
         final StateChangeApplier applier = new StateChangeApplier();
 
         final SingletonUpdateChange singleton =
@@ -57,7 +57,7 @@ class StateChangeApplierTest {
 
     @Test
     void mapDeleteAndQueuePopRemoveEntries() {
-        final LiveState state = new LiveState();
+        final InMemoryBinaryState state = new InMemoryBinaryState();
         final StateChangeApplier applier = new StateChangeApplier();
 
         final MapChangeKey key =
@@ -81,7 +81,7 @@ class StateChangeApplierTest {
 
     @Test
     void corruptStateChangesItemAborts() {
-        final LiveState state = new LiveState();
+        final InMemoryBinaryState state = new InMemoryBinaryState();
         final StateChangeApplier applier = new StateChangeApplier();
 
         final BlockUnparsed block = BlockUnparsed.newBuilder()

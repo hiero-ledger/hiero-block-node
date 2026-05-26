@@ -2,6 +2,11 @@
 package org.hiero.block.node.state.live;
 
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.base.time.Time;
+import com.swirlds.state.BinaryState;
+import org.hiero.base.file.FileSystemManager;
+import com.swirlds.state.merkle.VirtualMapState;
+import com.swirlds.state.merkle.VirtualMapStateLifecycleManager;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
 import java.io.IOException;
@@ -27,31 +32,37 @@ import org.hiero.block.node.spi.blockmessaging.BlockNotificationHandler;
 import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification;
 import org.hiero.block.node.spi.blockmessaging.StateUpdateNotification.StateUpdateType;
 import org.hiero.block.node.spi.blockmessaging.VerificationNotification;
+import org.hiero.consensus.metrics.noop.NoOpMetrics;
 
 /**
  * Beta plugin that maintains a live, queryable copy of Hashgraph network state inside
- * the Block Node by replaying verified block-stream state changes.
+ * the Block Node by replaying verified block-stream state changes onto a
+ * {@link VirtualMapStateLifecycleManager}-managed state.
  *
- * <p>Backed by an in-house {@link LiveState} so the plugin can ship without dragging
- * the {@code swirlds-state-impl} / {@code swirlds-virtualmap} dependency chain into the
- * block-node build. STORY-5 fills out {@link StateChangeApplier} to actually mutate the
- * {@link LiveState} from each verified block; until then this plugin tracks block /
- * round numbers and emits {@link StateUpdateNotification}s but leaves the in-memory
- * maps empty.
+ * <p>The plugin owns:
+ *
+ * <ul>
+ *   <li>a {@link VirtualMapStateLifecycleManager} that wraps a {@link VirtualMapState}
+ *       holding the merkle-backed state on disk (per the consensus-node state-snapshot spec);</li>
+ *   <li>a {@link StateMetadataStore} persisting the latest {@link StateMetadata};</li>
+ *   <li>a {@link StateChangeApplier} that translates {@code state_changes} block items
+ *       into {@link BinaryState} mutations;</li>
+ *   <li>two single-thread scheduled executors — one for apply, one for snapshot.</li>
+ * </ul>
  *
  * <p>See {@code docs/design/state/live-state.md} for the full design.
  */
 public final class LiveStatePlugin implements BlockNodePlugin, BlockNotificationHandler, StateServiceInterface {
 
     private static final System.Logger LOGGER = System.getLogger(LiveStatePlugin.class.getName());
-    private static final String SNAPSHOT_FILE_NAME = "live-state.bin";
 
     private BlockNodeContext context;
     private LiveStateConfig config;
+    private VirtualMapStateLifecycleManager lifecycleManager;
     private StateMetadataStore metadataStore;
     private StateChangeApplier applier;
 
-    private final LiveState liveState = new LiveState();
+    /** Latest applied state metadata. Volatile because reads happen on query threads. */
     private volatile StateMetadata metadata = StateMetadata.DEFAULT;
 
     private final ConcurrentSkipListMap<Long, BlockUnparsed> pendingBlocks = new ConcurrentSkipListMap<>();
@@ -72,6 +83,12 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         this.context = context;
         this.config = context.configuration().getConfigData(LiveStateConfig.class);
         this.metadataStore = new StateMetadataStore(Path.of(config.stateMetadataPath()));
+        // Anchor FileSystemManager at the configured recent-snapshot path so the lifecycle
+        // manager's bookkeeping (its temp scratchpad in particular) lives next to the
+        // snapshots rather than in the cwd.
+        final Path fsmRoot = Path.of(config.stateSnapshotRecentPath());
+        this.lifecycleManager = new VirtualMapStateLifecycleManager(
+                new NoOpMetrics(), Time.getCurrent(), context.configuration(), new FileSystemManager(fsmRoot));
         this.applier = new StateChangeApplier();
         serviceBuilder.registerGrpcService(this);
     }
@@ -142,7 +159,8 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         if (!matchesLatestBlock(request)) {
             return out.status(Code.INVALID_REQUEST).build();
         }
-        final Bytes value = liveState.getKv((int) request.stateId(), request.keyBytes());
+        final BinaryState binaryState = readableState();
+        final Bytes value = binaryState.getKv((int) request.stateId(), request.keyBytes());
         if (value == null) {
             return out.status(Code.NOT_FOUND).build();
         }
@@ -165,7 +183,8 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         if (!matchesLatestBlock(request)) {
             return out.status(Code.INVALID_REQUEST).build();
         }
-        final Bytes value = liveState.getSingleton((int) request.stateId());
+        final BinaryState binaryState = readableState();
+        final Bytes value = binaryState.getSingleton((int) request.stateId());
         if (value == null) {
             return out.status(Code.NOT_FOUND).build();
         }
@@ -186,36 +205,23 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             return out.status(Code.INVALID_REQUEST).build();
         }
         final int stateId = (int) request.stateId();
+        final BinaryState binaryState = readableState();
         if (request.queueIndex() == 0L) {
-            final List<Bytes> all = liveState.getQueueAsList(stateId);
-            if (all.isEmpty()) {
+            final List<Bytes> all = binaryState.getQueueAsList(stateId);
+            if (all == null || all.isEmpty()) {
                 return out.status(Code.NOT_FOUND).build();
             }
             return out.status(Code.SUCCESS).queueBytes(all).build();
         }
-        final Bytes element = liveState.peekQueue(stateId, (int) request.queueIndex());
+        final Bytes element = binaryState.peekQueue(stateId, (int) request.queueIndex());
         if (element == null) {
             return out.status(Code.NOT_FOUND).build();
         }
         return out.status(Code.SUCCESS).queueBytes(List.of(element)).build();
     }
 
-    @NonNull
-    private BinaryStateQueryResponse.Builder baseResponse() {
-        return BinaryStateQueryResponse.newBuilder().stateMetadata(metadata);
-    }
-
-    /**
-     * Live-state v1 only serves the latest applied block. A request that pins a specific
-     * block_number must match the current metadata exactly; 0 is treated as "latest".
-     */
-    private boolean matchesLatestBlock(@NonNull final BinaryStateQuery request) {
-        return request.blockNumber() == 0L || request.blockNumber() == metadata.blockNumber();
-    }
-
     // ── Test hooks ──────────────────────────────────────────────────────────
 
-    /** {@code true} once {@link #start()} has finished initialisation. */
     boolean isReady() {
         return ready.get();
     }
@@ -226,16 +232,14 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     }
 
     @NonNull
-    LiveState liveState() {
-        return liveState;
+    VirtualMapStateLifecycleManager lifecycleManager() {
+        return lifecycleManager;
     }
 
-    /** Drives one apply pass synchronously. Used in tests to avoid waiting for the executor. */
     void applyPendingNow() {
         applyPending();
     }
 
-    /** Writes a snapshot immediately. Used in tests. */
     void saveSnapshotNow() {
         saveSnapshot();
     }
@@ -249,25 +253,22 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
             LOGGER.log(System.Logger.Level.WARNING, "Unable to load state metadata; starting from genesis", e);
             metadata = StateMetadata.DEFAULT;
         }
-        final Optional<Path> snapshot = snapshotPathFor(metadata.blockNumber());
-        if (snapshot.isPresent() && Files.exists(snapshot.get())) {
+        final Optional<Path> snapshotDir = snapshotDirectoryFor(metadata.blockNumber());
+        if (snapshotDir.isPresent() && Files.isDirectory(snapshotDir.get())) {
             try {
-                LiveStateSnapshotIO.read(snapshot.get(), liveState);
-                LOGGER.log(System.Logger.Level.INFO, "Restored live state from {0}", snapshot.get());
+                lifecycleManager.loadSnapshot(snapshotDir.get());
+                LOGGER.log(System.Logger.Level.INFO, "Loaded state snapshot from {0}", snapshotDir.get());
             } catch (final IOException e) {
                 LOGGER.log(
                         System.Logger.Level.WARNING,
-                        "Snapshot at {0} unreadable; resetting to empty in-memory state",
-                        snapshot.get(),
+                        "Snapshot at {0} unreadable; continuing with eager genesis state",
+                        snapshotDir.get(),
                         e);
-                liveState.restoreFrom(java.util.Map.of(), java.util.Map.of(), java.util.Map.of());
             }
         }
     }
 
     void applyPending() {
-        // Drain in number order. At genesis (no metadata yet) accept whatever the lowest
-        // queued block is. After that, require strict +1 ordering and stop on the first gap.
         while (!pendingBlocks.isEmpty() && ready.get()) {
             final boolean atGenesis =
                     metadata.blockNumber() == 0L && metadata.stateRootHash().length() == 0L;
@@ -281,16 +282,18 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     }
 
     private void applyOne(@NonNull final BlockUnparsed block) {
-        final StateChangeApplier.ApplyResult result = applier.applyBlock(liveState, block);
+        final VirtualMapState mutable = lifecycleManager.getMutableState();
+        final StateChangeApplier.ApplyResult result = applier.applyBlock(mutable, block);
         if (result.blockNumber() < 0L) {
             LOGGER.log(System.Logger.Level.WARNING, "Refusing to apply block with unparseable header");
             return;
         }
+        final VirtualMapState immutable = lifecycleManager.copyMutableState();
         final StateMetadata updated = StateMetadata.newBuilder()
                 .blockNumber(result.blockNumber())
                 .roundNumber(result.roundNumber() < 0L ? metadata.roundNumber() : result.roundNumber())
-                .stateRootHash(liveState.computeHash())
-                .stateSize(liveState.size())
+                .stateRootHash(rootHashOf(immutable))
+                .stateSize(sizeOf(immutable))
                 .build();
         metadata = updated;
         context.blockMessaging()
@@ -307,12 +310,16 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
         if (snapshot.blockNumber() <= lastSnapshottedBlock) {
             return;
         }
-        final Optional<Path> target = snapshotPathFor(snapshot.blockNumber());
-        if (target.isEmpty()) {
+        final Optional<Path> targetOpt = snapshotDirectoryFor(snapshot.blockNumber());
+        if (targetOpt.isEmpty()) {
             return;
         }
+        final Path target = targetOpt.get();
         try {
-            LiveStateSnapshotIO.write(target.get(), liveState);
+            Files.createDirectories(target.getParent());
+            if (!Files.exists(target)) {
+                lifecycleManager.createSnapshot(lifecycleManager.getLatestImmutableState(), target);
+            }
             pruneRecentExcept(snapshot.blockNumber());
             metadataStore.save(snapshot);
             lastSnapshottedBlock = snapshot.blockNumber();
@@ -341,9 +348,46 @@ public final class LiveStatePlugin implements BlockNodePlugin, BlockNotification
     }
 
     @NonNull
-    private Optional<Path> snapshotPathFor(final long blockNumber) {
-        final Path dir = Path.of(config.stateSnapshotRecentPath(), Long.toString(blockNumber));
-        return Optional.of(dir.resolve(SNAPSHOT_FILE_NAME));
+    private Optional<Path> snapshotDirectoryFor(final long blockNumber) {
+        return Optional.of(Path.of(config.stateSnapshotRecentPath(), Long.toString(blockNumber)));
+    }
+
+    @NonNull
+    private BinaryStateQueryResponse.Builder baseResponse() {
+        return BinaryStateQueryResponse.newBuilder().stateMetadata(metadata);
+    }
+
+    private boolean matchesLatestBlock(@NonNull final BinaryStateQuery request) {
+        return request.blockNumber() == 0L || request.blockNumber() == metadata.blockNumber();
+    }
+
+    /**
+     * Choose the state to read from. Before the first {@code copyMutableState}, the
+     * latest-immutable reference is null and reads fall back to the mutable state.
+     */
+    @NonNull
+    private VirtualMapState readableState() {
+        final VirtualMapState immutable = lifecycleManager.getLatestImmutableState();
+        return immutable != null ? immutable : lifecycleManager.getMutableState();
+    }
+
+    @NonNull
+    private static Bytes rootHashOf(@Nullable final VirtualMapState state) {
+        if (state == null || state.getRoot() == null) {
+            return Bytes.EMPTY;
+        }
+        try {
+            return Bytes.wrap(state.getRoot().getHash().copyToByteArray());
+        } catch (final RuntimeException e) {
+            return Bytes.EMPTY;
+        }
+    }
+
+    private static long sizeOf(@Nullable final VirtualMapState state) {
+        if (state == null || state.getRoot() == null) {
+            return 0L;
+        }
+        return state.getRoot().size();
     }
 
     private static void deleteRecursively(@NonNull final Path root) {

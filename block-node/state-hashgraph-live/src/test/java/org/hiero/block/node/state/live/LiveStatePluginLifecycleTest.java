@@ -7,6 +7,9 @@ import com.hedera.hapi.block.stream.input.RoundHeader;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.merkledb.config.MerkleDbConfig;
+import com.swirlds.virtualmap.config.VirtualMapConfig;
+import org.hiero.consensus.config.PathsConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
@@ -65,7 +68,13 @@ class LiveStatePluginLifecycleTest {
 
         plugin.saveSnapshotNow();
         assertThat(Files.exists(metadataPath)).isTrue();
-        assertThat(Files.exists(recentRoot.resolve("1").resolve("live-state.bin"))).isTrue();
+        // VirtualMapStateLifecycleManager.createSnapshot writes a directory tree (per the
+        // consensus-node state-snapshot spec). Assert the directory exists and is non-empty.
+        final Path snapshotDir = recentRoot.resolve("1");
+        assertThat(Files.isDirectory(snapshotDir)).isTrue();
+        try (var stream = Files.list(snapshotDir)) {
+            assertThat(stream.findAny()).as("snapshot dir must contain at least one file").isPresent();
+        }
         assertThat(facility.getSentStateUpdateNotifications())
                 .anyMatch(n -> n.type() == StateUpdateType.SNAPSHOT && n.blockNumber() == 1L);
 
@@ -109,6 +118,9 @@ class LiveStatePluginLifecycleTest {
             final TestBlockMessagingFacility facility) {
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(LiveStateConfig.class)
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withConfigDataType(PathsConfig.class)
                 .withValue("state.live.stateMetadataPath", metadataPath.toString())
                 .withValue("state.live.stateSnapshotRecentPath", recentRoot.toString())
                 .withValue("state.live.stateSnapshotHistoricPath", historicRoot.toString())

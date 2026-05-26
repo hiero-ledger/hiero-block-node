@@ -16,4 +16,9 @@ testModuleInfo {
     requires("org.assertj.core")
     requires("org.hiero.block.node.app.test.fixtures")
     requires("com.swirlds.config.api")
+    requires("com.swirlds.merkledb")
+    requires("com.swirlds.virtualmap")
+    requires("org.hiero.consensus.utility")
+    runtimeOnly("com.swirlds.config.impl")
+    runtimeOnly("com.swirlds.config.extensions")
 }

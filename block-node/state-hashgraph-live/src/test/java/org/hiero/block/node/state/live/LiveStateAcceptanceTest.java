@@ -8,6 +8,9 @@ import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.pbj.runtime.grpc.ServiceInterface;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import com.swirlds.config.api.ConfigurationBuilder;
+import com.swirlds.merkledb.config.MerkleDbConfig;
+import com.swirlds.virtualmap.config.VirtualMapConfig;
+import org.hiero.consensus.config.PathsConfig;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import io.helidon.webserver.http.HttpService;
 import java.nio.file.Path;
@@ -109,15 +112,19 @@ class LiveStateAcceptanceTest {
     }
 
     @Test
-    void scenario5_snapshotPersistsMetadataAndSnapshotFile(@TempDir final Path tmp) {
+    void scenario5_snapshotPersistsMetadataAndSnapshotFile(@TempDir final Path tmp) throws java.io.IOException {
         final Fixture f = startPlugin(tmp);
         f.deliverBlock(1L, 10L);
         f.plugin.applyPendingNow();
         f.plugin.saveSnapshotNow();
 
         assertThat(tmp.resolve("md.json").toFile()).exists();
-        assertThat(tmp.resolve("recent").resolve("1").resolve("live-state.bin").toFile())
-                .exists();
+        // VirtualMapStateLifecycleManager.createSnapshot writes a directory tree, not a single file.
+        final java.nio.file.Path snapshotDir = tmp.resolve("recent").resolve("1");
+        assertThat(java.nio.file.Files.isDirectory(snapshotDir)).isTrue();
+        try (var stream = java.nio.file.Files.list(snapshotDir)) {
+            assertThat(stream.findAny()).isPresent();
+        }
         assertThat(f.facility.getSentStateUpdateNotifications())
                 .anyMatch(n -> n.type() == StateUpdateType.SNAPSHOT && n.blockNumber() == 1L);
 
@@ -156,6 +163,9 @@ class LiveStateAcceptanceTest {
         final TestBlockMessagingFacility facility = new TestBlockMessagingFacility();
         final var configuration = ConfigurationBuilder.create()
                 .withConfigDataType(LiveStateConfig.class)
+                .withConfigDataType(MerkleDbConfig.class)
+                .withConfigDataType(VirtualMapConfig.class)
+                .withConfigDataType(PathsConfig.class)
                 .withValue("state.live.stateMetadataPath", tmp.resolve("md.json").toString())
                 .withValue("state.live.stateSnapshotRecentPath", tmp.resolve("recent").toString())
                 .withValue("state.live.stateSnapshotHistoricPath", tmp.resolve("historic").toString())

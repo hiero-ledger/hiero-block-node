@@ -8,6 +8,7 @@ import com.hedera.hapi.block.stream.output.SingletonUpdateChange;
 import com.hedera.hapi.block.stream.output.StateChange;
 import com.hedera.hapi.block.stream.output.StateChanges;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
+import com.swirlds.state.BinaryState;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,27 +16,15 @@ import org.hiero.block.internal.BlockUnparsed;
 
 /**
  * Walks the items of a verified block, extracts metadata, and applies every
- * {@code state_changes} mutation to a {@link LiveState}.
+ * {@code state_changes} mutation to a {@link BinaryState} owned by
+ * {@link LiveStatePlugin}.
  *
  * <h2>Storage encoding</h2>
- * To stay independent of {@code swirlds-state-impl}, this applier owns its own
- * canonical encoding of state contents. The convention is straightforward:
- *
- * <ul>
- *   <li><b>Singleton</b>: the value bytes are
- *       {@code SingletonUpdateChange.PROTOBUF.toBytes(change)} — i.e. the full
- *       PBJ-encoded oneof carrier. Clients that issue {@code getBinarySingleton}
- *       receive these exact bytes and parse them back via
- *       {@link SingletonUpdateChange#PROTOBUF}.</li>
- *   <li><b>KV</b>: key bytes are {@code MapChangeKey.PROTOBUF.toBytes(key)};
- *       value bytes are {@code MapChangeValue.PROTOBUF.toBytes(value)}.</li>
- *   <li><b>Queue</b>: element bytes are
- *       {@code QueuePushChange.PROTOBUF.toBytes(push)}.</li>
- * </ul>
- *
- * <p>Using the wrapper-level encoding sidesteps having to switch on every
- * {@code oneof} variant — the same form survives a snapshot reload and hashes
- * deterministically.
+ * Each variant of {@link StateChange} is translated to its corresponding
+ * {@link BinaryState} write call. The bytes handed off are the PBJ-encoded
+ * carrier message ({@link MapChangeKey}, {@link MapChangeValue},
+ * {@link SingletonUpdateChange}, {@link QueuePushChange}) so the wire form is
+ * consistent on read-back through the {@code getBinary*} RPCs.
  */
 final class StateChangeApplier {
 
@@ -43,7 +32,7 @@ final class StateChangeApplier {
     record ApplyResult(long blockNumber, long roundNumber, int appliedChanges) {}
 
     @NonNull
-    ApplyResult applyBlock(@NonNull final LiveState state, @NonNull final BlockUnparsed block) {
+    ApplyResult applyBlock(@NonNull final BinaryState binaryState, @NonNull final BlockUnparsed block) {
         long blockNumber = -1L;
         long roundNumber = -1L;
         int applied = 0;
@@ -69,10 +58,8 @@ final class StateChangeApplier {
                 try {
                     final StateChanges changes =
                             StateChanges.PROTOBUF.parse(item.stateChangesOrThrow());
-                    applied += applyChanges(state, changes.stateChanges());
+                    applied += applyChanges(binaryState, changes.stateChanges());
                 } catch (final Exception e) {
-                    // A malformed state_changes item aborts apply of this block — bubble up so
-                    // the plugin can refuse to advance metadata.
                     throw new IllegalStateException("Failed to parse state_changes item", e);
                 }
             }
@@ -80,7 +67,8 @@ final class StateChangeApplier {
         return new ApplyResult(blockNumber, roundNumber, applied);
     }
 
-    private static int applyChanges(@NonNull final LiveState state, @NonNull final List<StateChange> changes) {
+    private static int applyChanges(
+            @NonNull final BinaryState binaryState, @NonNull final List<StateChange> changes) {
         int count = 0;
         for (final StateChange change : changes) {
             final int stateId = change.stateId();
@@ -91,7 +79,7 @@ final class StateChangeApplier {
                 case SINGLETON_UPDATE -> {
                     final SingletonUpdateChange su = change.singletonUpdate();
                     if (su != null) {
-                        state.updateSingleton(stateId, SingletonUpdateChange.PROTOBUF.toBytes(su));
+                        binaryState.updateSingleton(stateId, SingletonUpdateChange.PROTOBUF.toBytes(su));
                         count++;
                     }
                 }
@@ -100,7 +88,7 @@ final class StateChangeApplier {
                     if (mu != null && mu.hasKey() && mu.hasValue()) {
                         final Bytes key = MapChangeKey.PROTOBUF.toBytes(mu.keyOrThrow());
                         final Bytes value = MapChangeValue.PROTOBUF.toBytes(mu.valueOrThrow());
-                        state.updateKv(stateId, key, value);
+                        binaryState.updateKv(stateId, key, value);
                         count++;
                     }
                 }
@@ -108,19 +96,19 @@ final class StateChangeApplier {
                     final var md = change.mapDelete();
                     if (md != null && md.hasKey()) {
                         final Bytes key = MapChangeKey.PROTOBUF.toBytes(md.keyOrThrow());
-                        state.removeKv(stateId, key);
+                        binaryState.removeKv(stateId, key);
                         count++;
                     }
                 }
                 case QUEUE_PUSH -> {
                     final QueuePushChange qp = change.queuePush();
                     if (qp != null) {
-                        state.pushQueue(stateId, QueuePushChange.PROTOBUF.toBytes(qp));
+                        binaryState.pushQueue(stateId, QueuePushChange.PROTOBUF.toBytes(qp));
                         count++;
                     }
                 }
                 case QUEUE_POP -> {
-                    state.popQueue(stateId);
+                    binaryState.popQueue(stateId);
                     count++;
                 }
             }
