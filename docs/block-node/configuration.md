@@ -18,7 +18,7 @@
   - [Archive Plugin Configuration (S3 Archive)](#archive-plugin-configuration-s3-archive)
   - [Server Status Plugin Configuration](#server-status-plugin-configuration)
   - [Publisher Plugin Configuration](#publisher-plugin-configuration)
-  - [RSA Bootstrap Plugin Configuration](#tss-bootstrap-plugin-configuration)
+  - [RSA Bootstrap Plugin Configuration](#rsa-bootstrap-plugin-configuration)
   - [Subscriber Plugin Configuration](#subscriber-plugin-configuration)
   - [TSS Bootstrap Plugin Configuration](#tss-bootstrap-plugin-configuration)
   - [Verification Plugin Configuration](#verification-plugin-configuration)

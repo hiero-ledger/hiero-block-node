@@ -81,7 +81,6 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // Metric values stored after startup so ObservableGauge can read them
     private volatile long rosterEntriesLoaded = 0L;
     private volatile long rosterLoadDurationMs = 0L;
-    private long rosterLoadStartMs = 0L;
 
     /// {@inheritDoc}
     @Override
@@ -118,18 +117,20 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// an address book is retrieved and persisted.
     @Override
     public void start() {
-        rosterLoadStartMs = System.currentTimeMillis();
+        long startTimeMillis = System.currentTimeMillis();
         NodeAddressBook book = context.nodeAddressBook();
         String addressBookSource = "File";
 
         // Set up the asynchronous node address book fetcher
         // Create thread executors via threadPoolManager.
-        queryMnExecutor = context.threadPoolManager()
-                .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
+        if (!config.mirrorNodeBaseUrl().isBlank()) {
+            queryMnExecutor = context.threadPoolManager()
+                    .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
+        }
 
         if (book == null) {
             // No bootstrap file was loaded by BlockNodeApp.loadApplicationState()
-            if (config.mirrorNodeBaseUrl().isBlank()) {
+            if (queryMnExecutor == null) {
                 // @todo(#XXXX) replace this warning with proper plugin health reporting once
                 //   the block node supports plugin-level healthy/unhealthy status indication.
                 LOGGER.log(
@@ -138,29 +139,30 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                                 + " Provide rsa-bootstrap-roster.json or set roster.bootstrap.rsa.mirrorNodeBaseUrl.");
                 return;
             }
-
             // No retry limit — the node requires a roster to verify WRB proofs; keep polling
             // until Mirror Node is reachable. Each failed attempt is logged at ERROR level.
             // Will be canceled once an address book is retrieved.
-            scheduledFuture = queryMnExecutor.scheduleAtFixedRate(
-                    this::fetchFromMirrorNode, 0, config.initialQueryIntervalMillis(), TimeUnit.MILLISECONDS);
+            scheduledFuture = scheduleFetch(0, config.initialQueryIntervalMillis());
         } else {
             rosterEntriesLoaded = book.nodeAddress().size();
-            rosterLoadDurationMs = System.currentTimeMillis() - rosterLoadStartMs;
+            rosterLoadDurationMs = System.currentTimeMillis() - startTimeMillis;
             LOGGER.log(
                     INFO,
                     "RSA roster available: {0} entries obtained from {1} loaded in {2}ms",
                     rosterEntriesLoaded,
                     addressBookSource,
                     rosterLoadDurationMs);
-
-            // start a new scheduledExecutor task at the subsequent interval rate
-            queryMnExecutor.scheduleAtFixedRate(
-                    this::fetchFromMirrorNode,
-                    config.subsequentQueryIntervalMillis(),
-                    config.subsequentQueryIntervalMillis(),
-                    TimeUnit.MILLISECONDS);
+            scheduleFetch(config.subsequentQueryIntervalMillis(), config.subsequentQueryIntervalMillis());
         }
+    }
+
+    private ScheduledFuture<?> scheduleFetch(long initialDelayMillis, long periodMillis) {
+        if (queryMnExecutor == null) return null;
+
+        // Set up the asynchronous node address book fetcher
+        // Create thread executors via threadPoolManager.
+        return queryMnExecutor.scheduleAtFixedRate(
+                this::fetchFromMirrorNode, initialDelayMillis, periodMillis, TimeUnit.MILLISECONDS);
     }
 
     /// {@inheritDoc}
@@ -177,6 +179,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// Scheduled repeatedly until it succeeds. Upon success, the `scheduledFuture.cancel()` method will be called
     /// to cancel this task.
     private void fetchFromMirrorNode() {
+        long startTimeMillis = System.currentTimeMillis();
         try (final HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
                 .build()) {
@@ -236,19 +239,15 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             // BlockNodeApp.updateAddressBook() persists the file and calls onContextUpdate.
             applicationStateFacility.updateAddressBook(book);
 
-            rosterLoadDurationMs = System.currentTimeMillis() - rosterLoadStartMs;
+            rosterEntriesLoaded = book.nodeAddress().size();
+            rosterLoadDurationMs = System.currentTimeMillis() - startTimeMillis;
 
             if (scheduledFuture != null) {
                 // We found an address book stop the mirror node requests at the initial query interval.
                 scheduledFuture.cancel(false);
                 scheduledFuture = null;
 
-                // start a new scheduledExecutor task at the subsequent interval rate
-                queryMnExecutor.scheduleAtFixedRate(
-                        this::fetchFromMirrorNode,
-                        config.subsequentQueryIntervalMillis(),
-                        config.subsequentQueryIntervalMillis(),
-                        TimeUnit.MILLISECONDS);
+                scheduleFetch(config.subsequentQueryIntervalMillis(), config.subsequentQueryIntervalMillis());
             }
 
             LOGGER.log(
@@ -310,6 +309,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                queryMnExecutor.shutdownNow();
             }
         }
     }
