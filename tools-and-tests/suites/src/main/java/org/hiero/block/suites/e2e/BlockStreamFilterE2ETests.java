@@ -41,7 +41,7 @@ import org.junit.jupiter.api.Timeout;
 
 /**
  * E2E tests for the block-stream filter on the publisher side. Each test
- * configures {@link org.hiero.block.node.stream.publisher.PublisherConfig}
+ * configures {@code PublisherConfig}
  * via System properties (the same {@code SystemPropertiesConfigSource}
  * ordinal-400 pattern used by {@code BlockNodeCloudStorageTests}), boots
  * {@code BlockNodeApp} in-JVM, and exercises the publisher gRPC.
