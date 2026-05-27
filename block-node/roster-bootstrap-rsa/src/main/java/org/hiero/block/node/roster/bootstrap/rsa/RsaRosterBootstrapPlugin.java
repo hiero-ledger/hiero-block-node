@@ -81,7 +81,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // Metric values stored after startup so ObservableGauge can read them
     private volatile long rosterEntriesLoaded = 0L;
     private volatile long rosterLoadDurationMs = 0L;
-    private volatile long rosterLoadStartMs = 0L;
+    private long rosterLoadStartMs = 0L;
 
     /// {@inheritDoc}
     @Override
@@ -166,6 +166,8 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     // -------------------------------------------------------------------------
 
     /// Fetches the node address book from the Mirror Node REST API with pagination and retries.
+    /// Scheduled repeatedly until it succeeds. Upon success, the `scheduledFuture.cancel()` method will be called
+    /// to cancel this task.
     private void fetchFromMirrorNode() {
         try (final HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(config.mirrorNodeConnectTimeoutSeconds()))
@@ -229,7 +231,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
             rosterLoadDurationMs = System.currentTimeMillis() - rosterLoadStartMs;
 
             // We found an address book stop the mirror node requests
-            scheduledFuture.cancel(true);
+            scheduledFuture.cancel(false);
 
             LOGGER.log(
                     INFO,
@@ -254,10 +256,10 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                     .GET()
                     .build();
             final HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                throw new IOException("HTTP " + response.statusCode() + " from " + url);
+            if (response.statusCode() == 200) {
+                return MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(response.body()));
             }
-            return MirrorNodeNodesResponse.JSON.parse(Bytes.wrap(response.body()));
+            lastCause = new IOException("HTTP " + response.statusCode() + " from " + url);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             lastCause = ie;
