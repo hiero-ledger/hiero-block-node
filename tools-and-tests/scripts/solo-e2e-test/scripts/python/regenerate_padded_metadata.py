@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Regenerate block_times.bin and day_blocks.json with padding for wrap retry."""
 
 import sys
