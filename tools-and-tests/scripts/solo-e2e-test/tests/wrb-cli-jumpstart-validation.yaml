@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# WRB CLI Jumpstart Validation Test (#2775)
+#
+# Phase 3: Validates that WRB CLI jumpstart.bin creation produces correct
+# block hashes and state that match CN block production. Extends Phase 2
+# by adding jumpstart file validation and content comparison.
+#
+# Validations performed:
+#   - CLI creates jumpstart.bin during wrap process
+#   - Jumpstart file format is valid
+#   - Jumpstart block hashes match CN block hashes
+#   - Jumpstart streaming hasher state is correct
+#   - Jumpstart can be used for validation (validate command)
+#
+# Prerequisites:
+#   - Single topology deployed (1 CN, 1 BN)
+#   - Port forwards active (task port-forward)
+#   - Record files available in MinIO/CN
+#
+# Usage:
+#   task test:run TEST_FILE=tests/wrb-cli-jumpstart-validation.yaml
+
+name: wrb-cli-jumpstart-validation
+description: "Validate WRB CLI jumpstart.bin creation and contents"
+
+events:
+  - id: initial-status
+    type: network-status
+    description: "Confirm nodes are running"
+    delay: 5
+
+  - id: block-production-wait
+    type: sleep
+    description: "Wait for CN to produce blocks and record files"
+    delay: 10
+    args:
+      seconds: 120
+
+  - id: pre-validation-metrics
+    type: print-metrics
+    description: "Capture pre-validation state"
+    delay: 135
+    args:
+      target: all
+
+  - id: build-tools-jar
+    type: command
+    description: "Build tools shadow jar"
+    delay: 140
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh build"
+
+  - id: extract-record-files
+    type: command
+    description: "Extract record files from MinIO/CN"
+    delay: 145
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh extract"
+
+  - id: wrap-blocks
+    type: command
+    description: "Wrap record files with WRB CLI (creates jumpstart.bin)"
+    delay: 150
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh wrap"
+
+  - id: validate-jumpstart-format
+    type: command
+    description: "Validate jumpstart.bin file format and contents"
+    delay: 155
+    timeout: 300
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh validate-jumpstart"
+
+  - id: compare-blocks
+    type: command
+    description: "Compare CLI-wrapped blocks to CN blocks"
+    delay: 160
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh compare"
+
+  - id: validate-with-jumpstart
+    type: command
+    description: "Run validate command to verify jumpstart consistency"
+    delay: 165
+    timeout: 600
+    args:
+      script: "${SCRIPT_DIR}/wrb-cli-wrap-and-compare.sh validate-blocks"
+
+  - id: final-status
+    type: network-status
+    description: "Post-validation network status"
+    delay: 170
+
+assertions:
+  - id: all-healthy
+    type: node-healthy
+    description: "All Block Nodes are healthy"
+    target: all
+
+  - id: all-have-blocks
+    type: block-available
+    description: "All Block Nodes have blocks"
+    target: all
+    args:
+      min_block: 0
+
+  - id: no-verify-errors
+    type: no-errors
+    description: "No verification errors"
+    target: all
