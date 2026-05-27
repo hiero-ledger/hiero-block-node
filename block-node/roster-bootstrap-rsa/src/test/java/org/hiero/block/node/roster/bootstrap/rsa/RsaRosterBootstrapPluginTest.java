@@ -292,11 +292,20 @@ class RsaRosterBootstrapPluginTest
         void http500TriggersRetryThenSucceeds() throws InterruptedException {
             final AtomicInteger callCount = new AtomicInteger(0);
             server.createContext("/api/v1/network/nodes", exchange -> {
-                if (callCount.getAndIncrement() == 0) {
+                int call = callCount.getAndIncrement();
+                if (call == 0) {
                     exchange.sendResponseHeaders(500, -1);
-                } else {
+                } else if (call == 1) {
                     final byte[] bytes =
                             "{\"nodes\":[{\"node_id\":1,\"public_key\":\"aabbcc\"}],\"links\":{\"next\":null}}"
+                                    .getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    try (var out = exchange.getResponseBody()) {
+                        out.write(bytes);
+                    }
+                } else {
+                    final byte[] bytes =
+                            "{\"nodes\":[{\"node_id\":2,\"public_key\":\"ddeeff\"}],\"links\":{\"next\":null}}"
                                     .getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(200, bytes.length);
                     try (var out = exchange.getResponseBody()) {
@@ -316,7 +325,17 @@ class RsaRosterBootstrapPluginTest
             final NodeAddressBook book = blockNodeContext.nodeAddressBook();
             assertNotNull(book);
             assertEquals(1, book.nodeAddress().size());
+            assertEquals(1, book.nodeAddress().getFirst().nodeId());
             assertEquals("aabbcc", book.nodeAddress().getFirst().rsaPubKey());
+
+            // Third task should also succeed
+            testThreadPoolManager.scheduledExecutor().executeSerially();
+
+            final NodeAddressBook book2 = blockNodeContext.nodeAddressBook();
+            assertNotNull(book2);
+            assertEquals(1, book2.nodeAddress().size());
+            assertEquals(2, book2.nodeAddress().getFirst().nodeId());
+            assertEquals("ddeeff", book2.nodeAddress().getFirst().rsaPubKey());
         }
     }
 

@@ -72,7 +72,7 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
     /// The ScheduledExecutorService used by the RosterBootstrapPlugin to query peer Mirror Nodes for a Node
     /// Address Book
     private ScheduledExecutorService queryMnExecutor;
-    private ScheduledFuture<?> scheduledFuture;
+    private ScheduledFuture<?> scheduledFuture = null;
 
     private volatile BlockNodeContext context;
     private RsaRosterBootstrapConfig config;
@@ -122,6 +122,11 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
         NodeAddressBook book = context.nodeAddressBook();
         String addressBookSource = "File";
 
+        // Set up the asynchronous node address book fetcher
+        // Create thread executors via threadPoolManager.
+        queryMnExecutor = context.threadPoolManager()
+                .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
+
         if (book == null) {
             // No bootstrap file was loaded by BlockNodeApp.loadApplicationState()
             if (config.mirrorNodeBaseUrl().isBlank()) {
@@ -133,16 +138,12 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                                 + " Provide rsa-bootstrap-roster.json or set roster.bootstrap.rsa.mirrorNodeBaseUrl.");
                 return;
             }
-            // Set up the asynchronous node address book fetcher
-            // Create thread executors via threadPoolManager.
-            queryMnExecutor = context.threadPoolManager()
-                    .createVirtualThreadScheduledExecutor(1, "queryMnScanner", this::uncaughtExceptionHandler);
 
             // No retry limit — the node requires a roster to verify WRB proofs; keep polling
             // until Mirror Node is reachable. Each failed attempt is logged at ERROR level.
             // Will be canceled once an address book is retrieved.
             scheduledFuture = queryMnExecutor.scheduleAtFixedRate(
-                    this::fetchFromMirrorNode, 0, config.mirrorNodeQueryIntervalMillis(), TimeUnit.MILLISECONDS);
+                    this::fetchFromMirrorNode, 0, config.initialQueryIntervalMillis(), TimeUnit.MILLISECONDS);
         } else {
             rosterEntriesLoaded = book.nodeAddress().size();
             rosterLoadDurationMs = System.currentTimeMillis() - rosterLoadStartMs;
@@ -152,6 +153,13 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
                     rosterEntriesLoaded,
                     addressBookSource,
                     rosterLoadDurationMs);
+
+            // start a new scheduledExecutor task at the subsequent interval rate
+            queryMnExecutor.scheduleAtFixedRate(
+                    this::fetchFromMirrorNode,
+                    config.subsequentQueryIntervalMillis(),
+                    config.subsequentQueryIntervalMillis(),
+                    TimeUnit.MILLISECONDS);
         }
     }
 
@@ -230,8 +238,18 @@ public class RsaRosterBootstrapPlugin implements BlockNodePlugin {
 
             rosterLoadDurationMs = System.currentTimeMillis() - rosterLoadStartMs;
 
-            // We found an address book stop the mirror node requests
-            scheduledFuture.cancel(false);
+            if (scheduledFuture != null) {
+                // We found an address book stop the mirror node requests at the initial query interval.
+                scheduledFuture.cancel(false);
+                scheduledFuture = null;
+
+                // start a new scheduledExecutor task at the subsequent interval rate
+                queryMnExecutor.scheduleAtFixedRate(
+                        this::fetchFromMirrorNode,
+                        config.subsequentQueryIntervalMillis(),
+                        config.subsequentQueryIntervalMillis(),
+                        TimeUnit.MILLISECONDS);
+            }
 
             LOGGER.log(
                     INFO,

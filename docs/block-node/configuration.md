@@ -200,13 +200,14 @@ Currently, no specific options.
 
 ### RSA Bootstrap Plugin Configuration
 
-| ENV Variable                                             | Description                                                             | Default |
-|:---------------------------------------------------------|:------------------------------------------------------------------------|--------:|
-| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL                | The URL of the mirror node from which to request the node address book. |      "" |
-| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_QUERY_INTERVAL_MILLIS   | The period between queries to the mirror node for a node address book.  |    5000 |
-| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_CONNECT_TIMEOUT_SECONDS | TCP connect timeout when calling the Mirror Node.                       |       5 |
-| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_READ_TIMEOUT_SECONDS    | Per-request read timeout when calling the Mirror Node.                  |      10 |
-| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_PAGE_SIZE               | Number of nodes requested per paginated Mirror Node call.               |     100 |
+| ENV Variable                                             | Description                                                                                  | Default |
+|:---------------------------------------------------------|:---------------------------------------------------------------------------------------------|--------:|
+| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_BASE_URL                | The URL of the mirror node from which to request the node address book.                      |      "" |
+| ROSTER_BOOTSTRAP_RSA_INITIAL_QUERY_INTERVAL_MILLIS       | The initial period between queries to the mirror node until a node address book is found.    |    5000 |
+| ROSTER_BOOTSTRAP_RSA_SUBSEQUENT_QUERY_INTERVAL_MILLIS    | The subsequent period between queries to the mirror node after a node address book is found. |   60000 |
+| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_CONNECT_TIMEOUT_SECONDS | TCP connect timeout when calling the Mirror Node.                                            |       5 |
+| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_READ_TIMEOUT_SECONDS    | Per-request read timeout when calling the Mirror Node.                                       |      10 |
+| ROSTER_BOOTSTRAP_RSA_MIRROR_NODE_PAGE_SIZE               | Number of nodes requested per paginated Mirror Node call.                                    |     100 |
 
 ### Subscriber Plugin Configuration
 

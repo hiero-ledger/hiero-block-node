@@ -14,6 +14,10 @@ import org.hiero.block.node.base.Loggable;
 /// @param mirrorNodeBaseUrl base URL of the Mirror Node REST API used when no local file is present;
 ///     leave blank to disable Mirror Node fallback (a WARNING is logged at startup if blank and no
 ///     bootstrap file is present)
+/// @param initialQueryIntervalMillis The initial period between queries to the mirror node until a node address book is
+/// found.
+/// @param subsequentQueryIntervalMillis The subsequent period between queries to the mirror node after a node address
+/// book is found.
 /// @param mirrorNodeConnectTimeoutSeconds TCP connect timeout when calling the Mirror Node
 /// @param mirrorNodeReadTimeoutSeconds per-request read timeout when calling the Mirror Node
 /// @param mirrorNodePageSize number of nodes requested per paginated Mirror Node call
@@ -21,7 +25,8 @@ import org.hiero.block.node.base.Loggable;
 public record RsaRosterBootstrapConfig(
         // spotless:off
         @Loggable @ConfigProperty(defaultValue = "") String mirrorNodeBaseUrl,
-        @Loggable @ConfigProperty(defaultValue = "5000") @Min(100) int mirrorNodeQueryIntervalMillis,
+        @Loggable @ConfigProperty(defaultValue = "5000") @Min(100) int initialQueryIntervalMillis,
+        @Loggable @ConfigProperty(defaultValue = "60000") @Min(10000) int subsequentQueryIntervalMillis,
         @Loggable @ConfigProperty(defaultValue = "5") int mirrorNodeConnectTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "10") int mirrorNodeReadTimeoutSeconds,
         @Loggable @ConfigProperty(defaultValue = "100") int mirrorNodePageSize) {}
