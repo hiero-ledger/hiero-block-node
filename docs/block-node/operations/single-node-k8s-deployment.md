@@ -78,7 +78,7 @@ in addition to metalLB load balancing.
 
 With the server provisioned, follow these steps to deploy the Block Node Server on a single-node Kubernetes cluster:
 
-Note 1: Skip steps 1 through 7 if you utilize Solo Provisioner as will install teh block node for you.
+Note 1: Skip steps 1 through 7 if you utilize Solo Provisioner as will install the block node for you.
 
 Note 2: Some steps are marked as intermediate, indicating they will change due to improvements.
 
