@@ -254,7 +254,9 @@ public class ScheduledBlockingExecutor extends ScheduledThreadPoolExecutor {
                     workQueue.add(entry.command());
                 }
             } else {
-                workQueue.add(entry.task());
+                if (!entry.task().isCancelled()) {
+                    workQueue.add(entry.task());
+                }
                 toRemove.add(entry);
             }
         }
