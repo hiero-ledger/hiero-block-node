@@ -42,3 +42,60 @@ message BlockEnd {
      */
     uint64 block_number = 1;
 }
+
+/**
+ * Describes which `BlockItem` kinds a publisher or subscriber wishes the
+ * Block-Node to forward, expressed as a per-kind allow- or deny-list.
+ *
+ * Used by:
+ *   - `producer.blockStreamFilter` in `PublisherConfig` (publish-side,
+ *     applied at ingress before persistence/messaging — LOSSY at the
+ *     Block-Node).
+ *   - `SubscribeStreamRequest.filter` (subscribe-side, applied per
+ *     subscriber — LOSSLESS at the Block-Node).
+ *
+ * Block items that the filter rejects SHALL be replaced by a
+ * `FilteredSingleItem` carrying the rejected item's hash and the
+ * `SubMerkleTree` it occupied, so block-proof verification of the
+ * resulting stream remains possible.
+ *
+ * `BlockHeader`, `BlockProof`, and `BlockFooter` block items are
+ * load-bearing for the block proof and SHALL be forwarded regardless
+ * of the filter. Implementations MUST silently ignore a filter that
+ * would otherwise reject them.
+ */
+message BlockStreamFilter {
+    /**
+     * Allow- vs deny-list semantics.
+     *
+     * If `true`,  ONLY items whose `BlockItem.item` oneof field number
+     *             appears in `block_item_types` are forwarded.<br/>
+     * If `false`, items whose `BlockItem.item` oneof field number
+     *             appears in `block_item_types` are DROPPED; all others
+     *             are forwarded.
+     *
+     * The default value `false` with an empty `block_item_types` list
+     * is the identity filter (pass-through).
+     */
+    bool include = 1;
+
+    /**
+     * Field numbers of the `BlockItem.item` oneof variants this filter
+     * applies to. See
+     * `hiero-consensus-node/.../block/stream/block_item.proto` for the
+     * canonical mapping; common values:
+     *   2  EventHeader
+     *   3  RoundHeader
+     *   4  SignedTransaction
+     *   5  TransactionResult
+     *   6  TransactionOutput
+     *   7  StateChanges
+     *   11 TraceData
+     *   19 RedactedItem
+     *
+     * `uint32` is used rather than a mirror enum so future
+     * `BlockItem.item` variants are forward-compatible without a
+     * Block-Node protobuf change.
+     */
+    repeated uint32 block_item_types = 2;
+}
