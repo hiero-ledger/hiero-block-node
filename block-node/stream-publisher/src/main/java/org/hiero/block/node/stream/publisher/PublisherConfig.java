@@ -5,6 +5,7 @@ import com.swirlds.config.api.ConfigData;
 import com.swirlds.config.api.ConfigProperty;
 import com.swirlds.config.api.validation.annotation.Max;
 import com.swirlds.config.api.validation.annotation.Min;
+import java.util.List;
 import org.hiero.block.node.base.Loggable;
 
 /// Configuration for a block stream publisher plugin.
@@ -29,6 +30,14 @@ import org.hiero.block.node.base.Loggable;
 /// `EndOfStream(DUPLICATE_BLOCK)`. A publisher that is only slightly behind can then
 /// fast-forward without reconnecting; a publisher that is further behind than the
 /// window is still ended so it reconnects from the correct point.
+/// @param blockStreamFilterInclude Allow- vs deny-list semantics for the
+/// publish-side filter. When `blockStreamFilterItemTypes` is empty the filter
+/// is identity (pass-through) regardless of this value. When non-empty:
+/// `true` keeps only the listed `BlockItem.item` oneof field numbers;
+/// `false` drops those and keeps everything else. `BlockHeader` (1),
+/// `BlockProof` (9), and `BlockFooter` (12) are always forwarded.
+/// @param blockStreamFilterItemTypes Field numbers of the `BlockItem.item`
+/// oneof variants the publish-side filter applies to. Empty = no filtering.
 @ConfigData("producer")
 public record PublisherConfig(
         // spotless:off
@@ -37,6 +46,8 @@ public record PublisherConfig(
         @Loggable @ConfigProperty(defaultValue = "3") @Min(3) @Max(50) int MaxFutureBlocksBeforeStalled,
         @Loggable @ConfigProperty(defaultValue = "100") @Min(0L) @Max(200L) long staleResendPruneBuffer,
         @Loggable @ConfigProperty(defaultValue = "100_000_000") @Min(100_000L) @Max(5_000_000_000L) long flowControlPauseDelayNanos,
-        @Loggable @ConfigProperty(defaultValue = "5") @Min(1) @Max(10) int duplicateBlockSkipWindow) {
+        @Loggable @ConfigProperty(defaultValue = "5") @Min(1) @Max(10) int duplicateBlockSkipWindow,
+        @Loggable @ConfigProperty(defaultValue = "false") boolean blockStreamFilterInclude,
+        @Loggable @ConfigProperty(defaultValue = "") List<Integer> blockStreamFilterItemTypes) {
         // spotless:on
 }
