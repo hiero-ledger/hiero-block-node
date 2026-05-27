@@ -455,7 +455,6 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
-            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
@@ -502,7 +501,6 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
-            endThisBlock(toPluginPipe, 0L);
             // Await to ensure async execution and assert response
             awaitPluginResponses(1);
             // Assert that the block has been successfully streamed
@@ -543,7 +541,6 @@ class StreamPublisherPluginTest {
                     .build();
             // Send the request to the pipeline
             toPluginPipe.onNext(PublishStreamRequestUnparsed.PROTOBUF.toBytes(request));
-            endThisBlock(toPluginPipe, block.number());
             // Await to ensure async execution and assert response
             awaitPluginResponses(1);
             // Assert that the block has been successfully streamed

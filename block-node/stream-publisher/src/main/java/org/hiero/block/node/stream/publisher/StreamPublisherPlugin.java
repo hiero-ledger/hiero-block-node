@@ -91,6 +91,15 @@ public final class StreamPublisherPlugin implements BlockNodePlugin, BlockStream
             .addCategory(METRICS_CATEGORY);
     public static final MetricKey<LongCounter> METRIC_PUBLISHER_STALL_TIMEOUTS_SENT =
             MetricKey.of("publisher_stall_timeouts_sent", LongCounter.class).addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_FLOW_CONTROL_INDIVIDUAL_PAUSES = MetricKey.of(
+                    "publisher_flow_control_individual_pauses", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_FLOW_CONTROL_AGGREGATE_PAUSES = MetricKey.of(
+                    "publisher_flow_control_aggregate_pauses", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
+    public static final MetricKey<LongCounter> METRIC_PUBLISHER_FLOW_CONTROL_PENALTIES_APPLIED = MetricKey.of(
+                    "publisher_flow_control_penalties_applied", LongCounter.class)
+            .addCategory(METRICS_CATEGORY);
 
     /// The logger for this class.
     private static final System.Logger LOGGER = System.getLogger(StreamPublisherPlugin.class.getName());

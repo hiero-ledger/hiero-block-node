@@ -14,6 +14,7 @@ import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_ITEMS_RECEIVED;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_NODE_BEHIND_SENT;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_BLOCK_SEND_RESPONSE_FAILED;
+import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_FLOW_CONTROL_INDIVIDUAL_PAUSES;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_RECEIVE_LATENCY_NS;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_ERRORS;
 import static org.hiero.block.node.stream.publisher.StreamPublisherPlugin.METRIC_PUBLISHER_STREAM_SETS_DROPPED;
@@ -81,6 +82,12 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             "metric-end-to-end-latency-by-block-end block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}";
     private static final String LATENCY_START_MESSAGE =
             "metric-end-to-end-latency-by-block-start block={0,number,#} nsTimestamp={1,number,#} handlerId={2} correlationId={3}";
+    /// A delay to allow a publisher time to _process_ an end of stream message
+    /// before the connection closes. This is _not_ related to network latency.
+    /// The connection close will take as long to transmit as the end of stream
+    /// message; this delay is for processing on the publisher so it does not
+    /// see the connection close too quickly after receiving the end-of-stream
+    /// message.
     private static final long SHUTDOWN_DELAY_TIME = 10_000_000; // 10 milliseconds
 
     private final Logger LOGGER = System.getLogger(getClass().getName());
@@ -104,8 +111,11 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     private final NavigableSet<Long> unacknowledgedStreamedBlocks;
     /// The state of the publisher, true if it is still active.
     private final AtomicBoolean isActive;
-    /// Set true to pause the handler, and stop accepting input.
-    private final AtomicBoolean isPaused;
+    /// Remaining message budget for the current interval. Decremented on each `onNext` call.
+    /// Refreshed by the manager at the end of each interval, or set to 0 when aggregate budget
+    /// is exceeded, or set to -1L when penalized. Long.MIN_VALUE signals shutdown in progress
+    /// so the refresh task skips this handler.
+    private final AtomicLong messageBudget;
     /// The current configuration for the publisher.
     private final PublisherConfig configuration;
     // @todo() remove this (and its usage) and use telemetry or metrics queries instead
@@ -140,8 +150,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         blockAction = new AtomicReference<>();
         unacknowledgedStreamedBlocks = new ConcurrentSkipListSet<>();
         isActive = new AtomicBoolean(true);
-        isPaused = new AtomicBoolean(false);
         configuration = publisherManager.configuration();
+        messageBudget = new AtomicLong(configuration.perHandlerMessageBudget());
     }
 
     // A package-private method for accessing correlation ID for tracing support.
@@ -153,31 +163,25 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     @Override
     public void onError(@NonNull final Throwable throwable) {
-        try {
-            // This is a "terminal" method, called when an _unrecoverable_ error
-            // occurs. No other methods will be called by the Helidon layer after this.
-            final String message = "Handler %d received error: %s".formatted(handlerId, throwable);
-            LOGGER.log(DEBUG, message, throwable);
-            sendEndOfStream(Code.ERROR); // this might not succeed...
-        } finally {
-            // Shut down this handler, even if sending the message failed
-            // or metrics failed.
-            checkMidBlockAndShutdown(currentStreamingBlockNumber.get());
-        }
+        // This is a "terminal" method, called when an _unrecoverable_ error
+        // occurs. No other methods will be called by the Helidon layer after this.
+        final String message = "Handler %d received error: %s".formatted(handlerId, throwable);
+        LOGGER.log(DEBUG, message, throwable);
+        endStreamWithCode(Code.ERROR, true); // This handles shutdown as well
     }
 
     @Override
     public void onComplete() {
         // This is mostly a cleanup method, called when the stream is complete
         // and `onNext` will not be called again.
-        checkMidBlockAndShutdown(currentStreamingBlockNumber.get());
+        checkMidBlockAndShutdown(currentStreamingBlockNumber.get(), false);
     }
 
     @Override
     public void clientEndStreamReceived() {
         // called when the _gRPC layer_ receives an HTTP end stream from the client.
         // THIS IS NOT the same as the `EndStream` message in the API.
-        checkMidBlockAndShutdown(currentStreamingBlockNumber.get());
+        checkMidBlockAndShutdown(currentStreamingBlockNumber.get(), false);
     }
 
     @Override
@@ -188,27 +192,33 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
     @Override
     public void onNext(@NonNull final PublishStreamRequestUnparsed request) {
-        if (isPaused.compareAndSet(true, false)) {
-            // If we need to pause, park for the configured delay.
-            LockSupport.parkNanos(configuration.flowControlPauseDelayNanos());
+        // cannot decrementAndGet here, as that will overcount due to the loop
+        // Note, this thread cannot release itself, only the manager refresh task
+        // (or shutdown task) will reset the budget.
+        boolean paused = false;
+        while (messageBudget.get() <= 0) {
+            paused = true;
+            LockSupport.parkNanos(configuration.flowControlRefreshIntervalNanos());
         }
+        if (paused) {
+            metrics.flowControlIndividualPauses().increment();
+        }
+        // Now we decrement, because we're actually processing the message.
+        messageBudget.decrementAndGet();
         if (!isActive.get()) {
-            checkMidBlockAndShutdown(currentStreamingBlockNumber.get());
+            // We need to delay here because this is set when we sent an
+            // end of stream message, but might receive a new onNext too
+            // quickly after sending that message.
+            checkMidBlockAndShutdown(currentStreamingBlockNumber.get(), true);
         } else {
             try {
-                LOGGER.log(TRACE, "[{0}] Handler {1} received request", correlationIdPrefix, handlerId);
                 final PublisherRequestResult result = processNextRequestUnparsed(request);
                 result.handle();
-                LOGGER.log(TRACE, "[{0}] Handler {1} finished processing request", correlationIdPrefix, handlerId);
             } catch (final RuntimeException e) {
                 // If we reach here, it means that the handler was interrupted or
                 // an unexpected error occurred. We should log the error and shut down.
-                try {
-                    LOGGER.log(INFO, "[%2$s] Error processing request: %1$s".formatted(e, correlationIdPrefix), e);
-                    sendEndOfStream(Code.ERROR);
-                } finally {
-                    checkMidBlockAndShutdown(currentStreamingBlockNumber.get());
-                }
+                LOGGER.log(INFO, "[%2$s] Error processing request: %1$s".formatted(e, correlationIdPrefix), e);
+                endStreamWithCode(Code.ERROR, true);
             }
             // @todo check the current backlog by calling a manager method to
             //    check backlog and pause for a few milliseconds if difference
@@ -223,6 +233,26 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return handlerId;
     }
 
+    /// Returns the current remaining message budget. Used by the flow-control refresh task.
+    long getMessageBudget() {
+        return messageBudget.get();
+    }
+
+    /// Sets the message budget using CAS so that a concurrent shutdown (Long.MIN_VALUE) is
+    /// never overwritten by the refresh task.
+    ///
+    /// @param expectedValue the value the budget must currently hold for the set to succeed
+    /// @param newValue the new budget value to apply
+    void setMessageBudget(final long expectedValue, final long newValue) {
+        messageBudget.compareAndSet(expectedValue, newValue);
+    }
+
+    /// Clears the message budget to 0, pausing the handler for the next interval.
+    /// Called by the manager when the aggregate budget limit is reached.
+    void clearMessageBudget() {
+        messageBudget.set(0);
+    }
+
     /// Send an acknowledgement for the last block number that was persisted.
     ///
     /// This method is called when the a block is persisted and verified
@@ -233,8 +263,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     /// @param blockToAcknowledge the last block number that was
     ///     verified and persisted.
     public void sendAcknowledgement(final long blockToAcknowledge) {
-        final String ackTraceStartMessage = "[{0}] Handler {1} sending acknowledgement for block {2}";
-        LOGGER.log(TRACE, ackTraceStartMessage, correlationIdPrefix, handlerId, blockToAcknowledge);
         // We only ever need to acknowledge once for a given block number, even
         // if there are several blocks "behind" that acknowledgement.
         // The publishers expect that acknowledgement for block N implicitly
@@ -257,7 +285,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         } else {
             // Here, we must end immediately, because if we failed to send, then
             // we will never get another `onNext`.
-            checkMidBlockAndShutdown(currentStreamingBlockNumber.get());
+            checkMidBlockAndShutdown(currentStreamingBlockNumber.get(), false);
         }
     }
 
@@ -297,7 +325,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             sendEndOfStream(codeToSend);
         } finally {
             if (immediate) {
-                checkMidBlockAndShutdown(currentStreamingBlockNumber.get());
+                // Do not wait for incoming data, but we still need to delay
+                // slightly to allow the end of stream message to be processed.
+                checkMidBlockAndShutdown(currentStreamingBlockNumber.get(), true);
             } else {
                 scheduleShutdown();
             }
@@ -310,17 +340,24 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         isActive.set(false);
     }
 
-    private void checkMidBlockAndShutdown(final long blockNumber) {
+    /// todo add documentation
+    private void checkMidBlockAndShutdown(final long blockNumber, final boolean scheduleWithDelay) {
         try {
-            isActive.compareAndSet(true, false); // shouldn't be needed, but set just in case.
             if (isCurrentlyMidBlock(blockNumber)) {
                 publisherManager.blockIsEnding(currentStreamingBlockNumber.get(), handlerId);
             }
         } finally {
-            // pause the handler while we delay shutdown
-            isPaused.set(true);
-            // Do not shutdown immediately, allow for final messages to send first.
-            publisherManager.scheduleAfterDelay(this::shutdown, SHUTDOWN_DELAY_TIME);
+            if (scheduleWithDelay) {
+                // Set budget to Long.MIN_VALUE so any subsequent onNext calls park
+                // until shutdown completes. Long.MIN_VALUE is also a signal to the
+                // refresh task to skip this handler.
+                messageBudget.set(Long.MIN_VALUE);
+                // Do not shutdown instantly, allow for final messages to send first.
+                publisherManager.scheduleAfterDelay(this::shutdown, SHUTDOWN_DELAY_TIME);
+            } else {
+                isActive.compareAndSet(true, false); // shouldn't be needed, but set just in case.
+                shutdown();
+            }
             resetState();
         }
     }
@@ -437,9 +474,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         };
     }
 
-    /// todo(1420) add documentation
-    ///
-    /// @return
+    /// todo add documentation
     private PublisherRequestResult handleEndStreamRequest(final EndStream endStream) {
         final EndStream.Code code = endStream.endCode();
         final long endStreamEarliestBlockNumber = endStream.earliestBlockNumber();
@@ -470,6 +505,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return result;
     }
 
+    /// todo add documentation
     private PublisherRequestResult handleEndOfBlock(final BlockEnd endOfBlock) {
         final long endOfBlockNumber = endOfBlock.blockNumber();
         final long currentStreamingNumber = currentStreamingBlockNumber.get();
@@ -516,6 +552,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return result;
     }
 
+    /// todo add documentation
     private PublisherRequestResult unexpectedActionForEndOfBlock(
             final ActionForBlock actionForBlock, final long blockToEnd) {
         final String errorMessage =
@@ -523,6 +560,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return handleEndError(WARNING, errorMessage, correlationIdPrefix, handlerId, actionForBlock, blockToEnd);
     }
 
+    /// todo add documentation
     private boolean isEndStreamRequestValid(
             final EndStream.Code code, final long endStreamEarliestBlockNumber, final long endStreamLatestBlockNumber) {
         boolean isRequestValid = false;
@@ -542,6 +580,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
         return isRequestValid;
     }
 
+    /// todo add documentation
     private PublisherRequestResult handleValidEndStreamRequest(
             final EndStream.Code code,
             final String earliestAndLatestBlockNumbers,
@@ -753,6 +792,18 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
     /// This method is called when we want to orderly shut down the handler.
     /// Any cleanup that is needed should be done here.
     private void shutdown() {
+        safeRemoveHandler(publisherManager, handlerId);
+        safeComplete(replies);
+        messageBudget.set(1); // release the onNext thread enough to close
+        safeCloseConnection(replies);
+        LOGGER.log(DEBUG, "[{0}] Handler {1} issued onComplete/closeConnection", correlationIdPrefix, handlerId);
+    }
+
+    /// Remove the identified handler from the provided publisher manager.
+    /// Catch all exceptions thrown and log, but do not allow failure.
+    /// @param publisherManager the manager from which the handler should be removed.
+    /// @param handlerId the identifier of the handler to remove.
+    private void safeRemoveHandler(final StreamPublisherManager publisherManager, final long handlerId) {
         try {
             // This method is called when the handler is removed from the manager.
             // We should clean up any resources that are no longer needed.
@@ -762,27 +813,51 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             final String message = "[%2$s] RuntimeException during removal of handler %1$d from manager"
                     .formatted(handlerId, correlationIdPrefix);
             LOGGER.log(WARNING, message, e);
-        } finally {
-            try {
-                replies.onComplete();
-                isPaused.set(false); // unpause to prevent deadlocks.
-                replies.closeConnection();
-                // @todo() Add labeled metric when possible.
-                //    Metric: "handler-closed" Labels: "clean" or "with-exception"
-                //    with-exception should be set in all exception cases, even if not logged.
-            } catch (final UncheckedIOException wrapper) {
-                IOException wrapped = wrapper.getCause();
-                if (!(wrapped instanceof SocketException)) {
-                    final String message = "[%2$s] IO Exception during shutdown for handler %1$d"
-                            .formatted(handlerId, correlationIdPrefix);
-                    LOGGER.log(DEBUG, message, wrapper);
-                }
-            } catch (final RuntimeException e) {
-                final String message = "[%2$s] RuntimeException during shutdown for handler %1$d"
+        }
+    }
+
+    /// Call onComplete for the provided pipeline, but catch and handle any
+    /// exceptions thrown on the assumption that immediately after calling this
+    /// method the caller will close the network connection.
+    /// @param replies a Pipeline to "complete".
+    private void safeComplete(final Pipeline<? super PublishStreamResponse> replies) {
+        try {
+            replies.onComplete();
+        } catch (final UncheckedIOException wrapper) {
+            IOException wrapped = wrapper.getCause();
+            if (!(wrapped instanceof SocketException)) {
+                final String message = "[%2$s] IO Exception during onComplete for handler %1$d"
                         .formatted(handlerId, correlationIdPrefix);
-                LOGGER.log(DEBUG, message, e);
+                LOGGER.log(DEBUG, message, wrapper);
             }
-            LOGGER.log(DEBUG, "[{0}] Handler {1} issued onComplete/closeConnection", correlationIdPrefix, handlerId);
+        } catch (final RuntimeException e) {
+            final String message = "[%2$s] RuntimeException during onComplete for handler %1$d"
+                    .formatted(handlerId, correlationIdPrefix);
+            LOGGER.log(DEBUG, message, e);
+        }
+    }
+
+    /// Call closeConnection for the provided pipeline, but catch and handle any
+    /// exceptions thrown on the assumption that immediately after calling this
+    /// method the handler will no longer be used.
+    /// @param replies a Pipeline to close and disconnect.
+    private void safeCloseConnection(final Pipeline<? super PublishStreamResponse> replies) {
+        try {
+            replies.closeConnection();
+            // @todo() Add labeled metric when possible.
+            //    Metric: "handler-closed" Labels: "clean" or "with-exception"
+            //    with-exception should be set in all exception cases, even if not logged.
+        } catch (final UncheckedIOException wrapper) {
+            IOException wrapped = wrapper.getCause();
+            if (!(wrapped instanceof SocketException)) {
+                final String message = "[%2$s] IO Exception during shutdown for handler %1$d"
+                        .formatted(handlerId, correlationIdPrefix);
+                LOGGER.log(DEBUG, message, wrapper);
+            }
+        } catch (final RuntimeException e) {
+            final String message = "[%2$s] RuntimeException during shutdown for handler %1$d"
+                    .formatted(handlerId, correlationIdPrefix);
+            LOGGER.log(DEBUG, message, e);
         }
     }
 
@@ -835,11 +910,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
         @Override
         public void handle() {
-            try {
-                handler.sendEndOfStream(codeToSend);
-            } finally {
-                handler.checkMidBlockAndShutdown(currentStreamingNumber);
-            }
+            handler.endStreamWithCode(codeToSend, true);
         }
     }
 
@@ -868,7 +939,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 handler.metrics.blockSkipsSent.increment(); // @todo(1415) add label
                 handler.resetState();
             } else {
-                handler.checkMidBlockAndShutdown(currentStreamingNumber);
+                // Connection is broken, and we failed to send a message.
+                // Close the connection and let the client reconnect.
+                handler.checkMidBlockAndShutdown(currentStreamingNumber, false);
             }
         }
     }
@@ -898,7 +971,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 handler.metrics.blockResendsSent.increment(); // @todo(1415) add label
                 handler.resetState();
             } else {
-                handler.checkMidBlockAndShutdown(currentStreamingNumber);
+                // Connection is broken, and we failed to send a message.
+                // Close the connection and let the client reconnect.
+                handler.checkMidBlockAndShutdown(currentStreamingNumber, false);
             }
         }
     }
@@ -928,7 +1003,9 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                 handler.metrics.nodeBehindSent.increment(); // @todo(1415) add label
                 handler.resetState();
             } else {
-                handler.checkMidBlockAndShutdown(currentStreamingNumber);
+                // Connection is broken, and we failed to send a message.
+                // Close the connection and let the client reconnect.
+                handler.checkMidBlockAndShutdown(currentStreamingNumber, false);
             }
         }
     }
@@ -945,7 +1022,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
 
         @Override
         public void handle() {
-            handler.checkMidBlockAndShutdown(currentStreamingNumber);
+            handler.checkMidBlockAndShutdown(currentStreamingNumber, false);
         }
     }
 
@@ -999,7 +1076,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             LongCounter.Measurement nodeBehindSent,
             LongCounter.Measurement sendResponseFailed,
             LongCounter.Measurement endStreamsReceived,
-            LongCounter.Measurement receiveBlockTimeLatencyNs) {
+            LongCounter.Measurement receiveBlockTimeLatencyNs,
+            LongCounter.Measurement flowControlIndividualPauses) {
         /// Factory method.
         /// Creates a new instance of [MetricsHolder] using the provided
         /// [MetricRegistry] instance.
@@ -1051,6 +1129,10 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                                     .setDescription(
                                             "Latency in nanoseconds between block being sent by publisher and being fully streamed from block header to block proof, also known as of network in-transit time latency"))
                     .getOrCreateNotLabeled();
+            final LongCounter.Measurement flowControlIndividualPauses = metricRegistry
+                    .register(LongCounter.builder(METRIC_PUBLISHER_FLOW_CONTROL_INDIVIDUAL_PAUSES)
+                            .setDescription("Publisher handler pauses due to per-handler message budget exhaustion"))
+                    .getOrCreateNotLabeled();
 
             return new MetricsHolder(
                     liveBlockItemsReceived,
@@ -1063,7 +1145,8 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                     nodeBehindSent,
                     sendResponseFailed,
                     endStreamsReceived,
-                    receiveBlockTimeLatencyNs);
+                    receiveBlockTimeLatencyNs,
+                    flowControlIndividualPauses);
         }
     }
 }
