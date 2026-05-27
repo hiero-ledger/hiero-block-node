@@ -158,18 +158,21 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
             @NonNull String handlerName,
             long clientId,
             long firstRequestedBlock,
-            long lastRequestedBlock) {
+            long lastRequestedBlock,
+            @NonNull org.hiero.block.node.base.filter.BlockItemFilter blockItemFilter) {
         SessionContext(
                 @NonNull final SubscriberConfig subscriberConfig,
                 @NonNull final String handlerName,
                 final long clientId,
                 final long firstRequestedBlock,
-                final long lastRequestedBlock) {
+                final long lastRequestedBlock,
+                @NonNull final org.hiero.block.node.base.filter.BlockItemFilter blockItemFilter) {
             this.subscriberConfig = requireNonNull(subscriberConfig);
             this.handlerName = requireNonNull(handlerName);
             this.clientId = clientId;
             this.firstRequestedBlock = firstRequestedBlock;
             this.lastRequestedBlock = lastRequestedBlock;
+            this.blockItemFilter = requireNonNull(blockItemFilter);
         }
 
         /**
@@ -182,8 +185,15 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
                 @NonNull final BlockNodeContext context) {
             final String handlerName = "Live stream client " + clientId;
             final SubscriberConfig subscriberConfig = context.configuration().getConfigData(SubscriberConfig.class);
+            final org.hiero.block.node.base.filter.BlockItemFilter filter =
+                    org.hiero.block.node.base.filter.BlockItemFilter.from(request.filter());
             return new SessionContext(
-                    subscriberConfig, handlerName, clientId, request.startBlockNumber(), request.endBlockNumber());
+                    subscriberConfig,
+                    handlerName,
+                    clientId,
+                    request.startBlockNumber(),
+                    request.endBlockNumber(),
+                    filter);
         }
     }
 
@@ -822,7 +832,12 @@ public class BlockStreamSubscriberSession implements Callable<BlockStreamSubscri
     }
 
     private void sendOneBlockItemSet(final List<BlockItemUnparsed> blockItems, final boolean blockComplete) {
-        final BlockItemSetUnparsed dataToSend = new BlockItemSetUnparsed(blockItems);
+        // Apply this subscriber's filter (identity when no filter was requested).
+        // Lossless at the BN — only the outbound stream of this session is trimmed.
+        final List<BlockItemUnparsed> filtered = sessionContext.blockItemFilter.isIdentity()
+                ? blockItems
+                : sessionContext.blockItemFilter.apply(blockItems);
+        final BlockItemSetUnparsed dataToSend = new BlockItemSetUnparsed(filtered);
         final OneOf<ResponseOneOfType> responseOneOf = new OneOf<>(ResponseOneOfType.BLOCK_ITEMS, dataToSend);
         try {
             responsePipeline.onNext(new SubscribeStreamResponseUnparsed(responseOneOf));
