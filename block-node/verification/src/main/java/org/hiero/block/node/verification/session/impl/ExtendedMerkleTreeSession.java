@@ -12,11 +12,13 @@ import static org.hiero.block.common.hasher.HashingUtilities.noThrowSha384HashOf
 
 import com.hedera.cryptography.tss.TSS;
 import com.hedera.hapi.block.stream.BlockProof;
+import com.hedera.hapi.block.stream.FilteredSingleItem;
 import com.hedera.hapi.block.stream.MerklePath;
 import com.hedera.hapi.block.stream.RecordFileSignature;
 import com.hedera.hapi.block.stream.SiblingNode;
 import com.hedera.hapi.block.stream.SignedRecordFileProof;
 import com.hedera.hapi.block.stream.StateProof;
+import com.hedera.hapi.block.stream.SubMerkleTree;
 import com.hedera.hapi.block.stream.output.BlockFooter;
 import com.hedera.hapi.block.stream.output.BlockHeader;
 import com.hedera.hapi.node.transaction.SignedTransaction;
@@ -28,6 +30,7 @@ import com.hedera.pbj.runtime.io.ReadableSequentialData;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
+import java.nio.ByteBuffer;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -215,6 +218,27 @@ public class ExtendedMerkleTreeSession implements VerificationSession {
                 case BLOCK_PROOF -> {
                     BlockProof blockProof = BlockProof.PROTOBUF.parse(item.blockProof());
                     blockProofs.add(blockProof);
+                }
+                // A FilteredSingleItem carries the original item's leaf hash; route
+                // it to the sub-tree the original item belonged to so block-proof
+                // recomputation matches the unfiltered block's root.
+                case FILTERED_SINGLE_ITEM -> {
+                    final FilteredSingleItem filtered =
+                            FilteredSingleItem.PROTOBUF.parse(item.filteredSingleItem());
+                    final ByteBuffer leafHash = ByteBuffer.wrap(filtered.itemHash().toByteArray());
+                    final SubMerkleTree tree = filtered.tree();
+                    switch (tree) {
+                        case CONSENSUS_HEADER_ITEMS -> consensusHeaderHasher.addLeaf(leafHash);
+                        case INPUT_ITEMS_TREE -> inputTreeHasher.addLeaf(leafHash);
+                        case OUTPUT_ITEMS_TREE -> outputTreeHasher.addLeaf(leafHash);
+                        case STATE_CHANGE_ITEMS_TREE -> stateChangesHasher.addLeaf(leafHash);
+                        case TRACE_DATA_ITEMS_TREE -> traceDataHasher.addLeaf(leafHash);
+                        default -> LOGGER.log(
+                                WARNING,
+                                "FilteredSingleItem with unsupported tree {0} in block {1}; skipped",
+                                tree,
+                                blockNumber);
+                    }
                 }
             }
         }

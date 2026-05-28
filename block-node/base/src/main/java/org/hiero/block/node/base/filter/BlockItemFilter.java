@@ -6,14 +6,14 @@ import com.hedera.hapi.block.stream.SubMerkleTree;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
 import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.Nullable;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.hiero.block.api.BlockStreamFilter;
+import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 
@@ -57,9 +57,6 @@ import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
  * startup for config-driven filters.
  */
 public final class BlockItemFilter {
-
-    /** Hash algorithm used to populate {@code FilteredSingleItem.item_hash}. */
-    private static final String HASH_ALG = "SHA-384";
 
     /** The exhaustive set of {@code BlockItem.item} field numbers that may be filtered. */
     public static final Set<Integer> SUPPORTED_FILTER_TYPES = Set.of(
@@ -221,25 +218,17 @@ public final class BlockItemFilter {
     @NonNull
     private static BlockItemUnparsed replaceWithFiltered(@NonNull final BlockItemUnparsed item) {
         final int kind = item.item().kind().protoOrdinal();
-        final Bytes itemBytes = BlockItemUnparsed.PROTOBUF.toBytes(item);
-        final Bytes itemHash = sha384(itemBytes);
+        // item_hash MUST be the same leaf hash the verifier would compute for the
+        // original item (LEAF_PREFIX || item_bytes, then SHA-384). HashingUtilities
+        // is the single source of truth for that leaf hash; reuse it so a filtered
+        // block still verifies under the existing block proof.
+        final ByteBuffer leafHash = HashingUtilities.getBlockItemHash(item);
         final FilteredSingleItem filteredItem = FilteredSingleItem.newBuilder()
-                .itemHash(itemHash)
+                .itemHash(Bytes.wrap(leafHash.array()))
                 .tree(subMerkleTreeOf(kind))
                 .build();
         return BlockItemUnparsed.newBuilder()
                 .filteredSingleItem(FilteredSingleItem.PROTOBUF.toBytes(filteredItem))
                 .build();
-    }
-
-    @NonNull
-    private static Bytes sha384(@NonNull final Bytes input) {
-        try {
-            final MessageDigest md = MessageDigest.getInstance(HASH_ALG);
-            md.update(input.toByteArray());
-            return Bytes.wrap(md.digest());
-        } catch (final NoSuchAlgorithmException e) {
-            throw new IllegalStateException(HASH_ALG + " not available", e);
-        }
     }
 }

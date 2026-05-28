@@ -7,9 +7,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.hedera.hapi.block.stream.FilteredSingleItem;
 import com.hedera.hapi.block.stream.SubMerkleTree;
 import com.hedera.pbj.runtime.io.buffer.Bytes;
-import java.security.MessageDigest;
+import java.nio.ByteBuffer;
 import java.util.List;
 import org.hiero.block.api.BlockStreamFilter;
+import org.hiero.block.common.hasher.HashingUtilities;
 import org.hiero.block.internal.BlockItemUnparsed;
 import org.hiero.block.internal.BlockItemUnparsed.ItemOneOfType;
 import org.junit.jupiter.api.Test;
@@ -146,10 +147,12 @@ class BlockItemFilterTest {
         final FilteredSingleItem traceDataFiltered = parseFiltered(out.get(1));
         assertThat(traceDataFiltered.tree()).isEqualTo(SubMerkleTree.TRACE_DATA_ITEMS_TREE);
 
-        // Hash matches SHA-384 of the original bytes.
-        final byte[] expected = MessageDigest.getInstance("SHA-384")
-                .digest(BlockItemUnparsed.PROTOBUF.toBytes(stateChanges).toByteArray());
-        assertThat(stateChangesFiltered.itemHash()).isEqualTo(Bytes.wrap(expected));
+        // item_hash matches the leaf hash the verifier would compute for the
+        // original item (LEAF_PREFIX || item_bytes, SHA-384). Same source of
+        // truth as HashingUtilities.getBlockItemHash — required for filtered
+        // blocks to still satisfy the block proof.
+        final ByteBuffer expected = HashingUtilities.getBlockItemHash(stateChanges);
+        assertThat(stateChangesFiltered.itemHash()).isEqualTo(Bytes.wrap(expected.array()));
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────

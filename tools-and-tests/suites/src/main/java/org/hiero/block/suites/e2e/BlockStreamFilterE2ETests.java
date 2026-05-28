@@ -26,8 +26,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.hiero.block.api.BlockEnd;
 import org.hiero.block.api.BlockItemSet;
 import org.hiero.block.api.BlockStreamPublishServiceInterface;
+import org.hiero.block.api.BlockStreamSubscribeServiceInterface;
 import org.hiero.block.api.PublishStreamRequest;
 import org.hiero.block.api.PublishStreamResponse;
+import org.hiero.block.api.SubscribeStreamRequest;
+import org.hiero.block.api.SubscribeStreamResponse;
 import org.hiero.block.node.app.BlockNodeApp;
 import org.hiero.block.node.spi.ServiceLoaderFunction;
 import org.hiero.block.node.spi.health.HealthFacility.State;
@@ -145,6 +148,75 @@ class BlockStreamFilterE2ETests {
         assertThat(ackObserver.getOnNextCalls().get(0).response().kind()).isNotNull();
 
         stream.closeConnection();
+    }
+
+    /**
+     * Verifier-acceptance assertion. Publishes a block with the publisher
+     * configured to deny {@code ROUND_HEADER}, then subscribes back from the
+     * Block Node and asserts the persisted block contains a
+     * {@code FilteredSingleItem} in place of the round header. The subscribe
+     * call succeeds only if verification accepted the rewritten block — making
+     * this the real round-trip "filter → verify → persist → serve" check.
+     */
+    @Test
+    void filteredBlockIsVerifiedAndServedToSubscribers() throws Exception {
+        final long blockNumber = 0L;
+        final BlockItem[] items = BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNumber);
+
+        // ── Publish the block with the publisher filter active ────────────────
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publishSvc =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(publishClient, OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> ackObserver = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> publishStream = publishSvc.publishBlockStream(ackObserver);
+
+        final AtomicReference<CountDownLatch> ackLatch = ackObserver.setAndGetOnNextLatch(1);
+        publishStream.onNext(PublishStreamRequest.newBuilder()
+                .blockItems(BlockItemSet.newBuilder().blockItems(items).build())
+                .build());
+        publishStream.onNext(PublishStreamRequest.newBuilder()
+                .endOfBlock(BlockEnd.newBuilder().blockNumber(blockNumber).build())
+                .build());
+        awaitLatch(ackLatch, "publish acknowledgement for filtered block");
+
+        // Confirm the publisher acknowledged — verification accepted the block.
+        assertThat(ackObserver.getOnNextCalls())
+                .as("publisher must ack the filtered block; a NACK means verification rejected it")
+                .anySatisfy(resp -> assertThat(resp.response().kind())
+                        .isEqualTo(PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT));
+
+        // ── Subscribe back and assert FilteredSingleItem is present ───────────
+        final PbjGrpcClient subscribeClient = createGrpcClient();
+        final BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient subscribeSvc =
+                new BlockStreamSubscribeServiceInterface.BlockStreamSubscribeServiceClient(subscribeClient, OPTIONS);
+        final ResponsePipelineUtils<SubscribeStreamResponse> subscribeObserver = new ResponsePipelineUtils<>();
+
+        // Expect: block-items frame, end-of-block frame, success status.
+        final AtomicReference<CountDownLatch> subscribeLatch = subscribeObserver.setAndGetOnNextLatch(2);
+        subscribeSvc.subscribeBlockStream(
+                SubscribeStreamRequest.newBuilder()
+                        .startBlockNumber(blockNumber)
+                        .endBlockNumber(blockNumber)
+                        .build(),
+                subscribeObserver);
+        awaitLatch(subscribeLatch, "subscribe to filtered block");
+
+        final boolean hasFilteredSingleItem = subscribeObserver.getOnNextCalls().stream()
+                .filter(r -> r.blockItems() != null)
+                .flatMap(r -> r.blockItems().blockItems().stream())
+                .anyMatch(bi -> bi.item().kind() == BlockItem.ItemOneOfType.FILTERED_SINGLE_ITEM);
+        final boolean hasRoundHeader = subscribeObserver.getOnNextCalls().stream()
+                .filter(r -> r.blockItems() != null)
+                .flatMap(r -> r.blockItems().blockItems().stream())
+                .anyMatch(bi -> bi.item().kind() == BlockItem.ItemOneOfType.ROUND_HEADER);
+
+        assertThat(hasFilteredSingleItem)
+                .as("persisted block should contain a FilteredSingleItem in place of the round header")
+                .isTrue();
+        assertThat(hasRoundHeader)
+                .as("publisher-side filter should have stripped the original RoundHeader before persistence")
+                .isFalse();
+
+        publishStream.closeConnection();
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────

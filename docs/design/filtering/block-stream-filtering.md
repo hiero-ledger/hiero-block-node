@@ -184,8 +184,32 @@ zero-cost.
 | `BlockHeader`(1), `TransactionResult`(5), `TransactionOutput`(6), `RecordFile`(10) | OUTPUT_ITEMS_TREE |
 | `BlockProof`(9), `BlockFooter`(12) | NOT_HASHED (never filtered) |
 
-`item_hash` is `SHA-384(BlockItemUnparsed.PROTOBUF.toBytes(item))` — matches
-the verifier's existing hash algorithm.
+`item_hash` is the verifier's leaf hash for the original item — the
+output of `HashingUtilities.getBlockItemHash(item)`, i.e.
+`SHA-384(LEAF_PREFIX || BlockItemUnparsed.PROTOBUF.toBytes(item))`.
+Using the same source of truth as the verifier is what allows a
+filtered block to satisfy the original block proof unchanged: the
+sub-tree hasher gets the same leaf it would have got from the
+unfiltered item.
+
+### Verifier-side handling
+
+`ExtendedMerkleTreeSession.processBlockItems` routes
+`FILTERED_SINGLE_ITEM` items to the correct sub-tree hasher based on
+their `tree` field:
+
+| `SubMerkleTree`           | Hasher                |
+|---------------------------|-----------------------|
+| `CONSENSUS_HEADER_ITEMS`  | `consensusHeaderHasher` |
+| `INPUT_ITEMS_TREE`        | `inputTreeHasher`     |
+| `OUTPUT_ITEMS_TREE`       | `outputTreeHasher`    |
+| `STATE_CHANGE_ITEMS_TREE` | `stateChangesHasher`  |
+| `TRACE_DATA_ITEMS_TREE`   | `traceDataHasher`     |
+
+The hash put into the sub-tree is `FilteredSingleItem.item_hash`
+verbatim — already the leaf hash. Anything outside the table is
+logged as a warning and skipped; the block proof will then fail
+naturally, which is the correct signal.
 
 ## 5. `stream-publisher` integration
 
@@ -333,6 +357,7 @@ Plugin-level:
 E2E (`tools-and-tests/suites`):
 
 8. Boot BlockNodeApp, publish three chained blocks each with a denylist filter set in `PublisherConfig`, then subscribe without a filter and confirm the dropped item types are absent (replaced by `FilteredSingleItem`).
+9. **Verifier-acceptance round-trip** (`BlockStreamFilterE2ETests.filteredBlockIsVerifiedAndServedToSubscribers`): boot BlockNodeApp with `producer.blockStreamFilterInclude=false`, `producer.blockStreamFilterItemTypes=3` (deny `RoundHeader`), publish a block, then subscribe back. Assert the publisher emitted an `ACKNOWLEDGEMENT` (verification accepted) and the persisted block carries a `FilteredSingleItem` instead of the original `RoundHeader`. This is the real "filter → verify → persist → serve" round-trip and exercises both the leaf-hash compatibility and the verifier's `FILTERED_SINGLE_ITEM` routing.
 
 ## 11. Open questions
 
