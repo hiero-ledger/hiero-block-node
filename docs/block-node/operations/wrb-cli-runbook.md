@@ -381,7 +381,118 @@ wrappedBlocks/
 │   ├── 0.rsh                    # Record Stream hash
 │   └── 0.blk.footer.gz          # Block footer
 ├── 1/
+├── jumpstart.bin                # Jumpstart integrity data
+├── tss-enablement.bin           # TSS parameters (if TSS enabled)
+├── tssPublicationHistory.json   # TSS publication checkpoint
 └── ...
+```
+
+#### Understanding Wrap Output Files
+
+The wrapping process produces several auxiliary files in addition to the wrapped blocks:
+
+##### jumpstart.bin
+
+**Purpose**: Contains integrity verification data for Consensus Nodes performing WRB catch-up.
+
+**Contents**:
+- Current block number
+- Block hash (SHA-384)
+- Consensus timestamp hash (SHA-384)
+- Output items tree root hash (SHA-384)
+- Streaming hasher state (for incremental hash verification)
+
+**When created**: Generated during `blocks wrap` and `days live-sequential` operations.
+
+**Consumed by**: Consensus Nodes during fast catch-up to verify wrapped block integrity.
+
+**Management**:
+
+Delete `jumpstart.bin` when:
+- Regenerating wrapped blocks for a date range (to avoid stale state)
+- `live-sequential` reports validation mismatches
+- Switching networks or starting fresh wrapping operations
+- The file is older than the wrapped blocks it references
+
+**Example - Regenerating after corruption**:
+
+```bash
+# Remove stale jumpstart file
+rm wrappedBlocks/jumpstart.bin
+
+# Re-run wrapping to generate fresh jumpstart data
+java -jar tools.jar blocks wrap -i compressedDays -o wrappedBlocks \
+  -b metadata/block_times.bin -d metadata/day_blocks.json
+```
+
+**Note**: The jumpstart file is automatically regenerated during wrapping. Deleting it is safe and often necessary when re-wrapping existing block ranges.
+
+---
+
+##### tss-enablement.bin
+
+**Purpose**: Binary TSS (Threshold Signature Scheme) parameters file for Block Node verification plugins.
+
+**Contents**:
+- Raw protobuf binary of the most recent `LedgerIdPublication` transaction
+- TSS public key material
+- Ledger ID
+- Signature share thresholds
+
+**When created**: Automatically written when the first `LedgerIdPublication` transaction is encountered during wrapping or validation.
+
+**Consumed by**: Block Node's `VerificationServicePlugin` for TSS-based block proof verification.
+
+**Management**:
+
+The file is updated automatically whenever a new TSS publication is detected. You typically do **not** need to manually manage this file unless:
+- Switching networks (TSS parameters differ per network)
+- Regenerating blocks from scratch (delete to allow fresh detection)
+
+**Example output during wrapping**:
+
+```text
+TSS ENABLED: First LedgerIdPublication transaction found at block 12345678
+TSS publication at block 12345678: Ledger ID abc123, threshold 1/2, start block 12500000
+```
+
+---
+
+##### tssPublicationHistory.json
+
+**Purpose**: JSON checkpoint file tracking all TSS publications discovered during wrapping.
+
+**Contents**:
+- Block number and timestamp of each TSS publication
+- Ledger ID changes over time
+- TSS public key transitions
+- Validity ranges (start/end blocks)
+
+**When created**: Saved periodically during wrapping operations as part of validation checkpoints.
+
+**Consumed by**: Resume logic for `blocks wrap` and `live-sequential` to maintain TSS state across restarts.
+
+**Management**:
+
+This file is managed automatically by the validation checkpoint system. It is safe to delete when:
+- Starting fresh wrapping operations
+- Switching networks
+- The corresponding `tss-enablement.bin` has been deleted
+
+**Example structure**:
+
+```json
+{
+  "publications": [
+    {
+      "blockNumber": 12345678,
+      "timestamp": "2024-01-15T10:30:00Z",
+      "ledgerId": "abc123...",
+      "threshold": "1/2",
+      "startBlock": 12500000
+    }
+  ]
+}
 ```
 
 ---
@@ -625,6 +736,32 @@ fg %1
 1. Reduce threads: `--threads 100` (instead of 600)
 2. Check network connectivity to GCS
 3. Verify GCP credentials are valid
+
+### Validation mismatches with stale jumpstart.bin
+
+**Symptom**: `live-sequential` or validation reports hash mismatches or integrity errors.
+
+**Cause**: Stale `jumpstart.bin` file from previous wrapping operations.
+
+**Solution**:
+
+```bash
+# Delete stale jumpstart file
+rm wrappedBlocks/jumpstart.bin
+
+# Optionally delete TSS files if switching networks
+rm wrappedBlocks/tss-enablement.bin
+rm wrappedBlocks/tssPublicationHistory.json
+
+# Re-run wrapping or validation
+java -jar tools.jar blocks wrap -i compressedDays -o wrappedBlocks \
+  -b metadata/block_times.bin -d metadata/day_blocks.json
+```
+
+**When this happens**:
+- After regenerating blocks for a date range that overlaps with existing wrapped blocks
+- When switching between networks (mainnet/testnet)
+- If wrapping was interrupted and restarted from a different starting block
 
 ---
 
