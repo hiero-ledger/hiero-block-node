@@ -182,36 +182,34 @@ public final class BlockItemFilter {
     /**
      * Map a {@code BlockItem.item} oneof field number to its block-proof
      * {@link SubMerkleTree} slot. Follows the rules in
-     * {@code block_item.proto:95-143}:
+     * {@code block_item.proto:95-143} for the supported set
+     * ({@link #SUPPORTED_FILTER_TYPES}).
      *
-     * <ul>
-     *   <li>Fields 1–19 use the explicit "Initial Field assignment to
-     *       subtree categories" table in the proto comment.</li>
-     *   <li>Fields ≥ 20 use the mod-10 convention (0=CONSENSUS_HEADERS,
-     *       1=INPUTS, 2=OUTPUTS, 3=STATE_CHANGES, 4=TRACE_DATA, 9=NOT_HASHED).</li>
-     * </ul>
+     * <p>Any field number outside that table — including the
+     * {@code ALWAYS_FORWARD} markers and any future variant — throws
+     * {@link IllegalStateException}. The validation in
+     * {@link #from(BlockStreamFilter)} prevents unsupported field numbers
+     * from reaching this method via the public API, so a throw here means
+     * either {@code SUPPORTED_FILTER_TYPES} was widened without updating
+     * this table, or an item kind reached {@code replaceWithFiltered}
+     * that was supposed to be in {@code ALWAYS_FORWARD}. Either way, fail
+     * loudly: silently routing to the wrong sub-tree would corrupt the
+     * block proof far from the cause.
      *
      * <p>Visible for testing.
      */
     @NonNull
     static SubMerkleTree subMerkleTreeOf(final int oneofFieldNumber) {
         return switch (oneofFieldNumber) {
-            case 1 -> SubMerkleTree.OUTPUT_ITEMS_TREE; // block_header
             case 2, 3 -> SubMerkleTree.CONSENSUS_HEADER_ITEMS; // event_header, round_header
             case 4 -> SubMerkleTree.INPUT_ITEMS_TREE; // signed_transaction
             case 5, 6, 10 -> SubMerkleTree.OUTPUT_ITEMS_TREE; // transaction_result, transaction_output, record_file
             case 7 -> SubMerkleTree.STATE_CHANGE_ITEMS_TREE; // state_changes
             case 11 -> SubMerkleTree.TRACE_DATA_ITEMS_TREE; // trace_data
-            // 8 filtered_single_item, 9 block_proof, 12 block_footer, 19 redacted_item are in
-            // ALWAYS_FORWARD and never reach this path.
-            default -> switch (oneofFieldNumber % 10) {
-                case 0 -> SubMerkleTree.CONSENSUS_HEADER_ITEMS;
-                case 1 -> SubMerkleTree.INPUT_ITEMS_TREE;
-                case 2 -> SubMerkleTree.OUTPUT_ITEMS_TREE;
-                case 3 -> SubMerkleTree.STATE_CHANGE_ITEMS_TREE;
-                case 4 -> SubMerkleTree.TRACE_DATA_ITEMS_TREE;
-                default -> SubMerkleTree.ITEM_TYPE_UNSPECIFIED;
-            };
+            default -> throw new IllegalStateException(
+                    "No SubMerkleTree mapping for BlockItem.item field number " + oneofFieldNumber
+                            + ". Either SUPPORTED_FILTER_TYPES was widened without updating "
+                            + "subMerkleTreeOf, or a kind that should be in ALWAYS_FORWARD leaked through.");
         };
     }
 
