@@ -17,14 +17,15 @@
 
 The Block Node is composed of many independently-developed functional components: block publishing, subscribing, verification, persistence, health checking, cloud archival, roster bootstrapping, and more. Rather than wiring these together statically at compile time, the Block Node uses a **plugin architecture** that discovers, configures, and manages the lifecycle of each component at runtime.
 
-This document describes a revised design of that architecture. The previous design ([plugin-architecture.md](plugin-architecture.md)) injected facilities into a shared `BlockNodeContext` record, which created an implicit coupling between the application bootstrap code and every facility type. This revision treats **facilities as plugins** — each facility implements `BlockNodePlugin`, exposes its own typed interface as a JPMS service, and is discovered by dependent plugins via `ServiceLoader` in their own `init()` method. The application bootstrap code becomes facility-agnostic. Dependency resolution and readiness coordination move into the plugins themselves.
+This document describes a revised design of that architecture. The previous design ([current-plugin-architecture.md](current-plugin-architecture.md)) injected facilities into a shared `BlockNodeContext` record, which created an implicit coupling between the application bootstrap code and every facility type. This revision removes the concept of **facilities** — each functional component is implemented as a `BlockNodePlugin` and is discovered by the `ServiceLoader` via JPMS. Any plugin that needs to expose additional services outside of the `BlockNodePlugin` interface can expose its own typed interface as a JPMS service. Plugins that wish to use this additional interface can specify a dependency in their `module-info.java` file and can discover the dependent plugins via `ServiceLoader` in their own `init()` method. The application bootstrap code becomes facility-free. Dependency resolution and readiness coordination move into the plugins themselves.
 
 ## Goals
 
-- Allow functional components — including facilities — to be added, replaced, or removed without modifying the application bootstrap code.
-- Remove facilities from `BlockNodeContext`; each facility is discovered directly by dependent plugins via `ServiceLoader`.
+- Allow functional components to be added, replaced, or removed without modifying the application bootstrap code.
+- Remove facilities from `BlockNodeContext` and the `BlockNodeApp`.
+- Allow plugins to discover other plugins by their unique interface via `ServiceLoader`.
 - Allow `init()` to execute in any order, or in parallel, with no assumptions about other plugins being initialized.
-- Allow `start()` to coordinate readiness with facility plugins via `isReady()`, without the application imposing an ordering constraint.
+- Allow `start()` to coordinate readiness with plugins via `isReady()`, without the application imposing an ordering constraint.
 - Ensure plugins that cannot satisfy a required dependency mark themselves as unhealthy rather than throwing, so the rest of the plugins can continue to start.
 - Support typed, immutable configuration for each plugin using Java records and the Swirlds Config API.
 - Remain entirely within the Java Platform Module System so that module boundaries are enforced by the JVM.
@@ -33,16 +34,16 @@ This document describes a revised design of that architecture. The previous desi
 
 <dl>
   <dt>Plugin</dt>
-  <dd>Any class that implements <code>BlockNodePlugin</code> and is registered as a Java module service. Plugins are the unit of extension — each adds a distinct capability to the running Block Node.</dd>
+  <dd>Any class that implements <code>BlockNodePlugin</code> and is registered as a Java module service. Plugins are the unit of extension — each adds a distinct capability to the running Block Node.  Plugins can implement and expose additional interfaces registered as a JPMS service. Other plugins that depend on those interface can discover them via <code>ServiceLoader</code>.</dd>
 
-  <dt>Facility Plugin</dt>
-  <dd>A normal plugin that also implements a unique interface for its specific services (e.g., <code>BlockMessagingFacility</code>, <code>HistoricalBlockFacility</code>, <code>ApplicationStateFacility</code>) and registers that interface as a JPMS service. Other plugins that depend on the facility discover it via <code>ServiceLoader</code> of the facility interface, not via <code>BlockNodeContext</code>.</dd>
+  <dt>Facility</dt>
+  <dd>The deprecated pattern for implementing specific functionality made available to plugins. (e.g., <code>BlockMessagingFacility</code>, <code>HistoricalBlockFacility</code>, <code>ApplicationStateFacility</code>)</dd>
 
   <dt>SPI</dt>
   <dd>Service Provider Interface — a Java interface declared in the <code>spi-plugins</code> module and consumed via <code>java.util.ServiceLoader</code>. Plugins provide implementations of SPI interfaces in their own modules.</dd>
 
   <dt>BlockNodeContext</dt>
-  <dd>A slimmed-down immutable Java record passed to every plugin during <code>init()</code>. It carries only infrastructure concerns: <code>Configuration</code>, <code>MetricRegistry</code>, <code>ServiceLoaderFunction</code>, <code>ThreadPoolManager</code>, and <code>BlockNodeVersions</code>. Facilities are no longer fields on this record.</dd>
+  <dd>A slimmed-down immutable Java record passed to every plugin during <code>init()</code>. It carries only infrastructure concerns: <code>Configuration</code>, <code>MetricRegistry</code>, <code>ServiceLoaderFunction</code>, <code>ThreadPoolManager</code>. Facilities and plugin data are no longer fields on this record.</dd>
 
   <dt>ServiceBuilder</dt>
   <dd>An interface passed alongside <code>BlockNodeContext</code> during <code>init()</code> that allows plugins to register HTTP and gRPC service routes on the Helidon web server.</dd>
@@ -54,38 +55,38 @@ This document describes a revised design of that architecture. The previous desi
   <dd>A plugin that also implements the BlockSource interface and registers that interface as a JPMS service. Plugins that require a BlockSource will add `uses org.hiero.block.node.spi.BlockSource` to their module info file. There can be many BlockSources. It is up to the plugin to decide how to sort/choose the BlockSources they need to use.
 
   <dt>isReady()</dt>
-  <dd>A method on <code>BlockNodePlugin</code> that returns <code>true</code> when the plugin is fully initialized and ready to serve its callers. Facility plugins expose this so dependent plugins can spin-wait in <code>start()</code> before attempting to use the facility.</dd>
+  <dd>A method on <code>BlockNodePlugin</code> that returns <code>true</code> when the plugin is fully initialized and ready to serve its callers. Plugins expose this so the `BlockNodeApp` and other plugins ca inspect the readiness of any given plugin.</dd>
 </dl>
 
 ## Entities
 
 ### `BlockNodePlugin` (interface)
 
-The root SPI interface. Every plugin (including facility plugins) implements this interface. All methods have default no-op or default-value implementations so plugins only override what they need.
+The root SPI interface. Every plugin implements this interface. All methods have default no-op or default-value implementations so plugins only override what they need.
 
-|             Method              |                  When called                  |                                                                                                                                  Purpose                                                                                                                                  |
-|---------------------------------|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `name()`                        | Anytime                                       | Human-readable identifier; defaults to the simple class name.                                                                                                                                                                                                             |
-| `version()`                     | After load                                    | Returns the plugin's version from its JAR manifest.                                                                                                                                                                                                                       |
-| `configDataTypes()`             | Before config load                            | Declares `@ConfigData`-annotated record classes the plugin needs. All types are collected from every plugin before configuration is built.                                                                                                                                |
-| `init(context, serviceBuilder)` | During startup, any order                     | Plugin uses `ServiceLoader` to locate facility plugins it depends on. Logs an error and marks itself unhealthy if a required dependency is missing. Registers HTTP/gRPC routes. Must not start background threads. Must not assume any other plugin has been initialized. |
-| `isReady()`                     | Anytime after `init()`                        | Returns `true` when the plugin is ready to serve callers. Defaults to `true`; facility plugins override this to reflect their internal startup state.                                                                                                                     |
-| `start()`                       | After all `init()` calls, on a virtual thread | Loads data and resources. Waits on required facility plugins via `isReady()` before proceeding. Starts background worker threads.                                                                                                                                         |
-| `stop()`                        | During graceful shutdown                      | Closes resources, stops worker threads.                                                                                                                                                                                                                                   |
+|             Method              |                  When called                  |                                                                                                                             Purpose                                                                                                                              |
+|---------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name()`                        | Anytime                                       | Human-readable identifier; defaults to the simple class name.                                                                                                                                                                                                    |
+| `version()`                     | After load                                    | Returns the plugin's version from its JAR manifest.                                                                                                                                                                                                              |
+| `configDataTypes()`             | Before config load                            | Declares `@ConfigData`-annotated record classes the plugin needs. All types are collected from every plugin before configuration is built.                                                                                                                       |
+| `init(context, serviceBuilder)` | During startup, any order                     | Plugin uses `ServiceLoader` to locate plugins it depends on. Logs an error and marks itself unhealthy if a required dependency is missing. Registers HTTP/gRPC routes. Must not start background threads. Must not assume any other plugin has been initialized. |
+| `isReady()`                     | Anytime after `init()`                        | Returns `true` when the plugin is ready to serve callers. Defaults to `false`.                                                                                                                                                                                   |
+| `start()`                       | After all `init()` calls, on a virtual thread | Loads data and resources. Waits on any required plugins via `isReady()` before proceeding. Starts background worker threads.                                                                                                                                     |
+| `stop()`                        | During graceful shutdown                      | Closes resources, stops worker threads.                                                                                                                                                                                                                          |
 
 #### `ServerStatusPlugin`
 
-Owns and persists the mutable node state (`BlockNodeVersions`). These fields have been removed from `BlockNodeContext`. Plugins that need this state discover the facility via `ServiceLoader`                                         |
+Owns and persists the mutable node state (`BlockNodeVersions`). These fields have been removed from `BlockNodeContext`. Plugins that need this state discover the `ServerStatusPlugin` via `ServiceLoader`                                         |
 
 ### `BlockNodeContext` (record)
 
-An immutable record injected into every plugin during `init()`. Contains only infrastructure concerns shared by all plugins. Facilities are no longer fields here — plugins that need a facility resolve it via `context.serviceLoader()`.
+An immutable record injected into every plugin during `init()`. Contains only infrastructure concerns shared by all plugins. Facilities and plugin data are no longer fields here.
 
 |        Field        |          Type           |                                       Description                                        |
 |---------------------|-------------------------|------------------------------------------------------------------------------------------|
 | `configuration`     | `Configuration`         | Swirlds typed configuration. Plugins call `configuration.getConfigData(MyConfig.class)`. |
 | `metricRegistry`    | `MetricRegistry`        | Register counters, gauges, and histograms.                                               |
-| `serviceLoader`     | `ServiceLoaderFunction` | Load facility plugins and other SPI extensions at runtime.                               |
+| `serviceLoader`     | `ServiceLoaderFunction` | Load plugins and other SPI extensions at runtime.                                        |
 | `threadPoolManager` | `ThreadPoolManager`     | Create managed virtual-thread or platform-thread executors.                              |
 
 ### `ServiceBuilder` (interface)
@@ -97,9 +98,9 @@ void registerHttpService(String path, HttpService... service);
 void registerGrpcService(ServiceInterface service);
 ```
 
-### Facility Plugins
+### Plugins
 
-Each facility is defined by its own interface in its own module. A facility plugin implements both `BlockNodePlugin` and its facility interface. The facility interface is registered as a JPMS service in its module info file.
+A plugin implements `BlockNodePlugin`. It can also define its own interface in its own module. The `BlockNodePlugin` interface must be registered as a JPMS service in its module info file. Additional interfaces may be registered as a JPMS service.
 
 #### `BlockMessagingFacility`
 
@@ -142,7 +143,7 @@ The Health Facility has responsibility for the following:
 
 #### `ApplicationStateFacility`
 
-Owns and persists the mutable node state (`TssData`, `NodeAddressBook`). These fields have been removed from `BlockNodeContext`. Plugins that need this state discover the facility via `ServiceLoader` and register change listeners directly.
+Owns and persists the mutable node state (`TssData`, `NodeAddressBook`). These fields have been removed from `BlockNodeContext`. Plugins that need this state discover `ApplicationStateFacility` via `ServiceLoader` and register change listeners directly.
 
 ```java
 // State access
@@ -158,7 +159,7 @@ void registerTssDataListener(Consumer<TssData> listener);
 void registerAddressBookListener(Consumer<NodeAddressBook> listener);
 ```
 
-Plugins register listeners in `init()` so they receive updates as soon as the facility becomes ready. The facility delivers the current value immediately upon listener registration if state is already available, and delivers each subsequent update as it occurs.
+Plugins register listeners in `init()` so they receive updates as soon as the plugin is discovered. The plugin delivers the current value immediately upon listener registration if state is ready, and delivers each subsequent update as it occurs.
 
 ### `BlockProviderPlugin` (interface)
 
@@ -171,12 +172,12 @@ Specialization of `BlockNodePlugin` for block storage backends. Each provider de
 Every plugin follows the same pattern:
 
 1. **Create** a new module for the Plugin
-2. **Define** a facility interface (e.g., `ApplicationStateFacility`), if this plugin will be used by other plugins.
-3. **Implement** `BlockNodePlugin` and, if needed, the facility interface in the dedicated module (e.g., `application-state`).
-4. **Register** both `BlockNodePlugin` and the facility interface as JPMS services in `module-info.java`.
+2. **Implement** `BlockNodePlugin`.
+3. **Implement** interface(s) for any additional services provided by this plugin. (OPTIONAL)
+4. **Register** both `BlockNodePlugin` and any additional interfaces as JPMS services in `module-info.java`.
 5. **Override** `isReady()` to return `true` only after internal startup is complete.
 
-Dependent plugins declare `uses <FacilityInterface>` in their own `module-info.java` and resolve the facility in `init()`:
+Dependent plugins declare `uses <AdditionalInterface>` in their own `module-info.java` and resolve the required plugin in `init()`:
 
 ```java
 // stream-publisher/module-info.java
@@ -197,7 +198,7 @@ public void init(BlockNodeContext context, ServiceBuilder serviceBuilder) {
 
 @Override
 public void start() {
-    // Wait for the facility to be ready before starting workers
+    // Wait for the plugin to be ready before starting workers
     while (!messaging.isReady()) {
         Thread.sleep(Duration.ofMillis(10));
     }
@@ -209,7 +210,6 @@ public void start() {
 
 ```
 1. BlockNodeApp loads all BlockNodePlugin implementations via ServiceLoader.
-   (This includes facility plugins, which also provide BlockNodePlugin.)
 
 2. Collect configDataTypes() from every plugin + built-in config types.
 
@@ -217,21 +217,21 @@ public void start() {
    system properties) using the collected record types.
 
 4. Construct BlockNodeContext with infrastructure fields only
-   (configuration, metricRegistry, serviceLoader, threadPoolManager, blockNodeVersions).
+   (configuration, metricRegistry, serviceLoader, threadPoolManager).
 
 5. Call plugin.init(context, serviceBuilder) for every plugin.
    - Order is not guaranteed; init() calls may run in parallel.
-   - Each plugin uses context.serviceLoader() to discover facility plugins it needs.
-   - Missing required facilities are logged and the plugin marks itself unhealthy.
+   - Each plugin uses context.serviceLoader() to discover any plugins it needs.
+   - Missing required plugins are logged and the plugin marks itself unhealthy.
    - Plugins register HTTP/gRPC routes via ServiceBuilder.
    - Plugins register state-change listeners with ApplicationStateFacility.
 
 6. Start Helidon WebServer using routes accumulated in ServiceBuilder.
 
 7. Call plugin.start() for every plugin, each on its own virtual thread.
-   - start() may call isReady() on facility plugins and wait until they are ready.
-   - Facility plugins reach isReady() == true once their own internal startup completes.
-   - Non-facility plugins start their workers once dependencies are ready.
+   - start() may call isReady() on plugins and wait until they are ready.
+   - Plugins reach isReady() == true once their own internal startup completes.
+   - Plugins start their workers once dependencies are ready.
 
 8. Node is RUNNING once all plugins have started (or been marked unhealthy).
 
@@ -249,7 +249,7 @@ public void start() {
 
 ### Module System Integration
 
-Every module declares its service registrations in `module-info.java`. Facility modules register both `BlockNodePlugin` (so the app discovers them) and their facility interface (so dependent plugins can discover them directly).
+Every module declares its service registrations in `module-info.java`. Plugin modules register both `BlockNodePlugin` (so the app discovers them) and any additional interfaces (so dependent plugins can discover them directly).
 
 ```java
 // spi-plugins module-info.java
@@ -280,7 +280,7 @@ provides org.hiero.block.node.spi.BlockNodePlugin
 Adding a new plugin requires only:
 1. Implementing `BlockNodePlugin` (or a specialization).
 2. Declaring `provides org.hiero.block.node.spi.BlockNodePlugin with YourPlugin` in `module-info.java`.
-3. Declaring `uses <FacilityInterface>` for each facility the plugin depends on.
+3. Declaring `uses <AdditionalInterface>` for each plugin it depends on.
 4. Adding the module to the Gradle build.
 
 No changes to `BlockNodeApp` or any existing plugin are required.
@@ -290,10 +290,10 @@ No changes to `BlockNodeApp` or any existing plugin are required.
 Because `init()` may run in any order or in parallel, it must be entirely self-contained:
 
 - It must not call methods on other plugins directly.
-- It must not assume that any facility plugin's `isReady()` returns `true`.
-- It **may** call `context.serviceLoader().loadServices(FacilityInterface.class)` to obtain a reference to a facility plugin (the plugin object exists even if not yet ready).
-- It **may** call `facility.registerTssDataListener(...)` on `ApplicationStateFacility` — listener registration is safe before the facility is ready; the first delivery occurs once ready.
-- It **must** log an error and mark itself unhealthy if a required facility is not found.
+- It must not assume that any plugin's `isReady()` returns `true`.
+- It **may** call `context.serviceLoader().loadServices(FacilityInterface.class)` to obtain a reference to a plugin it depends on (the plugin object exists even if not yet ready).
+- It **may** call `registerTssDataListener(...)` on `ApplicationStateFacility` — listener registration is safe before the plugin is ready; the first delivery occurs once ready.
+- It **must** log an error and mark itself unhealthy if a required plugin is not found.
 
 ### `start()` Readiness Coordination
 
@@ -302,20 +302,20 @@ Because `init()` may run in any order or in parallel, it must be entirely self-c
 ```java
 @Override
 public void start() {
-    // Block this virtual thread until the messaging facility is ready.
+    // Block this virtual thread until the messaging plugin is ready.
     // Virtual thread parking is cheap — no platform thread is consumed.
     while (!messaging.isReady()) {
         Thread.sleep(Duration.ofMillis(10));
     }
-    // Now safe to use the facility.
+    // Now safe to use the plugin.
     messaging.registerBlockItemHandler(this, false, name());
     startWorkerThread();
 }
 ```
 
-The `isReady()` contract for facility plugins:
-- Returns `false` from construction until the facility has loaded its state and is ready to serve calls.
-- Returns `true` permanently thereafter (facilities do not go back to non-ready once started).
+The `isReady()` contract for plugins:
+- Returns `false` from construction until the plugin has loaded its state and is ready to serve calls.
+- Returns `true` permanently thereafter (plugins do not go back to non-ready once started).
 - Is safe to call from any thread at any time.
 
 ### Mutable State Propagation via `ApplicationStateFacility`
@@ -407,7 +407,7 @@ stateDiagram-v2
     Running --> Stopped : stop()
     Stopped --> [*]
 
-    note right of NotReady : Facility plugins spend time here\nloading state, building indexes, etc.
+    note right of NotReady : Plugins spend time here\nloading state, building indexes, etc.
     note right of Initialized : A plugin marks itself Unhealthy\nif a required dependency is missing
 ```
 
@@ -417,12 +417,11 @@ stateDiagram-v2
 sequenceDiagram
     participant App as BlockNodeApp
     participant SL as ServiceLoader
-    participant FP as Facility Plugin
-    participant P as Dependent Plugin
+    participant P as Plugin
     participant WS as Helidon WebServer
 
     App->>SL: load(BlockNodePlugin)
-    SL-->>App: [facilityPlugin, ..., plugin1, ..., pluginN]
+    SL-->>App: [plugin1, ..., pluginN]
     loop each plugin (any order)
         App->>P: configDataTypes()
         P-->>App: [ConfigRecord.class, ...]
@@ -430,28 +429,26 @@ sequenceDiagram
     App->>App: build Configuration
     App->>App: construct BlockNodeContext (no facilities)
     par init() — any order, may be parallel
-        App->>FP: init(context, serviceBuilder)
-        FP->>FP: isReady() = false
         App->>P: init(context, serviceBuilder)
+        P->>P: isReady() = false
         P->>SL: loadServices(FacilityInterface.class)
-        SL-->>P: facilityPlugin reference
+        SL-->>P: plugin reference
         P->>P: store reference, register listeners
         P->>WS: registerHttpService / registerGrpcService
     end
     App->>WS: start()
     par start() — each on its own virtual thread
-        App->>FP: start()
-        FP->>FP: load state, build indexes
-        FP->>FP: isReady() = true
         App->>P: start()
-        P->>FP: isReady()? (spin until true)
-        FP-->>P: true
+        P->>P: load state, build indexes
+        App->>P: start()
+        P->>P: isReady()? (spin until true)
+        P-->>P: true
         P->>P: start workers
     end
     Note over App,WS: Node is RUNNING
 ```
 
-### Facility Plugin Module Registration
+### Plugin Module Registration
 
 ```mermaid
 flowchart TD
@@ -522,33 +519,32 @@ The `ApplicationStateFacility` plugin manages stored and available blocks. It re
 
 ## Exceptions
 
-|                        Condition                         |                                                                        Behavior                                                                        |
-|----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| A required facility interface has no registered provider | The dependent plugin logs an error in `init()`, marks itself unhealthy, and does not start. Other plugins are unaffected.                              |
-| A plugin's `init()` throws an unchecked exception        | The exception is caught by the app; the plugin is marked unhealthy and skipped during `start()`. Other plugins continue.                               |
-| A plugin's `start()` throws                              | The exception is logged; the plugin is considered failed. Other plugins on their own virtual threads are not affected.                                 |
-| A plugin's `stop()` throws                               | The exception is logged; remaining plugins are still stopped.                                                                                          |
-| A facility plugin's `isReady()` never returns `true`     | A dependent plugin's `start()` spins indefinitely. A startup watchdog timeout (configurable) should be implemented to detect and abort this condition. |
-| A `NoBackPressureBlockItemHandler` falls 80% behind      | `onTooFarBehindError()` is called on that handler; the publisher is not blocked.                                                                       |
-| A back-pressure `BlockItemHandler` falls behind          | The publisher thread blocks until the handler catches up, applying flow control end-to-end.                                                            |
-| `ApplicationStateFacility.updateAddressBook()` fails     | Returns `false`; the caller is responsible for retry logic.                                                                                            |
+|                       Condition                        |                                                                        Behavior                                                                        |
+|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| A required plugin interface has no registered provider | The dependent plugin logs an error in `init()`, marks itself unhealthy, and does not start. Other plugins are unaffected.                              |
+| A plugin's `init()` throws an unchecked exception      | The exception is caught by the app; the plugin is marked unhealthy and skipped during `start()`. Other plugins continue.                               |
+| A plugin's `start()` throws                            | The exception is logged; the plugin is considered failed. Other plugins on their own virtual threads are not affected.                                 |
+| A plugin's `stop()` throws                             | The exception is logged; remaining plugins are still stopped.                                                                                          |
+| A plugin's `isReady()` never returns `true`            | A dependent plugin's `start()` spins indefinitely. A startup watchdog timeout (configurable) should be implemented to detect and abort this condition. |
+| A `NoBackPressureBlockItemHandler` falls 80% behind    | `onTooFarBehindError()` is called on that handler; the publisher is not blocked.                                                                       |
+| A back-pressure `BlockItemHandler` falls behind        | The publisher thread blocks until the handler catches up, applying flow control end-to-end.                                                            |
+| `ApplicationStateFacility.updateAddressBook()` fails   | Returns `false`; the caller is responsible for retry logic.                                                                                            |
 
 ## Acceptance Tests
 
-- **Plugin discovery**: Starting the node with N plugins registered in `module-info.java` results in exactly N plugins having their `init()` and `start()` called, as confirmed by log output or a version-listing endpoint.
-- **Facility as plugin**: A facility plugin (e.g., `BlockMessagingFacilityImpl`) appears in the list of loaded `BlockNodePlugin` instances and has its `init()`, `start()`, and `stop()` called by the application.
-- **Facility discovery by dependent**: A dependent plugin that calls `context.serviceLoader().loadServices(BlockMessagingFacility.class)` in `init()` receives the same object instance as the one loaded as a `BlockNodePlugin`.
+- **Plugin discovery**: Starting the node with N plugins registered in `module-info.java` results in exactly N plugins having their `init()`, `start()`, and `stop() called, as confirmed by log output or a version-listing endpoint.
+- **Plugin discovery by dependent**: A dependent plugin that calls `context.serviceLoader().loadServices(BlockMessagingFacility.class)` in `init()` receives the same object instance as the one loaded as a `BlockNodePlugin`.
 - **init() order independence**: Calling `init()` on all plugins in reverse alphabetical order produces the same end state as calling them in forward alphabetical order. No plugin fails due to ordering.
-- **Missing dependency handling**: Removing a required facility's JAR from the module path causes the dependent plugin to log an error and mark itself unhealthy, while all other plugins start normally.
-- **isReady() gate**: A dependent plugin's `start()` does not proceed past the readiness check until the facility plugin's `isReady()` returns `true`. Verified by injecting an artificial delay in a facility's `start()` and observing the dependent plugin waits.
+- **Missing dependency handling**: Removing a required plugin's JAR from the module path causes the dependent plugin to log an error and mark itself unhealthy, while all other plugins start normally.
+- **isReady() gate**: A dependent plugin's `start()` does not proceed past the readiness check until the plugin's `isReady()` returns `true`. Verified by injecting an artificial delay in a plugin's `start()` and observing the dependent plugin waits.
 - **ApplicationStateFacility listener — initial delivery**: A plugin that registers a `TssDataListener` after the `ApplicationStateFacility` is ready receives the current `TssData` immediately upon registration.
 - **ApplicationStateFacility listener — update delivery**: Calling `applicationStateFacility.updateTssData(newData)` results in every registered listener being called with `newData`. No `onContextUpdate()` broadcast occurs; `BlockNodeContext` is not reconstructed.
 - **ApplicationStateFacility listener — NodeAddressBook**: Calling `applicationStateFacility.updateAddressBook(newBook)` delivers `newBook` to all registered `AddressBookListener` instances.
-- **Plugin isolation**: Removing a non-facility plugin's JAR from the module path causes the node to start without that plugin's functionality, without failures in unrelated plugins.
+- **Plugin isolation**: Removing a plugin's JAR from the module path causes the node to start without that plugin's functionality, without failures in unrelated plugins.
 - **Back-pressure**: A block-item handler that sleeps for 100 ms per batch reduces the observed throughput of `sendBlockItems()` to match, without deadlock or data loss.
 - **No-back-pressure skip**: A `NoBackPressureBlockItemHandler` that processes slowly receives `onTooFarBehindError()` calls under sustained load without causing the publisher to block.
 - **Configuration scoping**: A plugin's `@ConfigData` record is populated from its declared property keys; unrelated keys from other plugins do not affect its values.
-- **Graceful shutdown**: `stop()` is called on every plugin (including facility plugins), the web server closes, and the JVM exits with code 0.
+- **Graceful shutdown**: `stop()` is called on every plugin, the web server closes, and the JVM exits with code 0.
 - **HTTP route registration**: A plugin that calls `serviceBuilder.registerHttpService("/foo", ...)` in `init()` has its handler reachable at `GET /foo` once `start()` completes.
 - **gRPC route registration**: A plugin that calls `serviceBuilder.registerGrpcService(...)` has its service reachable via HTTP/2 gRPC once `start()` completes.
 - **Block provider priority**: When two `BlockProviderPlugin` implementations both have a block at number N, the provider with the higher `defaultPriority()` value is the one whose `BlockAccessor` is returned by `HistoricalBlockFacility.block(N)`.
