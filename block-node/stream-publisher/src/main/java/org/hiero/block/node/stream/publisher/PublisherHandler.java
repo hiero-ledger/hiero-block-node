@@ -766,7 +766,6 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
             try {
                 replies.onComplete();
                 isPaused.set(false); // unpause to prevent deadlocks.
-                replies.closeConnection();
                 // @todo() Add labeled metric when possible.
                 //    Metric: "handler-closed" Labels: "clean" or "with-exception"
                 //    with-exception should be set in all exception cases, even if not logged.
@@ -782,7 +781,7 @@ public final class PublisherHandler implements Pipeline<PublishStreamRequestUnpa
                         .formatted(handlerId, correlationIdPrefix);
                 LOGGER.log(DEBUG, message, e);
             }
-            LOGGER.log(DEBUG, "[{0}] Handler {1} issued onComplete/closeConnection", correlationIdPrefix, handlerId);
+            LOGGER.log(DEBUG, "[{0}] Handler {1} issued onComplete", correlationIdPrefix, handlerId);
         }
     }
 

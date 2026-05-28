@@ -357,6 +357,96 @@ public class BlockNodeApiRegressionTest {
         blockAccessClient.close();
     }
 
+    /// Proves that `replies.closeConnection()` in `shutdown()` destroys stream B mid-block when
+    /// stream B has already sent its block header but has not yet sent the footer or proof.
+    ///
+    /// ## Scenario
+    ///
+    /// Stream A ACKs blocks 0–1 completely — it is **not** mid-block when `EndStream(RESET)` fires,
+    /// so `blockIsEnding()` is never called and no `RESEND` will be triggered.  Stream B (same TCP
+    /// connection) sends the block-2 header and round header **before** `EndStream`.  The test then
+    /// waits for stream A to end (`onComplete` without bug, `onError` with bug), then stream B
+    /// sends the footer and proof.
+    ///
+    /// **Without bug:** `shutdown()` calls only `replies.onComplete()`, closing only stream A's
+    /// HTTP/2 stream.  The shared TCP socket stays alive; stream B delivers the block body,
+    /// receives ACK(2), and no error is reported.
+    ///
+    /// **With bug (`closeConnection()` present):** `shutdown()` additionally calls
+    /// `replies.closeConnection()`, closing the shared TCP socket.  Stream A's observer fires
+    /// `onError`, the latch unblocks, and stream B's subsequent sends fail because the TCP socket
+    /// is already gone.
+    @Test
+    @DisplayName("stream B delivers block body after stream A EndStream(RESET) shutdown completes")
+    void streamBDeliversBlockBodyAfterStreamAShutdownDelay() throws InterruptedException {
+        final Bytes hash0 = BlockItemBuilderUtils.computeBlockHash(0L, null);
+        final Bytes hash1 = BlockItemBuilderUtils.computeBlockHash(1L, hash0);
+
+        // Stream A: ACK blocks 0–1 completely so nextUnstreamedBlockNumber = 2.
+        // Stream A is NOT mid-block when EndStream fires — no blockIsEnding(), no RESEND.
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publisherAClient =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                        publishBlockStreamPbjGrpcClient, OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> observerA = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> streamA = publisherAClient.publishBlockStream(observerA);
+
+        final Bytes[] prevHashes = {null, hash0};
+        for (long blockNum = 0L; blockNum <= 1L; blockNum++) {
+            final AtomicReference<CountDownLatch> ackLatch = observerA.setAndGetOnNextLatch(1);
+            streamA.onNext(buildPublishRequest(
+                    BlockItemBuilderUtils.createSimpleBlockWithNumber(blockNum, prevHashes[(int) blockNum])));
+            endBlock(blockNum, streamA);
+            awaitLatch(ackLatch, "ACK for block " + blockNum + " on stream A");
+        }
+
+        // Open stream B on the SAME PbjGrpcClient — same TCP connection.
+        final BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient publisherBClient =
+                new BlockStreamPublishServiceInterface.BlockStreamPublishServiceClient(
+                        publishBlockStreamPbjGrpcClient, OPTIONS);
+        final ResponsePipelineUtils<PublishStreamResponse> observerB = new ResponsePipelineUtils<>();
+        final Pipeline<? super PublishStreamRequest> streamB = publisherBClient.publishBlockStream(observerB);
+
+        // Block 2 items split: header part (sent while both streams are live) and body part
+        // (sent after the 20 ms shutdown window, when the TCP socket should still be open).
+        final BlockItem[] block2Items = BlockItemBuilderUtils.createSimpleBlockWithNumber(2L, hash1);
+        final BlockItem[] block2Header = {block2Items[0], block2Items[1]};
+        final BlockItem[] block2Body = {block2Items[2], block2Items[3]};
+
+        // Stream B sends the block-2 header and round header — in-flight while stream A is still live.
+        streamB.onNext(buildPublishRequest(block2Header));
+
+        // Stream A sends EndStream(RESET) — schedules shutdown() after SHUTDOWN_DELAY_TIME (10 ms).
+        // Arm the latch before sending so it captures whichever callback fires first.
+        final AtomicReference<CountDownLatch> streamAEndedLatch = observerA.setAndGetConnectionEndedLatch(1);
+        streamA.onNext(PublishStreamRequest.newBuilder()
+                .endStream(PublishStreamRequest.EndStream.newBuilder()
+                        .endCode(PublishStreamRequest.EndStream.Code.RESET)
+                        .build())
+                .build());
+
+        // Wait for stream A to end — fires onComplete (fix) or onError (bug).
+        // With fix: replies.onComplete() closes only stream A's HTTP/2 stream; TCP stays alive.
+        // With bug: replies.closeConnection() closes the shared TCP socket before this returns.
+        awaitLatch(streamAEndedLatch, "stream A closed after EndStream(RESET)");
+
+        // Stream B sends the footer and proof, then signals end-of-block.
+        // With the bug: TCP is closed — sends fail or ACK(2) never arrives.
+        // Without the bug: TCP is alive — ACK(2) is delivered.
+        final AtomicReference<CountDownLatch> ack2Latch = observerB.setAndGetOnMatchLatch(
+                response -> response.response().kind() == PublishStreamResponse.ResponseOneOfType.ACKNOWLEDGEMENT
+                        && Objects.requireNonNull(response.acknowledgement()).blockNumber() == 2L);
+        streamB.onNext(buildPublishRequest(block2Body));
+        endBlock(2L, streamB);
+
+        awaitLatch(ack2Latch, "ACK(2) on stream B — TCP connection must survive stream A shutdown", observerB);
+        assertThat(observerB.getOnErrorCalls())
+                .as("stream B must receive no connection error — closeConnection() must not be called")
+                .isEmpty();
+
+        publisherAClient.close();
+        publisherBClient.close();
+    }
+
     private PbjGrpcClient createGrpcClient() {
         final Duration timeoutDuration = Duration.ofSeconds(30);
         final Tls tls = Tls.builder().enabled(false).build();

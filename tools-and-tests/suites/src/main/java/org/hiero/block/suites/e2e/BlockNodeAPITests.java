@@ -19,8 +19,6 @@ import io.helidon.webclient.api.WebClient;
 import io.helidon.webclient.grpc.GrpcClientProtocolConfig;
 import io.helidon.webclient.http2.Http2Client;
 import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.net.SocketException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -615,14 +613,14 @@ public class BlockNodeAPITests {
     }
 
     /**
-     * End-to-end socket test for block stream publishing.
+     * End-to-end duplicate-block detection test for block stream publishing.
      * <p>
      * This test covers the following scenarios:
      * <ol>
      *   <li>Publishing a chain of blocks (0..7) so the duplicate in scenario 2 falls outside the
      *       default producer.duplicateBlockSkipWindow and triggers EndOfStream(DUPLICATE_BLOCK).</li>
-     *   <li>Publishing a far-behind duplicate (block 0, distance 7) and confirming stream closure.</li>
-     *   <li>Attempting to publish a new block after the stream is closed, expecting an UncheckedIOException caused by a closed socket.</li>
+     *   <li>Publishing a far-behind duplicate (block 0, distance 7): confirms the server sends
+     *       EndOfStream(DUPLICATE_BLOCK) and closes the HTTP/2 stream (onComplete).</li>
      * </ol>
      */
     @Test
@@ -679,7 +677,15 @@ public class BlockNodeAPITests {
 
         awaitLatch(socketDuplicateConnectionEndedLatch, "socket test duplicate block connection closed");
 
-        // query status to confirm the persisted block range covers 0..7
+        // Confirm the server sent EndOfStream(DUPLICATE_BLOCK) before closing the HTTP/2 stream.
+        assertThat(responseObserver.getOnNextCalls())
+                .as("server must send EndOfStream(DUPLICATE_BLOCK) before closing the stream")
+                .hasSize(totalBlocks + 1)
+                .last()
+                .returns(PublishStreamResponse.ResponseOneOfType.END_STREAM, responseKindExtractor)
+                .returns(PublishStreamResponse.EndOfStream.Code.DUPLICATE_BLOCK, endStreamResponseCodeExtractor);
+
+        // Query status to confirm the persisted block range covers 0..7.
         BlockNodeServiceInterface.BlockNodeServiceClient blockNodeServiceClient =
                 new BlockNodeServiceInterface.BlockNodeServiceClient(serverStatusPbjGrpcClient, OPTIONS);
         final ServerStatusResponse nodeStatusPostDuplicateBlock =
@@ -688,35 +694,13 @@ public class BlockNodeAPITests {
         assertThat(nodeStatusPostDuplicateBlock.firstAvailableBlock()).isEqualTo(0);
         assertThat(nodeStatusPostDuplicateBlock.lastAvailableBlock()).isEqualTo(headBlock);
 
-        // ==== Scenario 3: Attempt to publish a new block after stream closure and expect UncheckedIOException ====
-        final long nextBlockNumber = totalBlocks;
-        BlockItem[] nextBlockItems =
-                BlockItemBuilderUtils.createSimpleBlockWithNumber(nextBlockNumber, previousBlockHash);
-        PublishStreamRequest nextBlockRequest = PublishStreamRequest.newBuilder()
-                .blockItems(BlockItemSet.newBuilder().blockItems(nextBlockItems).build())
-                .build();
-
-        // This asserts that UncheckedIOException is thrown and its cause is a SocketException with "socket closed"
-        UncheckedIOException ex = assertThrows(UncheckedIOException.class, () -> {
-            // Expected exception to be thrown on the onNext() due to closed socket
-            // from previous duplicate block publish
-            requestStream.onNext(nextBlockRequest);
-        });
-        assertEquals(
-                SocketException.class.getSimpleName(), ex.getCause().getClass().getSimpleName());
-        boolean causeMatches = ex.getCause().getMessage().toLowerCase().contains("socket closed")
-                || ex.getCause().getMessage().toLowerCase().contains("broken pipe");
-        assertTrue(
-                causeMatches,
-                "Unexpected socket exception: " + ex.getCause().getMessage().toLowerCase());
-
-        // close the client connections
-        requestStream.closeConnection();
         blockStreamPublishServiceClient.close();
     }
 
-    // to-do: re-enable once the server-side early-close race is fixed in PublisherHandler.shutdown().
-    // The server RSTs the connection before END_STREAM is flushed, so onNext(END_STREAM) is never received.
+    // Disabled: the test setup (single block 0 resent as duplicate) triggers SKIP_BLOCK (within the
+    // default skip window of 5) instead of EndOfStream(DUPLICATE_BLOCK). To trigger END_DUPLICATE,
+    // 6+ blocks must be sent first so block 0 falls outside the window. The END_DUPLICATE +
+    // EndOfStream(DUPLICATE_BLOCK) + onComplete() behaviour is now fully covered by e2eSocketClosureTest.
     @Disabled
     @Test
     void e2eDuplicateBlockPublisherObserversOnComplete() throws InterruptedException {
@@ -753,16 +737,12 @@ public class BlockNodeAPITests {
         assertThat(responseObserver.getClientEndStreamCalls().get()).isEqualTo(0);
 
         // ==== Scenario 2: Publish duplicate genesis block and confirm duplicate block response and stream closure ===
-        // Gate on connection end (onComplete or onError) rather than onNext(END_STREAM), because the server may
-        // RST the connection before the END_STREAM frame is flushed to the client.
         final AtomicReference<CountDownLatch> duplicateConnectionEndedLatch =
                 responseObserver.setAndGetConnectionEndedLatch(1);
         requestStream.onNext(request);
 
         awaitLatch(duplicateConnectionEndedLatch, "duplicate block connection closed");
 
-        // Assert that the END_STREAM response was received with DUPLICATE_BLOCK code.
-        // If the server fixes the early-close race, this will be reliably present.
         assertThat(responseObserver.getOnNextCalls())
                 .hasSize(2)
                 .element(1)
