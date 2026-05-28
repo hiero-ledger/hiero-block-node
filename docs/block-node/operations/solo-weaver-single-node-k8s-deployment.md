@@ -1,12 +1,12 @@
-# Solo Weaver Single Node Kubernetes Deployment Guide
+# Solo Provisioner Single Node Kubernetes Deployment Guide
 
 ## Overview
 
-This guide explains how to deploy the Hiero Block Node on a Google Cloud Platform (GCP) virtual machine (VM) using the Solo Weaver tool.
+This guide explains how to deploy the Hiero Block Node on a Google Cloud Platform (GCP) virtual machine (VM) using the Solo Provisioner (formerly known as Solo Weaver) tool.
 The Block Node supports the Hiero network by processing and validating Consensus Node produced blocks amongst others features.
-This deployment uses the Solo Weaver binary to provision the VM, set up Kubernetes and install the Block Node Helm chart on the VM.
+This deployment uses the Solo Provisioner binary to provision the VM, set up Kubernetes and install the Block Node Helm chart on the VM.
 
-This guide walks you through creating the VM, uploading the Solo Weaver binary to it, and running the Block Node using the local profile.
+This guide walks you through creating the VM, uploading the Solo Provisioner binary to it, and running the Block Node using the local profile.
 
 While this guide focuses on GCP, node operators can deploy the Block Node on any cloud provider of their choice by following equivalent provisioning and deployment steps.
 
@@ -15,7 +15,7 @@ While this guide focuses on GCP, node operators can deploy the Block Node on any
 Before you begin, ensure you have:
 
 - Access to a cloud provider account (such as Google Cloud, AWS, or Azure) with permissions to create and manage VM instances.
-- The Solo Weaver binary downloaded locally from the [**official Solo Weaver releases page**](https://github.com/hashgraph/solo-weaver/releases) or provided as part of your node onboarding for your VM’s architecture:
+- The Solo Provisioner binary downloaded locally from the [**official Solo Provisioner releases page**](https://github.com/hashgraph/solo-weaver/releases) or provided as part of your node onboarding for your VM’s architecture:
   - **`solo-provisioner-linux-amd64`** for x86_64 (most standard cloud VMs).
   - **`solo-provisioner-linux-arm64`** for ARM-based VMs.
 - The **`gcloud`** CLI installed and authenticated (if using Google Cloud).
@@ -28,13 +28,11 @@ Before you begin, ensure you have:
 2. Choose an existing project. If you don’t have a project, click **New project** in the popup window and follow the prompts to create one.
 3. Under **Compute Engine,** Select **Create a VM**.
 4. Select a machine type appropriate for your Block Node profile:
-   - **For a test profile**: Choose at least an **E2 standard** machine (for example, **`e2-standard-2`**) so that CPU and memory are sufficient.
-   - **For productio Profile**:
-     - Perfnet: Select at least ~8 CPUs (e.g.8 vCPUs, 16 GB Memory).
-     - Previewnet: Select at least ~48 CPUs (e.g.48 vCPUs, 256 GB Memory).
-     - Mainnet: Select at least ~8 CPUs (e.g.8 vCPUs, 16 GB Memory).
+   - **For a `local` profile (testing or learning)**: Choose at least an **E2 standard** machine (for example, **`e2-standard-2`**) so that CPU and memory are sufficient.
+   - **For `previewnet` or `testnet`**: Select a machine with at least ~16 vCPUs (for example, **`e2-standard-16`**) and adequate RAM (≥ 32 GB) for non-mainnet block volume.
+   - **For `mainnet` (Tier 1)**: Solo Provisioner on a single GCP VM is generally not the right deployment shape for production Tier 1. See [Block Node Hardware Specifications](./block-node-hardware-specifications.md) for the canonical hardware target, and follow the [Single Node Kubernetes Deployment](./single-node-k8s-deployment.md#prerequisites) guide as the recommended path.
 
-     ![Solo Weaver GCP VM configuration](../../assets/block-node-solo-weaver-vm-create.png)
+     ![Solo Provisioner GCP VM configuration](../../assets/block-node-solo-provisioner-vm-create.png)
 
 5. Set the region and zone (defaults are fine unless you have a preference).
 
@@ -152,7 +150,7 @@ Before you begin, ensure you have:
   Use "solo-provisioner [command] --help" for more information about a command.
   ```
 
-1. Verify that the provisioner is working as expected:
+6. Verify that the provisioner is working as expected:
 
    ```bash
    solo-provisioner -h
@@ -191,7 +189,7 @@ Before you begin, ensure you have:
 
 ### Step 3: Create the **`weaver`** User
 
-1. Run the Block Node install command with **`sudo`** and the desired profile (choose one of: **`perfnet`**, **`testnet`**, **`mainnet`**):
+1. Run the Block Node install command with **`sudo`** and the desired profile (choose one of: **`local`**, **`previewnet`**, **`testnet`**, **`mainnet`**):
 
    ```bash
    sudo solo-provisioner block node install -p <profile>
@@ -226,7 +224,7 @@ Before you begin, ensure you have:
    sudo solo-provisioner block node install -p <profile>
    ```
 
-Once complete, Weaver will be able to manage Kubernetes resources on your VM using the dedicated **`weaver`** system user.
+Once complete, Solo Provisioner will be able to manage Kubernetes resources on your VM using the dedicated **`weaver`** system user.
 
 **Additional Options (v0.3.0+):**
 
@@ -257,15 +255,15 @@ Once complete, Weaver will be able to manage Kubernetes resources on your VM usi
         basePath: "/mnt/fast-storage"
   ```
 
-**Note:** **`block node setup`** is **deprecated**. Use **`block node install`** for all Weaver v0.3.0+ deployments [**Solo Weaver v0.3.0**](https://github.com/hashgraph/solo-weaver/releases/tag/v0.3.0).
+**Note:** **`block node setup`** is **deprecated**. Use **`block node install`** for all Solo Provisioner v0.3.0+ deployments [**Solo Provisioner v0.3.0**](https://github.com/hashgraph/solo-weaver/releases/tag/v0.3.0).
 
-### Step 4: Run Block Node Setup with the Local Profile
+### Step 4: Run Block Node Install
 
-1. Ensure you are on the VM and the **`weaver`** binary is executable.
-2. Run the Block Node setup with **`sudo`** and the local profile:
+1. Ensure you are on the VM and the **`solo-provisioner`** binary is executable.
+2. Run the Block Node install with **`sudo`** and the desired profile:
 
    ```bash
-   sudo solo-provisioner block node setup -p <profile>
+   sudo solo-provisioner block node install -p <profile>
    ```
 
    Replace **`<profile>`** with one of: **`local`**, **`testnet`**, **`previewnet`**, or **`mainnet`**.
@@ -283,7 +281,7 @@ Once complete, Weaver will be able to manage Kubernetes resources on your VM usi
 After completing the setup, confirm that your Block Node is deployed and running by checking the Kubernetes cluster:
 
 1. Verify with **`kubectl`** (recommended)
-   1. From the VM (where Weaver configured Kubernetes access), list all pods:
+   1. From the VM (where Solo Provisioner configured Kubernetes access), list all pods:
 
       ```bash
       kubectl get pods -A
@@ -302,10 +300,10 @@ After completing the setup, confirm that your Block Node is deployed and running
       ```
 
       To list pods across all namespaces, press 0:
-      ![Solo Weaver GCP VM K9s Pods](../../assets/block-node-solo-weaver-vm-k9s-pods.png)
+      ![Solo Provisioner GCP VM K9s Pods](../../assets/block-node-solo-provisioner-vm-k9s-pods.png)
 
       To list instances in all namespaces, press o:
-      ![Solo Weaver GCP VM K9s Nodes](../../assets/block-node-solo-weaver-vm-k9s-pods-nodes.png)
+      ![Solo Provisioner GCP VM K9s Nodes](../../assets/block-node-solo-provisioner-vm-k9s-pods-nodes.png)
 
    3. Confirm the Block Node `StatefulSet/Pods` are healthy.
 
@@ -341,8 +339,7 @@ If the pods are running and healthy, your Block Node is successfully installed a
    {
       "firstAvailableBlock": "18446744073709551615",
       "lastAvailableBlock": "18446744073709551615",
-      "onlyLatestState": false,
-      "versionInformation": null
+      "onlyLatestState": false
    }
 
    ```

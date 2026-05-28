@@ -2,7 +2,7 @@
 
 ## Overview
 
-After deploying a Block Node using either manual Kubernetes configuration or Solo Weaver, you must verify that the node is functioning correctly by testing its ability to receive and process streamed blocks.
+After deploying a Block Node using either manual Kubernetes configuration or Solo Provisioner, you must verify that the node is functioning correctly by testing its ability to receive and process streamed blocks.
 
 This guide walks you through testing your Block Node deployment using a simulator Docker container that publishes test blocks to the node.
 
@@ -15,7 +15,7 @@ Before you begin, ensure you have:
 
 - A running Block Node deployment on your system using one of the following methods:
   - [**Manual Single-Node Kubernetes Deployment**](./single-node-k8s-deployment.md)
-  - [**Solo Weaver Single-Node Kubernetes Deployment**](./solo-weaver-single-node-k8s-deployment.md)
+  - [**Solo Provisioner Single-Node Kubernetes Deployment**](./solo-weaver-single-node-k8s-deployment.md)
 - **[Docker](https://docs.docker.com/get-started/get-docker/) and Docker Compose** installed and available on your machine where you will run the simulator.
 - The **gRPC** service address and port for your Block Node:
   - For Local deployment: `localhost:40840`
