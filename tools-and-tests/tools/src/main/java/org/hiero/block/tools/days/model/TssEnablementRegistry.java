@@ -141,6 +141,26 @@ public class TssEnablementRegistry {
     }
 
     /**
+     * Write the latest {@link TssData} as JSON for the block node to consume.
+     * This writes a single TssData snapshot (not the full history) in JSON format,
+     * suitable for use as the Block Node's tss-bootstrap-roster.json file.
+     *
+     * @param file the output file path
+     * @throws Exception if the file cannot be written
+     */
+    public void writeTssDataJson(final Path file) throws Exception {
+        final TssData tssData = getLatestTssData();
+        if (tssData == null) {
+            return;
+        }
+        HasherStateFiles.saveAtomically(file, tmpPath -> {
+            try (var out = new WritableStreamingData(Files.newOutputStream(tmpPath))) {
+                TssData.JSON.write(tssData, out);
+            }
+        });
+    }
+
+    /**
      * Returns whether any TSS publication data has been recorded.
      *
      * @return true if at least one publication exists
